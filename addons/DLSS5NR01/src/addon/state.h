@@ -92,7 +92,8 @@ void ForgetFramePath();
 struct ScalerSecond { bool valid = false; double fps = 0, repeatPct = 0, skipPct = 0, waitPct = 0, closePct = 0; };   // the upscaler's last second
 struct ScalerView { bool starting = false, ready = false, failed = false; std::string error; uint32_t inW = 0, inH = 0, outW = 0, outH = 0;
                     double gpuMs = 0, motionMs = 0; uint64_t runs = 0, nisSeen = 0; uint32_t perFrame = 0; ScalerSecond second;
-                    std::string provider; };   // FSR: the upscaler the runtime chose ("3.1.4", "4.1.1b")
+                    std::string provider;     // FSR: the upscaler the runtime chose ("3.1.4", "4.1.1b")
+                    std::string blocked; };   // why it does not replace NIS although the NIS pass is seen (empty: nothing in the way)
 ScalerView GetScalerView();
 std::string ScalerEngineText();   // the upscalers: their engine's state in a few words, for Technical status
 void StopScaler();

@@ -388,6 +388,13 @@ def scenario_fsr_line(ctx, res, text, frame):
         res.check('...and stability does not smear it (the thin moving line keeps leaning on the current frame)', e < plain * 1.05, '%.2f against %.2f without' % (e, plain))
 
 
+def scenario_scaler_not_nvidia(ctx, res, text, frame):
+    # Lossless Scaling on a card that is not NVIDIA's (WARP here): DLSS cannot start, NIS stays, and the addon says why and what to do
+    # (0.9.6 only said "not running yet", which looked like it ran and did nothing)
+    res.check("DLSS does not start on a card that is not NVIDIA's", 'DLSS upscaler: engine started' not in text and 'DLSS REPLACED NIS' not in text)
+    res.check('...and says why, naming the card and the way out', bool(re.search(r"DLSS upscaler: Lossless Scaling runs on .+, not an NVIDIA card.*Preferred GPU.*FSR Upscaler", text)))
+
+
 def stable_checks(ctx, res, text, none_key, name):
     # Stability at 1: the upscaler must still follow a sliding picture (the slide is real motion, not flicker), and FSR takes its settings
     err = move_error(text)
@@ -494,6 +501,7 @@ SCENARIOS = [
     ('scaler_edges', ['addon=DLSS4DLAA.dll', 'nis=1', 'nisbgra=1', 'nisnoflow=1', 'nisedge=1', 'sharpen=0', 'scalerEdges=1'], scenario_scaler_edges),
     ('fsr_line', ['addon=FSR3UPSC.dll', 'nis=1', 'nisbgra=1', 'nisnoflow=1', 'nisline=1', 'sharpen=0'], scenario_fsr_line),   # a wire swaying in the wind
     ('fsr_line_stable', ['addon=FSR3UPSC.dll', 'nis=1', 'nisbgra=1', 'nisnoflow=1', 'nisline=1', 'sharpen=0', 'scalerStability=0.5'], scenario_fsr_line),
+    ('scaler_not_nvidia', ['addon=DLSS4DLAA.dll', 'nis=1', 'nisbgra=1', 'nisnoflow=1', 'warp=1'], scenario_scaler_not_nvidia),
     ('scaler_4_3', ['addon=DLSS4DLAA.dll', 'nis=1', 'nisbgra=1', 'nisnoflow=1', 'nisvp=1', 'nisW=960', 'nisH=720', 'nisScale=1.5'], scenario_viewport),   # 4:3 on 16:9
     ('fsr_4_3', ['addon=FSR3UPSC.dll', 'nis=1', 'nisbgra=1', 'nisnoflow=1', 'nisvp=1', 'nisW=960', 'nisH=720', 'nisScale=1.5'], scenario_fsr_viewport),
     ('scaler_stable', ['addon=DLSS4DLAA.dll', 'nis=1', 'nisbgra=1', 'nisnoflow=1', 'nismove=1', 'scalerStability=1'], scenario_stable),   # stability at 1 on the slide

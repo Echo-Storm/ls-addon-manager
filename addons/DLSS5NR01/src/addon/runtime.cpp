@@ -743,7 +743,15 @@ std::atomic<bool> g_srStarting{ false };
 ID3D11Device* g_linkDevice = nullptr;            // the device the link was made on (the link holds it)
 uint32_t g_nisSinceTap = 0, g_nisPerFrame = 0;   // NIS passes between two real frames: the presents per real frame
 uint64_t g_nisSeen = 0, g_scalerStatusAt = 0, g_upscaled = 0;
+uint64_t g_linkTries = 0;   // passes handed to the upscaler since its link to Lossless Scaling's device was made
 ScalerSecond g_scalerSecond;   // under g_textMutex
+std::string g_scalerBlocked;   // under g_textMutex: why the upscaler is not replacing NIS although the NIS pass is seen (empty: nothing in the way)
+
+void SetScalerBlocked(const std::string& why) {
+    std::lock_guard<std::mutex> lock(g_textMutex);
+    if (why != g_scalerBlocked && !why.empty()) Log("%s upscaler: %s", kUpscalerName, why.c_str());
+    g_scalerBlocked = why;
+}
 // the game's frame time, from one real frame to the next (frame generation's capture pass), for the log and the Performance tab
 int64_t g_lastTapQpc = 0;
 std::vector<float> g_frameTimes;
@@ -884,13 +892,19 @@ bool ScalerPass(ID3D11DeviceContext* ctx, uint32_t x, uint32_t y, uint32_t z) {
     if (!g_srStarting && dev) {
         if (!g_sr.IsReady() && !g_sr.IsFailed()) {
             const Card card = CardOf(dev);
-            if (card.nvidia || kFsrScaler) StartEngineFor(card.luid);   // FSR runs on any card
-            else if (g_nisSeen == 1) SetStatus("waiting: Lossless Scaling's device is not an NVIDIA card");
+            if (card.nvidia || kFsrScaler) { SetScalerBlocked(""); StartEngineFor(card.luid); }   // FSR runs on any card
+            else {
+                if (g_nisSeen == 1) SetStatus("waiting: Lossless Scaling's device is not an NVIDIA card");
+                SetScalerBlocked("Lossless Scaling runs on " + (card.name.empty() ? std::string("a card") : card.name) +
+                                 ", not an NVIDIA card, and DLSS needs an NVIDIA RTX card. Set Lossless Scaling's Preferred GPU to your NVIDIA card, or use the "
+                                 "FSR Upscaler, which runs on any card.");
+            }
         } else if (g_sr.IsReady()) {
             if (dev != g_linkDevice) {   // Lossless Scaling's (new) device: the link is made on it, here on its render thread
                 g_link.ReportDeviceChange();
                 g_link.Shutdown();
                 g_linkDevice = g_link.Init(dev, ctx, &g_sr, [](const char* m) { Log("%s", m); }) ? dev : nullptr;
+                g_linkTries = 0;
             }
             int handoffMode; { std::lock_guard<std::mutex> settings(g_settingsMutex); handoffMode = g_config.scalerHandoff; }
             if (handoffMode == static_cast<int>(ScalerLink::Handoff::AtPresent) && !PresentHook::Installed() &&
@@ -918,6 +932,11 @@ bool ScalerPass(ID3D11DeviceContext* ctx, uint32_t x, uint32_t y, uint32_t z) {
                 if (flow) flow->Release();
                 if (replaced) ++g_upscaled;
                 if (!replaced && g_sr.IsFailed()) SetStatus(g_sr.LastError());
+                ++g_linkTries;
+                if (replaced || g_upscaled) SetScalerBlocked("");
+                else if (g_linkTries > 240) SetScalerBlocked("it is ready but has not replaced a frame yet. The Logs tab says why.");
+            } else if (g_linkDevice != dev) {
+                SetScalerBlocked("it is ready but could not be connected to Lossless Scaling's device. The Logs tab says why.");
             }
         }
     }
@@ -979,7 +998,7 @@ ScalerView GetScalerView() {
     if (v.failed) v.error = g_sr.LastError();
     v.inW = g_scaleInW; v.inH = g_scaleInH; v.outW = g_scaleOutW; v.outH = g_scaleOutH;
     v.gpuMs = v.ready ? g_sr.GpuMs() : 0; v.motionMs = v.ready ? g_sr.MotionMs() : 0; v.runs = g_upscaled; v.nisSeen = g_nisSeen; v.perFrame = g_nisPerFrame;
-    { std::lock_guard<std::mutex> lock(g_textMutex); v.second = g_scalerSecond; }
+    { std::lock_guard<std::mutex> lock(g_textMutex); v.second = g_scalerSecond; if (v.nisSeen && !v.starting && !v.failed) v.blocked = g_scalerBlocked; }
     if (v.ready) v.provider = g_sr.Provider();
     return v;
 }
@@ -1137,8 +1156,10 @@ void FollowModelChoice() {
 
 std::string ScalerEngineText() {
     if (g_srStarting) return "starting";
-    if (g_sr.IsReady()) return g_nisSeen ? "running" : "ready, waiting for the NIS pass";
+    bool blocked; { std::lock_guard<std::mutex> lock(g_textMutex); blocked = g_nisSeen && !g_scalerBlocked.empty(); }
+    if (g_sr.IsReady()) return !g_nisSeen ? "ready, waiting for the NIS pass" : blocked ? "ready, but not replacing NIS (the Upscaling section says why)" : "running";
     if (g_sr.IsFailed()) return "failed: " + g_sr.LastError();
+    if (blocked) return "not started: Lossless Scaling's card is not an NVIDIA card";
     return g_nisSeen ? "not started (the NIS pass is seen)" : "not started: it starts when Lossless Scaling runs its NIS pass";
 }
 

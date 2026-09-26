@@ -1,5 +1,12 @@
 # Changelog
 
+## Unreleased
+
+- **The DLSS Upscaler says why it isn't replacing NIS.** When Lossless Scaling runs on a card that isn't NVIDIA's (another GPU, or
+  the integrated one), DLSS cannot start. The panel used to say only "DLSS is not running yet", which looked like it ran and did
+  nothing. It now names the card and says what to do: set Lossless Scaling's Preferred GPU to the NVIDIA card, or use the FSR
+  Upscaler. It also speaks up when DLSS is ready but cannot connect to Lossless Scaling's device, or has not replaced a frame yet.
+
 ## 0.9.7 (2026-09-26)
 
 The manager can now update itself: it offers to download, check and install a new release.
