@@ -2,6 +2,7 @@
 #include <d3dcompiler.h>
 #include <algorithm>
 #include <cstdarg>
+#include <chrono>
 #include <cstdio>
 #include <cstring>
 #include <string>
@@ -175,14 +176,16 @@ void SrEngine::Log(const char* fmt, ...) {
 
 void SrEngine::Fail(const char* fmt, ...) {
     char text[256]; va_list a; va_start(a, fmt); vsnprintf(text, sizeof text, fmt, a); va_end(a);
-    m_error = text; m_failed = true; m_ready = false;
+    { std::lock_guard<std::mutex> lock(m_errorMutex); m_error = text; }
+    m_failed = true; m_ready = false;
     Log("%s upscaler FAILED: %s", Name(), text);
 }
 
 // ---- starting and stopping
 
 bool SrEngine::Init(const LUID& card, const std::wstring& dataPath, const std::wstring& runtimeDir, LogFn log, Backend backend) {
-    m_log = std::move(log); m_failed = false; m_error.clear(); m_backend = backend;
+    if (m_abandoned) { m_failed = true; return false; }   // its thread is still stuck in a runtime: only a restart of Lossless Scaling helps
+    m_log = std::move(log); m_failed = false; { std::lock_guard<std::mutex> lock(m_errorMutex); m_error.clear(); } m_backend = backend;
     IDXGIFactory1* factory = nullptr;
     if (FAILED(CreateDXGIFactory1(IID_PPV_ARGS(&factory)))) { Fail("CreateDXGIFactory1"); return false; }
     IDXGIAdapter1* adapter = nullptr;
@@ -263,6 +266,7 @@ bool SrEngine::Init(const LUID& card, const std::wstring& dataPath, const std::w
         ffxLoadFunctions(&m_ffx->fn, m_ffx->module);
         if (!m_ffx->fn.CreateContext || !m_ffx->fn.DestroyContext || !m_ffx->fn.Dispatch) { Fail("AMD's FSR runtime lacks the FidelityFX API"); return false; }
         g_ffxLog = [this](const char* m) { Log("%s", m); };
+        StartWorker();
         m_ready = true;
         Log("FSR upscaler ready on its own D3D12 device (runtime from %ls)", runtimeDir.c_str());
         return true;
@@ -300,14 +304,23 @@ bool SrEngine::Init(const LUID& card, const std::wstring& dataPath, const std::w
         else Fail("DLSS Super Resolution did not start: %s, 0x%08x (NVIDIA's runtime: %ls)", ResultName(static_cast<NVSDK_NGX_Result>(initResult)), static_cast<unsigned>(initResult), runtime.c_str());
         return false;
     }
+    StartWorker();
     m_ready = true;
     Log("DLSS upscaler ready on its own D3D12 device (runtime from %ls)", runtimeDir.c_str());
     return true;
 }
 
 bool SrEngine::Shutdown() {
+    m_ready = false;
+    if (!StopWorker(kIdleWaitMs)) {   // its thread is inside a runtime and does not come back: nothing it may still use is torn down
+        m_abandoned = true; m_failed = true;
+        { std::lock_guard<std::mutex> lock(m_errorMutex); m_error = std::string(Name()) + " stopped responding inside its runtime; restart Lossless Scaling to use it again"; }
+        Log("%s upscaler: the engine's thread did not stop within %lu ms (stuck in the runtime); the engine is left as it is until Lossless Scaling closes", Name(), kIdleWaitMs);
+        return false;
+    }
     if (m_queue && !WaitIdle()) {
-        m_ready = false; m_failed = true; m_error = "the GPU did not finish the upscaler's work; restart Lossless Scaling to use it again";
+        m_ready = false; m_failed = true;
+        { std::lock_guard<std::mutex> lock(m_errorMutex); m_error = "the GPU did not finish the upscaler's work; restart Lossless Scaling to use it again"; }
         Log("%s upscaler: the GPU did not finish within %lu ms; the engine is left as it is until Lossless Scaling closes", Name(), kIdleWaitMs);
         return false;
     }
@@ -350,7 +363,91 @@ bool SrEngine::WaitIdle() {
     if (m_fence->GetCompletedValue() < m_fenceValue) { m_fence->SetEventOnCompletion(m_fenceValue, m_event); WaitForSingleObject(m_event, kIdleWaitMs); }
     return m_fence->GetCompletedValue() >= m_fenceValue;
 }
-void SrEngine::Drain() { WaitIdle(); }
+// The engine's thread and its queue idle (before shared textures or fences go away). Not while its thread is stuck in a runtime: then the
+// queue is not touched from here (it is that thread's), and whatever is released may never be used again anyway.
+void SrEngine::Drain() {
+    if (!WaitWorkerIdle(kIdleWaitMs)) { Log("%s upscaler: the engine's thread is still busy; not waiting for it", Name()); return; }
+    WaitIdle();
+}
+
+void SrEngine::StartWorker() {
+    if (m_worker.joinable()) return;
+    { std::lock_guard<std::mutex> lock(m_jobMutex); m_stop = false; m_busy = false; m_jobs.clear(); }
+    m_submitted = 0; m_busySince = 0; m_stuck = false;
+    for (auto& v : m_okRing) v = 0;
+    if (!m_workerExited) m_workerExited = CreateEventW(nullptr, TRUE, FALSE, nullptr);
+    ResetEvent(m_workerExited);
+    m_worker = std::thread([this] { WorkerLoop(); });
+}
+
+bool SrEngine::StopWorker(DWORD ms) {
+    if (!m_worker.joinable()) return true;
+    { std::lock_guard<std::mutex> lock(m_jobMutex); m_stop = true; }
+    m_jobCv.notify_all();
+    if (WaitForSingleObject(m_workerExited, ms) != WAIT_OBJECT_0) { m_worker.detach(); return false; }
+    m_worker.join();
+    return true;
+}
+
+bool SrEngine::WaitWorkerIdle(DWORD ms) {
+    if (m_stuck) return false;
+    std::unique_lock<std::mutex> lock(m_jobMutex);
+    return m_jobCv.wait_for(lock, std::chrono::milliseconds(ms), [&] { return m_jobs.empty() && !m_busy; });
+}
+
+bool SrEngine::WaitSubmitted(uint64_t doneValue, DWORD ms) {
+    std::unique_lock<std::mutex> lock(m_jobMutex);
+    return m_jobCv.wait_for(lock, std::chrono::milliseconds(ms), [&] { return m_submitted.load() >= doneValue || m_stuck.load(); }) && !m_stuck;
+}
+
+void SrEngine::Submit(const Job& j) {
+    {
+        std::lock_guard<std::mutex> lock(m_jobMutex);
+        if (m_worker.joinable() && !m_stop && !m_stuck) { m_jobs.push_back(j); m_jobCv.notify_all(); return; }
+    }
+    if (m_queue && j.done && !m_stuck) m_queue->Signal(j.done, j.doneValue);   // no thread to run it: "done" still moves on (nothing ran)
+}
+
+void SrEngine::WorkerLoop() {
+    for (;;) {
+        Job j;
+        {
+            std::unique_lock<std::mutex> lock(m_jobMutex);
+            m_jobCv.wait(lock, [&] { return m_stop || !m_jobs.empty(); });
+            if (m_stop) {   // the jobs left are marked done, so nothing waits for them
+                for (const Job& left : m_jobs) if (m_queue && left.done) m_queue->Signal(left.done, left.doneValue);
+                m_jobs.clear();
+                break;
+            }
+            j = m_jobs.front(); m_jobs.pop_front(); m_busy = true;
+        }
+        m_busySince = GetTickCount64();
+        const bool ok = Run(j.in, j.inW, j.inH, j.inFormat, j.out, j.outW, j.outH, j.outFormat, j.flow, j.flowW, j.flowH, j.flowUnit, j.motionFraction,
+                            j.estimate, j.preset, j.sharpen, j.reset, j.copied, j.copiedValue, j.done, j.doneValue);
+        m_busySince = 0;
+        m_okRing[j.doneValue % kOkRing].store(ok ? j.doneValue : 0, std::memory_order_release);
+        m_submitted.store(j.doneValue, std::memory_order_release);
+        { std::lock_guard<std::mutex> lock(m_jobMutex); m_busy = false; }
+        m_jobCv.notify_all();
+    }
+    SetEvent(m_workerExited);
+}
+
+bool SrEngine::CheckStuck() {
+    if (m_stuck) return true;
+    const ULONGLONG since = m_busySince.load();
+    if (!since || GetTickCount64() - since < kStuckMs) return false;
+    m_stuck = true; m_ready = false; m_failed = true;
+    const std::string provider = Provider();
+    {
+        std::lock_guard<std::mutex> lock(m_errorMutex);
+        m_error = std::string(m_backend == Backend::Fsr ? "AMD's FSR runtime" : "NVIDIA's DLSS runtime") + (provider.empty() ? "" : " (" + provider + ")") +
+                  " stopped responding on this frame format; choose another runtime in the Runtimes list, then restart Lossless Scaling";
+    }
+    m_jobCv.notify_all();
+    Log("%s upscaler: a frame has been in the runtime for %llu ms: the engine stopped responding; NIS runs instead", Name(), (unsigned long long)(GetTickCount64() - since));
+    return true;
+}
 
 void SrEngine::Transition(ID3D12Resource* r, D3D12_RESOURCE_STATES from, D3D12_RESOURCE_STATES to) {
     D3D12_RESOURCE_BARRIER b{}; b.Type = D3D12_RESOURCE_BARRIER_TYPE_TRANSITION;
@@ -552,7 +649,7 @@ void SrEngine::ConfigureFsrStability(float s) {
 bool SrEngine::Run(ID3D12Resource* in, uint32_t inW, uint32_t inH, DXGI_FORMAT inFormat, ID3D12Resource* out, uint32_t outW, uint32_t outH, DXGI_FORMAT outFormat,
                    ID3D12Resource* flow, uint32_t flowW, uint32_t flowH, float flowUnit, float motionFraction, bool estimate, unsigned preset, float sharpen, bool reset,
                    ID3D12Fence* copied, uint64_t copiedValue, ID3D12Fence* done, uint64_t doneValue) {
-    if (!m_ready) return false;
+    if (!m_ready) { if (m_queue && done) m_queue->Signal(done, doneValue); return false; }
     // A frame that cannot run is still marked done, on this queue after the frames before it, so "done" only ever moves forward.
     const auto skip = [&] { if (m_queue && done) m_queue->Signal(done, doneValue); return false; };
     const bool fsr = m_backend == Backend::Fsr;

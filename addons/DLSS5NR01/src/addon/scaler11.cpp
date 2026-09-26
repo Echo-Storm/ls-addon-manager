@@ -339,7 +339,8 @@ void ScalerLink::DescribeTargets(const NisPass& pass) {
 
 bool ScalerLink::Upscale(const NisPass& pass, ID3D11Resource* flow, uint32_t flowW, uint32_t flowH, float flowUnit, float motionFraction, bool estimate, unsigned preset,
                          float sharpen, bool reset, Handoff handoff, bool gpuWait) {
-    if (!IsReady() || !m_engine || !m_engine->IsReady()) return false;
+    if (!IsReady() || !m_engine) return false;
+    if (m_engine->CheckStuck() || !m_engine->IsReady()) return false;   // a runtime that stopped responding: NIS from now on
     DescribeTargets(pass);
     if (handoff != m_handoff) {
         Log("%s upscaler: handoff %s", kUpscalerName, handoff == Handoff::Late ? "the newest finished picture (nothing waits)" : handoff == Handoff::Wait ? "GPU wait"
@@ -417,13 +418,16 @@ bool ScalerLink::Upscale(const NisPass& pass, ID3D11Resource* flow, uint32_t flo
         m_ctx4->Signal(m_copied.d3d11, n);
         m_ctx->Flush();   // the engine's queue waits for this signal: hand it to the GPU now
         // The engine signals "done" = n on its own queue in every case (after the frames before it), also when it could not run this one.
-        const bool ran = m_engine->Run(m_in[in].d3d12, pass.inW, pass.inH, inFmt, m_out[out].d3d12, pass.outW, pass.outH, outFmt,
-                                       flowTex ? m_flow[in].d3d12 : nullptr, m_flow[in].w, m_flow[in].h, flowUnit, motionFraction, estimate, preset, sharpen,
-                                       m_pendingReset, m_copied.d3d12, n, m_done.d3d12, n);
-        m_holds[out] = ran ? n : 0;
-        if (ran) m_pendingReset = false;
+        // to the engine's own thread: this one never waits on NVIDIA's or AMD's code (SrEngine::Submit)
+        const SrEngine::Job job{ m_in[in].d3d12, pass.inW, pass.inH, inFmt, m_out[out].d3d12, pass.outW, pass.outH, outFmt,
+                                 flowTex ? m_flow[in].d3d12 : nullptr, m_flow[in].w, m_flow[in].h, flowUnit, motionFraction, estimate, preset, sharpen,
+                                 m_pendingReset, m_copied.d3d12, n, m_done.d3d12, n };
+        m_engine->Submit(job);
+        m_holds[out] = n;   // a picture only counts once the engine says it ran (RanOk)
+        m_pendingReset = false;
         if (m_handoff == Handoff::Wait) {
-            if (!ran) return false;
+            // a GPU wait only for work already on the engine's queue, never for a job its thread may not get to
+            if (!m_engine->WaitSubmitted(n, 50) || !m_engine->RanOk(n)) return false;
             m_ctx4->Wait(m_done.d3d11, n);   // a GPU wait: Lossless Scaling's queue holds until the picture is written
             return PlacePicture(pass, m_out[out].d3d11);
         }
@@ -439,19 +443,20 @@ bool ScalerLink::Upscale(const NisPass& pass, ID3D11Resource* flow, uint32_t flo
             (unsigned long long)m_count.closePasses, Counters::kClosePassMs, (unsigned long long)m_count.skipped, kIn, (unsigned long long)m_count.repeats,
             (unsigned long long)m_count.closeRepeats, (unsigned long long)m_count.waits, (unsigned long long)m_count.closeWaits);
     if (m_handoff == Handoff::Observe) return false;
-    if (m_handoff == Handoff::AtPresent) { m_atPresent = newest && m_holds[newest % kOut] == newest ? newest : 0; return false; }   // NIS runs; the picture goes over it at Present
+    if (m_handoff == Handoff::AtPresent) { m_atPresent = newest && m_holds[newest % kOut] == newest && m_engine->RanOk(newest) ? newest : 0; return false; }   // NIS runs; the picture goes over it at Present
     // When the engine has finished nothing newer than the picture shown last (two passes close together, as adaptive frame generation makes
     // them), this pass would show it again: a visible hitch. With gpuWait, Lossless Scaling's queue waits on the GPU for the next picture and
     // shows that (the engine always signals "done" for every frame, and Shutdown releases the wait should it ever not). The CPU never waits:
     // a CPU wait shifted Lossless Scaling's timing and made repeats more frequent on a busy GPU (2026-09-25).
     uint64_t show = newest;
     const uint64_t next = m_lastShown + 1;
-    if (m_handoff == Handoff::Late && gpuWait && m_lastShown && newest <= m_lastShown && next <= m_frame && m_holds[next % kOut] == next) {
+    if (m_handoff == Handoff::Late && gpuWait && m_lastShown && newest <= m_lastShown && next <= m_frame && m_holds[next % kOut] == next &&
+        m_engine->Submitted() >= next && m_engine->RanOk(next)) {   // (only work already on the engine's queue is waited for)
         m_ctx4->Wait(m_done.d3d11, next);
         show = next;
         ++m_count.waits; if (close) ++m_count.closeWaits;
     }
-    if (!show || m_holds[show % kOut] != show) return false;   // nothing finished yet: NIS this once
+    if (!show || m_holds[show % kOut] != show || !m_engine->RanOk(show)) return false;   // nothing finished yet (or it could not run): NIS this once
     if (show == m_lastShown) { ++m_count.repeats; if (close) ++m_count.closeRepeats; }
     m_lastShown = show;
     return PlacePicture(pass, m_out[show % kOut].d3d11);

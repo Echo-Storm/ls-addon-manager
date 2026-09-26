@@ -2,6 +2,9 @@
 
 ## Unreleased
 
+- **A stuck runtime can no longer freeze Lossless Scaling.** The DLSS and FSR Upscalers now run NVIDIA's and AMD's code on a thread of
+  their own; Lossless Scaling's render thread only hands frames over. FSR 4.1.1b stopped for good on its first HDR frame and froze the
+  picture; now NIS carries on, and after 20 seconds the panel says the runtime stopped responding and to choose another in the Runtimes list.
 - **HDR games in the DLSS and FSR Upscalers.** They took 8-bit frames only, so with an HDR game NIS kept running. Now 10-bit (HDR10)
   and 16-bit float (scRGB) frames are upscaled in their SDR view, as Neural Rendering does it since 0.9.5, and the picture goes back into
   the frame's own encoding, so highlights keep their brightness. The picture controls, sharpening and edge smoothing work the same. A

@@ -18,6 +18,9 @@
 #include <atomic>
 #include <functional>
 #include <mutex>
+#include <condition_variable>
+#include <deque>
+#include <thread>
 #include <string>
 #include "engine/flow_estimator.h"
 
@@ -25,6 +28,7 @@ class SrEngine {
 public:
     using LogFn = std::function<void(const char*)>;
     enum class Backend { Dlss, Fsr };
+    ~SrEngine() { if (m_worker.joinable()) m_worker.detach(); }   // (at the process's exit without a Shutdown: never std::terminate)
     // On the card with this LUID; the runtime is looked for in runtimeDir (NVIDIA's nvngx_dlss.dll, or AMD's amd_fidelityfx_dx12.dll).
     // Touches no device but its own: may run on any thread.
     bool Init(const LUID& card, const std::wstring& dataPath, const std::wstring& runtimeDir, LogFn log, Backend backend = Backend::Dlss);
@@ -34,8 +38,24 @@ public:
     bool IsReady() const { return m_ready; }
     bool IsFailed() const { return m_failed; }
     std::string Provider() const { std::lock_guard<std::mutex> lock(m_providerMutex); return m_provider; }   // FSR: the upscaler the runtime chose ("3.1.4", "4.1.1b"), once running
-    void ClearFailure() { m_failed = false; m_error.clear(); }   // after Shutdown: the next Init may try again (another runtime file)
-    const std::string& LastError() const { return m_error; }
+    void ClearFailure() { if (m_abandoned) return; m_failed = false; std::lock_guard<std::mutex> lock(m_errorMutex); m_error.clear(); }   // after Shutdown: the next Init may try again (another runtime file)
+    std::string LastError() const { std::lock_guard<std::mutex> lock(m_errorMutex); return m_error; }
+
+    // ---- the engine's own thread
+    // Lossless Scaling's render thread only queues frames (Submit); a thread of the engine's own runs them (Run), so NVIDIA's or AMD's code
+    // never runs on Lossless Scaling's thread. A runtime that stopped there froze Lossless Scaling's picture for good (FSR 4.1.1b on the
+    // first HDR frame, 2026-09-26); now it only stops the upscaler: NIS goes on, and after kStuckMs the engine is failed and says so.
+    struct Job {
+        ID3D12Resource* in; uint32_t inW, inH; DXGI_FORMAT inFormat; ID3D12Resource* out; uint32_t outW, outH; DXGI_FORMAT outFormat;
+        ID3D12Resource* flow; uint32_t flowW, flowH; float flowUnit, motionFraction; bool estimate; unsigned preset; float sharpen; bool reset;
+        ID3D12Fence* copied; uint64_t copiedValue; ID3D12Fence* done; uint64_t doneValue;
+    };
+    void Submit(const Job& job);   // "done" = job.doneValue is signalled on the engine's queue once it has run (or could not), never before
+    // The newest job whose work is on the engine's GPU queue (its done value): only such a frame may be waited for on the GPU.
+    uint64_t Submitted() const { return m_submitted.load(std::memory_order_acquire); }
+    bool WaitSubmitted(uint64_t doneValue, DWORD ms);   // a short CPU wait for that (the hidden GPU-wait hand-over only)
+    bool RanOk(uint64_t doneValue) const { return doneValue && m_okRing[doneValue % kOkRing].load(std::memory_order_acquire) == doneValue; }
+    bool CheckStuck();   // true once a job has been in the runtime's code for kStuckMs: the engine is then failed ("stopped responding")
 
     ID3D12Resource* OpenSharedTexture(HANDLE h);
     ID3D12Fence* OpenSharedFence(HANDLE h);
@@ -79,7 +99,21 @@ private:
     void Log(const char* fmt, ...);
 
     LogFn m_log;
-    bool m_ready = false, m_failed = false;
+    std::atomic<bool> m_ready{ false }, m_failed{ false };
+    bool m_abandoned = false;   // the engine's thread did not stop (stuck in a runtime): nothing is torn down or started again until Lossless Scaling restarts
+    mutable std::mutex m_errorMutex;   // m_error: written on the engine's thread, read by the panel
+    static constexpr DWORD kStuckMs = 20000;   // long enough for a runtime's first shader compile (FSR 4 compiles on its first frame)
+    static const int kOkRing = 8;
+    std::atomic<uint64_t> m_okRing[kOkRing] = {};   // the done values of jobs that ran
+    std::atomic<uint64_t> m_submitted{ 0 };
+    std::atomic<ULONGLONG> m_busySince{ 0 };   // when the job in progress started (0: none)
+    std::atomic<bool> m_stuck{ false };
+    std::thread m_worker; HANDLE m_workerExited = nullptr;
+    std::mutex m_jobMutex; std::condition_variable m_jobCv; std::deque<Job> m_jobs; bool m_busy = false, m_stop = false;
+    void StartWorker();
+    bool StopWorker(DWORD ms);
+    bool WaitWorkerIdle(DWORD ms);
+    void WorkerLoop();
     std::string m_provider; mutable std::mutex m_providerMutex;   // set on the render thread, read by the panel
     std::string m_error;
     ID3D12Device* m_dev = nullptr;
