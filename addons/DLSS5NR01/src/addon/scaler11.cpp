@@ -457,8 +457,11 @@ bool ScalerLink::Upscale(const NisPass& pass, ID3D11Resource* flow, uint32_t flo
     // a CPU wait shifted Lossless Scaling's timing and made repeats more frequent on a busy GPU (2026-09-25).
     uint64_t show = newest;
     const uint64_t next = m_lastShown + 1;
+    // Only work already on the engine's queue is waited for on the GPU. The frame handed over a moment ago is usually still being recorded
+    // on the engine's thread: a short CPU wait for that (well under a millisecond, what the run cost this thread when it ran here) keeps
+    // the GPU wait working for close pairs, rather than showing a picture twice.
     if (m_handoff == Handoff::Late && gpuWait && m_lastShown && newest <= m_lastShown && next <= m_frame && m_holds[next % kOut] == next &&
-        m_engine->Submitted() >= next && m_engine->RanOk(next)) {   // (only work already on the engine's queue is waited for)
+        (m_engine->Submitted() >= next || m_engine->WaitSubmitted(next, 3)) && m_engine->RanOk(next)) {
         m_step = "queueing a GPU wait for the next picture";
         m_ctx4->Wait(m_done.d3d11, next);
         show = next;
