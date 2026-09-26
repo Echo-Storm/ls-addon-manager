@@ -880,8 +880,46 @@ void FollowScalerGame(uint32_t frameW, uint32_t frameH) {
     else Log("game %s took focus: new to the upscaler; it keeps the settings in use, and any change made now is kept for it", exe.c_str());
 }
 
+// ---- the stall monitor: a thread of its own that says, in the log, where Lossless Scaling's render thread stopped when it stays inside the
+// upscaler's pass, or no NIS pass comes for a while after they had been coming (Lossless Scaling's queue held up, for instance by a GPU
+// wait). Diagnosis only: it changes nothing.
+std::atomic<ULONGLONG> g_passEnteredAt{ 0 }, g_passLeftAt{ 0 };
+std::atomic<const char*> g_passStep{ "" };
+
+void StartStallMonitor() {
+    static std::once_flag once;
+    std::call_once(once, [] {
+        std::thread([] {
+            bool saidInside = false, saidQuiet = false;
+            for (;;) {
+                Sleep(1000);
+                const ULONGLONG now = GetTickCount64(), in = g_passEnteredAt.load(), out = g_passLeftAt.load();
+                const bool inside = in && in > out;
+                if (inside && now - in > 3000) {
+                    if (!saidInside) Log("stall monitor: Lossless Scaling's render thread has been inside the upscaler's pass for %llu ms, at: %s / %s; %s",
+                                         (unsigned long long)(now - in), g_passStep.load(), g_link.Step(), g_link.Describe().c_str());
+                    saidInside = true;
+                } else saidInside = false;
+                if (!inside && out && g_upscaled && now - out > 3000) {
+                    if (!saidQuiet) Log("stall monitor: no NIS pass for %llu ms (the last one left at: %s); %s", (unsigned long long)(now - out),
+                                        g_passStep.load(), g_link.Describe().c_str());
+                    saidQuiet = true;
+                } else if (!inside) saidQuiet = false;
+            }
+        }).detach();
+    });
+}
+
+struct PassTimer {
+    PassTimer() { g_passEnteredAt = GetTickCount64(); g_passStep = "entered"; }
+    ~PassTimer() { g_passLeftAt = GetTickCount64(); }
+};
+
 bool ScalerPass(ID3D11DeviceContext* ctx, uint32_t x, uint32_t y, uint32_t z) {
+    StartStallMonitor();
+    const PassTimer passTimer;
     std::lock_guard<std::mutex> lock(g_frameMutex);
+    g_passStep = "in the pass";
     TapDecision d;
     g_tap.Observe(ctx, x, y, z, d);   // the flow and the real frames (nothing is handed to a model here)
     if (d.isTap) { if (g_nisSinceTap) g_nisPerFrame = g_nisSinceTap; g_nisSinceTap = 0; NoteRealFrame(); }
@@ -889,6 +927,7 @@ bool ScalerPass(ID3D11DeviceContext* ctx, uint32_t x, uint32_t y, uint32_t z) {
     LogPassTable();
 
     NisPass pass;
+    g_passStep = "looking for the NIS pass";
     if (!FindNisPass(ctx, x, y, z, pass, [](const char* m) { Log("%s", m); })) {
         if (NisLayoutRefused())   // NIS is chosen, but for a window it scales into part of the screen in a way that cannot be followed
             SetScalerBlocked("Lossless Scaling scales this window into part of the screen in a way the upscaler cannot follow yet, so NIS stays. "
@@ -934,6 +973,7 @@ bool ScalerPass(ID3D11DeviceContext* ctx, uint32_t x, uint32_t y, uint32_t z) {
                     picture.highlights = p.highlights; picture.saturation = p.saturation; picture.vibrance = p.vibrance;
                 }
                 g_link.SetPicture(picture);
+                g_passStep = "reading the display's HDR state";
                 { float white; const nr::FrameEncoding e = FrameEncodingOf(pass.inFmt, nullptr, &white, dev); g_link.SetEncoding(static_cast<uint32_t>(e), white); }
                 {   // Technical status's frame line (with the encoding FrameEncodingOf decided)
                     static uint64_t shownKey = 0;
@@ -948,10 +988,13 @@ bool ScalerPass(ID3D11DeviceContext* ctx, uint32_t x, uint32_t y, uint32_t z) {
                 ID3D11Resource* flow = motion == 1 ? g_tap.NewestFlow(fw, fh) : nullptr;
                 const float fraction = g_nisPerFrame > 1 ? 1.0f / g_nisPerFrame : 1.0f;
                 t_ownWork = true;
+                g_passStep = "Upscale";
                 replaced = g_link.Upscale(pass, flow, fw, fh, p.flowUnit, fraction, motion == 0, preset, p.sharpen * kScalerSharpenScale, g_resetRequested.exchange(false),
                                           static_cast<ScalerLink::Handoff>(handoff), gpuWait);
                 t_ownWork = false;
-                if (ID3D11Texture2D* grabbed = g_link.TakeGrabbed()) Record(ctx, grabbed, lsrec::kNisInput);   // the frame as DLSS or FSR got it
+                g_passStep = "the recorder";
+                if (ID3D11Texture2D* grabbed = g_link.TakeGrabbed()) Record(ctx, grabbed, lsrec::kNisInput);
+                g_passStep = "after Upscale";   // the frame as DLSS or FSR got it
                 if (flow) flow->Release();
                 if (replaced) ++g_upscaled;
                 if (!replaced && g_sr.IsFailed()) SetStatus(g_sr.LastError());

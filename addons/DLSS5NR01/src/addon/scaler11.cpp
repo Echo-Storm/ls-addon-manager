@@ -341,6 +341,8 @@ bool ScalerLink::Upscale(const NisPass& pass, ID3D11Resource* flow, uint32_t flo
                          float sharpen, bool reset, Handoff handoff, bool gpuWait) {
     if (!IsReady() || !m_engine) return false;
     if (m_engine->CheckStuck() || !m_engine->IsReady()) return false;   // a runtime that stopped responding: NIS from now on
+    struct StepGuard { std::atomic<const char*>& s; ~StepGuard() { s = "idle"; } } stepGuard{ m_step };
+    m_step = "fitting the shared textures";
     DescribeTargets(pass);
     if (handoff != m_handoff) {
         Log("%s upscaler: handoff %s", kUpscalerName, handoff == Handoff::Late ? "the newest finished picture (nothing waits)" : handoff == Handoff::Wait ? "GPU wait"
@@ -404,6 +406,7 @@ bool ScalerLink::Upscale(const NisPass& pass, ID3D11Resource* flow, uint32_t flo
             static_assert(sizeof constants == 48, "the grab's cbuffer");
             memcpy(mapped.pData, &constants, sizeof constants); m_ctx->Unmap(m_grabOrigin, 0);
         }
+        m_step = "the grab pass";
         m_ctx->CSSetShader(m_grab, nullptr, 0);
         m_ctx->CSSetShaderResources(0, 1, &frame);
         m_ctx->CSSetUnorderedAccessViews(0, 1, &m_inUav[in], nullptr);
@@ -422,11 +425,13 @@ bool ScalerLink::Upscale(const NisPass& pass, ID3D11Resource* flow, uint32_t flo
         const SrEngine::Job job{ m_in[in].d3d12, pass.inW, pass.inH, inFmt, m_out[out].d3d12, pass.outW, pass.outH, outFmt,
                                  flowTex ? m_flow[in].d3d12 : nullptr, m_flow[in].w, m_flow[in].h, flowUnit, motionFraction, estimate, preset, sharpen,
                                  m_pendingReset, m_copied.d3d12, n, m_done.d3d12, n };
+        m_step = "handing the frame to the engine";
         m_engine->Submit(job);
         m_holds[out] = n;   // a picture only counts once the engine says it ran (RanOk)
         m_pendingReset = false;
         if (m_handoff == Handoff::Wait) {
             // a GPU wait only for work already on the engine's queue, never for a job its thread may not get to
+            m_step = "waiting for the engine to take the frame (GPU-wait hand-over)";
             if (!m_engine->WaitSubmitted(n, 50) || !m_engine->RanOk(n)) return false;
             m_ctx4->Wait(m_done.d3d11, n);   // a GPU wait: Lossless Scaling's queue holds until the picture is written
             return PlacePicture(pass, m_out[out].d3d11);
@@ -435,6 +440,7 @@ bool ScalerLink::Upscale(const NisPass& pass, ID3D11Resource* flow, uint32_t flo
         ++m_count.skipped;
     }
     // The newest picture the engine has finished (never one it is writing: those are the kIn at most after it, in other textures).
+    m_step = "the probe";
     const uint64_t newest = m_done.d3d11->GetCompletedValue();
     Probe(newest, room);
     if ((m_count.passes % 3000) == 0)
@@ -452,6 +458,7 @@ bool ScalerLink::Upscale(const NisPass& pass, ID3D11Resource* flow, uint32_t flo
     const uint64_t next = m_lastShown + 1;
     if (m_handoff == Handoff::Late && gpuWait && m_lastShown && newest <= m_lastShown && next <= m_frame && m_holds[next % kOut] == next &&
         m_engine->Submitted() >= next && m_engine->RanOk(next)) {   // (only work already on the engine's queue is waited for)
+        m_step = "queueing a GPU wait for the next picture";
         m_ctx4->Wait(m_done.d3d11, next);
         show = next;
         ++m_count.waits; if (close) ++m_count.closeWaits;
@@ -463,7 +470,17 @@ bool ScalerLink::Upscale(const NisPass& pass, ID3D11Resource* flow, uint32_t flo
 }
 
 // The picture into the pass's output: the whole of it, or its output viewport (the rest, Lossless Scaling's borders, is left as it is).
+std::string ScalerLink::Describe() const {
+    char text[256];
+    const uint64_t done = m_done.d3d11 ? m_done.d3d11->GetCompletedValue() : 0, copied = m_copied.d3d11 ? m_copied.d3d11->GetCompletedValue() : 0;
+    snprintf(text, sizeof text, "frames handed %llu, copied %llu, done %llu, the engine took %llu, last shown %llu",
+             (unsigned long long)m_frame, (unsigned long long)copied, (unsigned long long)done,
+             (unsigned long long)(m_engine ? m_engine->Submitted() : 0), (unsigned long long)m_lastShown);
+    return text;
+}
+
 bool ScalerLink::PlacePicture(const NisPass& pass, ID3D11Texture2D* picture) {
+    m_step = m_encoding ? "the HDR place pass" : "copying the picture";
     if (m_encoding != m_loggedEncoding) {
         m_loggedEncoding = m_encoding;
         if (m_encoding) Log("%s upscaler: HDR frames (%s, SDR white %.0f nits): upscaled in their SDR view, the picture put back in their own encoding",

@@ -10,6 +10,8 @@
 // waits on the engine's, and the CPU never waits either (Handoff::Late). Up to two frames may be with the engine at once (two frame buffers,
 // three pictures in turn), so a frame that finishes late on a busy GPU delays the picture a little instead of being skipped.
 #pragma once
+#include <atomic>
+#include <string>
 #include <cmath>
 #include <d3d11_4.h>
 #include <d3d12.h>
@@ -48,6 +50,9 @@ public:
     // fences had got, so the log says whether a wait was left unanswered.
     void ReportDeviceChange();
     bool IsReady() const { return m_copied.d3d11 != nullptr; }
+    // For the stall monitor (runtime.cpp), from any thread: the step Upscale is at, and where the frames and fences stand.
+    const char* Step() const { return m_step.load(); }
+    std::string Describe() const;
     // How the picture comes back. Late: the newest finished one (the frame before's), nothing waits. Wait: this frame's, Lossless Scaling's
     // queue waits on the GPU for it (the first design; with frame generation off it left Lossless Scaling restarting, 2026-09-24).
     // Observe: DLSS runs but NIS's picture stays, to tell whether running DLSS at all is what upsets Lossless Scaling.
@@ -94,6 +99,7 @@ public:
 
 private:
     Picture m_picture;
+    std::atomic<const char*> m_step{ "idle" };
     ID3D11Texture2D* m_grabbed = nullptr;   // not held: one of m_in, valid until the link is shut down
     struct Shared { ID3D11Texture2D* d3d11 = nullptr; ID3D12Resource* d3d12 = nullptr; uint32_t w = 0, h = 0; DXGI_FORMAT fmt = DXGI_FORMAT_UNKNOWN; void Release(); };
     struct Fence { ID3D11Fence* d3d11 = nullptr; ID3D12Fence* d3d12 = nullptr; void Release(); };
