@@ -85,6 +85,7 @@ public:
         uint64_t passes = 0, skipped = 0, repeats = 0, waits = 0, closePasses = 0, closeRepeats = 0, closeWaits = 0;
     };
     Counters Count() const { return m_count; }
+    bool LastRefusedFormat() const { return m_refusedFormat; }   // the last pass was a frame format the upscaler cannot take (HDR)
 
 private:
     Picture m_picture;
@@ -124,7 +125,7 @@ private:
     // once per link: how bright the frame DLSS gets and the picture it makes are (a black picture shows here)
     ID3D11Texture2D* m_probe[2] = {};
     int m_probeState = 0;
-    bool m_loggedFormat = false, m_described = false, m_loggedPartial = false;
+    bool m_loggedFormat = false, m_described = false, m_loggedPartial = false, m_refusedFormat = false;
 };
 
 } // namespace nr

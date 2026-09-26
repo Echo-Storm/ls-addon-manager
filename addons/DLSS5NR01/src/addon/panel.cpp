@@ -355,6 +355,7 @@ void DrawPanel() {
         const char* const U = kUpscalerName;
         if (v.starting) ImGui::TextDisabled(kFsrScaler ? "Loading AMD's FSR runtime..." : "Loading NVIDIA's DLSS runtime...");
         else if (v.failed) ImGui::TextColored(eam::ui::theme::V(eam::ui::theme::kDanger), "%s could not run: %s. Lossless Scaling's NIS runs as usual.", U, v.error.c_str());
+        else if (!c.enabled) ImGui::TextColored(eam::ui::theme::V(eam::ui::theme::kWarn), "%s is switched off here (Enable %s, above), so NIS runs as usual.", U, kProductName);
         else if (!v.blocked.empty()) {   // the NIS pass is there but the upscaler cannot take it: say why, rather than look like it runs
             ImGui::PushStyleColor(ImGuiCol_Text, eam::ui::theme::V(eam::ui::theme::kWarn));
             if (v.nisSeen) ImGui::TextWrapped("NIS pass found (%ux%u -> %ux%u), but %s is not replacing it: %s", v.inW, v.inH, v.outW, v.outH, U, v.blocked.c_str());

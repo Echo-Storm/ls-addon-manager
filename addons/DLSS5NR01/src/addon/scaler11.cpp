@@ -312,7 +312,8 @@ bool ScalerLink::Upscale(const NisPass& pass, ID3D11Resource* flow, uint32_t flo
     // writes through a UAV
     const DXGI_FORMAT inFmt = DXGI_FORMAT_R8G8B8A8_UNORM, outFmt = Bridge::ViewFormat(pass.outFmt);
     const DXGI_FORMAT inView = Bridge::ViewFormat(pass.inFmt);
-    if ((inView != DXGI_FORMAT_R8G8B8A8_UNORM && inView != DXGI_FORMAT_B8G8R8A8_UNORM) || (outFmt != DXGI_FORMAT_R8G8B8A8_UNORM && outFmt != DXGI_FORMAT_R10G10B10A2_UNORM && outFmt != DXGI_FORMAT_R16G16B16A16_FLOAT)) {
+    m_refusedFormat = (inView != DXGI_FORMAT_R8G8B8A8_UNORM && inView != DXGI_FORMAT_B8G8R8A8_UNORM) || (outFmt != DXGI_FORMAT_R8G8B8A8_UNORM && outFmt != DXGI_FORMAT_R10G10B10A2_UNORM && outFmt != DXGI_FORMAT_R16G16B16A16_FLOAT);
+    if (m_refusedFormat) {
         if (!m_loggedFormat) { Log("%s upscaler: frame format %d -> %d is not one the upscaler can take here; NIS stays", kUpscalerName, (int)pass.inFmt, (int)pass.outFmt); m_loggedFormat = true; }
         return false;
     }

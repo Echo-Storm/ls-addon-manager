@@ -258,7 +258,11 @@ void Tap(ID3D11DeviceContext* ctx, uint32_t x, uint32_t y, uint32_t z) {
     { char text[96]; snprintf(text, sizeof text, "%ux%u %s slot %d", frame.Width, frame.Height, FormatName(frame.Format), d.frameSlot);
       std::lock_guard<std::mutex> lock(g_textMutex); g_frameText = text; }
     Record(ctx, d.frame, lsrec::kCaptured);   // as it came, before the model sees it
-    if (!g_bridge.Ensure(frame.Width, frame.Height, frame.Format)) { SetStatus("unsupported frame format"); ReleaseDecision(d); return; }
+    if (!g_bridge.Ensure(frame.Width, frame.Height, frame.Format)) {
+        SetStatus(Bridge::FormatSupported(frame.Format) ? std::string("the frame copy for the model could not be set up (the Logs tab says why)")
+                                                        : std::string("unsupported frame format: ") + FormatName(frame.Format));
+        ReleaseDecision(d); return;
+    }
     { float white; const nr::FrameEncoding e = FrameEncodingOf(frame.Format, g_lsChain, &white); g_engine.SetFrameEncoding(static_cast<uint32_t>(e), white); }
 
     NrParams p; float watchdogMs; bool lsFirst; AutoQuality::Settings autoSettings;
@@ -938,7 +942,10 @@ bool ScalerPass(ID3D11DeviceContext* ctx, uint32_t x, uint32_t y, uint32_t z) {
                 if (replaced) ++g_upscaled;
                 if (!replaced && g_sr.IsFailed()) SetStatus(g_sr.LastError());
                 ++g_linkTries;
-                if (replaced || g_upscaled) SetScalerBlocked("");
+                if (!replaced && g_link.LastRefusedFormat())
+                    SetScalerBlocked("this game's frames are HDR (10-bit or 16-bit colour), which the upscalers cannot take yet. Turn HDR off in the game "
+                                     "(or in Windows) to use it.");
+                else if (replaced || g_upscaled) SetScalerBlocked("");
                 else if (g_linkTries > 240) SetScalerBlocked("it is ready but has not replaced a frame yet. The Logs tab says why.");
             } else if (g_linkDevice != dev) {
                 SetScalerBlocked("it is ready but could not be connected to Lossless Scaling's device. The Logs tab says why.");

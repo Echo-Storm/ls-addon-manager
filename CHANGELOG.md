@@ -8,6 +8,9 @@
   Upscaler. It also speaks up when DLSS is ready but cannot connect to Lossless Scaling's device, or has not replaced a frame yet.
 - **Both upscalers: a window scaled into part of the screen in a layout they cannot follow** is now said as such. It used to read
   "Choose NIS as the Scaling Type", although NIS was chosen.
+- **Upscalers and HDR games:** the panel now says the frames are HDR, which the upscalers cannot take yet (it used to stay silent while NIS ran).
+- **Upscalers switched off with their own Enable box:** the panel says so, not "Waiting for the NIS pass".
+- **Neural Rendering: "unsupported frame format"** now names the format, and a frame copy that could not be set up says that instead.
 
 ## 0.9.7 (2026-09-26)
 
