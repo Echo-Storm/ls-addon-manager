@@ -242,10 +242,11 @@ int main(int argc, char** argv) {
     FakeHost host; host.cfg["snippetPath"] = argc > 3 ? argv[3] : "C:\\Program Files (x86)\\Steam\\steamapps\\common\\Lossless Scaling\\nvngx_dlssnr.dll";
     for (int i = 4; i < argc; ++i) {   // extra key=value pairs override addon config (workingScale=0.5 debugView=3 ...)
         const char* eq = strchr(argv[i], '='); if (!eq) continue;
-        if (!strncmp(argv[i], "shot", 4) || !strncmp(argv[i], "nisnoflow", 9) || !strncmp(argv[i], "nisbgra", 7) || !strncmp(argv[i], "nismove", 7) || !strncmp(argv[i], "nisW", 4) || !strncmp(argv[i], "nisH", 4) || !strncmp(argv[i], "nisScale", 8) || !strncmp(argv[i], "nisvp", 5) || !strncmp(argv[i], "nisedge", 7) || !strncmp(argv[i], "nisline", 7) || !strncmp(argv[i], "unload", 6) || !strncmp(argv[i], "nisgap", 6) || !strncmp(argv[i], "nisswitch", 9) || !strncmp(argv[i], "gpuload", 7) || !strncmp(argv[i], "offframes", 9) || !strncmp(argv[i], "devflags", 8) || !strncmp(argv[i], "second", 6) || !strncmp(argv[i], "flowsplit", 9) || !strncmp(argv[i], "exitmode", 8) || !strncmp(argv[i], "sectionsOpen", 12) || !strncmp(argv[i], "hdr=", 4) || !strncmp(argv[i], "replay", 6) || !strncmp(argv[i], "warp", 4)) continue;   // the host's own keys
+        if (!strncmp(argv[i], "shot", 4) || !strncmp(argv[i], "nisnoflow", 9) || !strncmp(argv[i], "nisbgra", 7) || !strncmp(argv[i], "nismove", 7) || !strncmp(argv[i], "nisW", 4) || !strncmp(argv[i], "nisH", 4) || !strncmp(argv[i], "nisScale", 8) || !strncmp(argv[i], "nisvp", 5) || !strncmp(argv[i], "nisedge", 7) || !strncmp(argv[i], "nisline", 7) || !strncmp(argv[i], "unload", 6) || !strncmp(argv[i], "nisgap", 6) || !strncmp(argv[i], "nisswitch", 9) || !strncmp(argv[i], "gpuload", 7) || !strncmp(argv[i], "offframes", 9) || !strncmp(argv[i], "devflags", 8) || !strncmp(argv[i], "second", 6) || !strncmp(argv[i], "flowsplit", 9) || !strncmp(argv[i], "exitmode", 8) || !strncmp(argv[i], "sectionsOpen", 12) || !strncmp(argv[i], "hdr=", 4) || !strncmp(argv[i], "replay", 6) || !strncmp(argv[i], "warp", 4) || !strncmp(argv[i], "nishdr", 6)) continue;   // the host's own keys
         host.cfg[std::string(argv[i], (size_t)(eq - argv[i]))] = eq + 1; printf("cfg %.*s = %s\n", (int)(eq - argv[i]), argv[i], eq + 1);
     }
     // a 10-bit frame is HDR10 only when the display runs in HDR, and the test's display may not: the addon is told so, as a user can
+    for (int i = 4; i < argc; ++i) if (!strcmp(argv[i], "nishdr=pq") && !host.cfg.count("frameEncoding")) { host.cfg["frameEncoding"] = "2"; printf("cfg frameEncoding = 2 (nishdr=pq)\n"); }
     if (hdrMode == 2 && !host.cfg.count("frameEncoding")) { host.cfg["frameEncoding"] = "2"; printf("cfg frameEncoding = 2 (hdr=pq)\n"); }
     if (shotMode) host.imageDevice = shot.dev;
     Init(&host, ctx, (void*)af, (void*)ff, ud);
@@ -550,6 +551,62 @@ int main(int argc, char** argv) {
                           borderLit == 0 ? "BORDERS KEPT" : "BORDERS DRAWN OVER");
         for (auto* v : nisSrvs) v->Release();
         if (nisCb) nisCb->Release();
+        // nishdr=scrgb|pq: then the same NIS pass on an HDR frame (16-bit float scRGB, or 10-bit HDR10): hdr='s picture, with its band of
+        // highlights at 1000 nits across the middle. The upscaler must replace NIS there too, write no NaN, and keep the highlights and the
+        // picture's brightness: it works on the frame's SDR view and puts the picture back in the frame's own encoding ([check-nishdr]).
+        int nisHdr = 0;
+        for (int i = 4; i < argc; ++i) { if (!strcmp(argv[i], "nishdr=scrgb")) nisHdr = 1; if (!strcmp(argv[i], "nishdr=pq")) nisHdr = 2; }
+        if (nisHdr && !nisVp) {
+            const bool pq = nisHdr == 2;
+            ID3D11Texture2D* hIn = MakeHdrPicture(dev, dc, NW, NH, pq);
+            ID3D11Texture2D* hOut = MakeTex(dev, VW, VH, pq ? DXGI_FORMAT_R10G10B10A2_UNORM : DXGI_FORMAT_R16G16B16A16_FLOAT, true);
+            if (!hIn || !hOut) printf("[check-nishdr] the HDR textures could not be made\n");
+            else {
+                ID3D11ShaderResourceView* hSrvs[3] = { srv(hIn), srv(coef1), srv(coef2) }; ID3D11UnorderedAccessView* uHOut = uav(hOut);
+                for (int fr = 0; fr < 120; ++fr) {
+                    dc->CSSetShaderResources(0, 3, hSrvs); dc->CSSetUnorderedAccessViews(0, 1, &uHOut, nullptr); dc->CSSetShader(csNis, nullptr, 0);
+                    dc->CSSetConstantBuffers(0, 1, &nisCb);
+                    host.Dispatch(dc, (VW + 31) / 32, (VH + 23) / 24, 1);
+                    ID3D11Buffer* noCb = nullptr; dc->CSSetConstantBuffers(0, 1, &noCb);
+                    dc->CSSetUnorderedAccessViews(0, 1, nullu, nullptr); dc->CSSetShaderResources(0, 3, nulls);
+                    std::this_thread::sleep_for(std::chrono::milliseconds(16));
+                    if (fr % 30 == 0) frame("nishdr"); else emptyFrame();
+                }
+                dc->Flush(); std::this_thread::sleep_for(std::chrono::milliseconds(300));
+                // read back: magenta (the fake pass), NaN, the band's core against its value, the rest's mean against the picture's
+                D3D11_TEXTURE2D_DESC sd{}; hOut->GetDesc(&sd); sd.Usage = D3D11_USAGE_STAGING; sd.BindFlags = 0; sd.CPUAccessFlags = D3D11_CPU_ACCESS_READ;
+                ID3D11Texture2D* st = nullptr; dev->CreateTexture2D(&sd, nullptr, &st);
+                uint64_t magenta = 0, bad = 0, core = 0, rest = 0; double coreSum = 0, restSum = 0, restWant = 0;
+                if (st) {
+                    dc->CopyResource(st, hOut); D3D11_MAPPED_SUBRESOURCE m{};
+                    if (SUCCEEDED(dc->Map(st, 0, D3D11_MAP_READ, 0, &m))) {
+                        for (UINT y = 0; y < VH; ++y) for (UINT x = 0; x < VW; ++x) {
+                            float got[3], want[3]; HdrPixel(x, y, VW, VH, pq, want);
+                            const char* row = (const char*)m.pData + y * m.RowPitch;
+                            if (pq) { const uint32_t v = reinterpret_cast<const uint32_t*>(row)[x]; for (int i = 0; i < 3; ++i) got[i] = ((v >> (10 * i)) & 1023) / 1023.0f; }
+                            else { using namespace DirectX::PackedVector; const uint16_t* v = reinterpret_cast<const uint16_t*>(row) + x * 4; for (int i = 0; i < 3; ++i) got[i] = XMConvertHalfToFloat(v[i]); }
+                            if (!std::isfinite(got[0]) || !std::isfinite(got[1]) || !std::isfinite(got[2])) { ++bad; continue; }
+                            if (fabsf(got[0] - 1.0f) < 0.01f && got[1] < 0.01f && fabsf(got[2] - 1.0f) < 0.01f) ++magenta;
+                            const float mean = (got[0] + got[1] + got[2]) / 3.0f, wantMean = (want[0] + want[1] + want[2]) / 3.0f;
+                            if (y >= VH * 47 / 100 && y < VH * 53 / 100) { ++core; coreSum += mean; }   // the band, away from its edges
+                            else if (y < VH * 43 / 100 || y >= VH * 57 / 100) { ++rest; restSum += mean; restWant += wantMean; }
+                        }
+                        dc->Unmap(st, 0);
+                    }
+                    st->Release();
+                }
+                float bandWant[3]; HdrPixel(0, VH / 2, VW, VH, pq, bandWant);
+                const double coreMean = core ? coreSum / core : 0, restMean = rest ? restSum / rest : 0, restWantMean = rest ? restWant / rest : 0;
+                const bool replaced = magenta < (uint64_t)VW * VH / 100;
+                const bool bright = bandWant[0] > 0 && std::abs(coreMean - bandWant[0]) < 0.03 * bandWant[0];
+                const bool level = restWantMean > 0 && std::abs(restMean - restWantMean) < 0.05 * restWantMean;
+                printf("[check-nishdr] %s %ux%u -> %ux%u: %.2f%% magenta (%s), %llu NaN, the highlights %.4f against %.4f (%s), the rest's mean %.4f against %.4f (%s)\n",
+                       pq ? "HDR10" : "scRGB", NW, NH, VW, VH, 100.0 * magenta / (double(VW) * VH), replaced ? "HDR REPLACED NIS" : "HDR NIS KEPT", (unsigned long long)bad,
+                       coreMean, bandWant[0], bright ? "HIGHLIGHTS KEPT" : "HIGHLIGHTS LOST", restMean, restWantMean, level ? "LEVEL KEPT" : "LEVEL OFF");
+                uHOut->Release(); for (auto* v : hSrvs) v->Release();
+            }
+            if (hIn) hIn->Release(); if (hOut) hOut->Release();
+        }
         uNisOut->Release(); csNis->Release(); nisIn->Release(); coef1->Release(); coef2->Release(); nisOut->Release();
     }
     {   // the tap must be read-only now: LS's frame textures keep the original pattern

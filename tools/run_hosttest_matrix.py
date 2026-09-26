@@ -395,6 +395,20 @@ def scenario_scaler_not_nvidia(ctx, res, text, frame):
     res.check('...and says why, naming the card and the way out', bool(re.search(r"DLSS upscaler: Lossless Scaling runs on .+, not an NVIDIA card.*Preferred GPU.*FSR Upscaler", text)))
 
 
+def scenario_scaler_hdr(ctx, res, text, frame):
+    # the upscaler on HDR frames (scRGB or HDR10): it replaces NIS there too, keeps the 1000-nit highlights and the picture's brightness, and
+    # writes no NaN (0.9.7 took 8-bit frames only and left NIS in place)
+    m = re.search(r'\[check-nishdr\] (\w+) .*?: ([0-9.]+)% magenta \(([A-Z0-9 ]+)\), (\d+) NaN, the highlights ([0-9.]+) against ([0-9.]+) \(([A-Z ]+)\), the rest\'s mean ([0-9.]+) against ([0-9.]+) \(([A-Z ]+)\)', text)
+    res.check('the HDR check ran', m is not None, 'no [check-nishdr] line')
+    if not m:
+        return
+    res.check('the upscaler replaces NIS on %s frames' % m.group(1), m.group(3) == 'HDR REPLACED NIS', '%s%% magenta' % m.group(2))
+    res.check('...writes no NaN', m.group(4) == '0', m.group(4))
+    res.check('...keeps the highlights far above SDR white', m.group(7) == 'HIGHLIGHTS KEPT', '%s against %s' % (m.group(5), m.group(6)))
+    res.check("...and the picture's brightness", m.group(10) == 'LEVEL KEPT', '%s against %s' % (m.group(8), m.group(9)))
+    res.check('the frames are taken as HDR', 'HDR frames (' in text, 'no "HDR frames (" line')
+
+
 def stable_checks(ctx, res, text, none_key, name):
     # Stability at 1: the upscaler must still follow a sliding picture (the slide is real motion, not flicker), and FSR takes its settings
     err = move_error(text)
@@ -501,6 +515,9 @@ SCENARIOS = [
     ('scaler_edges', ['addon=DLSS4DLAA.dll', 'nis=1', 'nisbgra=1', 'nisnoflow=1', 'nisedge=1', 'sharpen=0', 'scalerEdges=1'], scenario_scaler_edges),
     ('fsr_line', ['addon=FSR3UPSC.dll', 'nis=1', 'nisbgra=1', 'nisnoflow=1', 'nisline=1', 'sharpen=0'], scenario_fsr_line),   # a wire swaying in the wind
     ('fsr_line_stable', ['addon=FSR3UPSC.dll', 'nis=1', 'nisbgra=1', 'nisnoflow=1', 'nisline=1', 'sharpen=0', 'scalerStability=0.5'], scenario_fsr_line),
+    ('scaler_hdr_scrgb', ['addon=DLSS4DLAA.dll', 'nis=1', 'nisbgra=1', 'nisnoflow=1', 'nishdr=scrgb'], scenario_scaler_hdr),
+    ('scaler_hdr_pq', ['addon=DLSS4DLAA.dll', 'nis=1', 'nisbgra=1', 'nisnoflow=1', 'nishdr=pq'], scenario_scaler_hdr),
+    ('fsr_hdr_scrgb', ['addon=FSR3UPSC.dll', 'nis=1', 'nisbgra=1', 'nisnoflow=1', 'nishdr=scrgb'], scenario_scaler_hdr),
     ('scaler_not_nvidia', ['addon=DLSS4DLAA.dll', 'nis=1', 'nisbgra=1', 'nisnoflow=1', 'warp=1'], scenario_scaler_not_nvidia),
     ('scaler_4_3', ['addon=DLSS4DLAA.dll', 'nis=1', 'nisbgra=1', 'nisnoflow=1', 'nisvp=1', 'nisW=960', 'nisH=720', 'nisScale=1.5'], scenario_viewport),   # 4:3 on 16:9
     ('fsr_4_3', ['addon=FSR3UPSC.dll', 'nis=1', 'nisbgra=1', 'nisnoflow=1', 'nisvp=1', 'nisW=960', 'nisH=720', 'nisScale=1.5'], scenario_fsr_viewport),
