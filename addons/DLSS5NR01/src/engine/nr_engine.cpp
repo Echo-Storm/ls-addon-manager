@@ -1,4 +1,5 @@
 #include "engine/nr_engine.h"
+#include <chrono>
 #include "engine/nr_shaders.h"
 #include "engine/dlaa_model.h"
 #include <d3dcompiler.h>
@@ -73,17 +74,26 @@ void NrEngine::Fail(const char* fmt, ...) {
 
 bool NrEngine::Init(const LUID& luid, const std::wstring& forwarderPath, const std::wstring& snippetPath, const std::wstring& dataPath,
                     const std::wstring& lsDir, LogFn log) {
+    if (m_abandoned) { m_failed = true; return false; }   // its thread is still stuck in NVIDIA's code: only a restart of Lossless Scaling helps
     m_log = std::move(log); m_forwarderPath = forwarderPath; m_snippetPath = snippetPath; m_dataPath = dataPath; m_lsDir = lsDir;
     m_failed = m_ready = false;
     m_stats = NrStats{};
     g_logTarget = this;
     if (!CreateQueue(luid) || !StartNgx() || !StartModel() || !CreatePipelines()) return false;
+    StartWorker();
     m_ready = true;
     Log("NrEngine ready (float slot %d)", m_stats.floatSlot);
     return true;
 }
 
 bool NrEngine::Shutdown() {
+    m_ready = false;
+    if (!StopWorker(kIdleWaitMs)) {   // its thread is inside NVIDIA's code and does not come back: nothing it may still use is torn down
+        m_abandoned = true; m_failed = true;
+        snprintf(m_stats.lastError, sizeof m_stats.lastError, "the model stopped responding; restart Lossless Scaling to use it again");
+        Log("NrEngine: the engine's thread did not stop within %lu ms (stuck in the model's code); the engine is left as it is until Lossless Scaling closes", kIdleWaitMs);
+        return false;
+    }
     EndBuild();
     if (m_buildState.load() == kBuilt) Discard(m_built);
     m_buildState = kIdle;
@@ -296,6 +306,99 @@ void NrEngine::Upload(ID3D12GraphicsCommandList* list, ID3D12Resource* texture, 
     list->CopyTextureRegion(&to, 0, 0, 0, &from, nullptr);
     Transition(list, texture, D3D12_RESOURCE_STATE_COPY_DEST, D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE);
     staging.push_back(upload);
+}
+
+void NrEngine::Drain() {
+    if (!m_dev) return;
+    if (!WaitWorkerIdle(kIdleWaitMs)) { Log("NrEngine: the engine's thread is still busy; not waiting for it"); return; }
+    WaitIdle();
+}
+
+void NrEngine::StartWorker() {
+    if (m_worker.joinable()) return;
+    { std::lock_guard<std::mutex> lock(m_jobMutex); m_stop = false; m_busy = false; m_jobs.clear(); }
+    m_submitted = 0; m_busySince = 0; m_stuck = false;
+    for (auto& v : m_okRing) v = 0;
+    if (!m_workerExited) m_workerExited = CreateEventW(nullptr, TRUE, FALSE, nullptr);
+    ResetEvent(m_workerExited);
+    m_worker = std::thread([this] { WorkerLoop(); });
+}
+
+bool NrEngine::StopWorker(DWORD ms) {
+    if (!m_worker.joinable()) return true;
+    { std::lock_guard<std::mutex> lock(m_jobMutex); m_stop = true; }
+    m_jobCv.notify_all();
+    if (WaitForSingleObject(m_workerExited, ms) != WAIT_OBJECT_0) { m_worker.detach(); return false; }
+    m_worker.join();
+    return true;
+}
+
+bool NrEngine::WaitWorkerIdle(DWORD ms) {
+    if (m_stuck) return false;
+    std::unique_lock<std::mutex> lock(m_jobMutex);
+    return m_jobCv.wait_for(lock, std::chrono::milliseconds(ms), [&] { return m_jobs.empty() && !m_busy; });
+}
+
+bool NrEngine::Busy() {
+    std::lock_guard<std::mutex> lock(m_jobMutex);
+    return m_busy || !m_jobs.empty();
+}
+
+bool NrEngine::WaitSubmitted(uint64_t signalValue, DWORD ms) {
+    std::unique_lock<std::mutex> lock(m_jobMutex);
+    return m_jobCv.wait_for(lock, std::chrono::milliseconds(ms), [&] { return m_submitted.load() >= signalValue || m_stuck.load(); }) && !m_stuck;
+}
+
+// "finished" for a run that queued nothing: on the queue after the runs before it (or from the CPU when there is no queue to order it on)
+static void SignalUnqueued(ID3D12CommandQueue* queue, const NrEngine::Job& j) {
+    if (!j.signalFence) return;
+    if (queue) queue->Signal(j.signalFence, j.signalValue); else j.signalFence->Signal(j.signalValue);
+}
+
+void NrEngine::Submit(const Job& j) {
+    {
+        std::lock_guard<std::mutex> lock(m_jobMutex);
+        if (m_worker.joinable() && !m_stop && !m_stuck) { m_jobs.push_back(j); m_jobCv.notify_all(); return; }
+    }
+    if (!m_stuck) SignalUnqueued(m_queue, j);   // no thread to run it: "finished" still moves on (nothing ran)
+}
+
+void NrEngine::WorkerLoop() {
+    for (;;) {
+        Job j;
+        {
+            std::unique_lock<std::mutex> lock(m_jobMutex);
+            m_jobCv.wait(lock, [&] { return m_stop || !m_jobs.empty(); });
+            if (m_stop) {   // the runs left are marked finished, so nothing waits for them
+                for (const Job& left : m_jobs) SignalUnqueued(m_queue, left);
+                m_jobs.clear();
+                break;
+            }
+            j = m_jobs.front(); m_jobs.pop_front(); m_busy = true;
+        }
+        m_busySince = GetTickCount64();
+        const uint64_t queuedBefore = m_stats.frames;
+        const bool ok = Run(j.sharedIn, j.sharedDelta, j.waitFence, j.waitValue, j.usedFence, j.usedValue, j.signalFence, j.signalValue, j.reset, j.sharedMotion);
+        const bool queued = m_stats.frames != queuedBefore;
+        if (!queued) SignalUnqueued(m_queue, j);   // (Run queues nothing while a new model is made, or when the GPU is far behind)
+        m_busySince = 0;
+        m_okRing[j.signalValue % kOkRing].store(ok && queued ? j.signalValue : 0, std::memory_order_release);
+        m_submitted.store(j.signalValue, std::memory_order_release);
+        { std::lock_guard<std::mutex> lock(m_jobMutex); m_busy = false; }
+        m_jobCv.notify_all();
+    }
+    SetEvent(m_workerExited);
+}
+
+bool NrEngine::CheckStuck() {
+    if (m_stuck) return true;
+    const ULONGLONG since = m_busySince.load();
+    if (!since || GetTickCount64() - since < kStuckMs) return false;
+    m_stuck = true;
+    Fail("the model stopped responding (a run has been in NVIDIA's code for %llu ms); Lossless Scaling runs untouched. Restart Lossless Scaling to use it again",
+         (unsigned long long)(GetTickCount64() - since));
+    m_jobCv.notify_all();
+    return true;
 }
 
 bool NrEngine::WaitIdle() {

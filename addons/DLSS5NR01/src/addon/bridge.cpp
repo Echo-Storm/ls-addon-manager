@@ -193,7 +193,11 @@ void Bridge::NoteFrameTime(int64_t now, int64_t freq) {
 // orderOnGpu (frame generation off), for the model's run before; otherwise the only waits are the model queue's.
 bool Bridge::Submit(ID3D11Texture2D* frame, ID3D11Texture2D* flow, uint32_t flowW, uint32_t flowH, const NrParams& params, bool reset, uint64_t frameIndex,
                     bool orderOnGpu) {
-    if (!m_input[0].d3d11 || !m_copied.d3d11 || !m_engine || !m_engine->IsReady()) return false;
+    if (!m_input[0].d3d11 || !m_copied.d3d11 || !m_engine) return false;
+    if (m_engine->CheckStuck() || !m_engine->IsReady()) return false;   // a model that stopped responding: Lossless Scaling runs untouched
+    // The engine's thread is still recording the run before (it takes well under a millisecond): this frame is left out, as when the model is
+    // busy. The engine's settings (Prepare, SetFlowInput) are only changed while that thread is idle.
+    if (m_engine->Busy()) { ++m_skipped; return false; }
     LARGE_INTEGER freq; QueryPerformanceFrequency(&freq);
     const int64_t start = Now();
     NoteFrameTime(start, freq.QuadPart);
@@ -226,16 +230,15 @@ bool Bridge::Submit(ID3D11Texture2D* frame, ID3D11Texture2D* flow, uint32_t flow
     m_submitTimes.Mark(m_ctx, 2);
     m_submitTimes.End(m_ctx);
     m_ctx4->Signal(m_copied.d3d11, frameIndex);
-    const uint64_t queuedBefore = m_engine->Stats().frames;
-    const bool ok = m_engine->Run(m_input[k].d3d12, m_slots[s].delta.d3d12, m_copied.d3d12, frameIndex, m_released.d3d12, m_slots[s].releasedAt,
-                                  m_finished.d3d12, frameIndex, reset, m_slots[s].motion.d3d12);
-    // A run that was never queued never signals "finished": waiting for it would skip every frame from now on.
-    if (m_engine->Stats().frames == queuedBefore) return false;
+    // to the engine's own thread (NrEngine::Submit): it signals "finished" = frameIndex whether or not the run could be queued
+    const NrEngine::Job job{ m_input[k].d3d12, m_slots[s].delta.d3d12, m_copied.d3d12, frameIndex, m_released.d3d12, m_slots[s].releasedAt,
+                             m_finished.d3d12, frameIndex, reset, m_slots[s].motion.d3d12 };
+    m_engine->Submit(job);
     if (busy) ++m_doubled;
     m_inFlightBefore = m_inFlight; m_inFlight = frameIndex; m_newestSlot = s; m_turn = 1 - k;
-    m_slots[s].frame = ok ? frameIndex : 0;   // a run whose model evaluation failed leaves no usable result
-    if (ok) ++m_runs;
-    return ok;
+    m_slots[s].frame = frameIndex;   // its result is used only once the engine says the run went through (RanOk)
+    ++m_runs;
+    return true;
 }
 
 bool Bridge::TakeFrameTimeWindow(float& p50, float& p95, float& p99, float& worst, int& n, int& over20, int& over33) {
@@ -253,7 +256,9 @@ bool Bridge::TakeFrameTimeWindow(float& p50, float& p95, float& p99, float& wors
 }
 
 uint64_t Bridge::QueuedDelta(ID3D11ShaderResourceView** srv, uint32_t* ww, uint32_t* wh) {
-    if (m_newestSlot < 0 || !m_inFlight || m_slots[m_newestSlot].frame != m_inFlight) return 0;   // none, or the newest run failed
+    if (m_newestSlot < 0 || !m_inFlight || m_slots[m_newestSlot].frame != m_inFlight) return 0;   // none
+    // a GPU wait on Lossless Scaling's queue follows (BeginDeltaUse): only for a run already on the engine's queue, and one that went through
+    if (!m_engine || !m_engine->WaitSubmitted(m_inFlight, 4) || !m_engine->RanOk(m_inFlight)) return 0;
     if (srv) *srv = m_slots[m_newestSlot].delta.view;
     if (ww) *ww = m_slots[m_newestSlot].delta.w;
     if (wh) *wh = m_slots[m_newestSlot].delta.h;
@@ -266,7 +271,7 @@ uint64_t Bridge::NewestDelta(ID3D11ShaderResourceView** srv, uint32_t* ww, uint3
     int newest = -1;
     for (int i = 0; i < kSlots; ++i) {
         const uint64_t f = m_slots[i].frame;
-        if (f && f <= finished && (newest < 0 || f > m_slots[newest].frame)) newest = i;
+        if (f && f <= finished && m_engine && m_engine->RanOk(f) && (newest < 0 || f > m_slots[newest].frame)) newest = i;
     }
     if (newest < 0) return 0;
     if (srv) *srv = m_slots[newest].delta.view;

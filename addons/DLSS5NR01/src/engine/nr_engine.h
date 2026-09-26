@@ -14,6 +14,12 @@
 #include <atomic>
 #include <functional>
 #include <mutex>
+#include <condition_variable>
+#include <deque>
+#include <thread>
+#include <condition_variable>
+#include <deque>
+#include <thread>
 #include <string>
 #include <vector>
 #include "forwarder/nr_api.h"
@@ -96,7 +102,7 @@ public:
     const NrStats& Stats() const { return m_stats; }
     ID3D12Device* Device() const { return m_dev; }
 
-    void Drain() { if (m_dev) WaitIdle(); }   // wait until the queue is idle (before shared textures or fences go away)
+    void Drain();   // the engine's thread and queue idle (before shared textures or fences go away); not while that thread is stuck
     ID3D12Resource* OpenSharedTexture(HANDLE h);
     ID3D12Fence* OpenSharedFence(HANDLE h);
     // LSFG's flow for the next runs (borrowed: the bridge drains the engine before it lets go of it); null for none.
@@ -121,7 +127,36 @@ public:
 
     void Log(const char* fmt, ...);   // also used by NGX's log callback
 
+    // ---- the engine's own thread
+    // Lossless Scaling's render thread only queues runs (Submit); a thread of the engine's own records them and calls NVIDIA's model (Run),
+    // so a runtime that stops there can never hold up Lossless Scaling (as FSR 4.1.1b once froze it from the upscaler's side). The bridge
+    // changes the engine's settings (Prepare, SetFlowInput) only while that thread is idle (Busy). A run that could not be queued still
+    // signals its "finished" value, so nothing waits for it for ever; RanOk says whether its result may be used.
+    struct Job {
+        ID3D12Resource* sharedIn; ID3D12Resource* sharedDelta; ID3D12Fence* waitFence; uint64_t waitValue; ID3D12Fence* usedFence; uint64_t usedValue;
+        ID3D12Fence* signalFence; uint64_t signalValue; bool reset; ID3D12Resource* sharedMotion;
+    };
+    void Submit(const Job& job);
+    bool Busy();                                       // a run queued or being recorded
+    uint64_t Submitted() const { return m_submitted.load(std::memory_order_acquire); }   // the newest run whose work is on the GPU queue (its signal value)
+    bool WaitSubmitted(uint64_t signalValue, DWORD ms);
+    bool RanOk(uint64_t signalValue) const { return signalValue && m_okRing[signalValue % kOkRing].load(std::memory_order_acquire) == signalValue; }
+    bool CheckStuck();   // true once a run has been in the model's code for kStuckMs: the engine is then failed ("stopped responding")
+    ~NrEngine() { if (m_worker.joinable()) m_worker.detach(); }   // (at the process's exit without a Shutdown: never std::terminate)
 private:
+    bool m_abandoned = false;   // the engine's thread did not stop (stuck in NVIDIA's code): nothing is torn down or started again until LS restarts
+    static constexpr DWORD kStuckMs = 20000;
+    static const int kOkRing = 8;
+    std::atomic<uint64_t> m_okRing[kOkRing] = {};
+    std::atomic<uint64_t> m_submitted{ 0 };
+    std::atomic<ULONGLONG> m_busySince{ 0 };
+    std::atomic<bool> m_stuck{ false };
+    std::thread m_worker; HANDLE m_workerExited = nullptr;
+    std::mutex m_jobMutex; std::condition_variable m_jobCv; std::deque<Job> m_jobs; bool m_busy = false, m_stop = false;
+    void StartWorker();
+    bool StopWorker(DWORD ms);
+    bool WaitWorkerIdle(DWORD ms);
+    void WorkerLoop();
     FlowEstimator m_estimator;            // the model's motion measured from the proxy (NrParams::modelMotion 0)
     uint32_t m_encoding = 0; float m_whiteNits = 200.0f;
     bool m_estimatedLast = false; uint64_t m_estimates = 0;
@@ -163,7 +198,7 @@ private:
 
     LogFn m_log;
     Model m_model = Model::NeuralRendering; unsigned m_dlaaPreset = 0;
-    bool m_ready = false, m_failed = false;
+    std::atomic<bool> m_ready{ false }, m_failed{ false };
     NrStats m_stats{};
     std::wstring m_forwarderPath, m_snippetPath, m_dataPath, m_lsDir;
 

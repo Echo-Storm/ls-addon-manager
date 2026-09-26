@@ -2,6 +2,9 @@
 
 ## Unreleased
 
+- **Neural Rendering on its own thread too.** NVIDIA's model is now called from a thread of the engine's own; Lossless Scaling's render
+  thread only hands frames over, so a model that stops responding can no longer freeze it. After 20 seconds the panel says so, and
+  Lossless Scaling runs untouched. This also separates the model from Lossless Scaling's frame pacing, a step towards frame generation.
 - **A stuck runtime can no longer freeze Lossless Scaling.** The DLSS and FSR Upscalers now run NVIDIA's and AMD's code on a thread of
   their own; Lossless Scaling's render thread only hands frames over. FSR 4.1.1b stopped for good on its first HDR frame and froze the
   picture; now NIS carries on, and after 20 seconds the panel says the runtime stopped responding and to choose another in the Runtimes list.
