@@ -901,7 +901,7 @@ void StartStallMonitor() {
                     saidInside = true;
                 } else saidInside = false;
                 if (!inside && out && g_upscaled && now - out > 3000) {
-                    if (!saidQuiet) Log("stall monitor: no NIS pass for %llu ms (the last one left at: %s); %s", (unsigned long long)(now - out),
+                    if (!saidQuiet) Log("stall monitor: no pass from Lossless Scaling for %llu ms (normal when scaling stopped; a stall if the picture froze). The last one left at: %s; %s", (unsigned long long)(now - out),
                                         g_passStep.load(), g_link.Describe().c_str());
                     saidQuiet = true;
                 } else if (!inside) saidQuiet = false;
