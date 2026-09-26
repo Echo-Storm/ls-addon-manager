@@ -72,6 +72,20 @@ Release ParseLatestRelease(const std::string& json) {
     // The page to open is this project's release page for that tag: never an address taken from the answer, so a wrong or hostile answer
     // cannot make the manager open anything else.
     r.url = std::string(kReleasesPage) + "/tag/" + r.tag;
+    // the zip: found by its exact name among the assets; only its size and SHA-256 are taken from the answer
+    r.zipName = "LSAddonManager-" + r.version + "-x64.zip";
+    if (const auto assets = j.find("assets"); assets != j.end() && assets->is_array())
+        for (const auto& asset : *assets) {
+            if (!asset.is_object()) continue;
+            const auto name = asset.find("name");
+            if (name == asset.end() || !name->is_string() || name->get<std::string>() != r.zipName) continue;
+            if (const auto size = asset.find("size"); size != asset.end() && size->is_number_unsigned()) r.zipSize = size->get<uint64_t>();
+            if (const auto digest = asset.find("digest"); digest != asset.end() && digest->is_string()) {
+                const std::string d = digest->get<std::string>();
+                if (d.rfind("sha256:", 0) == 0 && d.size() == 7 + 64 && d.find_first_not_of("0123456789abcdef", 7) == std::string::npos) r.zipSha256 = d.substr(7);
+            }
+            r.zipUrl = std::string(kReleasesPage) + "/download/" + r.tag + "/" + r.zipName;
+        }
     r.ok = true;
     return r;
 }
@@ -182,7 +196,9 @@ Status Check(const std::string& currentVersion, const std::wstring& url, unsigne
     if (!rel.ok) { s.state = State::Failed; s.error = "the answer could not be read"; return s; }
     s.latest = rel.version;
     const Version now = ParseVersion(currentVersion), latest = ParseVersion(rel.version);
-    if (!rel.draft && !rel.prerelease && now.ok && Compare(latest, now) > 0) { s.state = State::Available; s.url = rel.url; }
+    if (!rel.draft && !rel.prerelease && now.ok && Compare(latest, now) > 0) {
+        s.state = State::Available; s.url = rel.url; s.zipUrl = rel.zipUrl; s.zipSha256 = rel.zipSha256; s.zipSize = rel.zipSize;
+    }
     else s.state = State::UpToDate;
     return s;
 }
@@ -193,6 +209,11 @@ Status g_status;                       // guarded by g_mu
 std::wstring g_url = kLatestReleaseUrl;
 std::atomic<bool> g_busy{ false };     // a flag, not a std::thread object kept here: the process can end without any shutdown (see the exit-crash notes)
 std::string g_announced;               // the version the notice was last made for in this run
+}
+
+void SetStatusForTest(const Status& st) {
+    std::lock_guard<std::mutex> lk(g_mu);
+    g_status = st;
 }
 
 void SetUrlForTest(const wchar_t* url) {

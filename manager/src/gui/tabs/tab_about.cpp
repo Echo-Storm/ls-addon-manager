@@ -1,3 +1,4 @@
+#include "../widgets/update_offer.h"
 #include "tab_about.h"
 #include "../gui_scale.h"
 #include "../gui_style.h"
@@ -52,9 +53,12 @@ void RenderTabAbout() {
             ImGui::PushStyleColor(ImGuiCol_Text, eam::ui::theme::V(eam::ui::theme::kAccent));
             CenteredText(line.c_str());
             ImGui::PopStyleColor();
+            const float bw1 = ImGui::CalcTextSize("Download and install").x + ImGui::GetFontSize() * 4.0f;
             const float bw2 = ImGui::CalcTextSize("Open the download page").x + ImGui::GetFontSize() * 4.0f;
-            ImGui::SetCursorPosX(ImGui::GetCursorPosX() + (ImGui::GetContentRegionAvail().x - bw2) * 0.5f);
-            if (eam::ui::Button("Open the download page", eam::ui::icons::kExternal, eam::ui::ButtonKind::Primary, ImVec2(bw2, 0))) OpenUrl(st.url.c_str());
+            ImGui::SetCursorPosX(ImGui::GetCursorPosX() + (ImGui::GetContentRegionAvail().x - bw1 - bw2 - ImGui::GetStyle().ItemSpacing.x) * 0.5f);
+            if (eam::ui::Button("Download and install", eam::ui::icons::kDownload, eam::ui::ButtonKind::Primary, ImVec2(bw1, 0))) widgets::OpenUpdateOffer();
+            ImGui::SameLine();
+            if (eam::ui::Button("Open the download page", eam::ui::icons::kExternal, eam::ui::ButtonKind::Flat, ImVec2(bw2, 0))) OpenUrl(st.url.c_str());
         } else {
             if (st.state != update::State::Idle) CenteredText(line.c_str(), true);
             const bool checking = st.state == update::State::Checking;

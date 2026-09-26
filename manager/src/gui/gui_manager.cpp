@@ -189,9 +189,7 @@ LRESULT WINAPI WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam) {
                     wchar_t wide[256] = {};
                     MultiByteToWideChar(CP_UTF8, 0, notice.c_str(), -1, wide, 255);
                     window::tray::Balloon(L"A new version is available", wide);
-                } else {
-                    widgets::ToastShow(notice, widgets::ToastType::Info, 8.0f);
-                }
+                }   // with the window shown, the offer to update opens by itself (widgets::UpdateOffer)
             }
             return 0;
         }

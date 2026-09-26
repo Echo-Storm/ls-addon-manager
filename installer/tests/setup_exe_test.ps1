@@ -138,6 +138,21 @@ $left = (Get-ChildItem $ls3 -Force -Recurse -ErrorAction SilentlyContinue | ForE
 Check 'opening the window changed nothing in the folder' ($same -and -not $orig -and -not $bk) "Lossless.dll unchanged=$same, Lossless_original.dll=$orig, backups=$bk; in the folder: $left"
 Check 'the window left no write-test file behind' (-not (Get-ChildItem $ls3 -Force -Filter '.echo_setup_write_test_*' -ErrorAction SilentlyContinue))
 
+Write-Host "== the manager's update (--update-when-closed: waits for Lossless Scaling to close, then updates)"
+$ls4 = MakeLs 'ls4'
+$before4 = Hash "$ls4\Lossless.dll"
+$fakeLs = Start-Process -FilePath "$ls4\LosslessScaling.exe" -ArgumentList '/k' -WindowStyle Hidden -PassThru
+try {
+    Start-Sleep -Milliseconds 500
+    $upd = Start-Process -FilePath $setup -ArgumentList @('--folder', "`"$ls4`"", '--payload', "`"$payload`"", '--update-when-closed', '--test-close-ms', '1500', '--instance-name', "upd$PID") -PassThru
+    Start-Sleep -Milliseconds 3000
+    Check 'while Lossless Scaling runs, it waits and changes nothing' (-not $upd.HasExited -and (Hash "$ls4\Lossless.dll") -eq $before4 -and -not (Test-Path "$ls4\Lossless_original.dll")) "exited=$($upd.HasExited)"
+} finally { Stop-Process -Id $fakeLs.Id -Force -ErrorAction SilentlyContinue }
+$updEnded = $upd.WaitForExit(30000)
+if (-not $updEnded) { Stop-Process -Id $upd.Id -Force -ErrorAction SilentlyContinue }
+Check 'once Lossless Scaling has closed, it updates by itself and closes (exit code 0)' ($updEnded -and $upd.ExitCode -eq 0) "ended=$updEnded code=$(if ($updEnded) { $upd.ExitCode })"
+Check '...with the original kept and ours in place' ((Test-Path "$ls4\Lossless_original.dll") -and (Hash "$ls4\Lossless_original.dll") -eq $before4 -and (Hash "$ls4\Lossless.dll") -eq (Hash "$payload\Lossless.dll"))
+
 }   # end of the window checks
 
 $mine = (Get-ItemProperty 'HKCU:\Software\LSAddonManager' -ErrorAction SilentlyContinue).LastFolder

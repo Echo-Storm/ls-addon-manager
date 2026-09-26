@@ -9,10 +9,13 @@
 #include <winsock2.h>
 #include <ws2tcpip.h>
 #include <windows.h>
+#include "src/update/updater.h"
+#include "src/addon/addon_security.h"
 #include <atomic>
 #include <cstdio>
 #include <cstring>
 #include <filesystem>
+#include <fstream>
 #include <mutex>
 #include <string>
 #include <thread>
@@ -239,6 +242,67 @@ int main(int argc, char** argv) {
         Check("asking twice at once runs one check", s.Served() == 3, std::to_string(s.Served()));
         s.Stop();
         SetUrlForTest(nullptr);
+    }
+
+    printf("== the release's zip in GitHub's answer\n");
+    {
+        const std::string answer = std::string("{\"tag_name\":\"v0.9.9\",\"draft\":false,\"prerelease\":false,\"assets\":[") +
+            "{\"name\":\"LSAddonManager-0.9.9-x64.zip\",\"size\":1234,\"digest\":\"sha256:" + std::string(64, 'a') + "\",\"browser_download_url\":\"https://evil.example/x.zip\"}," +
+            "{\"name\":\"other.zip\",\"size\":5,\"digest\":\"sha256:" + std::string(64, 'b') + "\"}]}";
+        const Release r = ParseLatestRelease(answer);
+        Check("the zip is found by its name, with its size and SHA-256", r.ok && r.zipSize == 1234 && r.zipSha256 == std::string(64, 'a'), r.zipSha256);
+        Check("its address is built from the tag, not taken from the answer",
+              r.zipUrl == std::string(kReleasesPage) + "/download/v0.9.9/LSAddonManager-0.9.9-x64.zip", r.zipUrl);
+        const Release bad = ParseLatestRelease("{\"tag_name\":\"v0.9.9\",\"assets\":[{\"name\":\"LSAddonManager-0.9.9-x64.zip\",\"size\":9,\"digest\":\"md5:abc\"}]}");
+        Check("a digest that is not a SHA-256 is not taken", bad.ok && bad.zipSha256.empty() && !bad.zipUrl.empty());
+    }
+
+    printf("== \"Don't ask again for this release\"\n");
+    {
+        Skip("0.9.9");
+        Check("the release declined is not offered again", Skipped("0.9.9"));
+        Check("a newer one is", !Skipped("0.9.10") && !Skipped(""));
+    }
+
+    printf("== downloading and checking an update (a local server; the Setup exe this build made)\n");
+    {
+        wchar_t exe[MAX_PATH]; GetModuleFileNameW(nullptr, exe, MAX_PATH);
+        const fs::path setup = fs::path(exe).parent_path().parent_path().parent_path().parent_path() / "installer" / "build" / "Release" / "LSAddonManagerSetup.exe";
+        if (!fs::exists(setup)) printf("SKIP  (no %s: build the installer first)\n", setup.string().c_str());
+        else {
+            const fs::path pack = dir / "pack", zip = dir / ("LSAddonManager-" + me + "-x64.zip");
+            fs::create_directories(pack);
+            fs::copy_file(setup, pack / "LSAddonManagerSetup.exe", fs::copy_options::overwrite_existing);
+            wchar_t sys[MAX_PATH]; GetSystemDirectoryW(sys, MAX_PATH);
+            std::wstring cmd = L"\"" + std::wstring(sys) + L"\\tar.exe\" -a -cf \"" + zip.wstring() + L"\" -C \"" + pack.wstring() + L"\" LSAddonManagerSetup.exe";
+            STARTUPINFOW si{}; si.cb = sizeof si; PROCESS_INFORMATION pi{};
+            if (CreateProcessW(nullptr, cmd.data(), nullptr, nullptr, FALSE, CREATE_NO_WINDOW, nullptr, nullptr, &si, &pi)) {
+                WaitForSingleObject(pi.hProcess, 60000); CloseHandle(pi.hProcess); CloseHandle(pi.hThread);
+            }
+            std::string bytes;
+            { std::ifstream in(zip, std::ios::binary); bytes.assign(std::istreambuf_iterator<char>(in), std::istreambuf_iterator<char>()); }
+            const std::string sha = AddonSecurity::ComputeSHA256(zip.wstring());
+            Check("a zip holding Setup was made for the test", bytes.size() > 1000 && sha.size() == 64, std::to_string(bytes.size()));
+            auto serve = [&](const std::string& expectVersion, const std::string& expectSha, const char* folderName, std::atomic<uint64_t>* done) {
+                Server s; s.Start({ Step{ Step::Reply, 200, bytes } });
+                const Progress p = DownloadAndCheck(expectVersion, s.Url("/download/zip"), expectSha, bytes.size(), (dir / folderName).wstring(), nullptr, done, nullptr);
+                s.Stop();
+                return p;
+            };
+            std::atomic<uint64_t> done{ 0 };
+            const Progress good = serve(me, sha, "good", &done);
+            Check("the download is checked and Setup unpacked: ready", good.step == Phase::Ready && fs::exists(good.setup), good.error);
+            Check("...its progress counted every byte", done == bytes.size(), std::to_string(done.load()) + " of " + std::to_string(bytes.size()));
+            const Progress wrongSha = serve(me, std::string(64, 'c'), "badsha", nullptr);
+            Check("a download that does not match GitHub's SHA-256 is refused", wrongSha.step == Phase::Failed && Has(wrongSha.error, "SHA-256"), wrongSha.error);
+            const Progress wrongVersion = serve("9.9.9", sha, "badversion", nullptr);
+            Check("a Setup of another version than the release's is refused", wrongVersion.step == Phase::Failed && Has(wrongVersion.error, "is not LS Addon Manager"), wrongVersion.error);
+            std::atomic<bool> cancel{ true };
+            Server s; s.Start({ Step{ Step::Reply, 200, bytes } });
+            const Progress cancelled = DownloadAndCheck(me, s.Url("/download/zip"), sha, bytes.size(), (dir / "cancelled").wstring(), &cancel, nullptr, nullptr);
+            s.Stop();
+            Check("a cancelled download stops and leaves nothing ready", cancelled.step == Phase::Failed && cancelled.error == "cancelled", cancelled.error);
+        }
     }
 
     if (live) {

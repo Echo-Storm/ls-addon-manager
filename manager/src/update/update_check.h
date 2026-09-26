@@ -24,6 +24,10 @@ struct Release {
     std::string tag;               // "v0.4.1"
     std::string version;           // "0.4.1"
     std::string url;               // this project's page for that release; built here, never taken from the answer
+    // the release's zip, LSAddonManager-<version>-x64.zip: its address is built here (never taken from the answer); GitHub's answer gives its
+    // size and SHA-256 ("digest"), which the download is checked against (empty / 0 when the answer has no such file)
+    std::string zipName, zipUrl, zipSha256;
+    uint64_t zipSize = 0;
 };
 Release ParseLatestRelease(const std::string& json);
 
@@ -50,6 +54,7 @@ struct Status {
     std::string url;               // its page (only when Available)
     std::string error;             // why it failed, in words
     int64_t checkedAt = 0;         // when, as seconds since 1970
+    std::string zipUrl, zipSha256; uint64_t zipSize = 0;   // its zip (only when Available and the release has one): see Release
 };
 
 extern const wchar_t* const kLatestReleaseUrl;   // https://api.github.com/repos/Echo-Storm/ls-addon-manager/releases/latest
@@ -61,6 +66,7 @@ Status Check(const std::string& currentVersion, const std::wstring& url, unsigne
 void StartCheckAsync();          // does nothing if one is already running
 Status Current();
 void SetUrlForTest(const wchar_t* url);   // tests point the check at a server of their own; null goes back to GitHub
+void SetStatusForTest(const Status& st);  // the UI preview: a result as if a check had found it
 
 // Called about once a minute: starts the daily check when it is due. Reads Settings > Updates (updates.check, on unless turned off; updates.last_check).
 void Tick();

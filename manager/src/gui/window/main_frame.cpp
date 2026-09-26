@@ -1,3 +1,4 @@
+#include "../widgets/update_offer.h"
 #include "main_frame.h"
 #include "status_text.h"
 #include "../tabs/tab_about.h"
@@ -70,6 +71,7 @@ void RenderMainFrame(AddonManager* manager, bool& bringAddonsForward) {
     ImGui::EndChild();
 
     widgets::StatusBar(BuildStatusLine(manager));
+    widgets::UpdateOffer();   // over everything: the offer to update, when the check finds a newer release
     ImGui::End();
 }
 

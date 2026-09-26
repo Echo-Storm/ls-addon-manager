@@ -4,6 +4,10 @@
 //   LSAddonManagerSetup.exe --folder <Lossless Scaling folder>      the wizard, starting with that folder
 //   LSAddonManagerSetup.exe --silent status|install|uninstall --folder <dir> [--remove-addons] [--payload <dir>] [--log <file>]
 //   LSAddonManagerSetup.exe --version                               what this setup carries (used by the build to check it)
+//   LSAddonManagerSetup.exe --folder <dir> --update-when-closed [--restart]
+//                                                                   the manager's update: waits (a window with Cancel) until Lossless Scaling
+//                                                                   running from that folder has closed, then updates it as the wizard does;
+//                                                                   --restart starts Lossless Scaling again afterwards
 //   LSAddonManagerSetup.exe --shot <dir> --folder <fake folder>     the README's pictures: the start page, then (after installing into that folder)
 //                                                                   the result page, saved as setup-start.bmp and setup-done.bmp; the window
 //                                                                   is kept off the screen, nothing is remembered. For a throwaway folder only.
@@ -97,6 +101,11 @@ struct App {
     std::thread worker;
     std::atomic<bool> done{false};
     bool showingProgress = false;
+
+    bool waitForClose = false, restartAfter = false;   // --update-when-closed, --restart
+    bool waiting = false;                              // the waiting page is shown
+    bool restarted = false;
+    DWORD lastLook = 0;
 
     int testCloseMs = 0;
     DWORD startTick = 0;
@@ -256,6 +265,31 @@ Page& ProgressPage(App& a, const std::wstring& what) {
     return p;
 }
 
+// The manager's update: Lossless Scaling has to close first (the manager lives inside it). Checked a few times a second.
+Page& WaitingPage(App& a) {
+    a.showingProgress = true;   // the marquee; and the window test does not close it while it waits
+    a.waiting = true;
+    Page& p = NewPage(a, L"Close Lossless Scaling to update LS Addon Manager" + (a.payload.ok ? L" to " + W(a.payload.version) : std::wstring()) + L".",
+                      L"Setup is waiting for it. Close Lossless Scaling: its window, or right-click its icon next to the clock and choose Exit.\n\n"
+                      L"Then the update runs by itself, with the usual backups" +
+                      std::wstring(a.restartAfter ? L", and Lossless Scaling starts again." : L".") +
+                      L"\n\nLossless Scaling folder:\n" + a.folder);
+    p.progress = true;
+    p.cfg.dwFlags |= TDF_SHOW_MARQUEE_PROGRESS_BAR;
+    Finish(p, false);
+    return p;
+}
+
+// Lossless Scaling again, after the manager's update (--restart). From an elevated Setup it is started through Explorer, so that it does not
+// inherit administrator rights it never had.
+void RestartLosslessScaling(App& a) {
+    const std::wstring exe = JoinPath(a.folder, L"LosslessScaling.exe");
+    if (!Exists(exe)) return;
+    if (a.elevated) ShellExecuteW(nullptr, L"open", L"explorer.exe", (L"\"" + exe + L"\"").c_str(), nullptr, SW_SHOWNORMAL);
+    else ShellExecuteW(nullptr, L"open", exe.c_str(), nullptr, a.folder.c_str(), SW_SHOWNORMAL);
+    a.restarted = true;
+}
+
 Page& ResultPage(App& a) {
     a.showingProgress = false;
     const Result& r = a.result;
@@ -263,7 +297,8 @@ Page& ResultPage(App& a) {
     if (r.ok) instruction = a.resultIsUninstall ? L"Uninstalled." : L"Done.";
     else instruction = r.rolledBack ? L"It did not work. Nothing was changed." : L"It did not work.";
     std::wstring content = W(r.message);
-    if (r.ok && !a.resultIsUninstall) content += L"\n\nStart Lossless Scaling once; the manager opens by itself.";
+    if (r.ok && !a.resultIsUninstall) content += a.restarted ? L"\n\nLossless Scaling is starting again; the manager opens with it."
+                                                             : L"\n\nStart Lossless Scaling once; the manager opens by itself.";
     if (!a.note.empty()) { content += L"\n\n" + a.note; a.note.clear(); }
     Page& p = NewPage(a, instruction, content);
     if (!r.log.empty() || !r.backupDir.empty()) {
@@ -437,10 +472,20 @@ HRESULT CALLBACK DialogProc(HWND hwnd, UINT msg, WPARAM wp, LPARAM, LONG_PTR dat
                 SendMessageW(hwnd, TDM_CLICK_BUTTON, IDCLOSE, 0);
             }
         }
-        if (a.showingProgress && a.done) {
+        if (a.waiting && GetTickCount() - a.lastLook >= 200) {
+            a.lastLook = GetTickCount();
+            if (!LosslessScalingRunning(a.folder)) {
+                a.waiting = false;
+                Refresh(a);
+                const bool canChange = a.writable || a.elevated;
+                if (a.advice.action != Action::None && !a.advice.blocked && canChange && a.payload.ok) StartWork(hwnd, a, false, false);
+                else Navigate(hwnd, MainPage(a));   // something else is in the way: the usual page says what, and what to do
+            }
+        } else if (a.showingProgress && a.done) {
             if (a.worker.joinable()) a.worker.join();
             if (a.result.ok && !a.resultIsUninstall && a.shotDir.empty()) RememberFolder(a.folder);
             Refresh(a);
+            if (a.result.ok && !a.resultIsUninstall && a.restartAfter) RestartLosslessScaling(a);
             Navigate(hwnd, ResultPage(a));
             if (a.shotStage == 1) { a.shotStage = 2; a.shotTick = GetTickCount(); }
         } else if (a.testCloseMs > 0 && !a.showingProgress && GetTickCount() - a.startTick > static_cast<DWORD>(a.testCloseMs)) {
@@ -577,8 +622,13 @@ int WINAPI wWinMain(HINSTANCE inst, HINSTANCE, PWSTR, int) {
         CoInitializeEx(nullptr, COINIT_APARTMENTTHREADED);
         a.candidates = FindCandidates();
         a.folder = Flag(args, L"--folder");
+        a.waitForClose = Has(args, L"--update-when-closed");
+        a.restartAfter = Has(args, L"--restart");
         Page* first = nullptr;
-        if (!a.folder.empty() || a.candidates.size() == 1) {
+        if (a.waitForClose && !a.folder.empty()) {   // the manager's update: the waiting page (it moves on at once if Lossless Scaling is not running)
+            Refresh(a);
+            first = &WaitingPage(a);
+        } else if (!a.folder.empty() || a.candidates.size() == 1) {
             if (a.folder.empty()) a.folder = a.candidates[0].dir;
             Refresh(a);
             first = &MainPage(a);

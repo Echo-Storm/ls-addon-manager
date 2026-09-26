@@ -58,6 +58,7 @@ set(FEATURE_SOURCES
 
 set(UPDATE_SOURCES
     src/update/update_check.cpp
+    src/update/updater.cpp
 )
 
 set(EVENT_SOURCES
@@ -95,6 +96,7 @@ set(GUI_SOURCES
     src/gui/widgets/toast.cpp
     src/gui/widgets/addon_card.cpp
     src/gui/widgets/runtime_list.cpp
+    src/gui/widgets/update_offer.cpp
     src/gui/widgets/status_bar.cpp
     src/gui/widgets/header_bar.cpp
     src/gui/widgets/empty_state.cpp
@@ -167,6 +169,7 @@ add_executable(eam_uipreview EXCLUDE_FROM_ALL
     src/gui/widgets/toast.cpp
     src/gui/widgets/addon_card.cpp
     src/gui/widgets/runtime_list.cpp
+    src/gui/widgets/update_offer.cpp
     src/gui/widgets/status_bar.cpp
     src/gui/widgets/header_bar.cpp
     src/host/system_stats.cpp
@@ -177,6 +180,7 @@ add_executable(eam_uipreview EXCLUDE_FROM_ALL
     src/gui/widgets/empty_state.cpp
     src/gui/window/status_text.cpp
     src/update/update_check.cpp
+    src/update/updater.cpp
     src/gui/tabs/tab_about.cpp
     src/gui/tabs/tab_features.cpp
     src/features/features.cpp
@@ -264,8 +268,9 @@ target_link_libraries(eam_guitest d3d11 dxgi d3dcompiler bcrypt minhook)
 
 # Offline test of the update check, against a small server of its own (add the argument "live" to also ask the real GitHub):
 # cmake --build . --config Release --target eam_updatetest
-add_executable(eam_updatetest EXCLUDE_FROM_ALL tools/update_test.cpp src/update/update_check.cpp src/config/config_manager.cpp src/log/logger.cpp)
+add_executable(eam_updatetest EXCLUDE_FROM_ALL tools/update_test.cpp src/update/update_check.cpp src/update/updater.cpp src/addon/addon_security.cpp src/config/config_manager.cpp src/log/logger.cpp)
 target_include_directories(eam_updatetest PRIVATE ${CMAKE_CURRENT_SOURCE_DIR} ${CMAKE_CURRENT_SOURCE_DIR}/sdk/include ${CMAKE_CURRENT_SOURCE_DIR}/third_party)
+target_link_libraries(eam_updatetest bcrypt)
 
 add_executable(eam_runtimetest EXCLUDE_FROM_ALL tools/runtime_test.cpp src/addon/runtime_files.cpp src/addon/addon_security.cpp src/config/config_manager.cpp src/log/logger.cpp)
 target_include_directories(eam_runtimetest PRIVATE ${CMAKE_CURRENT_SOURCE_DIR} ${CMAKE_CURRENT_SOURCE_DIR}/sdk/include ${CMAKE_CURRENT_SOURCE_DIR}/third_party)

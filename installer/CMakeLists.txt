@@ -51,6 +51,8 @@ add_executable(pack_payload tools/pack_payload.cpp)
 target_link_libraries(pack_payload PRIVATE setup_core)
 
 file(STRINGS "${CMAKE_CURRENT_SOURCE_DIR}/../manager/sdk/include/eam/version.h" _ver_line REGEX "EAM_VERSION_STRING \"")
+# read again when the version changes, or a build folder keeps the old number in Setup's file version (the manager's update checks it)
+set_property(DIRECTORY APPEND PROPERTY CMAKE_CONFIGURE_DEPENDS "${CMAKE_CURRENT_SOURCE_DIR}/../manager/sdk/include/eam/version.h")
 string(REGEX REPLACE ".*\"([0-9]+\\.[0-9]+\\.[0-9]+)\".*" "\\1" SETUP_VERSION "${_ver_line}")
 string(REPLACE "." "," SETUP_VERSION_CSV "${SETUP_VERSION},0")
 set(SETUP_ICON "${CMAKE_CURRENT_SOURCE_DIR}/../manager/manager-icon.ico")

@@ -1,5 +1,18 @@
 # Changelog
 
+## Unreleased
+
+- **Updating from the manager.** When the daily check finds a new release, a window offers **Download and install**, **Not now** or
+  **Don't ask again for this release**. The About tab has the same button.
+  - **How the download is checked:** the zip's address is built from the release's tag, never taken from GitHub's answer. Its size and
+    SHA-256 must match GitHub's listing, and the Setup inside must be LS Addon Manager Setup of that very version. Otherwise nothing is
+    used.
+  - **Installing:** **Install now** starts Setup with `--update-when-closed --restart`. Setup waits (Cancel is there) until Lossless
+    Scaling closes, updates it with the usual backups and rollback, and starts it again (not as administrator, even when Setup had to be).
+    Setup runs elevated only when the folder needs it.
+- **Setup's file version always follows the release** in every build folder. A folder configured before a version bump used to keep
+  the old number.
+
 ## 0.9.6 (2026-09-26)
 
 A quick fix for the upscalers' panels, which showed Neural Rendering's messages.

@@ -141,7 +141,7 @@ covers the settings, what to expect and what to do when something is wrong.
 - **Setup that repairs itself:** one file installs, updates, repairs after a Lossless Scaling update and uninstalls, with a backup of everything it replaces.
 - **Safe by design.** A faulting addon cannot take Lossless Scaling down with it, settings are written atomically, and a corrupt settings file is kept rather than
   overwritten. Optional SHA-256 checks of addon DLLs against a trust list.
-- **Interface size** from 75% to 200%, sharp on any display. A daily **update check** (it only compares version numbers; it can be turned off).
+- **Interface size** from 75% to 200%, sharp on any display. A daily **update check** that offers to download and install a new release, checked against GitHub's SHA-256 (it can be turned off).
 - **Open to other addons:** LosslessProxy's addons load unchanged, and the SDK gives an addon the same look, icons and a panel of its own.
 
 ## Get started
@@ -222,12 +222,20 @@ They work while the game has focus; the Ctrl+Shift pair keeps them away from the
 
 ## Keeping it up to date
 
-**The update check.** Once a day the manager asks github.com whether a newer release of this project exists. If there is one, the status bar says "Update available",
-and the About and Settings tabs show an **Open the download page** button. It is **on by default** and can be turned off in *Settings > Updates*; *Check now* always
-works. It only compares version numbers: **nothing is downloaded or installed**, and it is the only thing the manager ever sends over the internet (GitHub sees your
-IP address and the program's name and version, as with any download).
+**The update check.** Once a day the manager asks github.com whether a newer release of this project exists. It is **on by default** and can be turned off in
+*Settings > Updates*; *Check now* always works. It is the only thing the manager ever sends over the internet (GitHub sees your IP address and the program's name
+and version, as with any download). The check itself downloads nothing.
 
-**To update:** download the new zip, close Lossless Scaling, run `LSAddonManagerSetup.exe` and choose **Update**. Your settings carry over.
+**When there is a new release**, the manager asks once:
+
+- **Download and install** downloads the release's zip from this project's GitHub page, with a progress bar and Cancel. Before anything is used it is checked:
+  its size and SHA-256 must match what GitHub lists for the release, and the Setup inside must say it is LS Addon Manager Setup of that version. Then **Install
+  now** starts Setup, which waits for you to close Lossless Scaling, updates it with the usual backups, and starts Lossless Scaling again. Your settings carry over.
+  It asks for administrator rights only when your Lossless Scaling folder needs them.
+- **Not now** asks again after the next daily check.
+- **Don't ask again for this release** stays quiet until a newer one comes out. The About tab still has **Download and install** whenever you want it.
+
+**To update by hand:** download the new zip, close Lossless Scaling, run `LSAddonManagerSetup.exe` and choose **Update**.
 
 ## If something goes wrong
 
