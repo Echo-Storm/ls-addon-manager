@@ -191,10 +191,10 @@ void Record(ID3D11DeviceContext* ctx, ID3D11Texture2D* frame, uint32_t source) {
 }
 
 // What frames of this format hold, on the display the chain is on (hdr.h), with the SDR white; logged when it changes.
-nr::FrameEncoding FrameEncodingOf(DXGI_FORMAT format, IDXGISwapChain* chain, float* white) {
+nr::FrameEncoding FrameEncodingOf(DXGI_FORMAT format, IDXGISwapChain* chain, float* white, ID3D11Device* device = nullptr) {
     int setting;
     { std::lock_guard<std::mutex> lock(g_settingsMutex); setting = g_config.frameEncoding; }
-    const nr::DisplayHdr display = nr::QueryDisplayHdr(chain, g_tapDevice);
+    const nr::DisplayHdr display = nr::QueryDisplayHdr(chain, device ? device : g_tapDevice);
     const nr::FrameEncoding e = nr::EncodingOf(Bridge::ViewFormat(format), setting, display.hdr);
     *white = display.whiteNits;
     static uint64_t said = ~0ull;
@@ -934,6 +934,16 @@ bool ScalerPass(ID3D11DeviceContext* ctx, uint32_t x, uint32_t y, uint32_t z) {
                     picture.highlights = p.highlights; picture.saturation = p.saturation; picture.vibrance = p.vibrance;
                 }
                 g_link.SetPicture(picture);
+                { float white; const nr::FrameEncoding e = FrameEncodingOf(pass.inFmt, nullptr, &white, dev); g_link.SetEncoding(static_cast<uint32_t>(e), white); }
+                {   // Technical status's frame line (with the encoding FrameEncodingOf decided)
+                    static uint64_t shownKey = 0;
+                    const uint64_t key = (uint64_t)pass.inW << 40 | (uint64_t)pass.inH << 16 | (uint64_t)pass.inFmt;
+                    if (key != shownKey) {
+                        shownKey = key;
+                        char text[96]; snprintf(text, sizeof text, "%ux%u %s", pass.inW, pass.inH, FormatName(pass.inFmt));
+                        std::lock_guard<std::mutex> lock(g_textMutex); g_frameText = text;
+                    }
+                }
                 uint32_t fw = 0, fh = 0;
                 ID3D11Resource* flow = motion == 1 ? g_tap.NewestFlow(fw, fh) : nullptr;
                 const float fraction = g_nisPerFrame > 1 ? 1.0f / g_nisPerFrame : 1.0f;
@@ -947,8 +957,7 @@ bool ScalerPass(ID3D11DeviceContext* ctx, uint32_t x, uint32_t y, uint32_t z) {
                 if (!replaced && g_sr.IsFailed()) SetStatus(g_sr.LastError());
                 ++g_linkTries;
                 if (!replaced && g_link.LastRefusedFormat())
-                    SetScalerBlocked("this game's frames are HDR (10-bit or 16-bit colour), which the upscalers cannot take yet. Turn HDR off in the game "
-                                     "(or in Windows) to use it.");
+                    SetScalerBlocked("this game's frames are in a format the upscalers cannot take (the Logs tab names it), so NIS stays. Please report it.");
                 else if (replaced || g_upscaled) SetScalerBlocked("");
                 else if (g_linkTries > 240) SetScalerBlocked("it is ready but has not replaced a frame yet. The Logs tab says why.");
             } else if (g_linkDevice != dev) {

@@ -2,13 +2,17 @@
 
 ## Unreleased
 
+- **HDR games in the DLSS and FSR Upscalers.** They took 8-bit frames only, so with an HDR game NIS kept running. Now 10-bit (HDR10)
+  and 16-bit float (scRGB) frames are upscaled in their SDR view, as Neural Rendering does it since 0.9.5, and the picture goes back into
+  the frame's own encoding, so highlights keep their brightness. The picture controls, sharpening and edge smoothing work the same. A
+  Frame encoding setting under Upscaling overrides the automatic choice.
 - **The DLSS Upscaler says why it isn't replacing NIS.** When Lossless Scaling runs on a card that isn't NVIDIA's (another GPU, or
   the integrated one), DLSS cannot start. The panel used to say only "DLSS is not running yet", which looked like it ran and did
   nothing. It now names the card and says what to do: set Lossless Scaling's Preferred GPU to the NVIDIA card, or use the FSR
   Upscaler. It also speaks up when DLSS is ready but cannot connect to Lossless Scaling's device, or has not replaced a frame yet.
 - **Both upscalers: a window scaled into part of the screen in a layout they cannot follow** is now said as such. It used to read
   "Choose NIS as the Scaling Type", although NIS was chosen.
-- **Upscalers and HDR games:** the panel now says the frames are HDR, which the upscalers cannot take yet (it used to stay silent while NIS ran).
+- **Upscalers: a frame format they cannot take** is now said in the panel (it used to stay silent while NIS ran).
 - **The upscalers have one switch, the manager's.** Their own Enable box is gone: two switches for one thing confused people, and an
   unticked box left the upscaler off while the manager showed it on. An old "off" saved by that box is ignored.
 - **Neural Rendering: "unsupported frame format"** now names the format, and a frame copy that could not be set up says that instead.

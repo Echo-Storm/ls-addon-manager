@@ -71,6 +71,10 @@ public:
         }
     };
     void SetPicture(const Picture& p) { m_picture = p; }
+    // What the frames hold (FrameEncoding: 0 SDR, 1 scRGB, 2 HDR10) and the SDR white in nits. An HDR frame is upscaled in its SDR view
+    // (engine/hdr_hlsl.h: ToSdr in the grab pass, FromSdr as the picture goes into NIS's output), as Neural Rendering works on it, so the
+    // upscaler, the sharpening and the picture controls all see the 0..1 pictures they are made for, and highlights keep their brightness.
+    void SetEncoding(uint32_t encoding, float white) { m_encoding = encoding; m_white = white; }
     // The frame the last Upscale handed to the engine, as the grab pass wrote it (for the recorder: NIS's own input may be a texture a plain
     // copy reads as black, see the grab pass), or null when none was handed over. Taken once.
     ID3D11Texture2D* TakeGrabbed() { ID3D11Texture2D* t = m_grabbed; m_grabbed = nullptr; return t; }
@@ -97,8 +101,10 @@ private:
     void Log(const char* fmt, ...);
     void DescribeTargets(const NisPass& pass);
     bool MakeGrabShader();
+    bool MakePlaceShader();
     void Probe(uint64_t shown, bool inFresh);
-    void PlacePicture(const NisPass& pass, ID3D11Texture2D* picture);
+    bool PlacePicture(const NisPass& pass, ID3D11Texture2D* picture);   // false: it could not be put there (NIS then runs)
+    bool PlaceHdr(const NisPass& pass, ID3D11Texture2D* picture);
 
     LogFn m_log;
     SrEngine* m_engine = nullptr;
@@ -112,6 +118,13 @@ private:
     static const int kIn = 2, kOut = 3;   // frames with the engine at most; pictures in turn (the one shown is never one being written)
     ID3D11UnorderedAccessView* m_inUav[kIn] = {};
     Shared m_in[kIn], m_out[kOut], m_flow[kIn];   // frame n reads m_in[n % kIn] (and m_flow[n % kIn]) and writes m_out[n % kOut]
+    // HDR frames: the place pass writes the picture back into the frame's encoding (FromSdr) instead of a copy
+    uint32_t m_encoding = 0; float m_white = 200.0f;
+    ID3D11ComputeShader* m_place = nullptr;
+    ID3D11Buffer* m_placeConstants = nullptr;
+    ID3D11ShaderResourceView* m_outSrv[kOut] = {}; ID3D11Texture2D* m_outSrvFor[kOut] = {};   // views of m_out, for the place pass
+    ID3D11UnorderedAccessView* m_placeUav = nullptr; ID3D11Resource* m_placeTarget = nullptr;  // NIS's output, written by the place pass
+    uint32_t m_loggedEncoding = ~0u;
     Fence m_copied, m_done;           // "done" reaches n when the engine has finished frame n (its queue does them in order)
     uint64_t m_frame = 0;             // the newest frame handed to the engine
     uint64_t m_holds[kOut] = {};      // the frame whose finished picture each m_out holds (0: none)

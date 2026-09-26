@@ -2,6 +2,8 @@
 #include "addon/bridge.h"
 #include "addon/product.h"
 #include "engine/sr_engine.h"
+#include "engine/hdr_hlsl.h"
+#include <string>
 #include <d3dcompiler.h>
 #include <cmath>
 #include <cstdarg>
@@ -54,7 +56,7 @@ RWTexture2D<float4> uOut   : register(u0);
 cbuffer C : register(b0) {
     uint2 origin; uint tone; float brightness;
     float contrast; float gamma; float shadows; float highlights;
-    float saturation; float vibrance; float2 unused;
+    float saturation; float vibrance; uint encoding; float white;   // encoding: 0 SDR, 1 scRGB, 2 HDR10 (hdr_hlsl.h)
 };
 static const float3 kLuma = float3(0.299, 0.587, 0.114);
 [numthreads(8, 8, 1)]
@@ -62,6 +64,7 @@ void CSGrab(uint3 id : SV_DispatchThreadID) {
     uint w, h; uOut.GetDimensions(w, h);
     if (id.x >= w || id.y >= h) return;
     float4 c = tFrame.Load(int3(id.xy + origin, 0));
+    c.rgb = ToSdr(c.rgb, encoding, white);   // an HDR frame's SDR view (SDR: as it is)
     if (tone != 0u) {
         c.rgb = saturate((c.rgb - 0.5) * contrast + 0.5 + brightness);                  // tone, as a monitor's controls
         c.rgb = pow(max(c.rgb, 1e-5), 1.0 / max(gamma, 0.05));
@@ -72,6 +75,20 @@ void CSGrab(uint3 id : SV_DispatchThreadID) {
         c.rgb = saturate(l + (c.rgb - l) * (saturation + vibrance * (1.0 - saturate(spread))));
     }
     uOut[id.xy] = c;
+}
+)HLSL";
+
+// The place pass (HDR frames only): the upscaler's picture, made in the frame's SDR view, back into the frame's own encoding, written into
+// NIS's output (at the output viewport's corner). SDR frames are copied as they are, without it.
+const char* const kPlaceHlsl = R"HLSL(
+Texture2D<float4>   tPicture : register(t0);
+RWTexture2D<float4> uOut     : register(u0);
+cbuffer C : register(b0) { uint2 origin; uint2 size; uint encoding; float white; float2 unused; };
+[numthreads(8, 8, 1)]
+void CSPlace(uint3 id : SV_DispatchThreadID) {
+    if (id.x >= size.x || id.y >= size.y) return;
+    const float4 p = tPicture.Load(int3(id.xy, 0));
+    uOut[id.xy + origin] = float4(FromSdr(p.rgb, encoding, white), p.a);
 }
 )HLSL";
 
@@ -222,13 +239,14 @@ bool ScalerLink::Init(ID3D11Device* dev, ID3D11DeviceContext* ctx, SrEngine* eng
     if (FAILED(dev->QueryInterface(IID_PPV_ARGS(&m_dev))) || FAILED(ctx->QueryInterface(IID_PPV_ARGS(&m_ctx4)))) {
         Log("%s upscaler: Lossless Scaling's device has no shared fences (D3D11.4 is needed)", kUpscalerName); Shutdown(); return false;
     }
-    if (!MakeFence(m_copied, "copied") || !MakeFence(m_done, "done") || !MakeGrabShader()) { Shutdown(); return false; }
+    if (!MakeFence(m_copied, "copied") || !MakeFence(m_done, "done") || !MakeGrabShader() || !MakePlaceShader()) { Shutdown(); return false; }
     return true;
 }
 
 bool ScalerLink::MakeGrabShader() {
     ID3DBlob* code = nullptr, * error = nullptr;
-    if (FAILED(D3DCompile(kGrabHlsl, strlen(kGrabHlsl), "scaler_grab", nullptr, nullptr, "CSGrab", "cs_5_0", D3DCOMPILE_OPTIMIZATION_LEVEL3, 0, &code, &error))) {
+    const std::string source = std::string(NR_HDR_HLSL) + kGrabHlsl;
+    if (FAILED(D3DCompile(source.c_str(), source.size(), "scaler_grab", nullptr, nullptr, "CSGrab", "cs_5_0", D3DCOMPILE_OPTIMIZATION_LEVEL3, 0, &code, &error))) {
         Log("%s upscaler: the grab shader: %s", kUpscalerName, error ? static_cast<const char*>(error->GetBufferPointer()) : "?"); SafeRelease(error); return false;
     }
     const HRESULT hr = m_dev->CreateComputeShader(code->GetBufferPointer(), code->GetBufferSize(), nullptr, &m_grab);
@@ -236,6 +254,20 @@ bool ScalerLink::MakeGrabShader() {
     if (FAILED(hr)) { Log("%s upscaler: the grab shader could not be made: 0x%08x", kUpscalerName, (unsigned)hr); return false; }
     D3D11_BUFFER_DESC cb{}; cb.ByteWidth = 48; cb.Usage = D3D11_USAGE_DYNAMIC; cb.BindFlags = D3D11_BIND_CONSTANT_BUFFER; cb.CPUAccessFlags = D3D11_CPU_ACCESS_WRITE;
     if (FAILED(m_dev->CreateBuffer(&cb, nullptr, &m_grabOrigin))) { Log("%s upscaler: the grab's constants could not be made", kUpscalerName); return false; }
+    return true;
+}
+
+bool ScalerLink::MakePlaceShader() {
+    ID3DBlob* code = nullptr, * error = nullptr;
+    const std::string source = std::string(NR_HDR_HLSL) + kPlaceHlsl;
+    if (FAILED(D3DCompile(source.c_str(), source.size(), "scaler_place", nullptr, nullptr, "CSPlace", "cs_5_0", D3DCOMPILE_OPTIMIZATION_LEVEL3, 0, &code, &error))) {
+        Log("%s upscaler: the place shader: %s", kUpscalerName, error ? static_cast<const char*>(error->GetBufferPointer()) : "?"); SafeRelease(error); return false;
+    }
+    const HRESULT hr = m_dev->CreateComputeShader(code->GetBufferPointer(), code->GetBufferSize(), nullptr, &m_place);
+    code->Release();
+    if (FAILED(hr)) { Log("%s upscaler: the place shader could not be made: 0x%08x", kUpscalerName, (unsigned)hr); return false; }
+    D3D11_BUFFER_DESC cb{}; cb.ByteWidth = 32; cb.Usage = D3D11_USAGE_DYNAMIC; cb.BindFlags = D3D11_BIND_CONSTANT_BUFFER; cb.CPUAccessFlags = D3D11_CPU_ACCESS_WRITE;
+    if (FAILED(m_dev->CreateBuffer(&cb, nullptr, &m_placeConstants))) { Log("%s upscaler: the place pass's constants could not be made", kUpscalerName); return false; }
     return true;
 }
 
@@ -259,6 +291,9 @@ void ScalerLink::Shutdown() {
     }
     for (auto*& v : m_inUav) SafeRelease(v);
     SafeRelease(m_grab); SafeRelease(m_grabOrigin);
+    SafeRelease(m_place); SafeRelease(m_placeConstants); SafeRelease(m_placeUav); m_placeTarget = nullptr;
+    for (int i = 0; i < kOut; ++i) { SafeRelease(m_outSrv[i]); m_outSrvFor[i] = nullptr; }
+    m_loggedEncoding = ~0u;
     g_viewports.Reset();   // read again on the next device
     for (auto& t : m_in) t.Release();
     for (auto& t : m_out) t.Release();
@@ -310,9 +345,12 @@ bool ScalerLink::Upscale(const NisPass& pass, ID3D11Resource* flow, uint32_t flo
     }
     // the shared textures: the frame as RGBA8 (the grab pass reads BGRA as RGBA), the picture in the output's format, which the upscaler
     // writes through a UAV
-    const DXGI_FORMAT inFmt = DXGI_FORMAT_R8G8B8A8_UNORM, outFmt = Bridge::ViewFormat(pass.outFmt);
-    const DXGI_FORMAT inView = Bridge::ViewFormat(pass.inFmt);
-    m_refusedFormat = (inView != DXGI_FORMAT_R8G8B8A8_UNORM && inView != DXGI_FORMAT_B8G8R8A8_UNORM) || (outFmt != DXGI_FORMAT_R8G8B8A8_UNORM && outFmt != DXGI_FORMAT_R10G10B10A2_UNORM && outFmt != DXGI_FORMAT_R16G16B16A16_FLOAT);
+    // 10-bit and half-float frames (HDR, or 10-bit SDR) go through a half-float frame texture, so their SDR view keeps its precision
+    const DXGI_FORMAT outFmt = Bridge::ViewFormat(pass.outFmt), inView = Bridge::ViewFormat(pass.inFmt);
+    const bool in8 = inView == DXGI_FORMAT_R8G8B8A8_UNORM || inView == DXGI_FORMAT_B8G8R8A8_UNORM;
+    const DXGI_FORMAT inFmt = in8 ? DXGI_FORMAT_R8G8B8A8_UNORM : DXGI_FORMAT_R16G16B16A16_FLOAT;
+    m_refusedFormat = (!in8 && inView != DXGI_FORMAT_R10G10B10A2_UNORM && inView != DXGI_FORMAT_R16G16B16A16_FLOAT) ||
+                      (outFmt != DXGI_FORMAT_R8G8B8A8_UNORM && outFmt != DXGI_FORMAT_R10G10B10A2_UNORM && outFmt != DXGI_FORMAT_R16G16B16A16_FLOAT);
     if (m_refusedFormat) {
         if (!m_loggedFormat) { Log("%s upscaler: frame format %d -> %d is not one the upscaler can take here; NIS stays", kUpscalerName, (int)pass.inFmt, (int)pass.outFmt); m_loggedFormat = true; }
         return false;
@@ -355,9 +393,9 @@ bool ScalerLink::Upscale(const NisPass& pass, ID3D11Resource* flow, uint32_t flo
         ID3D11Buffer* nisConstants = nullptr; m_ctx->CSGetConstantBuffers(0, 1, &nisConstants);
         D3D11_MAPPED_SUBRESOURCE mapped{};
         if (SUCCEEDED(m_ctx->Map(m_grabOrigin, 0, D3D11_MAP_WRITE_DISCARD, 0, &mapped))) {
-            struct { uint32_t x, y, tone; float brightness, contrast, gamma, shadows, highlights, saturation, vibrance, unused[2]; } constants = {
+            struct { uint32_t x, y, tone; float brightness, contrast, gamma, shadows, highlights, saturation, vibrance; uint32_t encoding; float white; } constants = {
                 pass.inX, pass.inY, m_picture.Neutral() ? 0u : 1u, m_picture.brightness, m_picture.contrast, m_picture.gamma,
-                m_picture.shadows, m_picture.highlights, m_picture.saturation, m_picture.vibrance, { 0, 0 } };
+                m_picture.shadows, m_picture.highlights, m_picture.saturation, m_picture.vibrance, m_encoding, m_white };
             static_assert(sizeof constants == 48, "the grab's cbuffer");
             memcpy(mapped.pData, &constants, sizeof constants); m_ctx->Unmap(m_grabOrigin, 0);
         }
@@ -383,8 +421,7 @@ bool ScalerLink::Upscale(const NisPass& pass, ID3D11Resource* flow, uint32_t flo
         if (m_handoff == Handoff::Wait) {
             if (!ran) return false;
             m_ctx4->Wait(m_done.d3d11, n);   // a GPU wait: Lossless Scaling's queue holds until the picture is written
-            PlacePicture(pass, m_out[out].d3d11);
-            return true;
+            return PlacePicture(pass, m_out[out].d3d11);
         }
     } else {
         ++m_count.skipped;
@@ -413,23 +450,65 @@ bool ScalerLink::Upscale(const NisPass& pass, ID3D11Resource* flow, uint32_t flo
     if (!show || m_holds[show % kOut] != show) return false;   // nothing finished yet: NIS this once
     if (show == m_lastShown) { ++m_count.repeats; if (close) ++m_count.closeRepeats; }
     m_lastShown = show;
-    PlacePicture(pass, m_out[show % kOut].d3d11);
-    return true;
+    return PlacePicture(pass, m_out[show % kOut].d3d11);
 }
 
 // The picture into the pass's output: the whole of it, or its output viewport (the rest, Lossless Scaling's borders, is left as it is).
-void ScalerLink::PlacePicture(const NisPass& pass, ID3D11Texture2D* picture) {
-    if (!pass.Partial()) { m_ctx->CopyResource(pass.out, picture); return; }
+bool ScalerLink::PlacePicture(const NisPass& pass, ID3D11Texture2D* picture) {
+    if (m_encoding != m_loggedEncoding) {
+        m_loggedEncoding = m_encoding;
+        if (m_encoding) Log("%s upscaler: HDR frames (%s, SDR white %.0f nits): upscaled in their SDR view, the picture put back in their own encoding",
+                            kUpscalerName, m_encoding == 1 ? "scRGB" : "HDR10", m_white);
+    }
+    if (m_encoding) return PlaceHdr(pass, picture);
+    if (!pass.Partial()) { m_ctx->CopyResource(pass.out, picture); return true; }
     m_ctx->CopySubresourceRegion(pass.out, 0, pass.outX, pass.outY, 0, picture, 0, nullptr);
     if (!m_loggedPartial) {
         m_loggedPartial = true;
         Log("%s upscaler: the window is scaled into part of the screen: %ux%u from %u,%u of the frame -> %ux%u at %u,%u", kUpscalerName, pass.inW, pass.inH,
             pass.inX, pass.inY, pass.outW, pass.outH, pass.outX, pass.outY);
     }
+    return true;
+}
+
+// An HDR frame's picture into NIS's output through the place pass (FromSdr), on the pass's context. The caller's SavedBindings puts the
+// pass's own views and shader back; its constant buffer is put back here.
+bool ScalerLink::PlaceHdr(const NisPass& pass, ID3D11Texture2D* picture) {
+    int slot = -1;
+    for (int i = 0; i < kOut; ++i) if (m_out[i].d3d11 == picture) slot = i;
+    if (slot < 0 || !m_place || !m_placeConstants) return false;
+    if (m_outSrvFor[slot] != picture) {
+        SafeRelease(m_outSrv[slot]); m_outSrvFor[slot] = nullptr;
+        if (FAILED(m_dev->CreateShaderResourceView(picture, nullptr, &m_outSrv[slot]))) { Log("%s upscaler: the picture's view could not be made", kUpscalerName); return false; }
+        m_outSrvFor[slot] = picture;
+    }
+    if (m_placeTarget != pass.out) {
+        SafeRelease(m_placeUav); m_placeTarget = nullptr;
+        D3D11_UNORDERED_ACCESS_VIEW_DESC u{}; u.Format = Bridge::ViewFormat(pass.outFmt); u.ViewDimension = D3D11_UAV_DIMENSION_TEXTURE2D;
+        if (FAILED(m_dev->CreateUnorderedAccessView(pass.out, &u, &m_placeUav))) { Log("%s upscaler: NIS's output could not be written in HDR (no UAV of format %d)", kUpscalerName, (int)u.Format); return false; }
+        m_placeTarget = pass.out;
+    }
+    const uint32_t w = pass.outW, h = pass.outH;
+    D3D11_MAPPED_SUBRESOURCE mapped{};
+    if (FAILED(m_ctx->Map(m_placeConstants, 0, D3D11_MAP_WRITE_DISCARD, 0, &mapped))) return false;
+    struct { uint32_t x, y, w, h, encoding; float white; float unused[2]; } constants = { pass.Partial() ? pass.outX : 0u, pass.Partial() ? pass.outY : 0u, w, h, m_encoding, m_white, { 0, 0 } };
+    static_assert(sizeof constants == 32, "the place pass's cbuffer");
+    memcpy(mapped.pData, &constants, sizeof constants); m_ctx->Unmap(m_placeConstants, 0);
+    ID3D11Buffer* before = nullptr; m_ctx->CSGetConstantBuffers(0, 1, &before);
+    m_ctx->CSSetShader(m_place, nullptr, 0);
+    m_ctx->CSSetShaderResources(0, 1, &m_outSrv[slot]);
+    m_ctx->CSSetUnorderedAccessViews(0, 1, &m_placeUav, nullptr);
+    m_ctx->CSSetConstantBuffers(0, 1, &m_placeConstants);
+    m_ctx->Dispatch((w + 7) / 8, (h + 7) / 8, 1);
+    ID3D11ShaderResourceView* noSrv = nullptr; ID3D11UnorderedAccessView* noUav = nullptr;
+    m_ctx->CSSetShaderResources(0, 1, &noSrv); m_ctx->CSSetUnorderedAccessViews(0, 1, &noUav, nullptr);
+    m_ctx->CSSetConstantBuffers(0, 1, &before);
+    SafeRelease(before);
+    return true;
 }
 
 void ScalerLink::PresentCopy(IDXGISwapChain* sc) {
-    if (!m_atPresent || !m_dev || m_handoff != Handoff::AtPresent) return;
+    if (!m_atPresent || !m_dev || m_handoff != Handoff::AtPresent || m_encoding) return;   // (HDR pictures need the place pass: not at Present)
     ID3D11Texture2D* back = nullptr;
     if (FAILED(sc->GetBuffer(0, IID_PPV_ARGS(&back)))) return;
     ID3D11Device* dev = nullptr; back->GetDevice(&dev);

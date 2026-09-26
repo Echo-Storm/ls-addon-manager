@@ -453,6 +453,14 @@ void DrawPanel() {
             "them), the picture before would be shown again: a small judder. On (the default), Lossless Scaling's frame waits on the GPU for the new picture instead, "
             "as a game with DLSS built in waits for DLSS; the CPU never waits. Off: the picture before is shown again. Compare the line above with it on and off.");
         Note("Compare with the Before / after hotkey (Compare and hotkeys): it switches between %s and Lossless Scaling's own NIS while you play.", U);
+        {   // HDR games: the frames are upscaled in their SDR view and put back in their own encoding (scaler11.h, SetEncoding)
+            static const char* const encodings[] = { "Automatic", "SDR", "HDR" };
+            ImGui::SetNextItemWidth(220.0f);
+            if (ImGui::Combo("Frame encoding", &c.frameEncoding, encodings, 3)) changed = true;
+            Tip("For HDR games. Automatic (the default) works it out: 8-bit frames are SDR, 16-bit float ones HDR (scRGB), and 10-bit ones HDR (HDR10) "
+                "when Windows runs the display in HDR. Set SDR or HDR only if the picture comes out washed out, too dark or too bright. "
+                "Technical status shows what was decided.");
+        }
     }
     if (!kScalerAddon && eam::ui::SectionHeader("Quality and performance")) {
         // The model costs ~10 ms + ~7 ms per megapixel on Ampere. The working scale is the only cost lever: past the
