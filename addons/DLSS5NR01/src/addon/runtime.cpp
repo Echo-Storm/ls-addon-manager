@@ -603,8 +603,8 @@ void OnPresent(IDXGISwapChain* sc) {
         }
     }
     if (g_off || g_engineStarting || !sc) return;
-    if (kScalerAddon) { ScalerPresentGuarded(sc); return; }   // (the upscalers have no Enable of their own: the manager's switch)
-    { std::lock_guard<std::mutex> lock(g_settingsMutex); if (!g_config.enabled) return; }   // the upscaler: DLSS's picture over NIS's (Handoff::AtPresent)
+    if (kScalerAddon) { ScalerPresentGuarded(sc); return; }   // the upscaler: its picture over NIS's (Handoff::AtPresent); no Enable of its own
+    { std::lock_guard<std::mutex> lock(g_settingsMutex); if (!g_config.enabled) return; }
     if (!OwnsFrames()) return;
     std::lock_guard<std::mutex> lock(g_frameMutex);
     PresentGuarded(sc);
@@ -959,7 +959,8 @@ bool ScalerPass(ID3D11DeviceContext* ctx, uint32_t x, uint32_t y, uint32_t z) {
                 if (!replaced && g_link.LastRefusedFormat())
                     SetScalerBlocked("this game's frames are in a format the upscalers cannot take (the Logs tab names it), so NIS stays. Please report it.");
                 else if (replaced || g_upscaled) SetScalerBlocked("");
-                else if (g_linkTries > 240) SetScalerBlocked("it is ready but has not replaced a frame yet. The Logs tab says why.");
+                else if (g_linkTries > 240 && (handoff == static_cast<int>(ScalerLink::Handoff::Late) || handoff == static_cast<int>(ScalerLink::Handoff::Wait)))
+                    SetScalerBlocked("it is ready but has not replaced a frame yet. The Logs tab says why.");   // (Observe and AtPresent never replace it)
             } else if (g_linkDevice != dev) {
                 SetScalerBlocked("it is ready but could not be connected to Lossless Scaling's device. The Logs tab says why.");
             }

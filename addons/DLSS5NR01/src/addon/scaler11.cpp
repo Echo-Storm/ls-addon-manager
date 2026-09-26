@@ -164,8 +164,11 @@ bool ResolveViewports(ID3D11DeviceContext* ctx, const D3D11_TEXTURE2D_DESC& in, 
 
 // ---- recognising the NIS pass
 
+namespace { bool g_lastRefused = false; }   // the last FindNisPass was a NIS pass whose layout could not be followed (render thread only)
+
 bool FindNisPass(ID3D11DeviceContext* ctx, uint32_t x, uint32_t y, uint32_t z, NisPass& pass, const std::function<void(const char*)>& log) {
     pass = {};
+    g_lastRefused = false;
     if (z != 1) return false;
     ID3D11ShaderResourceView* srvs[3] = {}; ID3D11UnorderedAccessView* uav = nullptr;
     ctx->CSGetShaderResources(0, 3, srvs); ctx->CSGetUnorderedAccessViews(0, 1, &uav);
@@ -181,6 +184,7 @@ bool FindNisPass(ID3D11DeviceContext* ctx, uint32_t x, uint32_t y, uint32_t z, N
     SafeRelease(uav); SafeRelease(res[1]); SafeRelease(res[2]);
     // NIS's bindings with a dispatch over less than the output: a window of another shape, scaled into part of the screen
     const bool part = nis && !whole && x <= (o.Width + 31) / 32 && y <= (o.Height + 23) / 24 && ResolveViewports(ctx, in, o, x, y, pass, log);
+    g_lastRefused = nis && !whole && !part && g_viewports.state == 3;   // this very pass (not a verdict kept from another window shape)
     if (!whole && !part) { SafeRelease(res[0]); SafeRelease(out); pass = {}; return false; }
     pass.in = res[0]; pass.out = out; pass.inFmt = in.Format; pass.outFmt = o.Format;
     if (whole) { pass.inW = in.Width; pass.inH = in.Height; pass.outW = o.Width; pass.outH = o.Height; }
@@ -189,7 +193,7 @@ bool FindNisPass(ID3D11DeviceContext* ctx, uint32_t x, uint32_t y, uint32_t z, N
 
 void ReleaseNisPass(NisPass& pass) { SafeRelease(pass.in); SafeRelease(pass.out); pass = {}; }
 
-bool NisLayoutRefused() { return g_viewports.state == 3; }
+bool NisLayoutRefused() { return g_lastRefused; }
 
 // ---- the link to the engine
 
