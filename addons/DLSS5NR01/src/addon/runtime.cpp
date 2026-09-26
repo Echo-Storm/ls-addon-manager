@@ -329,6 +329,9 @@ bool Tappable(ID3D11DeviceContext* ctx) {
     char text[192];
     snprintf(text, sizeof text, "%p on %s (LUID %08x) -> %s", static_cast<void*>(dev), card.name.c_str(), static_cast<unsigned>(card.luid.LowPart), card.nvidia ? "TAPPED" : "ignored");
     if (card.nvidia) { std::lock_guard<std::mutex> lock(g_textMutex); g_tappedDeviceText = text; }
+    else if (!g_tapDevice)   // frame generation runs on this card and no NVIDIA one has been seen: say so, naming it (not a guess from device events)
+        SetStatus("frame generation runs on " + (card.name.empty() ? std::string("a card") : card.name) + ", not an NVIDIA card: DLSS 5 needs an NVIDIA "
+                  "RTX card. Set Lossless Scaling's Preferred GPU to your NVIDIA card.");
     Log("dispatching device %s", text);
     dev->Release();
     return card.nvidia;
@@ -724,8 +727,8 @@ void OnDeviceEvent(uint32_t id, const void*, uint32_t, void*) {
     Log("device %p on '%s' LUID %08x:%08x display=%d -> %s", static_cast<void*>(dev), card.name.c_str(), card.luid.HighPart, card.luid.LowPart, card.drivesDisplay ? 1 : 0,
         card.nvidia ? "NVIDIA, ok" : kFsrScaler ? "not NVIDIA, ok for FSR" : "not NVIDIA, ignored");
     // (the upscalers judge the card on the NIS pass itself, which names the card really in use: Lossless Scaling makes devices on others too)
-    if (!card.nvidia && !kScalerAddon) SetStatus("waiting: LS device is not an NVIDIA adapter");
-    else if (kScalerAddon) SetStatus("waiting for Lossless Scaling's NIS pass (Scaling Type: NIS, the game in a window smaller than the screen)");   // once it runs, the upscaler's own line
+    // (nor does Neural Rendering: the card frame generation really runs on is named from its passes, in Tappable)
+    if (kScalerAddon) SetStatus("waiting for Lossless Scaling's NIS pass (Scaling Type: NIS, the game in a window smaller than the screen)");   // once it runs, the upscaler's own line
     else if (!g_engine.IsReady()) SetStatus("waiting for LSFG dispatches");
     // The engine starts from the tap, on the card whose device actually runs LSFG (one card, a hybrid laptop, or either card of a two-card
     // machine), not from these events, which come for every device Lossless Scaling makes.
