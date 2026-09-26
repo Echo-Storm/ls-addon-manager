@@ -974,7 +974,18 @@ bool ScalerPass(ID3D11DeviceContext* ctx, uint32_t x, uint32_t y, uint32_t z) {
                 }
                 g_link.SetPicture(picture);
                 g_passStep = "reading the display's HDR state";
-                { float white; const nr::FrameEncoding e = FrameEncodingOf(pass.inFmt, nullptr, &white, dev); g_link.SetEncoding(static_cast<uint32_t>(e), white); }
+                {   // the display asked is the one Lossless Scaling's window is on: NIS writes its swap chain's back buffer, which names its chain
+                    // (asked each time and let go at once: a reference kept could stop Lossless Scaling from replacing its swap chain)
+                    IDXGISwapChain* chain = nullptr;
+                    IDXGISurface* surface = nullptr;
+                    if (pass.out && SUCCEEDED(pass.out->QueryInterface(IID_PPV_ARGS(&surface)))) {
+                        if (FAILED(surface->GetParent(IID_PPV_ARGS(&chain)))) chain = nullptr;
+                        surface->Release();
+                    }
+                    float white; const nr::FrameEncoding e = FrameEncodingOf(pass.inFmt, chain, &white, dev);
+                    if (chain) chain->Release();
+                    g_link.SetEncoding(static_cast<uint32_t>(e), white);
+                }
                 {   // Technical status's frame line (with the encoding FrameEncodingOf decided)
                     static uint64_t shownKey = 0;
                     const uint64_t key = (uint64_t)pass.inW << 40 | (uint64_t)pass.inH << 16 | (uint64_t)pass.inFmt;
