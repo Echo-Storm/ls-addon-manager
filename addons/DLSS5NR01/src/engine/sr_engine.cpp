@@ -409,6 +409,10 @@ void SrEngine::Submit(const Job& j) {
 }
 
 void SrEngine::WorkerLoop() {
+    // on the frame path now (a frame waits for this thread to record it), in short bursts: ahead of a busy game's threads, so the scheduler
+    // does not hold it up by milliseconds when every core is loaded
+    SetThreadPriority(GetCurrentThread(), THREAD_PRIORITY_HIGHEST);
+    SetThreadDescription(GetCurrentThread(), L"LS Addon engine");
     for (;;) {
         Job j;
         {
