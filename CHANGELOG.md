@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+- **The updater cleans up after itself.** Each update left its download (about 110 MB) in the temporary folder. Downloads of versions
+  already installed, and of other versions than the one being downloaded, are now removed (at a download's start and once a day).
 - **Neural Rendering on its own thread too.** NVIDIA's model is now called from a thread of the engine's own; Lossless Scaling's render
   thread only hands frames over, so a model that stops responding can no longer freeze it. After 20 seconds the panel says so, and
   Lossless Scaling runs untouched. This also separates the model from Lossless Scaling's frame pacing, a step towards frame generation.

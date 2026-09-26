@@ -34,6 +34,11 @@ void ForgetDownload();                         // back to Idle (after a failure,
 // Starts the checked Setup on the Lossless Scaling folder; false with the reason if it could not be started.
 bool StartSetup(const std::wstring& lsDir, std::string& error);
 
+// The updater's own downloads in %TEMP%\LSAddonManager-update\<version> (about 110 MB each): the folders of versions this build already
+// is or is newer than, and of any other version than keep (the one being downloaded now; empty: none). Called at a download's start and
+// once a day from Tick. A folder in use (a Setup still running from it) is simply left for next time.
+void CleanOldDownloads(const std::string& keep);
+
 bool Skipped(const std::string& version);      // "Don't ask again for this release"
 void Skip(const std::string& version);
 

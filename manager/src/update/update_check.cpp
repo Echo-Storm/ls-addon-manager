@@ -1,4 +1,5 @@
 #include "update_check.h"
+#include "updater.h"
 #include "../config/config_manager.h"
 #include "../log/logger.h"
 #include "../../sdk/include/eam/version.h"
@@ -261,6 +262,8 @@ void StartCheckAsync() {
 }
 
 void Tick() {
+    static ULONGLONG cleanedAt = 0;   // the updater's old downloads, once a day (updater.h)
+    if (!cleanedAt || GetTickCount64() - cleanedAt > 24ull * 3600 * 1000) { cleanedAt = GetTickCount64(); CleanOldDownloads(""); }
     auto& cfg = ConfigManager::Instance();
     const bool enabled = cfg.GlobalGetOr<bool>("updates", "check", true);   // on unless the person turned it off
     const int64_t last = cfg.GlobalGetOr<int64_t>("updates", "last_check", 0);

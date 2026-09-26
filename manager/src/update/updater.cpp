@@ -154,6 +154,26 @@ Progress DownloadAndCheck(const std::string& version, const std::wstring& url, c
     return p;
 }
 
+void CleanOldDownloads(const std::string& keep) {
+    wchar_t tmp[MAX_PATH] = {};
+    if (!GetTempPathW(MAX_PATH, tmp)) return;
+    const std::filesystem::path root = std::filesystem::path(tmp) / L"LSAddonManager-update";
+    std::error_code ec;
+    if (!std::filesystem::is_directory(root, ec)) return;
+    const Version running = ParseVersion(EAM_VERSION_STRING);
+    for (const auto& entry : std::filesystem::directory_iterator(root, ec)) {
+        if (!entry.is_directory(ec)) continue;
+        const std::string name = entry.path().filename().string();
+        const Version v = ParseVersion(name);
+        if (!v.ok) continue;   // not one of ours
+        const bool installed = running.ok && Compare(v, running) <= 0;
+        if (!installed && (keep.empty() || name == keep)) continue;
+        std::error_code rm;
+        std::filesystem::remove_all(entry.path(), rm);
+        if (!rm) LOG_INFO("Update", "removed the old download of %s from the temporary folder", name.c_str());
+    }
+}
+
 void SetDownloadUrlForTest(const wchar_t* url) { std::lock_guard<std::mutex> lk(g_mu); g_testUrl = url ? url : L""; }
 
 void StartDownload(const Status& available) {
@@ -168,6 +188,7 @@ void StartDownload(const Status& available) {
         g_progress.step = Phase::Downloading;
     }
     g_busy = true; g_cancel = false; g_done = 0; g_total = available.zipSize;
+    CleanOldDownloads(available.latest);
     wchar_t tmp[MAX_PATH] = {}; GetTempPathW(MAX_PATH, tmp);
     const std::wstring folder = std::wstring(tmp) + L"LSAddonManager-update\\" + Wide(available.latest);
     LOG_INFO("Update", "downloading %s", available.latest.c_str());
