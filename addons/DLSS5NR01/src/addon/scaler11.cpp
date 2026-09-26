@@ -172,6 +172,8 @@ bool FindNisPass(ID3D11DeviceContext* ctx, uint32_t x, uint32_t y, uint32_t z, N
 
 void ReleaseNisPass(NisPass& pass) { SafeRelease(pass.in); SafeRelease(pass.out); pass = {}; }
 
+bool NisLayoutRefused() { return g_viewports.state == 3; }
+
 // ---- the link to the engine
 
 void ScalerLink::Shared::Release() { SafeRelease(d3d11); SafeRelease(d3d12); w = h = 0; fmt = DXGI_FORMAT_UNKNOWN; }

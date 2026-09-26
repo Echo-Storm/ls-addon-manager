@@ -31,6 +31,8 @@ struct NisPass {
 // AddRef's in/out: ReleaseNisPass. log: where a pass that looks like NIS covers only part of its output, what its constants say (once a shape).
 bool FindNisPass(ID3D11DeviceContext* ctx, uint32_t x, uint32_t y, uint32_t z, NisPass& pass, const std::function<void(const char*)>& log = nullptr);
 void ReleaseNisPass(NisPass& pass);
+// True when the last NIS pass covered part of its output in a layout that could not be followed (NIS then stays, and the panel says so).
+bool NisLayoutRefused();
 
 class ScalerLink {
 public:

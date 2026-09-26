@@ -6,6 +6,8 @@
   the integrated one), DLSS cannot start. The panel used to say only "DLSS is not running yet", which looked like it ran and did
   nothing. It now names the card and says what to do: set Lossless Scaling's Preferred GPU to the NVIDIA card, or use the FSR
   Upscaler. It also speaks up when DLSS is ready but cannot connect to Lossless Scaling's device, or has not replaced a frame yet.
+- **Both upscalers: a window scaled into part of the screen in a layout they cannot follow** is now said as such. It used to read
+  "Choose NIS as the Scaling Type", although NIS was chosen.
 
 ## 0.9.7 (2026-09-26)
 

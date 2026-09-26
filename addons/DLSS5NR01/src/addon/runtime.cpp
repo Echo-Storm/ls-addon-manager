@@ -881,7 +881,12 @@ bool ScalerPass(ID3D11DeviceContext* ctx, uint32_t x, uint32_t y, uint32_t z) {
     LogPassTable();
 
     NisPass pass;
-    if (!FindNisPass(ctx, x, y, z, pass, [](const char* m) { Log("%s", m); })) return false;
+    if (!FindNisPass(ctx, x, y, z, pass, [](const char* m) { Log("%s", m); })) {
+        if (NisLayoutRefused())   // NIS is chosen, but for a window it scales into part of the screen in a way that cannot be followed
+            SetScalerBlocked("Lossless Scaling scales this window into part of the screen in a way the upscaler cannot follow yet, so NIS stays. "
+                             "A window of the screen's shape (16:9 on a 16:9 screen) or full screen works. The Logs tab has the details: please report it.");
+        return false;
+    }
     ++g_nisSeen; ++g_nisSinceTap;
     FollowRuntimeChoice();
     if ((g_nisSeen & 63u) == 1) FollowScalerGame(pass.inW, pass.inH);
@@ -998,7 +1003,7 @@ ScalerView GetScalerView() {
     if (v.failed) v.error = g_sr.LastError();
     v.inW = g_scaleInW; v.inH = g_scaleInH; v.outW = g_scaleOutW; v.outH = g_scaleOutH;
     v.gpuMs = v.ready ? g_sr.GpuMs() : 0; v.motionMs = v.ready ? g_sr.MotionMs() : 0; v.runs = g_upscaled; v.nisSeen = g_nisSeen; v.perFrame = g_nisPerFrame;
-    { std::lock_guard<std::mutex> lock(g_textMutex); v.second = g_scalerSecond; if (v.nisSeen && !v.starting && !v.failed) v.blocked = g_scalerBlocked; }
+    { std::lock_guard<std::mutex> lock(g_textMutex); v.second = g_scalerSecond; if (!v.starting && !v.failed) v.blocked = g_scalerBlocked; }
     if (v.ready) v.provider = g_sr.Provider();
     return v;
 }
@@ -1156,10 +1161,10 @@ void FollowModelChoice() {
 
 std::string ScalerEngineText() {
     if (g_srStarting) return "starting";
-    bool blocked; { std::lock_guard<std::mutex> lock(g_textMutex); blocked = g_nisSeen && !g_scalerBlocked.empty(); }
-    if (g_sr.IsReady()) return !g_nisSeen ? "ready, waiting for the NIS pass" : blocked ? "ready, but not replacing NIS (the Upscaling section says why)" : "running";
+    bool blocked; { std::lock_guard<std::mutex> lock(g_textMutex); blocked = !g_scalerBlocked.empty(); }
+    if (g_sr.IsReady()) return blocked ? "ready, but not replacing NIS (the Upscaling section says why)" : !g_nisSeen ? "ready, waiting for the NIS pass" : "running";
     if (g_sr.IsFailed()) return "failed: " + g_sr.LastError();
-    if (blocked) return "not started: Lossless Scaling's card is not an NVIDIA card";
+    if (blocked) return "not started: something is in the way (the Upscaling section says what)";
     return g_nisSeen ? "not started (the NIS pass is seen)" : "not started: it starts when Lossless Scaling runs its NIS pass";
 }
 

@@ -355,12 +355,14 @@ void DrawPanel() {
         const char* const U = kUpscalerName;
         if (v.starting) ImGui::TextDisabled(kFsrScaler ? "Loading AMD's FSR runtime..." : "Loading NVIDIA's DLSS runtime...");
         else if (v.failed) ImGui::TextColored(eam::ui::theme::V(eam::ui::theme::kDanger), "%s could not run: %s. Lossless Scaling's NIS runs as usual.", U, v.error.c_str());
-        else if (!v.nisSeen) ImGui::TextWrapped("Waiting for Lossless Scaling's NIS pass. Choose NIS as the Scaling Type and scale a game that runs in a window smaller than the screen.");
-        else if (!v.blocked.empty()) {   // the NIS pass is seen but the upscaler cannot take it: say why, rather than look like it runs
+        else if (!v.blocked.empty()) {   // the NIS pass is there but the upscaler cannot take it: say why, rather than look like it runs
             ImGui::PushStyleColor(ImGuiCol_Text, eam::ui::theme::V(eam::ui::theme::kWarn));
-            ImGui::TextWrapped("NIS pass found (%ux%u -> %ux%u), but %s is not replacing it: %s", v.inW, v.inH, v.outW, v.outH, U, v.blocked.c_str());
+            if (v.nisSeen) ImGui::TextWrapped("NIS pass found (%ux%u -> %ux%u), but %s is not replacing it: %s", v.inW, v.inH, v.outW, v.outH, U, v.blocked.c_str());
+            else ImGui::TextWrapped("%s is not replacing NIS: %s", U, v.blocked.c_str());
             ImGui::PopStyleColor();
-        } else if (!v.ready) ImGui::TextDisabled("NIS pass found (%ux%u -> %ux%u); %s is not running yet.", v.inW, v.inH, v.outW, v.outH, U);
+        }
+        else if (!v.nisSeen) ImGui::TextWrapped("Waiting for Lossless Scaling's NIS pass. Choose NIS as the Scaling Type and scale a game that runs in a window smaller than the screen.");
+        else if (!v.ready) ImGui::TextDisabled("NIS pass found (%ux%u -> %ux%u); %s is not running yet.", v.inW, v.inH, v.outW, v.outH, U);
         else {
             const std::string running = v.provider.empty() ? std::string(U) : std::string(U) + " " + v.provider;   // "FSR 4.1.1b"
             ImGui::TextWrapped("%s upscales %ux%u -> %ux%u (x%.2f) in place of NIS: %.2f ms a frame on the GPU (motion %.2f ms of it), %llu frames so far%s.", running.c_str(), v.inW, v.inH,
