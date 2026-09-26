@@ -63,6 +63,19 @@ What it has to do (and what it must never do):
     A game with DLSS built in draws its HUD after upscaling. Options: areas that keep NIS's picture (drawn like Neural Rendering's HUD areas),
     or finding the HUD automatically, which would be an addon of its own. On hold.
 
+## Done since 0.9.6
+
+- **Updating from the manager** (0.9.7): the update check offers to download the release, checks it against GitHub's SHA-256 and Setup's own
+  version, and Setup waits for Lossless Scaling to close, updates it and starts it again. "Don't ask again for this release" is remembered.
+- **HDR games in the upscalers**: 16-bit (scRGB) and 10-bit (HDR10) frames are upscaled through their SDR view and put back in their own
+  encoding, as Neural Rendering does. Seen working with FSR 4 on scRGB frames in a real game.
+- **The engines on threads of their own.** The upscalers and Neural Rendering call NVIDIA's and AMD's code from a thread of the engine's own;
+  Lossless Scaling's render thread only hands frames over. A runtime that stops responding (FSR 4.1.1b once did on its first HDR frame and
+  froze Lossless Scaling) now only stops the addon, and after 20 seconds its panel says so. A step towards frame generation of our own too:
+  the model is already a producer apart from Lossless Scaling's frame pacing.
+- **Saying why nothing happens**: a card that is not NVIDIA's (named), a window layout the upscalers cannot follow, a frame format they
+  cannot take, and the upscalers' second Enable box gone (the manager's switch is the only one).
+
 ## Ideas for after 1.0
 
 Agreed as worth doing, in no particular order; none of them is started. They come after the hardening and optimization work toward 1.0.
@@ -78,11 +91,11 @@ Agreed as worth doing, in no particular order; none of them is started. They com
 - **Frame generation of our own.** Whether AMD's FSR 3 frame interpolation, fed with this project's motion measurement, beats Lossless
   Scaling's own frame generation. First an offline comparison on real footage (the recorder's `.lsrec` files, frames dropped and rebuilt
   and scored against the real ones); only if it clearly wins, the work of putting it in Lossless Scaling's place.
-- **Updating from the manager.** Today the update check only says a new version exists; an "Update now?" would download and run Setup.
-  It needs care (a program that downloads and runs an unsigned file), so it waits.
 - **Translations.** The interface's text in other languages, once the text lives in one table rather than in the code.
 - **A session summary.** When a game closes: average and worst frame time, peak temperature and power, how long the limiter or the auto mode was active. Real numbers for the "tested with" list.
-- **A stuck-state watchdog.** If Lossless Scaling's frames stop arriving while a game runs, say so and offer to restart Neural Rendering's engine, instead of leaving the person to guess.
+- **A stuck-state watchdog, the rest of it.** A runtime that stops responding is caught now (the engines' own threads). Still open: frames that
+  stop arriving while a game runs (Lossless Scaling itself stalled), said in the panel with an offer to restart the engine. The upscalers' stall
+  monitor already writes where it stopped to the log.
 - **HUD areas found automatically.** The areas are drawn on a snapshot now (0.8.0). Next: suggest likely HUD areas (parts of the picture that stay put while the scene moves,
   which the upscalers' motion estimate and LSFG's flow already show). Better as an addon of its own, which Neural Rendering and the upscalers could both use.
 - **A DLSS 4.5 addon** next to Neural Rendering, for games where DLSS 5's look is not wanted. To look into first: which DLSS 4.5 features can work from what Lossless Scaling has (the captured frames and
