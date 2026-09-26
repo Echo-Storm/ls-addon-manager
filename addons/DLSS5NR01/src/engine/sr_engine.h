@@ -55,7 +55,8 @@ public:
     uint64_t Submitted() const { return m_submitted.load(std::memory_order_acquire); }
     bool WaitSubmitted(uint64_t doneValue, DWORD ms);   // a short CPU wait for that (the hidden GPU-wait hand-over only)
     bool RanOk(uint64_t doneValue) const { return doneValue && m_okRing[doneValue % kOkRing].load(std::memory_order_acquire) == doneValue; }
-    bool CheckStuck();   // true once a job has been in the runtime's code for kStuckMs: the engine is then failed ("stopped responding")
+    bool CheckStuck();
+    uint64_t BusyMs() const { const ULONGLONG t = m_busySince.load(); return t ? GetTickCount64() - t : 0; }   // how long the job in progress has run (0: none)   // true once a job has been in the runtime's code for kStuckMs: the engine is then failed ("stopped responding")
 
     ID3D12Resource* OpenSharedTexture(HANDLE h);
     ID3D12Fence* OpenSharedFence(HANDLE h);
