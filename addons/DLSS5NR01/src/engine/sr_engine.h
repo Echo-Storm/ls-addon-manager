@@ -56,6 +56,12 @@ public:
     bool WaitSubmitted(uint64_t doneValue, DWORD ms);   // a short CPU wait for that (the hidden GPU-wait hand-over only)
     bool RanOk(uint64_t doneValue) const { return doneValue && m_okRing[doneValue % kOkRing].load(std::memory_order_acquire) == doneValue; }
     bool CheckStuck();
+    // Forgets which runs were submitted and went through, for a bridge or link that starts counting its frames from 1 again (after it was
+    // made anew): a record of the earlier numbering must not vouch for a new frame. Only while the engine's thread is idle.
+    void ResetTracking() {
+        { std::lock_guard<std::mutex> lock(m_jobMutex); if (m_busy || !m_jobs.empty()) return; }
+        m_submitted = 0; for (auto& v : m_okRing) v = 0;
+    }
     uint64_t BusyMs() const { const ULONGLONG t = m_busySince.load(); return t ? GetTickCount64() - t : 0; }   // how long the job in progress has run (0: none)   // true once a job has been in the runtime's code for kStuckMs: the engine is then failed ("stopped responding")
 
     ID3D12Resource* OpenSharedTexture(HANDLE h);

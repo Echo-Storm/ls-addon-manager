@@ -377,6 +377,8 @@ void NrEngine::WorkerLoop() {
             j = m_jobs.front(); m_jobs.pop_front(); m_busy = true;
         }
         m_busySince = GetTickCount64();
+        // marked as going through before it is submitted (the GPU may finish it before this thread gets back), taken back if it did not
+        m_okRing[j.signalValue % kOkRing].store(j.signalValue, std::memory_order_release);
         const uint64_t queuedBefore = m_stats.frames;
         const bool ok = Run(j.sharedIn, j.sharedDelta, j.waitFence, j.waitValue, j.usedFence, j.usedValue, j.signalFence, j.signalValue, j.reset, j.sharedMotion);
         const bool queued = m_stats.frames != queuedBefore;

@@ -94,6 +94,7 @@ bool Bridge::Init(ID3D11Device* dev, ID3D11DeviceContext* ctx, NrEngine* engine,
     if (!MakeFence(m_copied, "copied") || !MakeFence(m_finished, "finished") || !MakeFence(m_released, "released")) { Shutdown(); return false; }
     if (!m_submitTimes.Init(m_dev) || !m_composeTimes.Init(m_dev)) Log("Bridge: GPU timing is not available (the rest works)");
     m_inFlight = m_inFlightBefore = 0; m_turn = 0; m_newestSlot = -1; m_releaseCount = 0; m_runs = m_skipped = m_doubled = 0;
+    if (m_engine) m_engine->ResetTracking();   // the frames are numbered from 1 again
     m_prevFrameQpc = 0; m_intervalMs = m_lastIntervalMs = m_cpuMs = 0; m_frameTimeCount = 0;
     Log("Bridge: shared fences up");
     return true;

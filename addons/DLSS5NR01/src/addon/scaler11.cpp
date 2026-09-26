@@ -239,6 +239,7 @@ bool ScalerLink::Fit(Shared& t, uint32_t w, uint32_t h, DXGI_FORMAT fmt, bool en
 bool ScalerLink::Init(ID3D11Device* dev, ID3D11DeviceContext* ctx, SrEngine* engine, LogFn log) {
     m_log = std::move(log); m_engine = engine; m_ctx = ctx; m_frame = 0; for (auto& h : m_holds) h = 0; m_described = false; m_loggedPartial = false;
     m_count = Counters(); m_lastShown = 0;
+    if (m_engine) m_engine->ResetTracking();   // the frames are numbered from 1 again
     m_atPresent = m_copiedAtPresent = 0; m_probeState = 0; m_pendingReset = false;
     if (FAILED(dev->QueryInterface(IID_PPV_ARGS(&m_dev))) || FAILED(ctx->QueryInterface(IID_PPV_ARGS(&m_ctx4)))) {
         Log("%s upscaler: Lossless Scaling's device has no shared fences (D3D11.4 is needed)", kUpscalerName); Shutdown(); return false;

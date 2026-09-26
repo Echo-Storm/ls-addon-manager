@@ -141,7 +141,13 @@ public:
     uint64_t Submitted() const { return m_submitted.load(std::memory_order_acquire); }   // the newest run whose work is on the GPU queue (its signal value)
     bool WaitSubmitted(uint64_t signalValue, DWORD ms);
     bool RanOk(uint64_t signalValue) const { return signalValue && m_okRing[signalValue % kOkRing].load(std::memory_order_acquire) == signalValue; }
-    bool CheckStuck();   // true once a run has been in the model's code for kStuckMs: the engine is then failed ("stopped responding")
+    bool CheckStuck();
+    // Forgets which runs were submitted and went through, for a bridge or link that starts counting its frames from 1 again (after it was
+    // made anew): a record of the earlier numbering must not vouch for a new frame. Only while the engine's thread is idle.
+    void ResetTracking() {
+        { std::lock_guard<std::mutex> lock(m_jobMutex); if (m_busy || !m_jobs.empty()) return; }
+        m_submitted = 0; for (auto& v : m_okRing) v = 0;
+    }   // true once a run has been in the model's code for kStuckMs: the engine is then failed ("stopped responding")
     ~NrEngine() { if (m_worker.joinable()) m_worker.detach(); }   // (at the process's exit without a Shutdown: never std::terminate)
 private:
     bool m_abandoned = false;   // the engine's thread did not stop (stuck in NVIDIA's code): nothing is torn down or started again until LS restarts

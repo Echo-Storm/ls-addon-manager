@@ -422,6 +422,8 @@ void SrEngine::WorkerLoop() {
             j = m_jobs.front(); m_jobs.pop_front(); m_busy = true;
         }
         m_busySince = GetTickCount64();
+        // marked as going through before it is submitted (the GPU may finish it before this thread gets back), taken back if it did not
+        m_okRing[j.doneValue % kOkRing].store(j.doneValue, std::memory_order_release);
         const bool ok = Run(j.in, j.inW, j.inH, j.inFormat, j.out, j.outW, j.outH, j.outFormat, j.flow, j.flowW, j.flowH, j.flowUnit, j.motionFraction,
                             j.estimate, j.preset, j.sharpen, j.reset, j.copied, j.copiedValue, j.done, j.doneValue);
         m_busySince = 0;
