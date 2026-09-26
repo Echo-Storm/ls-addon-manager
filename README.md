@@ -82,10 +82,12 @@ smaller than the screen (for example 2560x1440 on a 4K screen); at the screen's 
 - **DLSS Upscaler:** NVIDIA DLSS Super Resolution with the model of your choice: NVIDIA's default K (DLSS 4), DLSS 4.5's M, or DLSS 3's E,
   which keeps a still picture crisper here. NVIDIA RTX.
 - **FSR Upscaler:** AMD FidelityFX Super Resolution with AMD's own sharpening (RCAS). Any DirectX 12 graphics card: AMD, NVIDIA or Intel.
-  *FSR version*, right under its Enable switch, picks AMD's FSR 3.1.4 (shipped, signed) or **FSR 4**: the OptiScaler team's 4.1.1b INT8
+  *FSR version*, at the top of its panel, picks AMD's FSR 3.1.4 (shipped, signed) or **FSR 4**: the OptiScaler team's 4.1.1b INT8
   build, AMD's machine-learning upscaler made to run on cards AMD's own FSR 4 does not support, NVIDIA's included. It follows a moving
   picture noticeably better. Switching takes a second while the game runs.
 - **Frame generation on or off**, every frame it presents, real and generated.
+- **HDR games too:** 16-bit (scRGB) and 10-bit (HDR10) frames are upscaled through an SDR view of them and go back in their own encoding,
+  so highlights keep their brightness. *Frame encoding* under Upscaling overrides the automatic choice.
 - **4:3 and other window shapes:** a window of another shape than the screen is upscaled into the part of the screen Lossless Scaling puts it in, borders left alone.
 - **Stability:** less shimmer on thin lines, wires and leaves (the upscaler averages the flicker out), while thin things that move stay sharp. FSR 4 does this by itself.
 - **Edge smoothing:** anti-aliasing of the upscaled picture's edges, for older games without anti-aliasing of their own.

@@ -35,14 +35,14 @@ has the graphics card to spare for it. A post-process anti-aliasing (FXAA, CMAA)
 
 ## Settings (the addon's panel)
 
-- **FSR version** (FSR Upscaler only, right under Enable): *FSR 3.1.4 (AMD, shipped)* or *FSR 4.1.1b INT8 with the RDNA 2 fix*. FSR 4 is
+- **FSR version** (FSR Upscaler only, at the top of the panel): *FSR 3.1.4 (AMD, shipped)* or *FSR 4.1.1b INT8 with the RDNA 2 fix*. FSR 4 is
   AMD's machine-learning upscaler; this build of the OptiScaler team's runs it on cards AMD's own FSR 4 does not (NVIDIA's too). It follows
   a moving picture better (test host: a sliding picture 11.1 levels off the truth against FSR 3.1's 14.2) and costs more. Switching takes
   about a second while the game runs; the panel names the FSR that runs. It is the same choice as the **+** next to FSR in the manager's
   Runtimes list, where other files can be added too.
 - **DLSS model** (DLSS Upscaler only): *NVIDIA's default (K)*, *M (DLSS 4.5)* or *E (DLSS 3's CNN model)*. M is heavier (about twice K's
   cost) and differs in how it treats fine detail; E is the lightest and keeps a still picture crisper here, where K and M can soften it
-  (Lossless Scaling's frames carry no camera jitter, which those models expect). Compare them in your game. *DLSS version*, under Enable,
+  (Lossless Scaling's frames carry no camera jitter, which those models expect). Compare them in your game. *DLSS version*, at the top of the panel,
   picks the runtime (the shipped one, or one added with **+** in the Runtimes list).
 - **Sharpening** (0.3 to start with): DLSS 4 has no sharpening of its own, so the DLSS addon sharpens its picture with the contrast-adaptive
   (CAS) formula; the FSR addon uses AMD's own RCAS. NIS sharpens too (Lossless Scaling's Sharpness), so without it the upscaler can look
@@ -70,6 +70,11 @@ has the graphics card to spare for it. A post-process anti-aliasing (FXAA, CMAA)
   (by its program name) and come back when it takes focus. Only the window being scaled counts (its inside is the frame's size), so a chat
   program or browser in front is not taken for a game. A game seen for the first time keeps the settings in use; a change made in the
   panel counts for the game played last. The list under it shows each game's settings, with a button to forget one.
+- **Frame encoding** (Automatic): for HDR games. 16-bit float frames are scRGB, 10-bit ones HDR10 when Windows runs the display in HDR,
+  8-bit ones SDR. An HDR frame is upscaled in its SDR view (the same one Neural Rendering works on) and the picture goes back in the
+  frame's own encoding, so highlights keep their brightness. Set SDR or HDR only if the picture comes out washed out, too dark or too
+  bright; Technical status shows the frame's format and what was decided.
+- There is no Enable box in the panel: the upscaler is switched on and off in the manager's addon list, like every addon.
 - **Before / after** (Ctrl+Shift+F6): switches between the upscaler and Lossless Scaling's own NIS while you play. The hotkeys work only while
   the upscaler is actually upscaling.
 
@@ -112,6 +117,8 @@ The addon writes `logs\DLSS4DLAA.log` or `logs\FSR3UPSC.log` in the Lossless Sca
 | The panel says it is waiting for the NIS pass | Lossless Scaling's Scaling Type is not NIS, or scaling has not started. |
 | No difference at all | At 1:1 (the game fills the screen) there is nothing to upscale; run the game in a smaller window. Check the panel says it upscales, and try the Before / after hotkey. |
 | The panel keeps waiting although NIS is chosen | Look for "NIS pass on part of its output" in the log: with a window of another shape than the screen the upscaler reads NIS's viewports first (a frame or two), and says there if they did not add up, in which case NIS stays. A window of the screen's shape (2560x1440 on a 3840x2160 screen) always works. |
+| The panel names a card that is not NVIDIA's (DLSS Upscaler) | Lossless Scaling runs on that card. Set its Preferred GPU to your NVIDIA RTX card, or use the FSR Upscaler, which runs on any card. |
+| An HDR game looks washed out, too dark or too bright | Set *Frame encoding* (under Upscaling) to HDR or SDR by hand, and tell us which it needed, with the log. |
 | A black picture | Should not happen since 0.9.1. The log's `probe:` lines say how bright the frame the upscaler got and the picture it made are: 0 of 255 means black. Please report it with the log. |
 | Smear when moving | Check Motion is *Measured from the frames*. The log's `motion estimator:` lines give the average motion found and how much of the picture was marked untrusted. |
 | FSR 4 looks wrong, costs too much or does not start | Set *FSR version* back to FSR 3.1.4. A chosen runtime that has gone missing falls back to the shipped one by itself (the log says so). |
