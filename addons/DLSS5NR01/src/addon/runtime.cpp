@@ -600,8 +600,8 @@ void OnPresent(IDXGISwapChain* sc) {
         }
     }
     if (g_off || g_engineStarting || !sc) return;
-    { std::lock_guard<std::mutex> lock(g_settingsMutex); if (!g_config.enabled) return; }
-    if (kScalerAddon) { ScalerPresentGuarded(sc); return; }   // the upscaler: DLSS's picture over NIS's (Handoff::AtPresent)
+    if (kScalerAddon) { ScalerPresentGuarded(sc); return; }   // (the upscalers have no Enable of their own: the manager's switch)
+    { std::lock_guard<std::mutex> lock(g_settingsMutex); if (!g_config.enabled) return; }   // the upscaler: DLSS's picture over NIS's (Handoff::AtPresent)
     if (!OwnsFrames()) return;
     std::lock_guard<std::mutex> lock(g_frameMutex);
     PresentGuarded(sc);
@@ -1044,8 +1044,8 @@ bool OnPass(uint32_t x, uint32_t y, uint32_t z, void*) {
     }
     auto* const ctx = static_cast<ID3D11DeviceContext*>(g_host ? g_host->GetDispatchingContext() : nullptr);
     if (t_ownWork || g_off || g_engineStarting || !ctx) return false;
+    if (kScalerAddon) return ScalerGuarded(ctx, x, y, z);   // the upscalers: on while the manager has them on (their old Enable setting is ignored)
     { std::lock_guard<std::mutex> lock(g_settingsMutex); if (!g_config.enabled) return false; }
-    if (kScalerAddon) return ScalerGuarded(ctx, x, y, z);   // DLSS as the scaler: this addon's whole frame path
     if (!OwnsFrames()) return false;
     std::lock_guard<std::mutex> lock(g_frameMutex);
     if (!Tappable(ctx)) { ++g_otherPasses; return false; }

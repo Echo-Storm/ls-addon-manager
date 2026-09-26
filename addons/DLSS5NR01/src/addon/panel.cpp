@@ -218,7 +218,7 @@ void DrawPanel() {
 
     Block(kProductName);
     const bool dlaa = kScalerAddon;
-    {
+    if (!kScalerAddon) {   // the upscalers are switched on and off in the addon list only (one switch, not two)
         const std::string label = std::string("Enable ") + kProductName;
         if (ImGui::Checkbox(label.c_str(), &c.enabled)) { changed = true; if (c.enabled) { ClaimFrames(); SwitchOn(); } else ReleaseFrames(); }
         Tip(kScalerAddon
@@ -226,7 +226,8 @@ void DrawPanel() {
                   "Only one of the DLSS and FSR Upscalers works at a time (switching one on in the addon list switches the other off); either works beside DLSS 5 Neural Rendering."
                 : "Master switch. Off = Lossless Scaling runs untouched and the model stops.\nTo compare before and after while playing, use the Before / after hotkey instead: it keeps the model running.");
     }
-    ImGui::SameLine(); if (ImGui::SmallButton("Reset history")) g_resetRequested = true;
+    if (!kScalerAddon) ImGui::SameLine();
+    if (ImGui::SmallButton("Reset history")) g_resetRequested = true;
     Tip("The model blends each frame with the ones before it. Press this after a scene cut, or if a ghost or smear seems stuck on screen.");
     ImGui::SameLine();
     if (ImGui::SmallButton("Restore defaults")) {
@@ -355,7 +356,6 @@ void DrawPanel() {
         const char* const U = kUpscalerName;
         if (v.starting) ImGui::TextDisabled(kFsrScaler ? "Loading AMD's FSR runtime..." : "Loading NVIDIA's DLSS runtime...");
         else if (v.failed) ImGui::TextColored(eam::ui::theme::V(eam::ui::theme::kDanger), "%s could not run: %s. Lossless Scaling's NIS runs as usual.", U, v.error.c_str());
-        else if (!c.enabled) ImGui::TextColored(eam::ui::theme::V(eam::ui::theme::kWarn), "%s is switched off here (Enable %s, above), so NIS runs as usual.", U, kProductName);
         else if (!v.blocked.empty()) {   // the NIS pass is there but the upscaler cannot take it: say why, rather than look like it runs
             ImGui::PushStyleColor(ImGuiCol_Text, eam::ui::theme::V(eam::ui::theme::kWarn));
             if (v.nisSeen) ImGui::TextWrapped("NIS pass found (%ux%u -> %ux%u), but %s is not replacing it: %s", v.inW, v.inH, v.outW, v.outH, U, v.blocked.c_str());
