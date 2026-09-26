@@ -126,25 +126,22 @@ static std::string LowerCase(std::string text) {
     return text;
 }
 
+// The search box: every word typed must appear somewhere in the addon's name, author, id, description or tags (any case), so
+// "fsr upscaler" or "nvidia dlss" find what people expect. Words are separated by spaces.
 static bool MatchesFilter(const AddonInfo& addon, const char* filter) {
-    if (!filter || filter[0] == '\0') return true;
-    std::string f(filter);
-    f = LowerCase(f);
-
-    std::string name = addon.GetDisplayName();
-    name = LowerCase(name);
-    if (name.find(f) != std::string::npos) return true;
-
-    std::string author = addon.GetDisplayAuthor();
-    author = LowerCase(author);
-    if (author.find(f) != std::string::npos) return true;
-
-    for (const auto& tag : addon.manifest.tags) {
-        std::string t = tag;
-        t = LowerCase(t);
-        if (t.find(f) != std::string::npos) return true;
+    if (!filter) return true;
+    std::string haystack = addon.GetDisplayName() + '\n' + addon.GetDisplayAuthor() + '\n' + addon.id + '\n' + addon.manifest.description;
+    for (const auto& tag : addon.manifest.tags) haystack += '\n' + tag;
+    haystack = LowerCase(haystack);
+    const std::string words = LowerCase(filter);
+    for (size_t at = 0; at < words.size();) {
+        const size_t from = words.find_first_not_of(' ', at);
+        if (from == std::string::npos) break;
+        const size_t to = (std::min)(words.find(' ', from), words.size());
+        if (haystack.find(words.substr(from, to - from)) == std::string::npos) return false;
+        at = to;
     }
-    return false;
+    return true;
 }
 
 static void SelectAddon(const AddonInfo& addon) {
