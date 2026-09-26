@@ -1,6 +1,8 @@
 # Changelog
 
-## Unreleased
+## 0.9.7 (2026-09-26)
+
+The manager can now update itself: it offers to download, check and install a new release.
 
 - **Updating from the manager.** When the daily check finds a new release, a window offers **Download and install**, **Not now** or
   **Don't ask again for this release**. The About tab has the same button.

@@ -270,7 +270,17 @@ int main(int argc, char** argv) {
         const fs::path setup = fs::path(exe).parent_path().parent_path().parent_path().parent_path() / "installer" / "build" / "Release" / "LSAddonManagerSetup.exe";
         if (!fs::exists(setup)) printf("SKIP  (no %s: build the installer first)\n", setup.string().c_str());
         else {
-            const fs::path pack = dir / "pack", zip = dir / ("LSAddonManager-" + me + "-x64.zip");
+            // the version Setup says it is (a build folder's Setup can be older than this test; the check under test is that the two agree)
+            std::string setupVersion;
+            {
+                DWORD h = 0; const DWORD n = GetFileVersionInfoSizeW(setup.c_str(), &h);
+                std::vector<char> info(n);
+                wchar_t* v = nullptr; UINT len = 0;
+                if (n && GetFileVersionInfoW(setup.c_str(), 0, n, info.data()) && VerQueryValueW(info.data(), L"\\StringFileInfo\\040904b0\\ProductVersion", reinterpret_cast<void**>(&v), &len) && len)
+                    for (const wchar_t* c = v; *c; ++c) setupVersion += static_cast<char>(*c);
+            }
+            if (setupVersion != me) printf("note  the Setup found is %s, this build is %s: rebuild the installer to test the same version\n", setupVersion.c_str(), me.c_str());
+            const fs::path pack = dir / "pack", zip = dir / ("LSAddonManager-" + setupVersion + "-x64.zip");
             fs::create_directories(pack);
             fs::copy_file(setup, pack / "LSAddonManagerSetup.exe", fs::copy_options::overwrite_existing);
             wchar_t sys[MAX_PATH]; GetSystemDirectoryW(sys, MAX_PATH);
@@ -290,16 +300,16 @@ int main(int argc, char** argv) {
                 return p;
             };
             std::atomic<uint64_t> done{ 0 };
-            const Progress good = serve(me, sha, "good", &done);
+            const Progress good = serve(setupVersion, sha, "good", &done);
             Check("the download is checked and Setup unpacked: ready", good.step == Phase::Ready && fs::exists(good.setup), good.error);
             Check("...its progress counted every byte", done == bytes.size(), std::to_string(done.load()) + " of " + std::to_string(bytes.size()));
-            const Progress wrongSha = serve(me, std::string(64, 'c'), "badsha", nullptr);
+            const Progress wrongSha = serve(setupVersion, std::string(64, 'c'), "badsha", nullptr);
             Check("a download that does not match GitHub's SHA-256 is refused", wrongSha.step == Phase::Failed && Has(wrongSha.error, "SHA-256"), wrongSha.error);
             const Progress wrongVersion = serve("9.9.9", sha, "badversion", nullptr);
             Check("a Setup of another version than the release's is refused", wrongVersion.step == Phase::Failed && Has(wrongVersion.error, "is not LS Addon Manager"), wrongVersion.error);
             std::atomic<bool> cancel{ true };
             Server s; s.Start({ Step{ Step::Reply, 200, bytes } });
-            const Progress cancelled = DownloadAndCheck(me, s.Url("/download/zip"), sha, bytes.size(), (dir / "cancelled").wstring(), &cancel, nullptr, nullptr);
+            const Progress cancelled = DownloadAndCheck(setupVersion, s.Url("/download/zip"), sha, bytes.size(), (dir / "cancelled").wstring(), &cancel, nullptr, nullptr);
             s.Stop();
             Check("a cancelled download stops and leaves nothing ready", cancelled.step == Phase::Failed && cancelled.error == "cancelled", cancelled.error);
         }

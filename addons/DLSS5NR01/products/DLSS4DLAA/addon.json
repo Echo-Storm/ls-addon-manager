@@ -1,6 +1,6 @@
 {
   "name": "DLSS Upscaler",
-  "version": "0.9.6",
+  "version": "0.9.7",
   "author": "Echo-Storm",
   "description": "Off until you switch it on. Upscales with NVIDIA DLSS Super Resolution in place of Lossless Scaling's NIS scaler, on every frame it presents, real and generated: choose NIS as the Scaling Type and run the game in a window smaller than the screen. NVIDIA's DLSS runtime is included. It works beside DLSS 5 Neural Rendering.",
   "min_host_version": "1.2.0",
