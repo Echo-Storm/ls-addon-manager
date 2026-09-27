@@ -21,6 +21,11 @@ Status: **0.9.8**, getting ready for 1.0 (the [roadmap](ROADMAP.md) says what is
 > **updates itself**: it offers the new release, checks it and installs it when you close Lossless Scaling.
 > The [changelog](CHANGELOG.md) has the rest.
 
+<p align="center"><img src="docs/images/nr-silent-hill-f.jpg" alt="Silent Hill f, the original picture at the left and with DLSS 5 Neural Rendering at the right" width="100%"></p>
+<p align="center"><img src="docs/images/nr-silent-hill-f-face.jpg" alt="A close-up of the face: the original at the left, with DLSS 5 Neural Rendering at the right" width="100%"></p>
+<p align="center"><sub>Silent Hill f (Unreal Engine 5, HDR) through Lossless Scaling: the original at the left, DLSS 5 Neural Rendering at the right. Taken with the addon's
+before / after pictures (Ctrl+Shift+F4); HDR frames saved in their SDR view.</sub></p>
+
 > [!IMPORTANT]
 > **DLSS 5 Neural Rendering needs a file you provide yourself:** your own copy of `nvngx_dlssnr.dll`. It is **not included**, this project **does not download it**,
 > and it does not say where to get it. Put your copy next to `LosslessScaling.exe` (Setup and the addon's **Browse for the model file...** button can copy it there),
