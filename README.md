@@ -12,7 +12,7 @@ unofficial project, not affiliated with the Lossless Scaling developers: read th
 
 [![build](https://github.com/Echo-Storm/ls-addon-manager/actions/workflows/build.yml/badge.svg)](https://github.com/Echo-Storm/ls-addon-manager/actions/workflows/build.yml)
 
-Status: **0.9.10**, getting ready for 1.0 (the [roadmap](ROADMAP.md) says what is left). You need Lossless Scaling 3.2.2.0 and Windows 10 or 11, x64.
+Status: **0.9.11**, getting ready for 1.0 (the [roadmap](ROADMAP.md) says what is left). You need Lossless Scaling 3.2.2.0 and Windows 10 or 11, x64.
 
 > [!TIP]
 > **New in 0.9.10:** the DLSS and FSR Upscalers run HDR games in their own HDR mode: highlights come out exactly as bright as the game made them. **Since 0.9.8:** **HDR games in the DLSS and FSR Upscalers** (Silent Hill f at 1440p to 4K: DLSS about 1.5 ms a frame), **before / after

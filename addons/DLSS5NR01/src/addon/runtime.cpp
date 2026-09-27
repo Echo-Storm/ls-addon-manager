@@ -1081,8 +1081,8 @@ bool ScalerPass(ID3D11DeviceContext* ctx, uint32_t x, uint32_t y, uint32_t z) {
                                           static_cast<ScalerLink::Handoff>(handoff), gpuWait);
                 t_ownWork = false;
                 g_passStep = "the recorder";
-                if (ID3D11Texture2D* grabbed = g_link.TakeGrabbed())   // (for HDR frames, their SDR view: said so in the file)
-                    Record(ctx, grabbed, lsrec::kNisInput, g_link.Encoding() ? lsrec::kSdrView : lsrec::kOwnEncoding);
+                if (ID3D11Texture2D* grabbed = g_link.TakeGrabbed())   // (HDR frames go to the upscaler as light: said so in the file)
+                    Record(ctx, grabbed, lsrec::kNisInput, g_link.Encoding() ? lsrec::kLight : lsrec::kOwnEncoding);
                 g_passStep = "after Upscale";   // the frame as DLSS or FSR got it
                 if (flow) flow->Release();
                 if (replaced) ++g_upscaled;

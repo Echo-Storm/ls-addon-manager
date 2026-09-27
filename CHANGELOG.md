@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.9.11 (2026-09-27)
+
+- **Recordings of the upscalers in HDR games.** Since 0.9.10 an HDR frame reaches the upscaler as light, but the recorder still marked
+  such recordings as the frame's SDR view, so `nr_lsrec export` showed them wrong. They are now marked as light (a new kind in the file)
+  and exported with the roll-off screenshots use. Recordings made with 0.9.10 in an HDR game with an upscaler are mislabelled.
+
 ## 0.9.10 (2026-09-27)
 
 The DLSS and FSR Upscalers in their own HDR mode.

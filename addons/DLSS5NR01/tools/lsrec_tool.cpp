@@ -68,12 +68,17 @@ static int Export(int argc, char** argv) {
     for (size_t i = first; i < r.Count() && written < count; i += every) {
         if (!r.Read(i, px)) { printf("frame %zu could not be read\n", i); return 3; }
         for (uint32_t y = 0; y < h.height; ++y)
-            if (h.content == kSdrView && h.bytesPerPixel == 8) {   // half floats already 0..1 and sRGB-encoded: taken as they are
+            if ((h.content == kSdrView || h.content == kLight) && h.bytesPerPixel == 8) {   // half floats: the SDR view as it is; light rolled off as screenshots show HDR
                 const uint16_t* in = reinterpret_cast<const uint16_t*>(px.data() + static_cast<size_t>(y) * h.width * 8);
                 uint8_t* out = bgra.data() + static_cast<size_t>(y) * h.width * 4;
                 for (uint32_t x = 0; x < h.width; ++x) {
                     for (int c = 0; c < 3; ++c) {
-                        const float v = DirectX::PackedVector::XMConvertHalfToFloat(in[x * 4 + c]);
+                        float v = DirectX::PackedVector::XMConvertHalfToFloat(in[x * 4 + c]);
+                        if (h.content == kLight) {   // light (1 = the SDR white): the screenshots' roll-off above 0.75, then sRGB
+                            v = std::max(v, 0.0f);
+                            if (v > 0.75f) v = 0.75f + 0.25f * (1.0f - std::exp(-(v - 0.75f) / 0.25f));
+                            v = v <= 0.0031308f ? v * 12.92f : 1.055f * std::pow(v, 1.0f / 2.4f) - 0.055f;
+                        }
                         out[x * 4 + (2 - c)] = static_cast<uint8_t>(std::clamp(v, 0.0f, 1.0f) * 255.0f + 0.5f);   // RGBA -> BGRA
                     }
                     out[x * 4 + 3] = 255;
