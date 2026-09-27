@@ -1,4 +1,5 @@
 #include "addon/framegen11.h"
+#include "addon/hdr.h"
 #include "addon/present_hook.h"
 #include "engine/fg_engine.h"
 #include <d3d11_4.h>
@@ -92,7 +93,7 @@ bool EnsureTextures(const D3D11_TEXTURE2D_DESC& back, const LogFn& log) {
 }
 
 // FgEngine and the textures and fence it shares with Lossless Scaling's device, for frames like the back buffer. False: the blend stands in.
-bool EnsureEngine(const D3D11_TEXTURE2D_DESC& back, const LogFn& log) {
+bool EnsureEngine(IDXGISwapChain* sc, const D3D11_TEXTURE2D_DESC& back, const LogFn& log) {
     if (g.engineFailed) return false;
     IDXGIDevice* dxgi = nullptr; IDXGIAdapter* adapter = nullptr; DXGI_ADAPTER_DESC ad{};
     if (FAILED(g.dev->QueryInterface(IID_PPV_ARGS(&dxgi)))) return false;
@@ -104,7 +105,7 @@ bool EnsureEngine(const D3D11_TEXTURE2D_DESC& back, const LogFn& log) {
     ReleaseShared();
     auto fail = [&](const char* why) { if (log) { std::string m = std::string("frame generation: ") + why + "; the blend stands in"; log(m.c_str()); } ReleaseShared(); g.engineFailed = true; return false; };
     if (g.runtime.empty() || !g.ctx4) return fail("no FSR runtime, or no Direct3D 11.4");
-    if (!g.engine.Init(ad.AdapterLuid, g.runtime, back.Width, back.Height, back.Format, hdr, log)) return fail(g.engine.LastError());
+    if (!g.engine.Init(ad.AdapterLuid, g.runtime, back.Width, back.Height, back.Format, hdr, nr::QueryDisplayHdr(sc, g.dev).whiteNits, log)) return fail(g.engine.LastError());
     ID3D11Device5* dev5 = nullptr; g.dev->QueryInterface(IID_PPV_ARGS(&dev5));
     if (!dev5 || FAILED(dev5->CreateFence(0, D3D11_FENCE_FLAG_SHARED, IID_PPV_ARGS(&g.copied11)))) { SafeRelease(dev5); return fail("the shared fence could not be made"); }
     dev5->Release();
@@ -171,7 +172,7 @@ bool BeforeRealPresent(IDXGISwapChain* sc, UINT sync, UINT flags, const LogFn& l
 
     // the frame between: FSR's (the frame copied over to FgEngine, the frame made copied back), or the blend
     bool byFsr = false;
-    if (EnsureEngine(bd, log)) {
+    if (EnsureEngine(sc, bd, log)) {
         LARGE_INTEGER f0; QueryPerformanceCounter(&f0);
         g.ctx->CopyResource(g.in11, back);
         g.ctx4->Signal(g.copied11, ++g.copiedValue);

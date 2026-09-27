@@ -1,4 +1,5 @@
 #include "engine/flow_estimator.h"
+#include "engine/hdr_hlsl.h"
 #include <d3dcompiler.h>
 #include <algorithm>
 #include <cstdarg>
@@ -17,7 +18,9 @@ SamplerState sLinear : register(s0);
 cbuffer C : register(b0) { uint2 size; uint2 grid; uint2 coarse; uint radius; uint flags; float lambda; float bias; float stability; uint unused; };
 )";
 
-// the frame's brightness at its own size (and the statistics cleared for this frame)
+// the frame's brightness at its own size (and the statistics cleared for this frame). flags: the frame's encoding (hdr_hlsl.h; 0 SDR),
+// lambda: the SDR white in nits. An HDR frame is measured in its SDR view: the thresholds here are for sRGB-encoded 0..1, and in linear light
+// a dark scene is all near zero (nothing to match) while a highlight outweighs everything else.
 const char* const kLumaHlsl = R"(
 Texture2D<float4> tFrame : register(t0);
 RWTexture2D<float> uLuma : register(u0);
@@ -25,7 +28,7 @@ RWTexture2D<float> uLuma : register(u0);
 void main(uint3 id : SV_DispatchThreadID) {
     if (id.x == 0 && id.y == 0) { uStats.Store4(0, uint4(0, 0, 0, 0)); uStats.Store4(16, uint4(0, 0, 0, 0)); }
     if (id.x >= size.x || id.y >= size.y) return;
-    uLuma[id.xy] = dot(tFrame.Load(int3(id.xy, 0)).rgb, float3(0.299, 0.587, 0.114));
+    uLuma[id.xy] = dot(ToSdr(tFrame.Load(int3(id.xy, 0)).rgb, flags, lambda), float3(0.299, 0.587, 0.114));
 }
 )";
 
@@ -42,12 +45,34 @@ void main(uint3 id : SV_DispatchThreadID) {
 }
 )";
 
+// The whole picture's shift (a camera turn): for every shift within +-radius at the smallest size, the average difference between this frame
+// and the frame before over half the pixels they share (a checkerboard); a shift that leaves them sharing too little costs the most. The
+// search's first size takes the cheapest as a guess beside "not moving", so a turn faster than that size's own search is still followed.
+const char* const kGlobalHlsl = R"(
+Texture2D<float> tCur : register(t0);
+Texture2D<float> tPrev : register(t1);
+RWTexture2D<float> uCost : register(u0);
+[numthreads(8, 8, 1)]
+void main(uint3 id : SV_DispatchThreadID) {
+    const int n = 2 * int(radius) + 1;
+    if (int(id.x) >= n || int(id.y) >= n) return;
+    const int2 v = int2(id.xy) - int(radius), lo = max(-v, int2(0, 0)), hi = min(int2(size), int2(size) - v);
+    float s = 0; uint count = 0;
+    [loop] for (int y = lo.y; y < hi.y; ++y) {
+        [loop] for (int x = lo.x + ((lo.x + y) & 1); x < hi.x; x += 2) { s += abs(tCur.Load(int3(x, y, 0)) - tPrev.Load(int3(x + v.x, y + v.y, 0))); ++count; }
+    }
+    uCost[id.xy] = count * 8 >= size.x * size.y ? s / count : 1e3;   // at least a quarter of the picture shared
+}
+)";
+
 // One size of the search: every 4x4 block, where its 8x8 surroundings were in the frame before. flags: 1 a coarser grid exists, 2 this is
-// the finest size (a fraction of a pixel, and the statistics). Vectors in this size's pixels.
+// the finest size (a fraction of a pixel, and the statistics), 4 the whole picture's shift is known (the smallest size; coarse.x: its radius).
+// Vectors in this size's pixels.
 const char* const kSearchHlsl = R"(
 Texture2D<float> tCur : register(t0);
 Texture2D<float> tPrev : register(t1);
 Texture2D<float2> tCoarse : register(t2);
+Texture2D<float> tGlobal : register(t3);
 RWTexture2D<float2> uGrid : register(u0);
 static const float kExact = 0.0005, kShallow = 0.002;   // an exact match (brightness 0..1, per pixel); the least rise either side to refine on
 static float cw[64];
@@ -87,6 +112,18 @@ void main(uint3 id : SV_DispatchThreadID) {
             const int2 v = int2(round(tCoarse.Load(int3(clamp(c + seeds[s], int2(0, 0), int2(coarse) - 1), 0)) * 2.0));
             const float cost = SadHalf(v) + lambda * length(float2(v) - predicted);
             if (cost < bestCost) { bestCost = cost; best = v; }
+        }
+    } else if (flags & 4) {   // the whole picture's shift, the guess (a block moving with the camera needs no search of its own)
+        const int gr = int(coarse.x), n = 2 * gr + 1;
+        // "not moving" unless a shift is clearly better (a still picture of a repeating pattern matches as well at many shifts)
+        const float still = tGlobal.Load(int3(gr, gr, 0));
+        float g = still * 0.9 - 0.0005; int2 shift = int2(0, 0);
+        [loop] for (int j = 0; j < n; ++j) [loop] for (int i = 0; i < n; ++i) { const float c = tGlobal.Load(int3(i, j, 0)); if (c < g) { g = c; shift = int2(i, j) - gr; } }
+        if (any(shift != int2(0, 0))) {
+            predicted = float2(shift);
+            bestCost += lambda * length(predicted);
+            const float cost = SadHalf(shift);
+            if (cost < bestCost) { bestCost = cost; best = shift; }
         }
     }
     const int2 center = best;
@@ -256,10 +293,10 @@ bool FlowEstimator::Init(ID3D12Device* dev, LogFn log) {
         SafeRelease(blob); SafeRelease(error); Log("motion estimator: the root signature could not be made"); Shutdown(); return false;
     }
     SafeRelease(blob);
-    const char* sources[PsoCount] = { kLumaHlsl, kDownHlsl, kSearchHlsl, kMedianHlsl, kPixelHlsl };
-    const char* names[PsoCount] = { "flow_luma", "flow_down", "flow_search", "flow_median", "flow_pixel" };
+    const char* sources[PsoCount] = { kLumaHlsl, kDownHlsl, kGlobalHlsl, kSearchHlsl, kMedianHlsl, kPixelHlsl };
+    const char* names[PsoCount] = { "flow_luma", "flow_down", "flow_global", "flow_search", "flow_median", "flow_pixel" };
     for (int i = 0; i < PsoCount; ++i) {
-        const std::string text = std::string(kCommonHlsl) + sources[i];
+        const std::string text = std::string(kCommonHlsl) + (i == Luma ? NR_HDR_HLSL : "") + sources[i];
         ID3DBlob* code = nullptr; ID3DBlob* err = nullptr;
         if (FAILED(D3DCompile(text.c_str(), text.size(), names[i], nullptr, nullptr, "main", "cs_5_0", D3DCOMPILE_OPTIMIZATION_LEVEL3, 0, &code, &err))) {
             Log("motion estimator: %s: %s", names[i], err ? static_cast<const char*>(err->GetBufferPointer()) : "?"); SafeRelease(err); Shutdown(); return false;
@@ -303,7 +340,7 @@ void FlowEstimator::Release(uint64_t retireAt) {
     };
     for (auto& set : m_luma) for (auto*& t : set) drop(t);
     for (auto*& t : m_grid) drop(t);
-    drop(m_filtered);
+    drop(m_filtered); drop(m_global);
     m_w = m_h = 0; m_levels = 0; m_havePrevious = false;
 }
 
@@ -345,6 +382,7 @@ bool FlowEstimator::Ensure(uint32_t w, uint32_t h, uint64_t retireAt) {
     for (int s = 0; s < 2 && ok; ++s) for (int k = 0; k < m_levels && ok; ++k) ok = make(m_lw[k], m_lh[k], DXGI_FORMAT_R16_FLOAT, &m_luma[s][k]);
     for (int k = 1; k < m_levels && ok; ++k) ok = make(m_gw[k], m_gh[k], DXGI_FORMAT_R16G16_FLOAT, &m_grid[k]);
     if (ok) ok = make(m_gw[1], m_gh[1], DXGI_FORMAT_R16G16_FLOAT, &m_filtered);
+    if (ok) ok = make(2 * kGlobalRadius + 1, 2 * kGlobalRadius + 1, DXGI_FORMAT_R32_FLOAT, &m_global);
     if (!ok) { Log("motion estimator: the textures for %ux%u could not be made", w, h); Release(); return false; }
     m_w = w; m_h = h; m_current = 0; m_havePrevious = false;
     Log("motion estimator: %ux%u, %d sizes down to %ux%u, searched in 4x4 blocks from %ux%u up to %ux%u", w, h, m_levels, m_lw[m_levels - 1], m_lh[m_levels - 1],
@@ -381,7 +419,7 @@ FlowEstimator::Pass FlowEstimator::MakePass(int slot, int& index, ID3D12Resource
 }
 
 void FlowEstimator::Record(ID3D12GraphicsCommandList* list, int slot, ID3D12Resource* frame, DXGI_FORMAT frameFormat, ID3D12Resource* motion, ID3D12Resource* distrust,
-                           float stability) {
+                           float stability, uint32_t encoding, float whiteNits) {
     const int cur = m_current, prev = 1 - m_current;
     int index = 0;
     auto stamp = [&](int i) { if (m_stamps) list->EndQuery(m_stamps, D3D12_QUERY_TYPE_TIMESTAMP, static_cast<UINT>(slot * kStamps + i)); };
@@ -407,7 +445,7 @@ void FlowEstimator::Record(ID3D12GraphicsCommandList* list, int slot, ID3D12Reso
 
     {   // this frame's pyramid
         ID3D12Resource* const srv[4] = { frame, nullptr, nullptr, nullptr }; const DXGI_FORMAT fmt[4] = { frameFormat, NONE, NONE, NONE };
-        run(Luma, srv, fmt, m_luma[cur][0], R16, Constants{ m_lw[0], m_lh[0] }, m_lw[0], m_lh[0], true);
+        run(Luma, srv, fmt, m_luma[cur][0], R16, Constants{ m_lw[0], m_lh[0], 0, 0, 0, 0, 0, encoding, whiteNits > 1.0f ? whiteNits : 200.0f }, m_lw[0], m_lh[0], true);
     }
     for (int k = 1; k < m_levels; ++k) {
         ID3D12Resource* const srv[4] = { m_luma[cur][k - 1], nullptr, nullptr, nullptr }; const DXGI_FORMAT fmt[4] = { R16, NONE, NONE, NONE };
@@ -415,12 +453,18 @@ void FlowEstimator::Record(ID3D12GraphicsCommandList* list, int slot, ID3D12Reso
     }
     stamp(1);
     if (m_havePrevious) {
-        for (int k = m_levels - 1; k >= 1; --k) {   // the search, coarse to fine
+        const int top = m_levels - 1;
+        {   // the whole picture's shift, at the smallest size
+            ID3D12Resource* const srv[4] = { m_luma[cur][top], m_luma[prev][top], nullptr, nullptr }; const DXGI_FORMAT fmt[4] = { R16, R16, NONE, NONE };
+            const uint32_t n = 2 * kGlobalRadius + 1;
+            run(Global, srv, fmt, m_global, DXGI_FORMAT_R32_FLOAT, Constants{ m_lw[top], m_lh[top], 0, 0, 0, 0, static_cast<uint32_t>(kGlobalRadius) }, n, n, true);
+        }
+        for (int k = top; k >= 1; --k) {   // the search, coarse to fine
             const bool coarser = k + 1 < m_levels;
-            ID3D12Resource* const srv[4] = { m_luma[cur][k], m_luma[prev][k], coarser ? m_grid[k + 1] : nullptr, nullptr };
-            const DXGI_FORMAT fmt[4] = { R16, R16, RG16, NONE };
-            Constants c{ m_lw[k], m_lh[k], m_gw[k], m_gh[k], coarser ? m_gw[k + 1] : 0u, coarser ? m_gh[k + 1] : 0u, coarser ? 2u : 4u,
-                         (coarser ? 1u : 0u) | (k == 1 ? 2u : 0u), kLambda, kBias };
+            ID3D12Resource* const srv[4] = { m_luma[cur][k], m_luma[prev][k], coarser ? m_grid[k + 1] : nullptr, coarser ? nullptr : m_global };
+            const DXGI_FORMAT fmt[4] = { R16, R16, RG16, coarser ? NONE : DXGI_FORMAT_R32_FLOAT };
+            Constants c{ m_lw[k], m_lh[k], m_gw[k], m_gh[k], coarser ? m_gw[k + 1] : static_cast<uint32_t>(kGlobalRadius), coarser ? m_gh[k + 1] : 0u, coarser ? 2u : 4u,
+                         (coarser ? 1u : 4u) | (k == 1 ? 2u : 0u), kLambda, kBias };
             run(Search, srv, fmt, m_grid[k], RG16, c, m_gw[k], m_gh[k], true);
         }
         stamp(2);

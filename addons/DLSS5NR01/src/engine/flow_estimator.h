@@ -39,9 +39,10 @@ public:
     // Records the passes. frame: the game's frame (readable, NON_PIXEL_SHADER_RESOURCE; RGBA8); motion: RG16F at the frame's size, in
     // UNORDERED_ACCESS, receives the vectors; distrust: R8 at the frame's size, in UNORDERED_ACCESS, receives the mask (0 trusted .. 1 not).
     // Leaves the command list's descriptor heap and root signature changed.
-    // stability 0..1: how far the distrust mask looks past flicker (see the pixel pass).
+    // stability 0..1: how far the distrust mask looks past flicker (see the pixel pass). encoding: what the frame holds (hdr_hlsl.h: 0 SDR or
+    // an SDR view, 1 scRGB, 2 HDR10), whiteNits the SDR white; an HDR frame is measured in its SDR view.
     void Record(ID3D12GraphicsCommandList* list, int slot, ID3D12Resource* frame, DXGI_FORMAT frameFormat, ID3D12Resource* motion, ID3D12Resource* distrust,
-                float stability = 0.0f);
+                float stability = 0.0f, uint32_t encoding = 0, float whiteNits = 200.0f);
     // After the engine has reused the slot (its earlier work is finished): that frame's statistics join the running totals.
     void ReadStats(int slot);
     // The average vector (game pixels), match cost (0..1 per pixel) and distrust (0..1) since the last call; false when no frame was measured.
@@ -52,8 +53,9 @@ public:
     bool TakeStageTimes(double ms[4]);
 
 private:
-    static const int kMaxLevels = 7, kDescriptorsPerPass = 6, kPassesMax = 2 + 2 * kMaxLevels, kDescriptorsPerSlot = kDescriptorsPerPass * kPassesMax;
-    enum Pso { Luma, Down, Search, Median, Pixel, PsoCount };
+    static const int kMaxLevels = 7, kDescriptorsPerPass = 6, kPassesMax = 3 + 2 * kMaxLevels, kDescriptorsPerSlot = kDescriptorsPerPass * kPassesMax;
+    enum Pso { Luma, Down, Global, Search, Median, Pixel, PsoCount };
+    static const int kGlobalRadius = 20;          // the whole picture's shift, tried within +-this at the smallest size (+-640 pixels at 4K)
     struct Pass { D3D12_GPU_DESCRIPTOR_HANDLE srvs, uav; };
     Pass MakePass(int slot, int& index, ID3D12Resource* const srv[4], const DXGI_FORMAT srvFormat[4], ID3D12Resource* uav, DXGI_FORMAT uavFormat,
                   ID3D12Resource* uav2 = nullptr, DXGI_FORMAT uav2Format = DXGI_FORMAT_R8_UNORM);
@@ -73,6 +75,7 @@ private:
     ID3D12Resource* m_luma[2][kMaxLevels] = {};   // two pyramids: this frame's and the one before's (R16F, rest readable)
     ID3D12Resource* m_grid[kMaxLevels] = {};      // one vector per 4x4 block of each size from 1 up (RG16F, in that size's pixels, rest readable)
     ID3D12Resource* m_filtered = nullptr;         // the half-size grid after the median
+    ID3D12Resource* m_global = nullptr;           // the cost of each shift of the whole picture (R32F, (2r+1) squared)
     ID3D12Resource* m_stats = nullptr;            // 8 uints: summed match cost, x and y (1/16 pixel), blocks, length; summed distrust (1/100), pixels
     ID3D12Resource* m_statsReadback = nullptr;    // kSlots x 16 bytes
     bool m_statsPending[kSlots] = {};

@@ -89,10 +89,10 @@ bool FgEngine::Submit(DWORD waitMs) {
     return WaitForSingleObject(m_event, waitMs) == WAIT_OBJECT_0;
 }
 
-bool FgEngine::Init(const LUID& card, const std::wstring& runtimeDll, uint32_t w, uint32_t h, DXGI_FORMAT fmt, bool hdr, LogFn log) {
+bool FgEngine::Init(const LUID& card, const std::wstring& runtimeDll, uint32_t w, uint32_t h, DXGI_FORMAT fmt, bool hdr, float whiteNits, LogFn log) {
     Shutdown();
     m_log = std::move(log); m_error.clear();
-    m_card = card; m_w = w; m_h = h; m_fmt = fmt; m_hdr = hdr;
+    m_card = card; m_w = w; m_h = h; m_fmt = fmt; m_hdr = hdr; m_white = whiteNits > 1.0f ? whiteNits : 200.0f;
     IDXGIFactory4* factory = nullptr; IDXGIAdapter1* adapter = nullptr;
     if (FAILED(CreateDXGIFactory2(0, IID_PPV_ARGS(&factory)))) return Fail("no DXGI factory");
     if (FAILED(factory->EnumAdapterByLuid(card, IID_PPV_ARGS(&adapter)))) { factory->Release(); return Fail("Lossless Scaling's graphics card was not found"); }
@@ -200,7 +200,7 @@ bool FgEngine::Generate(ID3D12Resource* in, ID3D12Fence* copied, uint64_t n, ID3
     // the frame's motion (the estimate keeps the frame before), FSR's preparation, and the frame into FidelityFX's back buffer
     m_alloc->Reset(); m_list->Reset(m_alloc, nullptr);
     Barrier(in, D3D12_RESOURCE_STATE_COMMON, D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE);
-    m_estimator.Record(m_list, 0, in, m_fmt, m_motion, m_distrust);
+    m_estimator.Record(m_list, 0, in, m_fmt, m_motion, m_distrust, 0.0f, m_hdr ? 1u : 0u, m_white);
     Barrier(m_motion, D3D12_RESOURCE_STATE_UNORDERED_ACCESS, D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE);
     ffxDispatchDescFrameGenerationPrepare prep{}; prep.header.type = FFX_API_DISPATCH_DESC_TYPE_FRAMEGENERATION_PREPARE;
     prep.frameID = m_frameId; prep.commandList = m_list; prep.renderSize = { m_w, m_h }; prep.jitterOffset = { 0, 0 }; prep.motionVectorScale = { 1.0f, 1.0f };
@@ -218,6 +218,13 @@ bool FgEngine::Generate(ID3D12Resource* in, ID3D12Fence* copied, uint64_t n, ID3
     m_queue->Wait(copied, n);   // Lossless Scaling's copy of the frame first
     const bool submitted = Submit(); back->Release();
     if (!submitted) { Log("frame generation engine: the GPU did not finish the frame within 5 s"); return false; }
+    m_estimator.ReadStats(0);   // the list has finished: this frame's motion joins the averages, logged every 600 frames
+    if (m_frameId % 600 == 599) {
+        double x = 0, y = 0, length = 0, cost = 0, distrust = 0; uint64_t frames = 0;
+        if (m_estimator.TakeAverages(x, y, length, cost, distrust, frames))
+            Log("frame generation engine: motion over %llu frames, average vector (%.1f, %.1f) px, average length %.1f px, match cost %.4f",
+                static_cast<unsigned long long>(frames), x, y, length, cost);
+    }
 
     // the marker reset, then the present: FSR makes the frame between the one before and this one, and OnGenerate copies it into `out`
     { uint8_t* m = nullptr; D3D12_RANGE all{ 0, kMarkerPitch }; m_marker->Map(0, &all, reinterpret_cast<void**>(&m)); memset(m, kSentinel, kMarkerPitch); m_marker->Unmap(0, &all); }

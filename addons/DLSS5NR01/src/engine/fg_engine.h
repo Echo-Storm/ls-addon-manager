@@ -19,8 +19,9 @@ public:
     using LogFn = std::function<void(const char*)>;
     ~FgEngine() { Shutdown(); }
     // On the card with this LUID; runtimeDll: AMD's amd_fidelityfx_dx12.dll (the FSR Upscaler's). Frames of w x h in format fmt (the swap
-    // chain's: 8-bit SDR, 10-bit or half-float HDR); hdr: the frames are HDR (FSR's HDR mode).
-    bool Init(const LUID& card, const std::wstring& runtimeDll, uint32_t w, uint32_t h, DXGI_FORMAT fmt, bool hdr, LogFn log);
+    // chain's: 8-bit SDR, 10-bit or half-float HDR); hdr: the frames are scRGB HDR (FSR's HDR mode; the motion is measured in their SDR view,
+    // with whiteNits the SDR white).
+    bool Init(const LUID& card, const std::wstring& runtimeDll, uint32_t w, uint32_t h, DXGI_FORMAT fmt, bool hdr, float whiteNits, LogFn log);
     void Shutdown();
     bool IsReady() const { return m_ready; }
     bool Matches(const LUID& card, uint32_t w, uint32_t h, DXGI_FORMAT fmt, bool hdr) const {
@@ -41,7 +42,7 @@ private:
     bool Submit(DWORD waitMs = 5000);   // runs the list and waits for it
 
     LogFn m_log; std::string m_error; bool m_ready = false;
-    LUID m_card{}; uint32_t m_w = 0, m_h = 0; DXGI_FORMAT m_fmt = DXGI_FORMAT_UNKNOWN; bool m_hdr = false;
+    LUID m_card{}; uint32_t m_w = 0, m_h = 0; DXGI_FORMAT m_fmt = DXGI_FORMAT_UNKNOWN; bool m_hdr = false; float m_white = 200.0f;
     ID3D12Device* m_dev = nullptr; ID3D12CommandQueue* m_queue = nullptr; ID3D12CommandAllocator* m_alloc = nullptr; ID3D12GraphicsCommandList* m_list = nullptr;
     ID3D12Fence* m_fence = nullptr; uint64_t m_fenceValue = 0; HANDLE m_event = nullptr;
     FlowEstimator m_estimator;
