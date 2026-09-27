@@ -112,6 +112,21 @@ stretch. Scores in full and at a quarter of the size (where things are, not thei
 - **A slow drift remains** in slow pans for FSR and DLSS (not XeSS): 49 -> 44 dB at a quarter of the size over 40 frames, in foliage
   detail. Not motion error (scaling the vectors 0.8 to 1.2 changes nothing). Open.
 
+## The second live test: frame generation halved the real frame rate (2026-09-27, evening)
+
+"Record what is shown" (the presented frames, tagged made / real) worked: each frame between sits between its two real frames (no pairing
+bug). But the real frames came 50-60 ms apart (about 18 a second, against 30 before), and FSR took about 20 ms a frame between. Two pacers fed
+each other: FidelityFX's frame generation swap chain paces its own presents (half the frame time between its frame between and the real
+one) and blocks in Present until it has, and our hook then held Lossless Scaling's thread half the measured interval more. Held for most of a
+frame, Lossless Scaling's loop slowed, the measured interval grew, and so did both waits: interval = 2 x (FSR's wait + Lossless Scaling's work).
+
+Fixed: FSR 3.1 frame generation is dispatched directly on our own command list (configured with FFX_FRAMEGENERATION_FLAG_NO_SWAPCHAIN_CONTEXT_NOTIFY,
+then configure, prepare and dispatch with one frame ID; AMD's provider source shows this path), with no swap chain or hidden window; the
+engine never waits for the GPU (Lossless Scaling's queue waits on a shared "made" fence before copying the frame between in); pacing uses the
+measured GPU time (3.4 ms at 1440p, motion estimate included; the same frames as before, `nr_fgeval engine=1` against `direct=1`). The log
+now says how long Lossless Scaling's thread is held and how soon it comes back. Still to do: a presenter of our own (the hold for half a frame
+is still on Lossless Scaling's thread; the clean way is replacement back buffers, as FidelityFX's own swap chain does).
+
 ## FSR 3.1 frame generation from the inside (AMD's MIT-licensed source, FidelityFX SDK)
 
 - The frame between is built by scattering each pixel of the newer frame half way along its vector; where two land on one pixel, the
