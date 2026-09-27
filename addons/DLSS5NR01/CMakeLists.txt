@@ -111,7 +111,7 @@ endif()
 
 # nr_fgeval: frame generation scored offline on a recording (tools/fg_eval.cpp): every other frame rebuilt by AMD's FSR 3.1 or Intel's
 # XeSS frame generation, fed this project's motion estimate, and compared with the real one
-add_executable(nr_fgeval tools/fg_eval.cpp src/addon/lsrec.cpp src/engine/flow_estimator.cpp)
+add_executable(nr_fgeval tools/fg_eval.cpp src/addon/lsrec.cpp src/engine/flow_estimator.cpp src/engine/fg_engine.cpp)
 target_include_directories(nr_fgeval PRIVATE ${CMAKE_SOURCE_DIR}/src ${CMAKE_SOURCE_DIR}/third_party/ffx/include ${XESS_DIR}/inc)
 if(EXISTS ${XESS_DIR}/bin/libxess_fg.dll)   # Intel's frame generation runtime, for gen=xess
     add_custom_command(TARGET nr_fgeval POST_BUILD

@@ -44,8 +44,11 @@ struct State {
     FgEngine engine; std::wstring runtime; bool engineFailed = false;
     ID3D11Texture2D* in11 = nullptr; ID3D11Texture2D* out11 = nullptr; ID3D12Resource* in12 = nullptr; ID3D12Resource* out12 = nullptr;
     ID3D11Fence* copied11 = nullptr; ID3D12Fence* copied12 = nullptr; uint64_t copiedValue = 0;
+    ID3D11Fence* made11 = nullptr; ID3D12Fence* made12 = nullptr; uint64_t madeValue = 0;   // the frame between is in out11 (a GPU wait here)
     ID3D11DeviceContext4* ctx4 = nullptr;
     bool resetNext = true;
+    // for the log: how long Lossless Scaling's thread is held here, and how soon after it comes back with the next real frame
+    LARGE_INTEGER returned{}; double heldSum = 0, freeSum = 0; uint64_t heldCount = 0, freeCount = 0;
 } g;
 std::mutex g_mutex;
 
@@ -54,7 +57,8 @@ double Ms(const LARGE_INTEGER& a, const LARGE_INTEGER& b) { LARGE_INTEGER f; Que
 void ReleaseShared() {
     g.engine.Shutdown();
     SafeRelease(g.in12); SafeRelease(g.out12); SafeRelease(g.copied12); SafeRelease(g.in11); SafeRelease(g.out11); SafeRelease(g.copied11);
-    g.copiedValue = 0; g.resetNext = true;
+    SafeRelease(g.made12); SafeRelease(g.made11);
+    g.copiedValue = 0; g.madeValue = 0; g.resetNext = true;
 }
 void ReleaseTextures() {
     ReleaseShared();
@@ -104,17 +108,24 @@ bool EnsureEngine(const D3D11_TEXTURE2D_DESC& back, const LogFn& log) {
     if (!adapter) return false;
     adapter->GetDesc(&ad); adapter->Release();
     const bool hdr = back.Format == DXGI_FORMAT_R16G16B16A16_FLOAT;
-    if (g.engine.Matches(ad.AdapterLuid, back.Width, back.Height, back.Format, hdr) && g.in12 && g.out12 && g.copied12) return true;
+    if (g.engine.Matches(ad.AdapterLuid, back.Width, back.Height, back.Format, hdr) && g.in12 && g.out12 && g.copied12 && g.made12) return true;
     ReleaseShared();
     auto fail = [&](const char* why) { if (log) { std::string m = std::string("frame generation: ") + why + "; the blend stands in"; log(m.c_str()); } ReleaseShared(); g.engineFailed = true; return false; };
     if (g.runtime.empty() || !g.ctx4) return fail("no FSR runtime, or no Direct3D 11.4");
     if (!g.engine.Init(ad.AdapterLuid, g.runtime, back.Width, back.Height, back.Format, hdr, log)) return fail(g.engine.LastError());
+    // two shared fences: "copied" (the frame is in, for the engine's queue) and "made" (the frame between is out, for Lossless Scaling's)
     ID3D11Device5* dev5 = nullptr; g.dev->QueryInterface(IID_PPV_ARGS(&dev5));
-    if (!dev5 || FAILED(dev5->CreateFence(0, D3D11_FENCE_FLAG_SHARED, IID_PPV_ARGS(&g.copied11)))) { SafeRelease(dev5); return fail("the shared fence could not be made"); }
+    if (!dev5 || FAILED(dev5->CreateFence(0, D3D11_FENCE_FLAG_SHARED, IID_PPV_ARGS(&g.copied11))) || FAILED(dev5->CreateFence(0, D3D11_FENCE_FLAG_SHARED, IID_PPV_ARGS(&g.made11)))) {
+        SafeRelease(dev5); return fail("the shared fences could not be made");
+    }
     dev5->Release();
-    HANDLE h = nullptr;
-    if (FAILED(g.copied11->CreateSharedHandle(nullptr, GENERIC_ALL, nullptr, &h))) return fail("the fence could not be shared");
-    g.copied12 = g.engine.OpenSharedFence(h); CloseHandle(h);
+    auto shareFence = [&](ID3D11Fence* f11, ID3D12Fence*& f12) {
+        HANDLE h = nullptr;
+        if (FAILED(f11->CreateSharedHandle(nullptr, GENERIC_ALL, nullptr, &h))) return false;
+        f12 = g.engine.OpenSharedFence(h); CloseHandle(h);
+        return f12 != nullptr;
+    };
+    if (!shareFence(g.copied11, g.copied12) || !shareFence(g.made11, g.made12)) return fail("the fences could not be shared");
     auto shared = [&](ID3D11Texture2D*& t11, ID3D12Resource*& t12) {
         D3D11_TEXTURE2D_DESC d{}; d.Width = back.Width; d.Height = back.Height; d.MipLevels = 1; d.ArraySize = 1; d.Format = back.Format;
         d.SampleDesc.Count = 1; d.Usage = D3D11_USAGE_DEFAULT; d.BindFlags = D3D11_BIND_SHADER_RESOURCE;
@@ -127,7 +138,7 @@ bool EnsureEngine(const D3D11_TEXTURE2D_DESC& back, const LogFn& log) {
         t12 = g.engine.OpenSharedTexture(th); CloseHandle(th);
         return t12 != nullptr;
     };
-    if (!g.copied12 || !shared(g.in11, g.in12) || !shared(g.out11, g.out12)) return fail("the shared frames could not be made");
+    if (!shared(g.in11, g.in12) || !shared(g.out11, g.out12)) return fail("the shared frames could not be made");
     g.resetNext = true;
     return true;
 }
@@ -152,6 +163,11 @@ void WaitUntil(const LARGE_INTEGER& due) {
 bool BeforeRealPresent(IDXGISwapChain* sc, UINT sync, UINT flags, uint32_t encoding, float whiteNits, const LogFn& log, const ShownFn& shown) {
     std::lock_guard<std::mutex> lock(g_mutex);
     LARGE_INTEGER arrived; QueryPerformanceCounter(&arrived);
+    if (g.returned.QuadPart) {   // how soon Lossless Scaling came back after it was let go (small: it had a frame waiting, held up by us)
+        const double free = Ms(g.returned, arrived);
+        if (free < 100.0) { g.freeSum += free; ++g.freeCount; }
+        g.returned = {};
+    }
     ID3D11Texture2D* back = nullptr;
     if (FAILED(sc->GetBuffer(0, IID_PPV_ARGS(&back))) || !back) return false;
     D3D11_TEXTURE2D_DESC bd{}; back->GetDesc(&bd);
@@ -177,16 +193,16 @@ bool BeforeRealPresent(IDXGISwapChain* sc, UINT sync, UINT flags, uint32_t encod
     // the frame between: FSR's (the frame copied over to FgEngine, the frame made copied back), or the blend
     bool byFsr = false;
     if (EnsureEngine(bd, log)) {
-        LARGE_INTEGER f0; QueryPerformanceCounter(&f0);
         g.ctx->CopyResource(g.in11, back);
         g.ctx4->Signal(g.copied11, ++g.copiedValue);
         g.ctx->Flush();   // the copy and the signal on the GPU's way before the engine waits for them
-        byFsr = g.engine.Generate(g.in12, g.copied12, g.copiedValue, g.out12, static_cast<float>(g.intervalMs), g.resetNext, encoding, whiteNits);
+        // queued, not waited for: Lossless Scaling's queue waits on the GPU for "made" before the frame between is copied in
+        byFsr = g.engine.Generate(g.in12, g.copied12, g.copiedValue, g.out12, g.made12, ++g.madeValue, static_cast<float>(g.intervalMs), g.resetNext, encoding, whiteNits);
         g.resetNext = false;
         if (byFsr) {
+            g.ctx4->Wait(g.made11, g.madeValue);
             g.ctx->CopyResource(back, g.out11);
-            LARGE_INTEGER f1; QueryPerformanceCounter(&f1);
-            ++g.stats.byFsr; g.stats.fsrMs = 0.9 * g.stats.fsrMs + 0.1 * Ms(f0, f1);
+            ++g.stats.byFsr; g.stats.fsrMs = g.engine.GpuMs();
         }
     }
     g.stats.engine = g.engine.IsReady() ? "FSR 3.1" : g.engineFailed ? std::string("blend (") + g.engine.LastError() + ")" : "blend";
@@ -209,34 +225,37 @@ bool BeforeRealPresent(IDXGISwapChain* sc, UINT sync, UINT flags, uint32_t encod
     if (shown) shown(g.ctx, back, true);
     back->Release();
 
-    // The frame between goes out `leadMs` after the real frame arrived, the real frame half a frame after that: without the lead, a frame
-    // between that took 8 ms to make at 30 frames a second went out 8 ms late and the real one on time, 9 and 25 ms apart (uneven, judder).
-    LARGE_INTEGER made; QueryPerformanceCounter(&made);
-    const double work = Ms(arrived, made);
+    // The frame between goes out now; the GPU shows it once it is made (its wait above), about `leadMs` after the real frame arrived: the
+    // GPU's time for it (or the CPU's, for the blend). The real frame goes out half a frame after that, so the two are evenly spaced.
+    LARGE_INTEGER madeAt; QueryPerformanceCounter(&madeAt);
+    const double work = std::max(Ms(arrived, madeAt), byFsr ? g.engine.GpuMs() + 0.5 : 0.0);
     g.leadMs = std::min(std::max(work, 0.97 * g.leadMs + 0.03 * work), std::max(0.0, 0.5 * g.intervalMs - 1.0));
     LARGE_INTEGER f; QueryPerformanceFrequency(&f);
     auto after = [&](double ms) { LARGE_INTEGER t; t.QuadPart = arrived.QuadPart + static_cast<LONGLONG>(ms * f.QuadPart / 1000.0); return t; };
-    WaitUntil(after(g.leadMs));
     LARGE_INTEGER t0; QueryPerformanceCounter(&t0);
     PresentHook::PresentOriginal(sc, sync, flags);   // the frame between goes out now...
     LARGE_INTEGER t1; QueryPerformanceCounter(&t1);
     ++g.stats.generated; g.stats.generatedMs = 0.9 * g.stats.generatedMs + 0.1 * Ms(t0, t1);
-    // ...and the real frame half a frame later, back in the swap chain's next back buffer
+    // ...and the real frame half a frame after it is shown, back in the swap chain's next back buffer
     WaitUntil(after(g.leadMs + 0.5 * g.intervalMs));
     if (log && Ms(g.saidAt, t1) >= 10000.0) {   // what it did, now and then
         if (g.saidAt.QuadPart) {
-            char m[256];
-            snprintf(m, sizeof m, "frame generation: %llu real frames %.1f ms apart, %llu made between (%llu by FSR 3.1, %.1f ms each; out %.1f ms after the real frame arrives; its present %.2f ms)",
+            char m[320];
+            snprintf(m, sizeof m, "frame generation: %llu real frames %.1f ms apart, %llu made between (%llu by FSR 3.1, the GPU %.1f ms each; shown %.1f ms after the real frame "
+                     "arrives; its present %.2f ms); Lossless Scaling's thread held %.1f ms a frame, back %.1f ms after",
                      static_cast<unsigned long long>(g.stats.real - g.said.real), g.intervalMs, static_cast<unsigned long long>(g.stats.generated - g.said.generated),
-                     static_cast<unsigned long long>(g.stats.byFsr - g.said.byFsr), g.stats.fsrMs, g.leadMs, g.stats.generatedMs);
+                     static_cast<unsigned long long>(g.stats.byFsr - g.said.byFsr), g.stats.fsrMs, g.leadMs, g.stats.generatedMs,
+                     g.heldCount ? g.heldSum / g.heldCount : 0.0, g.freeCount ? g.freeSum / g.freeCount : 0.0);
             log(m);
         }
-        g.saidAt = t1; g.said = g.stats;
+        g.saidAt = t1; g.said = g.stats; g.heldSum = g.freeSum = 0; g.heldCount = g.freeCount = 0;
     }
     ID3D11Texture2D* next = nullptr;
     if (SUCCEEDED(sc->GetBuffer(0, IID_PPV_ARGS(&next))) && next) { g.ctx->CopyResource(next, g.now); if (shown) shown(g.ctx, next, false); next->Release(); }
     std::swap(g.before, g.now); std::swap(g.beforeSrv, g.nowSrv);
     ++g.stats.real; g.stats.realIntervalMs = g.intervalMs;
+    QueryPerformanceCounter(&g.returned);
+    g.heldSum += Ms(arrived, g.returned); ++g.heldCount;
     return true;
 }
 

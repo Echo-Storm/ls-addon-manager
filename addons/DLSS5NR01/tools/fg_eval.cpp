@@ -30,6 +30,7 @@
 #include "addon/lsrec.h"
 #include "eval_common.h"
 #include "engine/flow_estimator.h"
+#include "engine/fg_engine.h"
 #include "ffx_api/ffx_api.h"
 #include "ffx_api/ffx_framegeneration.h"
 #include "ffx_api/ffx_api_loader.h"
@@ -533,7 +534,11 @@ int main(int argc, char** argv) {
     const bool worstByBand = ArgText(argc, argv, "worstby") == "band";
     // ffxdebug=1: FidelityFX's checks and messages; debugview=1: FSR draws its own views of its inputs into the frame it makes
     const bool ffxDebug = Arg(argc, argv, "ffxdebug", 0) != 0, debugView = Arg(argc, argv, "debugview", 0) != 0;
-    const bool mvDump = Arg(argc, argv, "mvdump", 0) != 0;   // mvdump=1: each kept frame's vectors as a picture
+    const bool mvDump = Arg(argc, argv, "mvdump", 0) != 0;
+    // direct=1: FSR frame generation dispatched on our own command list (no FidelityFX swap chain, no presents, no pacing); else through its swap chain
+    const bool direct = Arg(argc, argv, "direct", 0) != 0;
+    // engine=1: the addon's own FgEngine (src/engine/fg_engine.cpp) makes the frames, through shared textures and fences, as live
+    const bool useEngine = Arg(argc, argv, "engine", 0) != 0;   // mvdump=1: each kept frame's vectors as a picture
     // estin=light|view: the motion estimate fed the frames as scRGB (half floats), taken as they are (light) or in their SDR view (view)
     const std::string estIn = ArgText(argc, argv, "estin");
     // live=1: as live, a frame made between every two frames of the recording (none dropped, so nothing to score against): each kept as a
@@ -651,9 +656,11 @@ int main(int argc, char** argv) {
             dbg.fpMessage = [](uint32_t type, const wchar_t* message) { printf("  FidelityFX %s: %ls\n", type == FFX_API_MESSAGE_TYPE_ERROR ? "error" : "warning", message); };
             fx.Configure(nullptr, &dbg.header);
         }
-        ffxCreateContextDescFrameGenerationSwapChainForHwndDX12 scd{}; scd.header.type = FFX_API_CREATE_CONTEXT_DESC_TYPE_FRAMEGENERATIONSWAPCHAIN_FOR_HWND_DX12;
-        scd.swapchain = &chain; scd.hwnd = hwnd; scd.desc = &sd; scd.fullscreenDesc = nullptr; scd.dxgiFactory = factory; scd.gameQueue = g.queue;
-        if (const ffxReturnCode_t rc = fx.CreateContext(&chainCtx, &scd.header, nullptr); rc != FFX_API_RETURN_OK || !chain) { printf("FidelityFX's swap chain could not be made (code %u)\n", rc); return 4; }
+        if (!direct) {   // (direct=1: no swap chain at all)
+            ffxCreateContextDescFrameGenerationSwapChainForHwndDX12 scd{}; scd.header.type = FFX_API_CREATE_CONTEXT_DESC_TYPE_FRAMEGENERATIONSWAPCHAIN_FOR_HWND_DX12;
+            scd.swapchain = &chain; scd.hwnd = hwnd; scd.desc = &sd; scd.fullscreenDesc = nullptr; scd.dxgiFactory = factory; scd.gameQueue = g.queue;
+            if (const ffxReturnCode_t rc = fx.CreateContext(&chainCtx, &scd.header, nullptr); rc != FFX_API_RETURN_OK || !chain) { printf("FidelityFX's swap chain could not be made (code %u)\n", rc); return 4; }
+        }
         ffxCreateBackendDX12Desc backend{}; backend.header.type = FFX_API_CREATE_CONTEXT_DESC_TYPE_BACKEND_DX12; backend.device = g.dev;
         ffxCreateContextDescFrameGeneration create{}; create.header.type = FFX_API_CREATE_CONTEXT_DESC_TYPE_FRAMEGENERATION; create.header.pNext = &backend.header;
         create.flags = (depthDir.empty() && !depthFromMotion && !depthNoise && !depthLayer && !depthOrbit) || !depthNearIsOne ? 0u : static_cast<uint32_t>(FFX_FRAMEGENERATION_ENABLE_DEPTH_INVERTED);
@@ -686,8 +693,80 @@ int main(int argc, char** argv) {
             return rc;
         };
         cfg.frameGenerationCallbackUserContext = &ctx;
+        if (direct) {   // FSR's own dispatch, on our command list: no swap chain, no present, no pacing (FFX_FRAMEGENERATION_FLAG_NO_SWAPCHAIN_CONTEXT_NOTIFY)
+            cfg.swapChain = nullptr; cfg.frameGenerationCallback = nullptr; cfg.frameGenerationCallbackUserContext = nullptr;
+            cfg.flags |= FFX_FRAMEGENERATION_FLAG_NO_SWAPCHAIN_CONTEXT_NOTIFY;
+        }
         if (const ffxReturnCode_t rc = fx.Configure(&ctx, &cfg.header); rc != FFX_API_RETURN_OK) { printf("FSR frame generation could not be configured (code %u)\n", rc); return 4; }
         uint64_t frameId = 0;
+        if (useEngine) {   // engine=1: the addon's own FgEngine, given the frames through shared textures and fences as framegen11 gives them
+            static nr::FgEngine eng;
+            DXGI_ADAPTER_DESC1 ad{}; { IDXGIFactory6* f6 = nullptr; CreateDXGIFactory2(0, IID_PPV_ARGS(&f6)); IDXGIAdapter1* a = nullptr; f6->EnumAdapterByGpuPreference(0, DXGI_GPU_PREFERENCE_HIGH_PERFORMANCE, IID_PPV_ARGS(&a)); a->GetDesc1(&ad); a->Release(); f6->Release(); }
+            std::wstring dll = Wide(ArgText(argc, argv, "fsr").c_str()); if (dll.empty()) dll = exeDir + L"\\fsr\\amd_fidelityfx_dx12.dll";
+            if (!eng.Init(ad.AdapterLuid, dll, W, H, DXGI_FORMAT_R8G8B8A8_UNORM, false, [](const char* m) { printf("  %s\n", m); })) { printf("FgEngine: %s\n", eng.LastError()); return 4; }
+            auto sharedTex = [&](ID3D12Resource*& mine, ID3D12Resource*& theirs) {
+                D3D12_HEAP_PROPERTIES heap{}; heap.Type = D3D12_HEAP_TYPE_DEFAULT;
+                D3D12_RESOURCE_DESC d{}; d.Dimension = D3D12_RESOURCE_DIMENSION_TEXTURE2D; d.Width = W; d.Height = H; d.DepthOrArraySize = 1; d.MipLevels = 1; d.SampleDesc.Count = 1;
+                d.Format = DXGI_FORMAT_R8G8B8A8_UNORM; d.Flags = D3D12_RESOURCE_FLAG_ALLOW_SIMULTANEOUS_ACCESS;
+                g.dev->CreateCommittedResource(&heap, D3D12_HEAP_FLAG_SHARED, &d, D3D12_RESOURCE_STATE_COMMON, nullptr, IID_PPV_ARGS(&mine));
+                HANDLE h = nullptr; g.dev->CreateSharedHandle(mine, nullptr, GENERIC_ALL, nullptr, &h); theirs = eng.OpenSharedTexture(h); CloseHandle(h);
+            };
+            auto sharedFence = [&](ID3D12Fence*& mine, ID3D12Fence*& theirs) {
+                g.dev->CreateFence(0, D3D12_FENCE_FLAG_SHARED, IID_PPV_ARGS(&mine));
+                HANDLE h = nullptr; g.dev->CreateSharedHandle(mine, nullptr, GENERIC_ALL, nullptr, &h); theirs = eng.OpenSharedFence(h); CloseHandle(h);
+            };
+            static ID3D12Resource *inMine = nullptr, *inTheirs = nullptr, *outMine = nullptr, *outTheirs = nullptr;
+            static ID3D12Fence *copiedMine = nullptr, *copiedTheirs = nullptr, *madeMine = nullptr, *madeTheirs = nullptr;
+            sharedTex(inMine, inTheirs); sharedTex(outMine, outTheirs); sharedFence(copiedMine, copiedTheirs); sharedFence(madeMine, madeTheirs);
+            if (!inTheirs || !outTheirs || !copiedTheirs || !madeTheirs) { printf("FgEngine: the shared resources could not be made\n"); return 4; }
+            step = [&](int i, float frameMs, std::vector<uint8_t>& picture) -> bool {
+                const uint64_t v = static_cast<uint64_t>(i) + 1;
+                g.Barrier(cur, D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE, D3D12_RESOURCE_STATE_COPY_SOURCE);
+                g.list->CopyResource(inMine, cur);   // (a shared texture in COMMON takes a copy without a barrier: simultaneous access)
+                g.Barrier(cur, D3D12_RESOURCE_STATE_COPY_SOURCE, D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE);
+                g.Submit(); g.queue->Signal(copiedMine, v);
+                const bool made = eng.Generate(inTheirs, copiedTheirs, v, outTheirs, madeTheirs, v, frameMs, i == 0);
+                g.queue->Wait(madeMine, v);
+                if (!made) return true;
+                g.Begin();
+                D3D12_TEXTURE_COPY_LOCATION to{ readback, D3D12_TEXTURE_COPY_TYPE_PLACED_FOOTPRINT }; to.PlacedFootprint = fp;
+                D3D12_TEXTURE_COPY_LOCATION from{ outMine, D3D12_TEXTURE_COPY_TYPE_SUBRESOURCE_INDEX }; from.SubresourceIndex = 0;
+                g.list->CopyTextureRegion(&to, 0, 0, 0, &from, nullptr);
+                g.Submit();
+                readPicture(readback, picture);
+                if (i >= 2 && i % 20 == 0) printf("  FgEngine: the GPU %.2f ms a frame between\n", eng.GpuMs());
+                return true;
+            };
+        } else if (direct) {
+            static ID3D12Resource* made = nullptr;   // the frame FSR makes (unordered access, the frame's format)
+            made = g.Texture(W, H, DXGI_FORMAT_R8G8B8A8_UNORM, true, D3D12_RESOURCE_STATE_UNORDERED_ACCESS);
+            step = [&, frameId](int i, float frameMs, std::vector<uint8_t>& picture) mutable -> bool {
+                cfg.frameID = frameId;   // configure, prepare and dispatch with the same frame ID (else FSR resets)
+                if (const ffxReturnCode_t rc = fx.Configure(&ctx, &cfg.header); rc != FFX_API_RETURN_OK) { printf("FSR's configure failed (code %u)\n", rc); return false; }
+                ffxDispatchDescFrameGenerationPrepare prep{}; prep.header.type = FFX_API_DISPATCH_DESC_TYPE_FRAMEGENERATION_PREPARE;
+                prep.frameID = frameId; prep.commandList = g.list; prep.renderSize = { W, H }; prep.jitterOffset = { 0, 0 }; prep.motionVectorScale = { mvScale, mvScale };
+                prep.frameTimeDelta = frameMs; prep.cameraNear = 0.1f; prep.cameraFar = 1000.0f; prep.cameraFovAngleVertical = 1.0f; prep.viewSpaceToMetersFactor = 1.0f;
+                prep.depth = ffxApiGetResourceDX12(depth, FFX_API_RESOURCE_STATE_COMPUTE_READ);
+                prep.motionVectors = ffxApiGetResourceDX12(motion, FFX_API_RESOURCE_STATE_COMPUTE_READ);
+                if (const ffxReturnCode_t rp = fx.Dispatch(&ctx, &prep.header); rp != FFX_API_RETURN_OK) { printf("FSR's prepare failed (code %u)\n", rp); return false; }
+                ffxDispatchDescFrameGeneration gen{}; gen.header.type = FFX_API_DISPATCH_DESC_TYPE_FRAMEGENERATION;
+                gen.commandList = g.list; gen.presentColor = ffxApiGetResourceDX12(cur, FFX_API_RESOURCE_STATE_COMPUTE_READ);
+                gen.outputs[0] = ffxApiGetResourceDX12(made, FFX_API_RESOURCE_STATE_UNORDERED_ACCESS); gen.numGeneratedFrames = 1; gen.reset = i == 0;
+                gen.backbufferTransferFunction = FFX_API_BACKBUFFER_TRANSFER_FUNCTION_SRGB; gen.minMaxLuminance[0] = 0.0f; gen.minMaxLuminance[1] = 1000.0f;
+                gen.generationRect = { 0, 0, static_cast<int>(W), static_cast<int>(H) }; gen.frameID = frameId;
+                if (const ffxReturnCode_t rg = fx.Dispatch(&ctx, &gen.header); rg != FFX_API_RETURN_OK) { printf("FSR's frame generation dispatch failed (code %u)\n", rg); return false; }
+                g.Barrier(made, D3D12_RESOURCE_STATE_UNORDERED_ACCESS, D3D12_RESOURCE_STATE_COPY_SOURCE);
+                D3D12_TEXTURE_COPY_LOCATION to{ readback, D3D12_TEXTURE_COPY_TYPE_PLACED_FOOTPRINT }; to.PlacedFootprint = fp;
+                D3D12_TEXTURE_COPY_LOCATION from{ made, D3D12_TEXTURE_COPY_TYPE_SUBRESOURCE_INDEX }; from.SubresourceIndex = 0;
+                g.list->CopyTextureRegion(&to, 0, 0, 0, &from, nullptr);
+                g.Barrier(made, D3D12_RESOURCE_STATE_COPY_SOURCE, D3D12_RESOURCE_STATE_UNORDERED_ACCESS);
+                g.Submit();
+                ++frameId;
+                if (i < 2) return true;
+                readPicture(readback, picture);
+                return true;
+            };
+        } else
         step = [&, frameId](int i, float frameMs, std::vector<uint8_t>& picture) mutable -> bool {
             ffxDispatchDescFrameGenerationPrepare prep{}; prep.header.type = FFX_API_DISPATCH_DESC_TYPE_FRAMEGENERATION_PREPARE;
             prep.frameID = frameId; prep.commandList = g.list; prep.renderSize = { W, H }; prep.jitterOffset = { 0, 0 }; prep.motionVectorScale = { mvScale, mvScale };
@@ -940,7 +1019,12 @@ int main(int argc, char** argv) {
         g.Barrier(motion, D3D12_RESOURCE_STATE_UNORDERED_ACCESS, D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE);
         Score s; s.frame = first + i - 1;
         const float frameMs = i >= stride ? static_cast<float>(times[i] - times[i - stride]) : 33.3f;
+        LARGE_INTEGER s0, s1, sf; QueryPerformanceCounter(&s0);
         const bool ok = step(i, frameMs, s.picture);
+        QueryPerformanceCounter(&s1); QueryPerformanceFrequency(&sf);
+        static double stepSum = 0; static int stepCount = 0;
+        if (i >= 2 * stride) { stepSum += (s1.QuadPart - s0.QuadPart) * 1000.0 / sf.QuadPart; ++stepCount; }
+        if (i + stride >= count && stepCount) printf("  making a frame between took %.2f ms on average (the thread's wait, %d frames)\n", stepSum / stepCount, stepCount);
         g.Begin(); g.Barrier(motion, D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE, D3D12_RESOURCE_STATE_UNORDERED_ACCESS); g.Submit();
         if (!ok) { printf("frame %d: stopped\n", first + i); return 5; }
         est.ReadStats(0);   // the estimate's average motion over this frame (the GPU has finished it)

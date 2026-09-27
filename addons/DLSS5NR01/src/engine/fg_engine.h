@@ -1,8 +1,8 @@
 // FgEngine: frame generation of our own on a Direct3D 12 device of its own (docs/frame-generation-research.md). Lossless Scaling's
 // presented frame comes in through a shared texture; this project's motion estimate measures its motion; AMD's FSR 3.1 frame generation
-// makes the frame between it and the one before, at present time on a FidelityFX swap chain of its own (a window never shown); the
-// generated frame goes out through a second shared texture. Everything runs on the caller's thread (Lossless Scaling's presenting thread,
-// through framegen11), which Generate holds until the frame is made.
+// makes the frame between it and the one before, dispatched straight on our command list (no FidelityFX swap chain: its presents paced
+// themselves on the frame rate and held Lossless Scaling's thread about 20 ms a frame); the frame made goes out through a second shared
+// texture and a shared fence says when. Nothing here waits for the GPU on the caller's thread (Lossless Scaling's presenting thread).
 #pragma once
 #include <windows.h>
 #include <d3d12.h>
@@ -28,29 +28,37 @@ public:
     }
     ID3D12Resource* OpenSharedTexture(HANDLE h);
     ID3D12Fence* OpenSharedFence(HANDLE h);
-    // Frame n is in `in` once `copied` reaches n. Makes the frame between frame n - 1 and n into `out` and returns true once it is written
-    // there (false: no frame between this time, such as for the first frame; `out` is then untouched). frameMs: the time since frame n - 1.
-    // encoding, whiteNits: what the frames hold (hdr_hlsl.h: 0 SDR, 1 scRGB, 2 HDR10) and the SDR white; the motion is measured in their SDR view.
-    bool Generate(ID3D12Resource* in, ID3D12Fence* copied, uint64_t n, ID3D12Resource* out, float frameMs, bool reset, uint32_t encoding = 0, float whiteNits = 80.0f);
+    // Frame n is in `in` once `copied` reaches n. Queues the making of the frame between frame n - 1 and n into `out` (COMMON, shared) and
+    // the signal made = madeValue after it, and returns at once: true when a frame between is on its way (wait for `made` on the GPU before
+    // reading `out`); false when there is none this time (the first frame, a reset, an error: `made` is still signalled, `out` untouched).
+    // frameMs: the time since frame n - 1. encoding, whiteNits: what the frames hold (hdr_hlsl.h: 0 SDR, 1 scRGB, 2 HDR10) and the SDR white;
+    // the motion is measured in their SDR view.
+    bool Generate(ID3D12Resource* in, ID3D12Fence* copied, uint64_t n, ID3D12Resource* out, ID3D12Fence* made, uint64_t madeValue, float frameMs, bool reset,
+                  uint32_t encoding = 0, float whiteNits = 80.0f);
+    // How long the GPU took for a frame between (the motion, FSR, the copy out), smoothed over the frames it has finished; 0 before any.
+    double GpuMs() const { return m_gpuMs; }
     const char* LastError() const { return m_error.c_str(); }
 
 private:
     struct Ffx;
+    static const int kSlots = FlowEstimator::kSlots;   // command allocators in flight (the estimate reads its statistics back per slot)
     void Log(const char* fmt, ...);
     bool Fail(const char* what);
     void Barrier(ID3D12Resource* r, D3D12_RESOURCE_STATES from, D3D12_RESOURCE_STATES to);
-    bool Submit(DWORD waitMs = 5000);   // runs the list and waits for it
+    bool WaitFence(uint64_t value, DWORD ms);   // (setting up, a slot still busy, shutting down)
+    void ReadSlot(int slot);                    // a slot the GPU has finished: its timing and motion statistics
 
     LogFn m_log; std::string m_error; bool m_ready = false;
     LUID m_card{}; uint32_t m_w = 0, m_h = 0; DXGI_FORMAT m_fmt = DXGI_FORMAT_UNKNOWN; bool m_hdr = false;
-    ID3D12Device* m_dev = nullptr; ID3D12CommandQueue* m_queue = nullptr; ID3D12CommandAllocator* m_alloc = nullptr; ID3D12GraphicsCommandList* m_list = nullptr;
+    ID3D12Device* m_dev = nullptr; ID3D12CommandQueue* m_queue = nullptr; ID3D12GraphicsCommandList* m_list = nullptr;
+    ID3D12CommandAllocator* m_alloc[kSlots] = {}; uint64_t m_slotValue[kSlots] = {}; bool m_slotRead[kSlots] = {};
     ID3D12Fence* m_fence = nullptr; uint64_t m_fenceValue = 0; HANDLE m_event = nullptr;
+    ID3D12QueryHeap* m_stamps = nullptr; ID3D12Resource* m_stampReadback = nullptr; uint64_t m_stampFreq = 0; double m_gpuMs = 0;
     FlowEstimator m_estimator;
     ID3D12Resource* m_motion = nullptr; ID3D12Resource* m_distrust = nullptr; ID3D12Resource* m_depth = nullptr;
-    ID3D12Resource* m_marker = nullptr;   // readback: a few texels of the generated frame, copied after it (their arrival says it is written)
-    HWND m_hwnd = nullptr; IDXGISwapChain4* m_chain = nullptr;
+    ID3D12Resource* m_made = nullptr;   // FSR's output (unordered access, the frames' format), copied into the caller's shared texture
     Ffx* m_ffx = nullptr;
-    uint64_t m_frameId = 0;
+    uint64_t m_frameId = 0, m_runs = 0;
 };
 
 } // namespace nr
