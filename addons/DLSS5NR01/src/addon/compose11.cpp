@@ -189,7 +189,9 @@ void CSCompose(uint3 id : SV_DispatchThreadID) {
         else {
             // Only the change goes back, so what was not changed (highlights brighter than the SDR view holds, colours outside Rec.709) stays
             // as it was; and the change fades out over the top of the rolled-off range, where a step in the SDR view is a large one in light.
-            const float keep = 1.0 - smoothstep(0.90, 0.99, max(fs.r, max(fs.g, fs.b)));
+            // In light, not in the SDR view's values: from 0.8 to 1.35 times the SDR white (what 0.90 to 0.99 were on the curve until 0.9.8).
+            const float3 light = Expand(SrgbToLinear(saturate(fs)));
+            const float keep = 1.0 - smoothstep(0.8, 1.35, max(light.r, max(light.g, light.b)));
             result = frame.rgb + (FromSdr(lerp(fs, c, keep), encoding, white) - FromSdr(fs, encoding, white));
         }
     }
