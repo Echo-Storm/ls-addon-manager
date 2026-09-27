@@ -16,7 +16,7 @@ Status: **0.9.8**, getting ready for 1.0 (the [roadmap](ROADMAP.md) says what is
 
 > [!TIP]
 > **New in 0.9.8:** **HDR games in the DLSS and FSR Upscalers** (Silent Hill f at 1440p to 4K: DLSS about 1.5 ms a frame), **before / after
-> pictures** (Ctrl+Shift+F4 saves the upscaled picture and NIS's side by side), and addons that **can no longer freeze Lossless Scaling**
+> pictures** (Ctrl+Shift+F4 saves the picture with and without Neural Rendering, or upscaled and with NIS, side by side), and addons that **can no longer freeze Lossless Scaling**
 > (NVIDIA's and AMD's code runs on threads of its own). The panels now say why when something is in the way. Since 0.9.7 the manager also
 > **updates itself**: it offers the new release, checks it and installs it when you close Lossless Scaling.
 > The [changelog](CHANGELOG.md) has the rest.
@@ -222,7 +222,7 @@ in the addon's *Compare and hotkeys* section.
 | Ctrl+Shift+F8 | Split view: the original at the left of a line, ours at the right | Neural Rendering |
 | Ctrl+Shift+F2 / F3 | Sharpening down / up | all three addons |
 | Ctrl+Shift+F10 | The next saved look | Neural Rendering |
-| Ctrl+Shift+F4 | A screenshot of the picture as you see it (Neural Rendering); a before / after pair, upscaled and NIS (the upscalers) | All three |
+| Ctrl+Shift+F4 | Before / after pictures: two PNGs of the same moment, with and without the addon (NIS for the upscalers) | all three addons |
 | Ctrl+Shift+F1 | Save the recording (the last few seconds, when *Recording* is on) | all three addons |
 | Home | ReShade input passthrough on and off | the manager (Features) |
 

@@ -635,7 +635,11 @@ void DrawPanel() {
         if (busy) ImGui::BeginDisabled();
         if (eam::ui::Button(busy ? "Taking it..." : "Take a screenshot", eam::ui::icons::kCheck, eam::ui::ButtonKind::Primary)) screenshot::Request();
         if (busy) ImGui::EndDisabled();
-        Tip("In the game, Ctrl+Shift + the Screenshot key (see Compare and hotkeys) does the same.");
+        Tip("The picture as you see it, one PNG.");
+        ImGui::SameLine();
+        if (eam::ui::Button("Save before / after pictures", eam::ui::icons::kCheck)) RequestPair();
+        Tip("Two PNGs of the same moment, \"_NR\" with the addon's result and \"_original\" without it (one frame of the original shows while it is "
+            "taken). In the game, Ctrl+Shift + the Screenshot key (see Compare and hotkeys) does this. HDR games are saved in their SDR view.");
         const std::wstring folder = screenshot::Folder();
         const int size = WideCharToMultiByte(CP_UTF8, 0, folder.c_str(), -1, nullptr, 0, nullptr, nullptr);
         std::string folderText(size > 0 ? size - 1 : 0, '\0');

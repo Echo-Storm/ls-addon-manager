@@ -177,6 +177,7 @@ void LogProgress(const NrStats& st) {
 
 void OnPresent(IDXGISwapChain* sc);
 void Compose(IDXGISwapChain* sc);
+bool g_composedNow = false;   // the last Compose put the model's result on its frame (the pair's enhanced picture waits for one that did)
 void PresentTap(IDXGISwapChain* sc);
 void FollowRuntimeChoice();   // further down, with the upscalers
 
@@ -382,7 +383,27 @@ std::wstring g_pairBase;
 ID3D11Resource* g_pairOut = nullptr; D3D11_BOX g_pairBox{}; DXGI_FORMAT g_pairFormat = DXGI_FORMAT_UNKNOWN; uint32_t g_pairEncoding = 0; float g_pairWhite = 200.0f;
 
 void SafeReleasePair() { if (g_pairOut) { g_pairOut->Release(); g_pairOut = nullptr; } }
-void ForgetPair() { SafeReleasePair(); g_pairStep = 0; }   // the device is going away (under g_frameMutex)
+int g_nrPairStep = 0;                // Neural Rendering's pair: 0 none; 1 the enhanced picture at this present; 2 the original at the next
+int g_nrPairCompareBefore = 0;       // the compare view the person had, put back after
+int g_nrPairWaited = 0;              // presents waited for one with the model's result on it
+std::wstring g_nrPairBase;
+void ForgetPair() {   // the device is going away (under g_frameMutex)
+    SafeReleasePair(); g_pairStep = 0;
+    if (g_nrPairStep) { g_compare = g_nrPairCompareBefore; g_nrPairStep = 0; }
+}
+
+// The presented picture now, for Neural Rendering's pair: Lossless Scaling's back buffer after the compose. HDR in its SDR view.
+bool CaptureShown(IDXGISwapChain* sc, const std::wstring& path) {
+    ID3D11Texture2D* buffer = nullptr;
+    if (FAILED(sc->GetBuffer(0, IID_PPV_ARGS(&buffer))) || !buffer) return false;
+    D3D11_TEXTURE2D_DESC d; buffer->GetDesc(&d);
+    float white = 200.0f;
+    const nr::FrameEncoding e = FrameEncodingOf(d.Format, sc, &white);
+    D3D11_BOX box{ 0, 0, 0, d.Width, d.Height, 1 };
+    const bool ok = screenshot::Capture(g_bridge.Context(), buffer, box, Bridge::ViewFormat(d.Format), path, static_cast<uint32_t>(e), white);
+    buffer->Release();
+    return ok;
+}
 
 D3D11_BOX PairBox(const NisPass& pass) {   // the part of NIS's output the picture is in (the whole of it, or its output viewport)
     D3D11_BOX b{}; b.left = pass.Partial() ? pass.outX : 0; b.top = pass.Partial() ? pass.outY : 0; b.right = b.left + pass.outW; b.bottom = b.top + pass.outH; b.back = 1;
@@ -405,8 +426,7 @@ void ReadHotkeys() {
         if (down && !wasDown[i] && applies) {
             if (i == 0) { g_compare = g_compare == 2 ? 0 : 2; ShowMarker(g_compare == 2 ? 2 : 1); Log("hotkey: %s", g_compare == 2 ? "original only" : "enhanced"); }
             else if (i == 1) { g_compare = g_compare == 1 ? 0 : 1; ShowMarker(g_compare == 1 ? 3 : 1); Log("hotkey: %s", g_compare == 1 ? "split view" : "enhanced"); }
-            else if (i == 5 && kScalerAddon) { g_pairRequested = true; Log("hotkey: before / after pair"); }
-            else if (i == 5) { screenshot::Request(); Log("hotkey: screenshot"); }   // no corner square: it would be in the picture
+            else if (i == 5) { g_pairRequested = true; Log("hotkey: before / after pair"); }   // no corner square: it would be in the picture
             else if (i == 6) { Log("hotkey: save the recording"); SaveRecording(); }   // no corner square either: it would be recorded
             else if (i == 4) {
                 Look next;
@@ -486,10 +506,27 @@ void Present(IDXGISwapChain* sc) {
     bool presentMode; { std::lock_guard<std::mutex> lock(g_settingsMutex); presentMode = g_config.presentMode; g_presentWait = g_config.presentWait; }
     FollowFrameGeneration(presentMode);
     if (g_presentMode) PresentTap(sc);
-    if (!g_bridge.IsReady() || !g_compose.IsReady()) return;
-    Compose(sc);
+    if (!g_bridge.IsReady() || !g_compose.IsReady()) {
+        if (g_nrPairStep) { g_compare = g_nrPairCompareBefore; g_nrPairStep = 0; Log("before / after pair: not taken (nothing is composed now)"); }
+        return;
+    }
     std::string game;
     { std::lock_guard<std::mutex> lock(g_textMutex); game = g_focusExe; }
+    // the before / after pair: this present composed as usual (enhanced), the next one untouched (original), each taken right after it
+    if (g_pairRequested.exchange(false) && !g_nrPairStep) {
+        g_nrPairBase = screenshot::PairBase(game); g_nrPairCompareBefore = g_compare; g_compare = 0; g_nrPairStep = 1; g_nrPairWaited = 0;
+    }
+    Compose(sc);
+    screenshot::Tick(g_bridge.Context());
+    if (g_nrPairStep == 1 && !g_composedNow) {   // no result on this present (none finished yet, or not one of Lossless Scaling's): the next
+        if (++g_nrPairWaited > 60) { g_compare = g_nrPairCompareBefore; g_nrPairStep = 0; Log("before / after pair not taken: no present had the model's result"); }
+    } else if (g_nrPairStep == 1) {
+        if (CaptureShown(sc, g_nrPairBase + L"_NR.png")) { g_compare = 2; g_nrPairStep = 2; }
+        else { g_compare = g_nrPairCompareBefore; g_nrPairStep = 0; Log("before / after pair: the picture could not be copied"); }
+    } else if (g_nrPairStep == 2) {
+        if (!CaptureShown(sc, g_nrPairBase + L"_original.png")) Log("before / after pair: the original could not be copied");
+        g_compare = g_nrPairCompareBefore; g_nrPairStep = 0;
+    }
     screenshot::OnPresent(g_bridge.Context(), sc, game);   // after the compose: the picture as it is shown
 }
 
@@ -564,6 +601,7 @@ void FollowFrameGeneration(bool allowed) {
 }
 
 void Compose(IDXGISwapChain* sc) {
+    g_composedNow = false;
     const PresentInfo shown = g_tap.NotePresent();
     ++g_presentStages[2];
     if (shown.target < 0 && !g_presentMode) return;
@@ -601,6 +639,7 @@ void Compose(IDXGISwapChain* sc) {
     a.compare = static_cast<uint32_t>(compare); a.splitPos = g_splitPos; a.marker = marker;
     { D3D11_TEXTURE2D_DESC desc; buffer->GetDesc(&desc); a.encoding = static_cast<uint32_t>(FrameEncodingOf(desc.Format, sc, &a.whiteNits)); }
     g_bridge.BeginDeltaUse(deltaFrame);
+    g_composedNow = true;
     t_ownWork = true;
     const bool composed = g_compose.Run(g_bridge.Context(), a);
     t_ownWork = false;

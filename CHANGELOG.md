@@ -14,9 +14,10 @@ code now runs on threads of their own. Tried in Silent Hill f (Unreal Engine 5, 
   thread of the engine's own; Lossless Scaling's render thread only hands frames over. FSR 4.1.1b once stopped for good on its first HDR
   frame and froze the picture; now NIS (or the untouched picture) carries on, the panel says when a runtime is getting ready, and after 20
   seconds it says the runtime stopped responding. The engines' threads run at high priority, so a busy game cannot delay them.
-- **Before / after pictures in the upscalers.** Ctrl+Shift+F4 (or the button under *Compare and hotkeys*) saves two PNGs of the same
-  moment to Pictures\Lossless Scaling: the upscaled picture and Lossless Scaling's NIS (one frame of NIS shows while it is taken). Windows'
-  own screenshots show the game's window, not Lossless Scaling's picture. HDR games are saved in their SDR view, highlights rolled off.
+- **Before / after pictures.** Ctrl+Shift+F4 saves two PNGs of the same moment to Pictures\Lossless Scaling: in Neural Rendering the
+  picture with its result (`_NR`) and without it (`_original`); in the upscalers the upscaled picture (`_DLSS` or `_FSR`) and Lossless
+  Scaling's NIS (`_NIS`). One frame of the "before" shows while it is taken. Windows' own screenshots show the game's window, not Lossless
+  Scaling's picture. HDR games are saved in their SDR view, highlights rolled off. Neural Rendering's single screenshot stays on its button.
 - **Safer hotkeys.** The game still sees our keys (they are only watched), and a game that acts on an F-key alone did: in Silent Hill f the
   screenshot key's F11 put the game in full screen, which stopped the scaling. The defaults now keep away from F5 and F9 (quicksave and
   quickload in Bethesda's and many other games), F6 (quicksave in Source games) and F11: before / after Ctrl+Shift+**F7**, split view
