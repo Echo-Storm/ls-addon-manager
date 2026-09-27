@@ -166,6 +166,7 @@ Loaded LoadSettings(IHost* host, const char* id) {
     c.motionSource = std::clamp(integer("motionSource", 0), 0, 2);
     c.scalerGpuWait = flag("scalerGpuWait", true);
     c.frameGen = flag("frameGen", false);
+    c.scalerFastMotion = flag("scalerFastMotion", true);
     c.scalerStability = std::clamp(static_cast<float>(number("scalerStability", 0.0)), 0.0f, 1.0f);
     c.scalerEdges = std::clamp(static_cast<float>(number("scalerEdges", 0.0)), 0.0f, 1.0f);
     c.lsFirst = flag("lsFirst", true);
@@ -191,6 +192,7 @@ Loaded LoadSettings(IHost* host, const char* id) {
         if (c.keyRecord == VK_F5) c.keyRecord = VK_F1;
     }   // the first default, saved by builds before 0.9.5: Ctrl+Shift+F12 is the manager's own (show its window)
     c.recordOn = flag("recordOn", false);
+    c.recordShown = flag("recordShown", false);
     c.recordSeconds = std::clamp(static_cast<float>(number("recordSeconds", 5.0)), 1.0f, 60.0f);
     c.recordBudgetMb = std::clamp(integer("recordBudgetMb", 3072), 256, 65536);
     c.recordFolder = text("recordFolder");
@@ -242,13 +244,13 @@ void SaveSettings(IHost* host, const char* id, const Config& c, const std::vecto
     if (kScalerAddon) put("sharpenScale", "1.6");   // the slider's scale this value is on (see LoadSettings)
     put("hud", HudToText(c.p));
 
-    put("model", std::to_string(c.model)); put("dlaaPreset", std::to_string(c.dlaaPreset)); put("scalerHandoff", std::to_string(c.scalerHandoff)); put("motionSource", std::to_string(c.motionSource)); putFlag("scalerGpuWait", c.scalerGpuWait); putFlag("frameGen", c.frameGen); put("scalerStability", Number(c.scalerStability)); put("scalerEdges", Number(c.scalerEdges));
+    put("model", std::to_string(c.model)); put("dlaaPreset", std::to_string(c.dlaaPreset)); put("scalerHandoff", std::to_string(c.scalerHandoff)); put("motionSource", std::to_string(c.motionSource)); putFlag("scalerGpuWait", c.scalerGpuWait); putFlag("frameGen", c.frameGen); putFlag("scalerFastMotion", c.scalerFastMotion); put("scalerStability", Number(c.scalerStability)); put("scalerEdges", Number(c.scalerEdges));
     putFlag("enabled", c.enabled); putFlag("lsFirst", c.lsFirst); putFlag("freshFlow", c.freshFlow); putFlag("presentMode", c.presentMode); putFlag("presentWait", c.presentWait); putFlag("hotkeys", c.hotkeys);
     put("frameEncoding", std::to_string(c.frameEncoding));
     put("keyAB", std::to_string(c.keyAB)); put("keySplit", std::to_string(c.keySplit)); put("keySharpDn", std::to_string(c.keySharpDn));
     put("keySharpUp", std::to_string(c.keySharpUp)); put("keyPreset", std::to_string(c.keyPreset)); put("keyShot", std::to_string(c.keyShot));
     put("keyRecord", std::to_string(c.keyRecord)); put("keysVersion", "3");
-    putFlag("recordOn", c.recordOn); put("recordSeconds", Number(c.recordSeconds)); put("recordBudgetMb", std::to_string(c.recordBudgetMb));
+    putFlag("recordOn", c.recordOn); putFlag("recordShown", c.recordShown); put("recordSeconds", Number(c.recordSeconds)); put("recordBudgetMb", std::to_string(c.recordBudgetMb));
     put("recordFolder", c.recordFolder);
     put("screenshotFolder", c.screenshotFolder);
     putFlag("autoQuality", c.autoQuality); put("autoBudgetMs", Number(c.autoBudgetMs)); put("autoFloor", Number(c.autoFloor));

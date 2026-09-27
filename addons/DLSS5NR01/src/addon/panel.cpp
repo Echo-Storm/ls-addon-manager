@@ -416,6 +416,12 @@ void DrawPanel() {
                    "you look at a fence or a power line. The game's own anti-aliasing (MSAA) is still what draws thin lines in the first place.",
                    U, kFsrScaler ? ", and FSR keeps more of its history and reacts less to small changes of shading" : "");
           Tip(tip); }
+        if (kFsrScaler || kXessScaler) {
+            if (ImGui::Checkbox("Steady in fast motion", &c.scalerFastMotion)) changed = true;
+            Tip("On (the default): where the picture moves fast (a quick camera turn), the upscaler leans on the new frame instead of the frames before. "
+                "The game gives the upscaler no sub-pixel camera shifts, so its memory of earlier frames adds little detail there, and in a fast turn it "
+                "trailed: leaves and edges with soft doubled outlines. Off: as before. Flip it while you turn the camera to compare.");
+        }
         { const float off = 0.0f; changed |= eam::ui::SliderFloat("Edge smoothing", &c.scalerEdges, 0.0f, 1.0f, c.scalerEdges <= 0.001f ? "off" : "%.2f", 0, &off); }
         Tip("Anti-aliasing along the edges of the upscaled picture: for games without anti-aliasing of their own (stair steps on roofs, fences and "
             "wires). It finds where the brightness steps, which way the edge runs and how far, and blends across it by the part of a pixel the true "
@@ -698,6 +704,12 @@ void DrawPanel() {
         Tip("Off (the default) costs nothing. On: every frame is copied off the graphics card and compressed on a few background threads, which "
             "takes some processor time and the memory below. Nothing waits for it: a frame that comes while all the copies are busy is left out.");
         if (!c.recordOn) ImGui::BeginDisabled();
+        if (kFsrScaler) {
+            if (ImGui::Checkbox("Record what is shown (with frame generation of our own)", &c.recordShown)) changed = true;
+            Tip("With frame generation of our own on: the frames as they go to the screen, the frames made between and the real ones (after the upscaler, "
+                "at the screen's size), each marked which it is, instead of the frame going to the upscaler. For showing what frame generation and the "
+                "upscaler do in motion. The frames are big (4K), so fewer seconds fit: raise the memory, or keep 2 to 3 seconds.");
+        }
         { const float d = 5.0f; changed |= eam::ui::SliderFloat("Seconds kept", &c.recordSeconds, 1.0f, 30.0f, "%.0f s", 0, &d); }
         Tip("How far back a saved recording goes. More seconds take more memory.");
         { float mb = static_cast<float>(c.recordBudgetMb); const float d = 3072.0f;

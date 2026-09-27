@@ -26,8 +26,8 @@ public:
     void SetLog(LogFn log) { m_log = std::move(log); }
     // on: keep recording; seconds and budgetMb: how much is kept (the older frames go first). Off frees everything.
     void Configure(bool on, float seconds, uint32_t budgetMb);
-    // A frame the addon received (on the render thread that owns ctx). source: lsrec::Source.
-    void Offer(ID3D11DeviceContext* ctx, ID3D11Texture2D* frame, uint32_t source, uint32_t content = 0);   // content: lsrec::Content
+    // A frame the addon received (on the render thread that owns ctx). source: lsrec::Source; content: lsrec::Content; tag: lsrec::Tag.
+    void Offer(ID3D11DeviceContext* ctx, ID3D11Texture2D* frame, uint32_t source, uint32_t content = 0, uint32_t tag = 0);
     // The device is going away (under the lock the frame path holds): the staging textures are released once the workers are done with them.
     void Forget();
     void Shutdown();   // the end: the threads stop (Forget first)
@@ -43,7 +43,7 @@ private:
         ID3D11Texture2D* staging = nullptr;
         enum State { Free, Copied, Working } state = Free;
         std::atomic<bool> done{ false };   // the worker is finished with the mapped memory
-        uint64_t index = 0; int64_t qpc = 0;
+        uint64_t index = 0; int64_t qpc = 0; uint32_t tag = 0;
         D3D11_MAPPED_SUBRESOURCE mapped{};
     };
     struct Job { Slot* slot; uint32_t generation, w, h, bpp; };

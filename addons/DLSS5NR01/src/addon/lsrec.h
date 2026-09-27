@@ -44,8 +44,9 @@ struct FrameHeader {
     uint32_t codec = kQoi;
     uint32_t bytes = 0;           // what follows
     uint32_t rawBytes = 0;        // width * height * bytesPerPixel
-    uint32_t reserved = 0;
+    uint32_t tag = 0;             // what the frame is, where the addon says (0 before 0.9.13): Tag
 };
+enum Tag : uint32_t { kUntagged = 0, kMadeBetween = 1, kReal = 2 };   // the presented frames with frame generation of our own
 #pragma pack(pop)
 static_assert(sizeof(FileHeader) == 128 && sizeof(FrameHeader) == 32, "the file layout");
 

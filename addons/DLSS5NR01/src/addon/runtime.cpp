@@ -185,13 +185,13 @@ void FollowRuntimeChoice();   // further down, with the upscalers
 
 // A frame for the recorder (under g_frameMutex, on the render thread): its settings follow the panel's, and for the tests it saves by itself
 // once recordSaveAfter frames are held.
-void Record(ID3D11DeviceContext* ctx, ID3D11Texture2D* frame, uint32_t source, uint32_t content = 0) {
+void Record(ID3D11DeviceContext* ctx, ID3D11Texture2D* frame, uint32_t source, uint32_t content = 0, uint32_t tag = 0) {
     static const bool logSet = (g_recorder.SetLog([](const char* m) { Log("%s", m); }), true);
     (void)logSet;
     bool on; float seconds; int budget, saveAfter;
     { std::lock_guard<std::mutex> lock(g_settingsMutex); on = g_config.recordOn; seconds = g_config.recordSeconds; budget = g_config.recordBudgetMb; saveAfter = g_config.recordSaveAfter; }
     g_recorder.Configure(on, seconds, static_cast<uint32_t>(budget));
-    g_recorder.Offer(ctx, frame, source, content);
+    g_recorder.Offer(ctx, frame, source, content, tag);
     static bool savedForTest = false;
     if (saveAfter > 0 && !savedForTest && g_recorder.GetStatus().frames >= static_cast<uint32_t>(saveAfter)) { savedForTest = true; SaveRecording(); }
 }
@@ -674,7 +674,10 @@ void OnPresent(IDXGISwapChain* sc, UINT sync, UINT flags) {
             float white = 80.0f; uint32_t encoding = 0;
             { ID3D11Texture2D* back = nullptr;   // what its frames hold (scRGB or HDR10 on an HDR display), for measuring their motion in their SDR view
               if (SUCCEEDED(sc->GetBuffer(0, IID_PPV_ARGS(&back))) && back) { D3D11_TEXTURE2D_DESC d; back->GetDesc(&d); back->Release(); encoding = static_cast<uint32_t>(FrameEncodingOf(d.Format, sc, &white)); } }
-            nr::framegen::BeforeRealPresent(sc, sync, flags, encoding, white, [](const char* m) { Log("%s", m); });
+            bool recordShown; { std::lock_guard<std::mutex> lock(g_settingsMutex); recordShown = g_config.recordShown; }
+            nr::framegen::ShownFn shown;   // "record what is shown": every frame presented, the frames between and the real ones, tagged
+            if (recordShown) shown = [](ID3D11DeviceContext* ctx, ID3D11Texture2D* frame, bool made) { Record(ctx, frame, lsrec::kPresented, 0, made ? lsrec::kMadeBetween : lsrec::kReal); };
+            nr::framegen::BeforeRealPresent(sc, sync, flags, encoding, white, [](const char* m) { Log("%s", m); }, shown);
         }
         return;
     }   // the upscaler: its picture over NIS's (Handoff::AtPresent); no Enable of its own
@@ -1055,10 +1058,11 @@ bool ScalerPass(ID3D11DeviceContext* ctx, uint32_t x, uint32_t y, uint32_t z) {
                 !PresentHook::Install(dev, OnPresent, [](const char* m) { Log("%s", m); }))
                 Log("%s upscaler: could not hook Present; the picture cannot go over NIS's there", kUpscalerName);
             if (g_linkDevice == dev && g_compare.load() != 2) {   // "original only" lets NIS run, for comparing
-                NrParams p; unsigned preset; int handoff, motion; bool gpuWait; float stability, edges;
+                NrParams p; unsigned preset; int handoff, motion; bool gpuWait, steadyFast; float stability, edges;
                 { std::lock_guard<std::mutex> settings(g_settingsMutex); p = g_config.p; preset = g_config.dlaaPreset; handoff = g_config.scalerHandoff; motion = g_config.motionSource;
-                  gpuWait = g_config.scalerGpuWait; stability = g_config.scalerStability; edges = g_config.scalerEdges; }
+                  gpuWait = g_config.scalerGpuWait; stability = g_config.scalerStability; edges = g_config.scalerEdges; steadyFast = g_config.scalerFastMotion; }
                 g_sr.SetStability(stability); g_sr.SetEdgeSmoothing(edges);
+                g_sr.SetFastMotion(steadyFast ? -1.0f : 0.0f);   // in fast motion lean on the frame (its own threshold), or never
                 ScalerLink::Picture picture;   // at the defaults while Neural Rendering is on (its own Picture controls act on the shown picture)
                 if (!NeuralRenderingOnNow()) {
                     picture.brightness = p.brightness; picture.contrast = p.contrast; picture.gamma = p.gamma; picture.shadows = p.shadows;
@@ -1097,8 +1101,10 @@ bool ScalerPass(ID3D11DeviceContext* ctx, uint32_t x, uint32_t y, uint32_t z) {
                                           static_cast<ScalerLink::Handoff>(handoff), gpuWait);
                 t_ownWork = false;
                 g_passStep = "the recorder";
-                if (ID3D11Texture2D* grabbed = g_link.TakeGrabbed())   // (HDR frames go to the upscaler as light: said so in the file)
-                    Record(ctx, grabbed, lsrec::kNisInput, g_link.Encoding() ? lsrec::kLight : lsrec::kOwnEncoding);
+                if (ID3D11Texture2D* grabbed = g_link.TakeGrabbed()) {   // (HDR frames go to the upscaler as light: said so in the file)
+                    bool shown; { std::lock_guard<std::mutex> settings(g_settingsMutex); shown = kFsrScaler && g_config.frameGen && g_config.recordShown; }
+                    if (!shown) Record(ctx, grabbed, lsrec::kNisInput, g_link.Encoding() ? lsrec::kLight : lsrec::kOwnEncoding);   // (else the presents are recorded)
+                }
                 g_passStep = "after Upscale";   // the frame as DLSS or FSR got it
                 if (flow) flow->Release();
                 if (replaced) ++g_upscaled;

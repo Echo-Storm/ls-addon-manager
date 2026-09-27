@@ -878,7 +878,7 @@ bool SrEngine::Run(ID3D12Resource* in, uint32_t inW, uint32_t inH, DXGI_FORMAT i
         // In fast motion the upscaler leans on this frame (the distrust mask rises from 0.5 % of the frame's width a frame, fully at twice it):
         // Lossless Scaling's frames come without the jitter a game gives its upscaler, so history adds little there, and in a fast turn it trailed
         // (nr_sreval, Silent Hill f, a turn shrunk 1.5x: FSR 3.1 39.4 -> 41.8 dB at a quarter of the size, the leaves' doubled edges gone).
-        m_estimator.SetFastMotion(m_fastMotion >= 0.0f ? m_fastMotion : kFastMotionShare * static_cast<float>(inW));
+        { const float fast = m_fastMotion.load(); m_estimator.SetFastMotion(fast >= 0.0f ? fast : kFastMotionShare * static_cast<float>(inW)); }
         Transition(m_distrust, D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE, D3D12_RESOURCE_STATE_UNORDERED_ACCESS);
         m_estimator.Record(m_list, slot, hdr ? m_view : in, hdr ? DXGI_FORMAT_R16G16B16A16_FLOAT : inFormat == DXGI_FORMAT_UNKNOWN ? DXGI_FORMAT_R8G8B8A8_UNORM : inFormat,
                            m_motion, m_distrust, stability);

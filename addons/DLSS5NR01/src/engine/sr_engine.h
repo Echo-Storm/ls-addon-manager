@@ -89,7 +89,7 @@ public:
     // (FlowEstimator::SetStrayCap); the motion from which the upscaler leans on the frame (pixels a frame; otherwise kFastMotionShare of the
     // frame's width); the vectors' scale as the upscaler is told it (1: as measured); no distrust mask for the upscaler.
     void SetStrayCap(float pixels) { m_estimator.SetStrayCap(pixels); }
-    void SetFastMotion(float pixels) { m_fastMotion = pixels; }
+    void SetFastMotion(float pixels) { m_fastMotion.store(pixels); }
     void SetMotionScale(float s) { m_motionScale = s; }
     void SetNoMask(bool none) { m_noMask = none; }
     double AfterMs() const { return m_afterMs; }   // the passes after the upscaler (edges, sharpening), on the GPU, smoothed
@@ -141,7 +141,7 @@ private:
     uint64_t m_slotDone[kSlots] = {}; int m_nextSlot = 0;
     ID3D12QueryHeap* m_timestamps = nullptr; ID3D12Resource* m_timestampReadback = nullptr; uint64_t m_timestampFreq = 1;
     double m_gpuMs = 0, m_motionMs = 0;
-    FlowEstimator m_estimator; bool m_estimatedLast = false; uint64_t m_estimates = 0; float m_motionScale = 1.0f; bool m_noMask = false; float m_fastMotion = -1.0f;
+    FlowEstimator m_estimator; bool m_estimatedLast = false; uint64_t m_estimates = 0; float m_motionScale = 1.0f; bool m_noMask = false; std::atomic<float> m_fastMotion{ -1.0f };
     std::atomic<float> m_stability{ 0.0f }, m_edges{ 0.0f };
     static const int kDescriptors = 8;   // per slot: flow, motion, sharpen in/out, edges in/out, view in/out
     ID3D12PipelineState* m_edgesPso = nullptr;

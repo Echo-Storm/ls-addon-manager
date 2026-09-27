@@ -72,7 +72,7 @@ void Recorder::Worker() {
         }
         Slot& s = *job.slot;
         auto frame = std::make_shared<lsrec::Frame>();
-        frame->header.index = s.index; frame->header.qpc = s.qpc; frame->header.codec = lsrec::kQoi;
+        frame->header.index = s.index; frame->header.qpc = s.qpc; frame->header.codec = lsrec::kQoi; frame->header.tag = s.tag;
         frame->header.rawBytes = job.w * job.h * job.bpp;
         frame->data.reserve(frame->header.rawBytes / 2);
         lsrec::Compress(static_cast<const uint8_t*>(s.mapped.pData), job.w * job.bpp / 4, job.h, s.mapped.RowPitch, frame->data);
@@ -133,7 +133,7 @@ void Recorder::DropStaging() {
     SafeRelease(m_ctx); SafeRelease(m_dev);
 }
 
-void Recorder::Offer(ID3D11DeviceContext* ctx, ID3D11Texture2D* frame, uint32_t source, uint32_t content) {
+void Recorder::Offer(ID3D11DeviceContext* ctx, ID3D11Texture2D* frame, uint32_t source, uint32_t content, uint32_t tag) {
     if (!ctx || !frame) return;
     const bool on = m_on.load();
     if (!on && !m_dev) return;   // off, and nothing to give back
@@ -172,7 +172,7 @@ void Recorder::Offer(ID3D11DeviceContext* ctx, ID3D11Texture2D* frame, uint32_t 
         if (FAILED(m_dev->CreateTexture2D(&sd, nullptr, &slot->staging))) { ++m_missed; Log("recorder: a staging texture could not be made"); return; }
     }
     ctx->CopySubresourceRegion(slot->staging, 0, 0, 0, 0, frame, 0, nullptr);
-    slot->index = index; slot->qpc = Qpc(); slot->state = Slot::Copied;
+    slot->index = index; slot->qpc = Qpc(); slot->tag = tag; slot->state = Slot::Copied;
 }
 
 void Recorder::Forget() {

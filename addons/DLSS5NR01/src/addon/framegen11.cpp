@@ -149,7 +149,7 @@ void WaitUntil(const LARGE_INTEGER& due) {
 
 } // namespace
 
-bool BeforeRealPresent(IDXGISwapChain* sc, UINT sync, UINT flags, uint32_t encoding, float whiteNits, const LogFn& log) {
+bool BeforeRealPresent(IDXGISwapChain* sc, UINT sync, UINT flags, uint32_t encoding, float whiteNits, const LogFn& log, const ShownFn& shown) {
     std::lock_guard<std::mutex> lock(g_mutex);
     LARGE_INTEGER arrived; QueryPerformanceCounter(&arrived);
     ID3D11Texture2D* back = nullptr;
@@ -170,6 +170,7 @@ bool BeforeRealPresent(IDXGISwapChain* sc, UINT sync, UINT flags, uint32_t encod
     g.ctx->CopyResource(g.now, back);
     if (!g.haveBefore || g.intervalMs <= 0) {   // nothing to go between yet: this frame becomes the one before
         std::swap(g.before, g.now); std::swap(g.beforeSrv, g.nowSrv); g.haveBefore = true;
+        if (shown) shown(g.ctx, back, false);
         back->Release(); ++g.stats.real; return false;
     }
 
@@ -205,6 +206,7 @@ bool BeforeRealPresent(IDXGISwapChain* sc, UINT sync, UINT flags, uint32_t encod
     SafeRelease(oldCs); for (UINT i = 0; i < oldInstCount; ++i) SafeRelease(oldInst[i]); SafeRelease(oldSrv[0]); SafeRelease(oldSrv[1]); SafeRelease(oldUav);
     SafeRelease(uav);
     }
+    if (shown) shown(g.ctx, back, true);
     back->Release();
 
     // The frame between goes out `leadMs` after the real frame arrived, the real frame half a frame after that: without the lead, a frame
@@ -232,7 +234,7 @@ bool BeforeRealPresent(IDXGISwapChain* sc, UINT sync, UINT flags, uint32_t encod
         g.saidAt = t1; g.said = g.stats;
     }
     ID3D11Texture2D* next = nullptr;
-    if (SUCCEEDED(sc->GetBuffer(0, IID_PPV_ARGS(&next))) && next) { g.ctx->CopyResource(next, g.now); next->Release(); }
+    if (SUCCEEDED(sc->GetBuffer(0, IID_PPV_ARGS(&next))) && next) { g.ctx->CopyResource(next, g.now); if (shown) shown(g.ctx, next, false); next->Release(); }
     std::swap(g.before, g.now); std::swap(g.beforeSrv, g.nowSrv);
     ++g.stats.real; g.stats.realIntervalMs = g.intervalMs;
     return true;

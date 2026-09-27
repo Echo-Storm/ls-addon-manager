@@ -32,6 +32,7 @@ struct Config {
     // picture again (ScalerLink::Upscale). A CPU wait tried before made repeats more frequent on a busy GPU and is gone (2026-09-25).
     bool scalerGpuWait = true;
     bool frameGen = false;   // the FSR Upscaler's frame generation of our own (a prototype, framegen11.h)
+    bool scalerFastMotion = true;        // the upscalers lean on the frame in fast motion (SrEngine::SetFastMotion; off: never, as before 0.9.13)
     float scalerStability = 0.0f;        // the upscalers: less shimmer, more trailing (SrEngine::SetStability)
     float scalerEdges = 0.0f;            // the upscalers: edge smoothing of the upscaled picture (SrEngine::SetEdgeSmoothing)
     bool scalerPerGame = true;           // the upscalers: their picture settings kept per game (scalerGames), back when the game takes focus
@@ -47,6 +48,7 @@ struct Config {
     bool hotkeys = true;                 // Ctrl+Shift + an F key, read at every present
     int keyAB = VK_F7, keySplit = VK_F8, keySharpDn = VK_F2, keySharpUp = VK_F3, keyPreset = VK_F10, keyShot = VK_F4, keyRecord = VK_F1;
     bool recordOn = false;               // the recorder (recorder.h): keep the last few seconds of frames ready to save
+    bool recordShown = false;            // ...the presented frames instead (with frame generation of our own: the frames between too, tagged)
     float recordSeconds = 5.0f;
     int recordBudgetMb = 3072;           // at most this much memory for them (the oldest go first)
     std::string recordFolder;            // empty: Videos\Lossless Scaling
