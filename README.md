@@ -15,10 +15,11 @@ unofficial project, not affiliated with the Lossless Scaling developers: read th
 Status: **0.9.8**, getting ready for 1.0 (the [roadmap](ROADMAP.md) says what is left). You need Lossless Scaling 3.2.2.0 and Windows 10 or 11, x64.
 
 > [!TIP]
-> **New in 0.9.5:** **FSR 4 on any graphics card** (the OptiScaler team's build, one click in the FSR Upscaler), a **Runtimes** list that shows every DLSS and FSR
-> file with its version and signature and switches them while you play, **vibrance, saturation, shadows, highlights, brightness, contrast and gamma** in both
-> upscalers, a third DLSS model (**E**), **HDR games** in Neural Rendering, and a **recorder** that turns a bug into a file we can replay (Ctrl+Shift+F5).
-> The [release notes](https://github.com/Echo-Storm/ls-addon-manager/releases/tag/v0.9.5) and the [changelog](CHANGELOG.md) have the rest.
+> **New in 0.9.8:** **HDR games in the DLSS and FSR Upscalers** (Silent Hill f at 1440p to 4K: DLSS about 1.5 ms a frame), **before / after
+> pictures** (Ctrl+Shift+F11 saves the upscaled picture and NIS's side by side), and addons that **can no longer freeze Lossless Scaling**
+> (NVIDIA's and AMD's code runs on threads of its own). The panels now say why when something is in the way. Since 0.9.7 the manager also
+> **updates itself**: it offers the new release, checks it and installs it when you close Lossless Scaling.
+> The [changelog](CHANGELOG.md) has the rest.
 
 > [!IMPORTANT]
 > **DLSS 5 Neural Rendering needs a file you provide yourself:** your own copy of `nvngx_dlssnr.dll`. It is **not included**, this project **does not download it**,
@@ -26,7 +27,7 @@ Status: **0.9.8**, getting ready for 1.0 (the [roadmap](ROADMAP.md) says what is
 > then press **Test compatibility** in the addon's panel. Everything else, the two upscalers included, works without it.
 
 > [!NOTE]
-> **Tested with World of Warcraft: Forever and Fallout: New Vegas** (Tale of Two Wastelands), on Lossless Scaling 3.2.2.0, Windows 11 and an RTX 4070 Ti SUPER.
+> **Tested with World of Warcraft: Forever, Fallout: New Vegas** (Tale of Two Wastelands) **and Silent Hill f** (Unreal Engine 5, HDR), on Lossless Scaling 3.2.2.0, Windows 11 and an RTX 4070 Ti SUPER.
 > Other games and setups are untested so far; reports are welcome.
 
 ## Contents
