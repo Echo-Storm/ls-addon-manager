@@ -1,5 +1,6 @@
 // The addon's settings panel, drawn by the manager in its window (the window's thread). It works on a copy of the settings and hands the copy
 // back (Commit) when something changed. The sections start closed; the person opens what they need.
+#include "addon/framegen11.h"
 #include "addon/state.h"
 #include "addon/present_hook.h"
 #include "addon/screenshot.h"
@@ -464,6 +465,16 @@ void DrawPanel() {
                     }
                     if (forget >= 0) { c.scalerGames.erase(c.scalerGames.begin() + forget); changed = true; }
                 }
+            }
+        }
+        if (kFsrScaler) {   // a prototype, off by default
+            if (ImGui::Checkbox("Frame generation of our own (prototype)", &c.frameGen)) changed = true;
+            Tip("Doubles the frame rate with a frame made between each two real ones, shown in Lossless Scaling's own window. Turn Lossless Scaling's frame "
+                "generation OFF first (both at once would double twice). A prototype: for now the frame between is the two real frames mixed half and half, "
+                "to try the pacing; AMD's FSR 3 frame generation comes next. Real frames are shown half a frame later than without it.");
+            if (c.frameGen) {
+                const nr::framegen::Stats st = nr::framegen::GetStats();
+                ImGui::TextDisabled("  %llu real, %llu made between; real frames every %.1f ms", (unsigned long long)st.real, (unsigned long long)st.generated, st.realIntervalMs);
             }
         }
         if (ImGui::Checkbox("Wait on the GPU rather than repeat a picture", &c.scalerGpuWait)) changed = true;

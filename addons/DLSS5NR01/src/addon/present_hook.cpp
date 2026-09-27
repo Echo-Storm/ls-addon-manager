@@ -26,18 +26,18 @@ std::atomic<unsigned> g_hits{ 0 };
 thread_local int t_nesting = 0;
 
 // Only the outermost present on a thread runs the callback, so a present made inside it (or by a hook we call on to) does not run it again.
-void Before(IDXGISwapChain* sc, UINT flags) {
+void Before(IDXGISwapChain* sc, UINT sync, UINT flags) {
     g_hits.fetch_add(1, std::memory_order_relaxed);
     if (t_nesting == 1 && !(flags & DXGI_PRESENT_TEST))
-        if (const PresentHook::Callback cb = g_callback.load(std::memory_order_acquire)) cb(sc);
+        if (const PresentHook::Callback cb = g_callback.load(std::memory_order_acquire)) cb(sc, sync, flags);
 }
 HRESULT STDMETHODCALLTYPE OnPresent(IDXGISwapChain* sc, UINT sync, UINT flags) {
-    ++t_nesting; Before(sc, flags);
+    ++t_nesting; Before(sc, sync, flags);
     const HRESULT hr = g_present ? g_present(sc, sync, flags) : S_OK; --t_nesting;
     return hr;
 }
 HRESULT STDMETHODCALLTYPE OnPresent1(IDXGISwapChain1* sc, UINT sync, UINT flags, const DXGI_PRESENT_PARAMETERS* params) {
-    ++t_nesting; Before(sc, flags);
+    ++t_nesting; Before(sc, sync, flags);
     const HRESULT hr = g_present1 ? g_present1(sc, sync, flags, params) : S_OK; --t_nesting;
     return hr;
 }
@@ -111,6 +111,7 @@ void PresentHook::Uninstall() {
 }
 
 bool PresentHook::Installed() { return g_table != nullptr; }
+HRESULT PresentHook::PresentOriginal(IDXGISwapChain* sc, UINT sync, UINT flags) { return g_present ? g_present(sc, sync, flags) : E_FAIL; }
 unsigned PresentHook::Hits() { return g_hits.load(std::memory_order_relaxed); }
 
 void PresentHook::DumpState(LogFn log) {

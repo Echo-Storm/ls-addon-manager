@@ -45,7 +45,7 @@ set(NR_ADDON_SOURCES
     src/addon/addon.cpp src/addon/runtime.cpp src/addon/panel.cpp src/addon/tasks.cpp src/addon/settings.cpp src/addon/log.cpp
     src/addon/screenshot.cpp src/addon/screenshot_pixels.cpp src/addon/hud_editor.cpp src/addon/auto_quality.cpp
     src/addon/bridge.cpp src/addon/frame_tap.cpp src/addon/gpu_timer11.cpp
-    src/addon/present_hook.cpp src/addon/compose11.cpp src/addon/requirements.cpp src/addon/scaler11.cpp src/addon/hdr.cpp src/addon/lsrec.cpp src/addon/recorder.cpp
+    src/addon/present_hook.cpp src/addon/compose11.cpp src/addon/requirements.cpp src/addon/scaler11.cpp src/addon/framegen11.cpp src/addon/hdr.cpp src/addon/lsrec.cpp src/addon/recorder.cpp
     src/engine/nr_engine.cpp
     src/engine/dlaa_model.cpp src/engine/sr_engine.cpp src/engine/flow_estimator.cpp
     ${imgui_SOURCE_DIR}/imgui.cpp ${imgui_SOURCE_DIR}/imgui_draw.cpp

@@ -11,6 +11,7 @@
 #include "addon/state.h"
 #include "addon/log.h"
 #include "addon/present_hook.h"
+#include "addon/framegen11.h"
 #include "addon/screenshot.h"
 #include "addon/scaler11.h"
 #include "addon/hdr.h"
@@ -175,7 +176,8 @@ void LogProgress(const NrStats& st) {
     }
 }
 
-void OnPresent(IDXGISwapChain* sc);
+std::atomic<IDXGISwapChain*> g_fgChain{ nullptr };   // Lossless Scaling's output swap chain as NIS's back buffer names it (the upscalers' frame generation)
+void OnPresent(IDXGISwapChain* sc, UINT sync, UINT flags);
 void Compose(IDXGISwapChain* sc);
 bool g_composedNow = false;   // the last Compose put the model's result on its frame (the pair's enhanced picture waits for one that did)
 void PresentTap(IDXGISwapChain* sc);
@@ -652,7 +654,7 @@ void PresentGuarded(IDXGISwapChain* sc) {   // no objects here: __try cannot unw
     __try { Present(sc); } __except (OnFault(GetExceptionCode(), "present")) { t_ownWork = false; }
 }
 
-void OnPresent(IDXGISwapChain* sc) {
+void OnPresent(IDXGISwapChain* sc, UINT sync, UINT flags) {
     if (g_off && g_host->GetHostVersion() >= 0x010000) {   // switched off: keep saying so (a status that is not refreshed goes stale)
         static uint64_t saidAt = 0;
         const uint64_t now = GetTickCount64();
@@ -663,7 +665,13 @@ void OnPresent(IDXGISwapChain* sc) {
         }
     }
     if (g_off || g_engineStarting || !sc) return;
-    if (kScalerAddon) { ScalerPresentGuarded(sc); return; }   // the upscaler: its picture over NIS's (Handoff::AtPresent); no Enable of its own
+    if (kScalerAddon) {
+        ScalerPresentGuarded(sc);
+        bool frameGen; { std::lock_guard<std::mutex> lock(g_settingsMutex); frameGen = g_config.frameGen; }
+        if (kFsrScaler && frameGen && sc == g_fgChain.load(std::memory_order_acquire))   // Lossless Scaling's output swap chain only (not the manager's window)
+            nr::framegen::BeforeRealPresent(sc, sync, flags, [](const char* m) { Log("%s", m); });
+        return;
+    }   // the upscaler: its picture over NIS's (Handoff::AtPresent); no Enable of its own
     { std::lock_guard<std::mutex> lock(g_settingsMutex); if (!g_config.enabled) return; }
     if (!OwnsFrames()) return;
     std::lock_guard<std::mutex> lock(g_frameMutex);
@@ -1036,7 +1044,8 @@ bool ScalerPass(ID3D11DeviceContext* ctx, uint32_t x, uint32_t y, uint32_t z) {
                 g_linkTries = 0;
             }
             int handoffMode; { std::lock_guard<std::mutex> settings(g_settingsMutex); handoffMode = g_config.scalerHandoff; }
-            if (handoffMode == static_cast<int>(ScalerLink::Handoff::AtPresent) && !PresentHook::Installed() &&
+            bool frameGenOn; { std::lock_guard<std::mutex> settings(g_settingsMutex); frameGenOn = kFsrScaler && g_config.frameGen; }
+            if ((handoffMode == static_cast<int>(ScalerLink::Handoff::AtPresent) || frameGenOn) && !PresentHook::Installed() &&
                 !PresentHook::Install(dev, OnPresent, [](const char* m) { Log("%s", m); }))
                 Log("%s upscaler: could not hook Present; the picture cannot go over NIS's there", kUpscalerName);
             if (g_linkDevice == dev && g_compare.load() != 2) {   // "original only" lets NIS run, for comparing
@@ -1060,6 +1069,7 @@ bool ScalerPass(ID3D11DeviceContext* ctx, uint32_t x, uint32_t y, uint32_t z) {
                         surface->Release();
                     }
                     float white; const nr::FrameEncoding e = FrameEncodingOf(pass.inFmt, chain, &white, dev);
+                    g_fgChain.store(chain, std::memory_order_release);   // (only compared with, never used: frame generation's swap chain)
                     if (chain) chain->Release();
                     g_link.SetEncoding(static_cast<uint32_t>(e), white);
                 }
