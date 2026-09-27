@@ -122,8 +122,8 @@ not lost; none of them is promised.
 
 - **Auto model resolution: done in 0.8.0** (*Auto: keep the model within a time budget*). Room to grow: a budget per game,
   and "keep a share of the GPU free" as well as a model time.
-- **The DLSS and FSR Upscalers** are built from these sources as two more addons: NVIDIA DLSS or AMD
-  FSR 3.1 in place of Lossless Scaling's NIS scaler, with motion measured from the frames. See [docs/upscalers.md](docs/upscalers.md).
+- **The DLSS, FSR and XeSS Upscalers** are built from these sources as three more addons: NVIDIA DLSS, AMD
+  FSR 3.1 / 4 or Intel XeSS in place of Lossless Scaling's NIS scaler, with motion measured from the frames. See [docs/upscalers.md](docs/upscalers.md).
   (They began as DLSS 4 DLAA on the captured frame, which changed nothing visible; [research](../../docs/dlss-4.5-research.md).)
 - One distribution with one look for the three addons (Neural Rendering, ReShade input passthrough, Windowed mode): done inside
   LS Addon Manager.

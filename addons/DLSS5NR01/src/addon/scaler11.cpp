@@ -77,7 +77,9 @@ void CSGrab(uint3 id : SV_DispatchThreadID) {
         c.rgb = saturate(l + (c.rgb - l) * (saturation + vibrance * (1.0 - saturate(spread))));
     }
     // HDR: the frame goes to the upscaler as light, with only the controls' change, so a highlight they leave alone reaches it exactly
-    if (encoding != 0u) c.rgb = ToLight(frame, encoding, white) + (SdrToLight(c.rgb) - SdrToLight(view));
+    // (never below 0: an HDR10 colour outside Rec.709 comes out negative in its light, which the upscalers are not made for; the SDR view
+    // clipped it the same way)
+    if (encoding != 0u) c.rgb = max(ToLight(frame, encoding, white), 0.0) + (SdrToLight(c.rgb) - SdrToLight(view));
     uOut[id.xy] = c;
 }
 )HLSL";

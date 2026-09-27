@@ -1,14 +1,16 @@
-# The DLSS and FSR Upscalers
+# The DLSS, FSR and XeSS Upscalers
 
-Two addons, built from Neural Rendering's sources, that take the place of Lossless Scaling's **NIS** scaler with a temporal upscaler:
+Three addons, built from Neural Rendering's sources, that take the place of Lossless Scaling's **NIS** scaler with a temporal upscaler:
 
 | Addon | Upscaler | Needs | Comes with |
 |-------|----------|-------|------------|
 | **DLSS Upscaler** (`DLSS4DLAA`) | NVIDIA DLSS Super Resolution (models K, M and E) | an NVIDIA RTX card | NVIDIA's DLSS runtime 310.9.1 (`dlss\nvngx_dlss.dll`, NVIDIA's licence) |
+| **XeSS Upscaler** (`XESSUPSC`) | Intel XeSS Super Resolution | any DirectX 12 card with Shader Model 6.4 (Intel Arc, NVIDIA, AMD) | Intel's XeSS runtime 2.0.2 (`xess\libxess.dll`, from the XeSS SDK 3.0.2, Intel Simplified Software License, signed by Intel) |
 | **FSR Upscaler** (`FSR3UPSC`) | AMD FidelityFX Super Resolution 3.1, or FSR 4 | any DirectX 12 card (AMD, NVIDIA, Intel) | AMD's FidelityFX runtime (`fsr\amd_fidelityfx_dx12.dll`, FSR 3.1.4, FidelityFX SDK v1.1.4, MIT, signed by AMD), and FSR 4.1.1b, the OptiScaler team's build (`runtimes\FSR\0dd77d9c`, AMD's SDK licence, not signed) |
 
-Both come in the download switched off: switch on the one you want. They were developed and tested with World of Warcraft: Forever and
-Fallout: New Vegas (Tale of Two Wastelands), on an RTX 4070 Ti SUPER.
+All three come in the download switched off: switch on the one you want. DLSS and FSR were developed and tested with World of Warcraft:
+Forever, Fallout: New Vegas (Tale of Two Wastelands) and Silent Hill f (HDR), on an RTX 4070 Ti SUPER. XeSS (new in 0.9.12) has passed the
+offline tests but has not been tried in a game yet.
 
 A temporal upscaler builds each picture from several frames, so it has to know where every pixel was in the frame before. A game with DLSS or
 FSR built in tells it; Lossless Scaling does not. These addons **measure that motion from the frames themselves**, so they work in any game
@@ -16,20 +18,20 @@ Lossless Scaling can scale, with frame generation on or off, and need nothing fr
 
 ## Setting up
 
-1. In the manager's addon list, switch on **one** of the two. They take the same pass, so turning one on turns the other off. Either works
+1. In the manager's addon list, switch on **one** of the three. They take the same pass, so turning one on turns the others off. Any of them works
    beside DLSS 5 Neural Rendering.
 2. In Lossless Scaling's profile for the game, choose **NIS** as the Scaling Type. The addon replaces exactly that pass; with another scaler
    it waits and does nothing.
 3. Run the game **in a window smaller than the screen**, so there is something to upscale. 2560x1440 on a 4K screen is 1.5x, the upscalers'
    quality mode and the best starting point; 1920x1080 on 4K (2x) works too, softer. A borderless window the size of the screen (for example
    World of Warcraft's *Windowed (Fullscreen)* at 3840x2160 on a 4K screen) gives 1:1: nothing is upscaled, and the addon runs as
-   anti-aliasing (DLSS's DLAA, FSR's native AA). Avoid exclusive fullscreen: Lossless Scaling cannot scale over it.
+   anti-aliasing (DLSS's DLAA, FSR's native AA, XeSS's anti-aliasing setting). Avoid exclusive fullscreen: Lossless Scaling cannot scale over it.
 4. Frame generation can be on or off.
-5. Scale the game as usual. The addon's panel (Upscaling) shows `DLSS upscales 2560x1440 -> 3840x2160 (x1.50) ...` (or `FSR 3.1.4 upscales ...`, `FSR 4.1.1b upscales ...`) once it runs.
+5. Scale the game as usual. The addon's panel (Upscaling) shows `DLSS upscales 2560x1440 -> 3840x2160 (x1.50) ...` (or `FSR 3.1.4 upscales ...`, `FSR 4.1.1b upscales ...`, `XeSS ...`) once it runs.
 
 In-game settings that help: the game's own **multisampling** (MSAA) if it has one. It draws what no upscaler can put back, such as wires and
 fences thinner than a pixel; in Fallout: New Vegas 8x (`iMultiSample=8`) made a large difference, and a game held back by its processor
-has the graphics card to spare for it. A post-process anti-aliasing (FXAA, CMAA) adds little: both upscalers rebuild edges their own way
+has the graphics card to spare for it. A post-process anti-aliasing (FXAA, CMAA) adds little: the upscalers rebuild edges their own way
 (the addon's **Edge smoothing**, after the upscaler, is there for games with no anti-aliasing at all). Keep the game's own render scale at
 100% so it does not upscale first.
 
@@ -71,8 +73,8 @@ has the graphics card to spare for it. A post-process anti-aliasing (FXAA, CMAA)
   program or browser in front is not taken for a game. A game seen for the first time keeps the settings in use; a change made in the
   panel counts for the game played last. The list under it shows each game's settings, with a button to forget one.
 - **Frame encoding** (Automatic): for HDR games. 16-bit float frames are scRGB, 10-bit ones HDR10 when Windows runs the display in HDR,
-  8-bit ones SDR. An HDR frame is upscaled in its SDR view (the same one Neural Rendering works on) and the picture goes back in the
-  frame's own encoding, so highlights keep their brightness. Set SDR or HDR only if the picture comes out washed out, too dark or too
+  8-bit ones SDR. An HDR frame is upscaled as light in the upscaler's own HDR mode (since 0.9.10; before, in an SDR view, which dimmed
+  highlights) and the picture goes back in the frame's own encoding, so highlights keep their brightness. Set SDR or HDR only if the picture comes out washed out, too dark or too
   bright; Technical status shows the frame's format and what was decided.
 - There is no Enable box in the panel: the upscaler is switched on and off in the manager's addon list, like every addon.
 - **Before / after** (Ctrl+Shift+F7): switches between the upscaler and Lossless Scaling's own NIS while you play. The hotkeys work only while
@@ -82,10 +84,10 @@ has the graphics card to spare for it. A post-process anti-aliasing (FXAA, CMAA)
 
 Measured on an RTX 4070 Ti SUPER in World of Warcraft: Forever (GPU time a presented frame, everything the addon does):
 
-| | DLSS (model K) | FSR 3.1 |
-|---|---|---|
-| 2560x1440 -> 3840x2160 | about 2.4 ms (before the motion estimate got cheaper) | about 1.85 ms |
-| 3840x2160, 1:1 (anti-aliasing) | about 3.2 ms (the same) | about 2.2 ms |
+| | DLSS (model K) | FSR 3.1 | XeSS |
+|---|---|---|---|
+| 2560x1440 -> 3840x2160 | about 2.4 ms (before the motion estimate got cheaper) | about 1.85 ms | not measured in a game yet |
+| 3840x2160, 1:1 (anti-aliasing) | about 3.2 ms (the same) | about 2.2 ms | not measured in a game yet |
 
 Of that, the motion estimate is about 0.35 ms at 2560x1440 and 0.7 ms at 3840x2160. The panel and the log show the addon's own numbers.
 The addon adds one frame of latency: the picture shown is the one the upscaler finished for the frame before, so Lossless Scaling never waits.
@@ -110,20 +112,20 @@ The addon adds one frame of latency: the picture shown is the one the upscaler f
 
 ## When something is wrong
 
-The addon writes `logs\DLSS4DLAA.log` or `logs\FSR3UPSC.log` in the Lossless Scaling folder.
+The addon writes `logs\DLSS4DLAA.log`, `logs\FSR3UPSC.log` or `logs\XESSUPSC.log` in the Lossless Scaling folder.
 
 | What you see | Why, and what to do |
 |--------------|---------------------|
 | The panel says it is waiting for the NIS pass | Lossless Scaling's Scaling Type is not NIS, or scaling has not started. |
 | No difference at all | At 1:1 (the game fills the screen) there is nothing to upscale; run the game in a smaller window. Check the panel says it upscales, and try the Before / after hotkey. |
 | The panel keeps waiting although NIS is chosen | Look for "NIS pass on part of its output" in the log: with a window of another shape than the screen the upscaler reads NIS's viewports first (a frame or two), and says there if they did not add up, in which case NIS stays. A window of the screen's shape (2560x1440 on a 3840x2160 screen) always works. |
-| The panel names a card that is not NVIDIA's (DLSS Upscaler) | Lossless Scaling runs on that card. Set its Preferred GPU to your NVIDIA RTX card, or use the FSR Upscaler, which runs on any card. |
+| The panel names a card that is not NVIDIA's (DLSS Upscaler) | Lossless Scaling runs on that card. Set its Preferred GPU to your NVIDIA RTX card, or use the FSR or XeSS Upscaler, which run on any card. |
 | An HDR game looks washed out, too dark or too bright | Set *Frame encoding* (under Upscaling) to HDR or SDR by hand, and tell us which it needed, with the log. |
 | A black picture | Should not happen since 0.9.1. The log's `probe:` lines say how bright the frame the upscaler got and the picture it made are: 0 of 255 means black. Please report it with the log. |
 | Smear when moving | Check Motion is *Measured from the frames*. The log's `motion estimator:` lines give the average motion found and how much of the picture was marked untrusted. |
 | FSR 4 looks wrong, costs too much or does not start | Set *FSR version* back to FSR 3.1.4. A chosen runtime that has gone missing falls back to the shipped one by itself (the log says so). |
 | You want us to see it | Turn on *Recording* (the addon's panel), make it happen, press Ctrl+Shift+F1 and send the `.lsrec` file from `Videos\Lossless Scaling`: it holds the frames as they went to the upscaler, and we can play them back. |
-| "... could not run: ..." in the panel | The runtime is missing from the addon's `dlss` or `fsr` folder (reinstall the addon), or, for DLSS, the card is not an NVIDIA RTX card. NIS runs as usual meanwhile. |
+| "... could not run: ..." in the panel | The runtime is missing from the addon's `dlss`, `fsr` or `xess` folder (reinstall the addon), or, for DLSS, the card is not an NVIDIA RTX card. NIS runs as usual meanwhile. |
 
 ## How it works
 
@@ -137,7 +139,7 @@ skips NIS. Everything else runs on a Direct3D 12 device of the addon's own (`src
    with a small cost for straying from that guess); a fraction of a pixel at half size; a 3x3 vector median; and, at the game's size, every
    pixel picks the best of "not moving", its own block's vector and the three nearest blocks' by how well its 3x3 surroundings match. The
    same step gives the **distrust mask**: where even the best vector leaves a pixel unlike the frame before.
-2. **The upscaler**: DLSS (NVIDIA's NGX API) or FSR 3.1 / 4 (AMD's FidelityFX API), given the frame, the motion vectors, a flat depth and the
+2. **The upscaler**: DLSS (NVIDIA's NGX API), FSR 3.1 / 4 (AMD's FidelityFX API) or XeSS (Intel's XeSS API, at the finest quality setting that takes the game's size), given the frame, the motion vectors, a flat depth and the
    distrust mask (DLSS's bias-toward-current-colour mask, FSR's reactive mask), with no camera jitter.
 3. The DLSS addon's sharpening pass (FSR sharpens inside its own pass).
 

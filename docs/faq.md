@@ -22,7 +22,7 @@ It is free and MIT-licensed, and the source is in this repository. The files are
 distrust them. You can build everything yourself from the source (see the README).
 
 **Does it send anything over the internet?**
-Once a day it asks github.com for the latest release number, and that is all: GitHub sees your IP address and the program's name and version. It never downloads or installs anything. You can turn it off in *Settings > Updates*. Setup itself uses no network at all.
+Once a day it asks github.com for the latest release number: GitHub sees your IP address and the program's name and version. It downloads a release only when you choose **Download and install** (checked against GitHub's SHA-256 before it is used), and never downloads anything else. You can turn it off in *Settings > Updates*. Setup itself uses no network at all.
 
 ## Setup
 
@@ -72,7 +72,7 @@ It runs your model file once, in a separate program, on your graphics card, and 
 **Can I share what worked on my card?**
 Yes, please: see [model-compatibility.md](model-compatibility.md).
 
-## DLSS and FSR Upscalers
+## DLSS, FSR and XeSS Upscalers
 
 **The upscaler is on, but nothing changes.**
 In Lossless Scaling choose **NIS** as the Scaling Type: the upscalers take the place of that pass. The addon's panel says what it is doing,
@@ -81,17 +81,18 @@ between the upscaler and NIS while you play.
 
 **Why is the difference smaller than in a game with DLSS built in?**
 A game with DLSS built in moves its camera by a fraction of a pixel every frame, and DLSS combines those frames into detail finer than the
-game renders. Lossless Scaling only sees the finished frames, without those shifts, so DLSS and FSR work as a very good upscaler and
+game renders. Lossless Scaling only sees the finished frames, without those shifts, so the upscalers work as a very good upscaler and
 anti-aliasing rather than adding new detail. The difference to NIS shows most in motion, on fine detail and foliage, and when the game
 renders well below the screen's size (2560x1440 to 4K, for example); on a clean, low-detail game it is smaller. The
 [upscalers' guide](../addons/DLSS5NR01/docs/upscalers.md) has the settings that help most (the model, sharpening, stability).
 
-**DLSS or FSR?**
-On an NVIDIA RTX card try both: DLSS smooths edges better, FSR 3.1 costs less and keeps text crisper, and FSR 4 is the best in motion but
-costs the most. On any other card, FSR.
+**DLSS, FSR or XeSS?**
+On an NVIDIA RTX card try DLSS and FSR: DLSS smooths edges better, FSR 3.1 costs less and keeps text crisper, and FSR 4 is the best in
+motion but costs the most. On any other card, FSR, and on Intel Arc also XeSS, which runs on the card's matrix units there. XeSS is new in
+0.9.12 and not yet tried in a game: reports are welcome.
 
 **Does it work with HDR games?**
-Yes: 16-bit (scRGB) and 10-bit (HDR10) frames are upscaled in DLSS's and FSR's own HDR mode (since 0.9.10) and go back as HDR. If a game looks washed out or too dark,
+Yes: 16-bit (scRGB) and 10-bit (HDR10) frames are upscaled in the upscaler's own HDR mode (since 0.9.10) and go back as HDR. If a game looks washed out or too dark,
 set *Frame encoding* under Upscaling by hand.
 
 ## Reporting a problem

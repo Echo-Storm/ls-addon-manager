@@ -8,10 +8,10 @@ Status on 2026-09-27, at version 0.9.12 (the current work is on `main`).
 | # | For 1.0 | State | Notes |
 |---|---------|-------|-------|
 | 1 | **An installer**: install, update, repair after a Lossless Scaling update, uninstall | **Done** (0.6.0) | `LSAddonManagerSetup.exe`: one file, a small wizard, with the core (folder detection, backups, rollback, repair, uninstall) tested on fake folders and the exe tested end to end. Tried on a real install by the maintainer (the folder search, the pages, reinstall, and an update from 0.5.0 to 0.6.0, which worked); the "restart as administrator" path and Windows SmartScreen's reaction are not verified. See below. |
-| 2 | **An update check** | **Done** (0.5.0) | Once a day, on by default, off in *Settings > Updates*; never downloads or installs; the only network access. |
+| 2 | **An update check** | **Done** (0.5.0) | Once a day, on by default, off in *Settings > Updates*. Since 0.9.7 it offers to download and install the release (checked against GitHub's SHA-256); nothing is downloaded unless you choose it. |
 | 3 | **A frozen, documented addon API** | **Done** on `main` | The API is at 1.0.0, documented (`docs/addon-authors.md`), with a written compatibility promise (`docs/api-compatibility.md`: what will and will not change before 2.0) and a sample addon (`examples/SampleAddon`) that builds against the SDK and is tested against the real manager. |
 | 4 | **Every shipped feature checked in real use** | **Needs you** | Neural Rendering, the window, the tray and hotkey, and the exit path are checked live. Not yet: ReShade passthrough (hotkey and auto-click) and Windowed mode (the virtual display after a restart) have only passed offline tests. A short live try settles both. |
-| 5 | **More than one game** | **Two so far** | World of Warcraft: Forever (the beta) and Fallout: New Vegas (Tale of Two Wastelands), with Neural Rendering and both upscalers. A 4:3 game and one with busy foliage would round it off. |
+| 5 | **More than one game** | **Four so far** | World of Warcraft: Forever (the beta), Fallout: New Vegas (Tale of Two Wastelands), Silent Hill f (HDR) and Metro 2033 Redux, with Neural Rendering and the DLSS and FSR Upscalers (XeSS not yet in a game). A 4:3 game and one with busy foliage would round it off. |
 | 6 | **Signed files** | Not before 1.0 | Decided: the files stay unsigned until after 1.0. SmartScreen's warning and the way past it are explained in the README. |
 | 7 | **Help when something goes wrong** | **Done** on `main` | A troubleshooting table in the README, a questions-and-answers page (`docs/faq.md`), the diagnostics zip and the log. More entries will come from real questions. |
 | 8 | **Crash safety** | Done | Exit-path tests, isolated addon calls, the compatibility test in its own process, atomic settings writes. |
@@ -71,6 +71,9 @@ What it has to do (and what it must never do):
 - **HDR games in the upscalers**: 16-bit (scRGB) and 10-bit (HDR10) frames are upscaled in DLSS's and FSR's own HDR mode (0.9.10; 0.9.8
   and 0.9.9 went through an SDR view, which dimmed highlights) and put back in their own encoding. Seen working with FSR 4 on scRGB frames
   in a real game; the HDR mode is tested offline (a 1000-nit highlight comes back within 0.2 %), not yet in a game.
+- **The XeSS Upscaler** (0.9.12): Intel XeSS Super Resolution as the third upscaler (Intel's signed runtime, any card with Shader Model 6.4),
+  with the same motion estimate, HDR mode and controls. Tested offline; not yet in a game.
+- **A release half the size** (0.9.12): the zip holds only Setup; `LSAddonManagerSetup.exe --extract` gives the files for installing by hand.
 - **Faster tests** (0.9.9): the model scenarios three at a time and without an idle wait (the full set in about 6 minutes, it was 20); the
   everyday run takes only the scenarios for what changed; ten scenarios retired (kept, with the reason, runnable by name).
 - **The engines on threads of their own.** The upscalers and Neural Rendering call NVIDIA's and AMD's code from a thread of the engine's own;
@@ -92,7 +95,8 @@ Agreed as worth doing, in no particular order; none of them is started. They com
 - **A display mode per game.** Many TVs run 120 Hz only below 4K (1440p 120 Hz against 4K 60 Hz). A per-game choice (for example "World of Warcraft: Forever: 2560×1440 at 120 Hz")
   that the manager switches to when the game starts scaling and puts back when it ends, with Lossless Scaling's frame generation target to match.
 - **A before/after capture.** One key saves a matching pair of screenshots with and without Neural Rendering, for comparing looks and for bug reports.
-- **Frame generation of our own.** Whether AMD's FSR 3 frame interpolation, fed with this project's motion measurement, beats Lossless
+- **Frame generation of our own.** Whether AMD's FSR 3 frame interpolation or Intel's XeSS frame generation (which now runs on non-Intel
+  cards too), fed with this project's motion measurement, beats Lossless
   Scaling's own frame generation. First an offline comparison on real footage (the recorder's `.lsrec` files, frames dropped and rebuilt
   and scored against the real ones); only if it clearly wins, the work of putting it in Lossless Scaling's place.
 - **Translations.** The interface's text in other languages, once the text lives in one table rather than in the code.

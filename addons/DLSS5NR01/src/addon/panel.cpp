@@ -471,7 +471,7 @@ void DrawPanel() {
             "them), the picture before would be shown again: a small judder. On (the default), Lossless Scaling's frame waits on the GPU for the new picture instead, "
             "as a game with DLSS built in waits for DLSS; the CPU never waits. Off: the picture before is shown again. Compare the line above with it on and off.");
         Note("Compare with the Before / after hotkey (Compare and hotkeys): it switches between %s and Lossless Scaling's own NIS while you play.", U);
-        {   // HDR games: the frames are upscaled in their SDR view and put back in their own encoding (scaler11.h, SetEncoding)
+        {   // HDR games: the frames are upscaled as light in the upscaler's HDR mode and put back in their own encoding (scaler11.h, SetEncoding)
             static const char* const encodings[] = { "Automatic", "SDR", "HDR" };
             ImGui::SetNextItemWidth(220.0f);
             if (ImGui::Combo("Frame encoding", &c.frameEncoding, encodings, 3)) changed = true;
