@@ -279,10 +279,12 @@ Setup does exactly this, with backups. If you would rather copy files yourself:
 
 1. Close Lossless Scaling. Open its folder (for a Steam install, for example `C:\Program Files (x86)\Steam\steamapps\common\Lossless Scaling`).
 2. **First time only:** rename the original `Lossless.dll` to `Lossless_original.dll`. Keep it: the manager forwards to it.
-3. Copy `Lossless.dll`, the two `manager-icon` files (`.ico` and `.png`) and the `addons` folder from the zip into that folder.
+3. The files are inside `LSAddonManagerSetup.exe` (the zip holds nothing twice). In a command prompt in the unzipped folder, run
+   `LSAddonManagerSetup.exe --extract files`: it writes them into a new `files` folder and changes nothing else. Copy `Lossless.dll`,
+   the two `manager-icon` files (`.ico` and `.png`) and the `addons` folder from there into the Lossless Scaling folder.
 4. Start Lossless Scaling. For Neural Rendering, also put your `nvngx_dlssnr.dll` next to `LosslessScaling.exe`.
 
-**Updating by hand:** close Lossless Scaling and copy the new `Lossless.dll` and `addons` over the old ones.
+**Updating by hand:** close Lossless Scaling, extract the new release's files (step 3) and copy `Lossless.dll` and `addons` over the old ones.
 **After a Lossless Scaling update:** delete the stale `Lossless_original.dll`, rename the new `Lossless.dll` to `Lossless_original.dll`, and copy ours in again.
 **Uninstalling by hand:** delete our `Lossless.dll`, rename `Lossless_original.dll` back to `Lossless.dll`, and delete the `addons` folder if you like.
 

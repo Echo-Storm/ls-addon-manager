@@ -568,6 +568,8 @@ int WINAPI wWinMain(HINSTANCE inst, HINSTANCE, PWSTR, int) {
     a.startTick = GetTickCount();
     a.icon = LoadIconW(inst, MAKEINTRESOURCEW(1));
     const bool silent = Has(args, L"--silent"), showVersion = Has(args, L"--version");
+    // --extract <folder>: only write the files this Setup carries into that folder (new or empty), for installing by hand; nothing else is touched
+    const std::wstring extract = Flag(args, L"--extract");
     const std::wstring testClose = Flag(args, L"--test-close-ms");
     if (!testClose.empty()) a.testCloseMs = _wtoi(testClose.c_str());
     a.shotDir = Flag(args, L"--shot");
@@ -577,7 +579,7 @@ int WINAPI wWinMain(HINSTANCE inst, HINSTANCE, PWSTR, int) {
     Out out;
     const std::wstring logPath = Flag(args, L"--log");
     if (!logPath.empty()) _wfopen_s(&out.file, logPath.c_str(), L"wb");
-    if ((silent || showVersion) && AttachConsole(ATTACH_PARENT_PROCESS)) {
+    if ((silent || showVersion || !extract.empty()) && AttachConsole(ATTACH_PARENT_PROCESS)) {
         FILE* f = nullptr;
         freopen_s(&f, "CONOUT$", "w", stdout);
         out.console = true;
@@ -607,7 +609,25 @@ int WINAPI wWinMain(HINSTANCE inst, HINSTANCE, PWSTR, int) {
     }
 
     int code = 0;
-    if (showVersion) {
+    if (!extract.empty()) {
+        const uint8_t* data = nullptr;
+        size_t size = 0;
+        std::string err;
+        const DWORD attr = GetFileAttributesW(extract.c_str());
+        bool emptyOrNew = attr == INVALID_FILE_ATTRIBUTES;
+        if (!emptyOrNew && (attr & FILE_ATTRIBUTE_DIRECTORY)) {   // a folder with nothing in it but . and ..
+            WIN32_FIND_DATAW fd{}; emptyOrNew = true;
+            const HANDLE h = FindFirstFileW((extract + L"\\*").c_str(), &fd);
+            if (h != INVALID_HANDLE_VALUE) {
+                do { if (wcscmp(fd.cFileName, L".") && wcscmp(fd.cFileName, L"..")) emptyOrNew = false; } while (emptyOrNew && FindNextFileW(h, &fd));
+                FindClose(h);
+            }
+        }
+        if (!a.payload.ok) { out.Line("nothing to extract: " + a.payloadError); code = 2; }
+        else if (!emptyOrNew) { out.Line("--extract needs a new or empty folder"); code = 2; }
+        else if (!EmbeddedPayload(data, size) || !UnpackTo(data, size, extract, err)) { out.Line("could not extract: " + err); code = 3; }
+        else out.Line("extracted LS Addon Manager " + a.payload.version + "'s files; copy them into the Lossless Scaling folder (see INSTALL.txt)");
+    } else if (showVersion) {
         out.Line(a.payload.ok ? "payload " + a.payload.version : "payload none: " + a.payloadError);
         code = a.payload.ok ? 0 : 2;
     } else if (silent) {

@@ -1,5 +1,6 @@
-# Builds Release and assembles dist\LSAddonManager-<version>-x64.zip: the manager, the addons that build, LSAddonManagerSetup.exe (one file that carries them all),
-# an install note, and the licences.
+# Builds Release and assembles dist\LSAddonManager-<version>-x64.zip: LSAddonManagerSetup.exe, one file that carries the manager and the addons
+# that build, with an install note and the licences. The files are not in the zip a second time: `LSAddonManagerSetup.exe --extract <folder>`
+# writes them out for installing by hand (since 0.9.12; the zip held every file twice before).
 # The DLSSNR model is never packaged. NVIDIA's NGX library is linked into Neural Rendering and ships under NVIDIA's licence (NOTICE.md), with
 # NVIDIA-LICENSE.txt beside it. Neural Rendering is left out (with a note) when it did not build; work-in-progress addons unless -IncludeWip.
 #   powershell -File tools\package.ps1 [-Version 0.7.0] [-SkipBuild]
@@ -113,9 +114,20 @@ if (Test-Path $fakeOriginal) {
 } else {
     Write-Host '  (Setup exe installed-files check skipped: build the installer tests first to get the stand-in Lossless.dll)'
 }
+# --extract, for installing by hand: the same files, byte for byte, into a new folder
+$ex = "$check\extract"
+$elog = "$check\extract.log"
+$p = Start-Process $setupExe -ArgumentList '--extract', "`"$ex`"", '--no-remember', '--log', "`"$elog`"" -PassThru -Wait -WindowStyle Hidden
+if ($p.ExitCode -ne 0) { throw "the Setup exe could not extract its files: $(Get-Content $elog -Raw)" }
+$want = @(Get-ChildItem $payloadDir -Recurse -File)
+$bad = @($want | Where-Object { (Get-FileHash $_.FullName).Hash -ne (Get-FileHash ("$ex\" + $_.FullName.Substring($payloadDir.Length + 1)) -ErrorAction SilentlyContinue).Hash })
+if ($bad.Count -or @(Get-ChildItem $ex -Recurse -File).Count -ne $want.Count) { throw "the Setup exe's --extract gave other files than the package: $($bad.Name -join ', ')" }
+Write-Host "  Setup exe checked: --extract writes the $($want.Count) files byte for byte"
 Remove-Item -Recurse -Force $check -ErrorAction SilentlyContinue
 Copy-Item $setupExe "$stage\LSAddonManagerSetup.exe"
 Remove-Item -Recurse -Force $payloadDir
+# the files are inside Setup: not in the zip a second time
+Remove-Item -Recurse -Force "$stage\Lossless.dll", "$stage\manager-icon.ico", "$stage\manager-icon.png", "$stage\addons"
 
 Copy-Item "$root\LICENSE" "$stage\LICENSE.txt"
 Copy-Item "$root\NOTICE.md", "$root\DISCLAIMER.md", "$root\CHANGELOG.md" $stage
@@ -148,18 +160,21 @@ Install by hand (Lossless Scaling 3.2.2.0 was the tested version)
 1. Close Lossless Scaling and open its folder, for example
    C:\Program Files (x86)\Steam\steamapps\common\Lossless Scaling
 2. First time only: rename the original Lossless.dll to Lossless_original.dll. Keep it: the manager forwards to it.
-3. Copy Lossless.dll, manager-icon.ico, manager-icon.png and the addons folder from this zip into that folder.
+3. The files are inside LSAddonManagerSetup.exe. Open a command prompt in this zip's folder and run
+       LSAddonManagerSetup.exe --extract files
+   which writes them into a new "files" folder and changes nothing else. Copy everything in "files" (Lossless.dll, the two
+   manager-icon files and the addons folder) into the Lossless Scaling folder.
 4. Start Lossless Scaling. The manager window opens by itself.
 5. DLSS 5 Neural Rendering also needs nvngx_dlssnr.dll next to LosslessScaling.exe. It is not included and this project does not say where to
    find it. ReShade input passthrough and Windowed mode are built into the manager (its Features tab); they arrive switched off.
    If you used the old separate ReShade or Windowed addon folders, the manager ignores them; you can remove them.
-6. The DLSS Upscaler (NVIDIA RTX) and the FSR Upscaler (any DirectX 12 graphics card) take the place of Lossless Scaling's NIS
+6. The DLSS Upscaler (NVIDIA RTX), the FSR Upscaler (any DirectX 12 graphics card) and the XeSS Upscaler (Shader Model 6.4) take the place of Lossless Scaling's NIS
    scaler with DLSS or FSR 3, using motion they measure from the frames. They arrive switched off: switch one on in the addon list (only
    one of the two runs at a time), choose NIS as the Scaling Type in Lossless Scaling, and run the game in a window smaller than the
    screen (for example 2560x1440 on a 4K screen); at the screen's own size they anti-alias. 4:3 windows work too.
    Guide: https://github.com/Echo-Storm/ls-addon-manager/blob/main/addons/DLSS5NR01/docs/upscalers.md
 
-Updating: close Lossless Scaling and copy the new files over the old ones. Your settings (addons\config.json) carry over.
+Updating: close Lossless Scaling, extract the new release's files (step 3) and copy them over the old ones. Your settings (addons\config.json) carry over.
 From 0.1.0: Neural Rendering is now addons\DLSS5NR01 (it was addons\LSP-NeuralRender) and its saved settings and looks move to the new name by themselves
 the first time it starts. ReShade passthrough and Windowed mode are built in (Features tab). The old LSP-NeuralRender, LSP-ReShade and LSP-Windowed
 folders are ignored by the manager; you can remove them.
