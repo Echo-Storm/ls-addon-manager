@@ -48,6 +48,12 @@ public:
     // The average vector (game pixels), match cost (0..1 per pixel) and distrust (0..1) since the last call; false when no frame was measured.
     bool TakeAverages(double& x, double& y, double& length, double& cost, double& distrust, uint64_t& frames);
     int Levels() const { return m_levels; }
+    // How far (pixels of each size) straying from the coarser size's guess costs more (the search pass): 2 by default; very large leaves it
+    // uncapped, as it was until 2026-09-27 (for comparing).
+    void SetStrayCap(float pixels) { m_strayCap = pixels; }
+    // From how fast (pixels a frame, the frame's own) the distrust mask rises, fully at twice that: the upscaler leans on the current frame in
+    // fast motion. 0: off.
+    void SetFastMotion(float pixels) { m_fastMotion = pixels; }
     void SetTimestampFrequency(uint64_t f) { m_timestampFreq = f; }
     // The GPU time of each stage (the pyramid, the search, the median, every pixel), averaged since the last call; false without any.
     bool TakeStageTimes(double ms[4]);
@@ -83,7 +89,7 @@ private:
     ID3D12QueryHeap* m_stamps = nullptr; ID3D12Resource* m_stampReadback = nullptr; uint64_t m_timestampFreq = 0;
     bool m_stampsPending[kSlots] = {};
     double m_stageSum[4] = {}; uint64_t m_stageCount = 0;
-    int m_current = 0; bool m_havePrevious = false;
+    int m_current = 0; bool m_havePrevious = false; float m_strayCap = 2.0f; float m_fastMotion = 0.0f;
     // running totals for TakeAverages
     double m_sumCost = 0, m_sumX = 0, m_sumY = 0, m_sumLength = 0, m_blocks = 0, m_sumDistrust = 0, m_pixels = 0; uint64_t m_frames = 0;
 };

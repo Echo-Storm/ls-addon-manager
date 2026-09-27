@@ -32,12 +32,15 @@ struct SrEngine::XessState {
     decltype(&xessGetOptimalInputResolution) OptimalInput = nullptr; decltype(&xessD3D12Init) Init = nullptr;
     decltype(&xessD3D12Execute) Execute = nullptr; decltype(&xessDestroyContext) DestroyContext = nullptr;
     decltype(&xessSetLoggingCallback) SetLogging = nullptr;
+    decltype(&xessSetMaxResponsiveMaskValue) SetMaxResponsive = nullptr; float maxResponsive = -1.0f;
 };
 #else
 struct SrEngine::XessState { HMODULE module = nullptr; bool initialised = false; };
 #endif
 
 namespace {
+
+constexpr float kFastMotionShare = 0.005f;   // the motion (a share of the frame's width, a frame) from which the upscaler leans on the frame
 
 constexpr unsigned long long kAppId = 0x24480452ull;   // the upscaler's NGX application id (Neural Rendering's is ...451)
 constexpr DWORD kSlotWaitMs = 500, kIdleWaitMs = 5000;
@@ -322,7 +325,8 @@ bool SrEngine::Init(const LUID& card, const std::wstring& dataPath, const std::w
         if (!m_xess->module) { Fail("Intel's XeSS runtime could not be loaded from %ls (error %lu)", path.c_str(), GetLastError()); return false; }
         auto get = [&](auto& fn, const char* name) { fn = reinterpret_cast<std::remove_reference_t<decltype(fn)>>(GetProcAddress(m_xess->module, name)); return fn != nullptr; };
         if (!get(m_xess->GetVersion, "xessGetVersion") || !get(m_xess->CreateContext, "xessD3D12CreateContext") || !get(m_xess->OptimalInput, "xessGetOptimalInputResolution") ||
-            !get(m_xess->Init, "xessD3D12Init") || !get(m_xess->Execute, "xessD3D12Execute") || !get(m_xess->DestroyContext, "xessDestroyContext")) {
+            !get(m_xess->Init, "xessD3D12Init") || !get(m_xess->Execute, "xessD3D12Execute") || !get(m_xess->DestroyContext, "xessDestroyContext") ||
+            !get(m_xess->SetMaxResponsive, "xessSetMaxResponsiveMaskValue")) {
             Fail("Intel's XeSS runtime lacks the XeSS API"); return false;
         }
         get(m_xess->SetLogging, "xessSetLoggingCallback");
@@ -664,7 +668,7 @@ bool SrEngine::EnsureFeature(uint32_t inW, uint32_t inH, uint32_t outW, uint32_t
         if (!fits) { Fail("XeSS takes no input of %ux%u for an output of %ux%u", inW, inH, outW, outH); return false; }
         xess_d3d12_init_params_t ip{}; ip.outputResolution = outRes; ip.qualitySetting = quality;
         // motion at the game's size with the (flat) depth; SDR frames as they are shown, HDR frames as light (1 = the SDR white)
-        ip.initFlags = hdr ? XESS_INIT_FLAG_NONE : XESS_INIT_FLAG_LDR_INPUT_COLOR;
+        ip.initFlags = (hdr ? XESS_INIT_FLAG_NONE : XESS_INIT_FLAG_LDR_INPUT_COLOR) | XESS_INIT_FLAG_RESPONSIVE_PIXEL_MASK;   // the distrust mask, as FSR's reactive one
         ip.creationNodeMask = 1; ip.visibleNodeMask = 1;
         const xess_result_t rc = m_xess->Init(m_xess->context, &ip);
         QueryPerformanceCounter(&b);
@@ -871,6 +875,10 @@ bool SrEngine::Run(ID3D12Resource* in, uint32_t inW, uint32_t inH, DXGI_FORMAT i
     Transition(m_motion, D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE, D3D12_RESOURCE_STATE_UNORDERED_ACCESS);
     ID3D12DescriptorHeap* heaps[] = { m_heap };
     if (estimating) {
+        // In fast motion the upscaler leans on this frame (the distrust mask rises from 0.5 % of the frame's width a frame, fully at twice it):
+        // Lossless Scaling's frames come without the jitter a game gives its upscaler, so history adds little there, and in a fast turn it trailed
+        // (nr_sreval, Silent Hill f, a turn shrunk 1.5x: FSR 3.1 39.4 -> 41.8 dB at a quarter of the size, the leaves' doubled edges gone).
+        m_estimator.SetFastMotion(m_fastMotion >= 0.0f ? m_fastMotion : kFastMotionShare * static_cast<float>(inW));
         Transition(m_distrust, D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE, D3D12_RESOURCE_STATE_UNORDERED_ACCESS);
         m_estimator.Record(m_list, slot, hdr ? m_view : in, hdr ? DXGI_FORMAT_R16G16B16A16_FLOAT : inFormat == DXGI_FORMAT_UNKNOWN ? DXGI_FORMAT_R8G8B8A8_UNORM : inFormat,
                            m_motion, m_distrust, stability);
@@ -898,9 +906,9 @@ bool SrEngine::Run(ID3D12Resource* in, uint32_t inW, uint32_t inH, DXGI_FORMAT i
         d.color = ffxApiGetResourceDX12(color, FFX_API_RESOURCE_STATE_COMPUTE_READ);
         d.depth = ffxApiGetResourceDX12(m_depth, FFX_API_RESOURCE_STATE_COMPUTE_READ);
         d.motionVectors = ffxApiGetResourceDX12(m_motion, FFX_API_RESOURCE_STATE_COMPUTE_READ);
-        d.reactive = ffxApiGetResourceDX12(estimating ? m_distrust : nullptr, FFX_API_RESOURCE_STATE_COMPUTE_READ);   // where the motion cannot be trusted
+        d.reactive = ffxApiGetResourceDX12(estimating && !m_noMask ? m_distrust : nullptr, FFX_API_RESOURCE_STATE_COMPUTE_READ);   // where the motion cannot be trusted
         d.output = ffxApiGetResourceDX12(upscaled, FFX_API_RESOURCE_STATE_UNORDERED_ACCESS);
-        d.jitterOffset = { 0.0f, 0.0f }; d.motionVectorScale = { 1.0f, 1.0f };   // vectors in the game's pixels
+        d.jitterOffset = { 0.0f, 0.0f }; d.motionVectorScale = { m_motionScale, m_motionScale };   // vectors in the game's pixels
         d.renderSize = { inW, inH }; d.upscaleSize = { outW, outH };
         d.enableSharpening = sharpen > 0.001f; d.sharpness = std::clamp(sharpen, 0.0f, 1.0f);
         d.frameTimeDelta = frameMs; d.preExposure = 1.0f; d.reset = reset || fresh;
@@ -914,6 +922,10 @@ bool SrEngine::Run(ID3D12Resource* in, uint32_t inW, uint32_t inH, DXGI_FORMAT i
     if (m_backend == Backend::Xess) {
         xess_d3d12_execute_params_t x{};
         x.pColorTexture = color; x.pVelocityTexture = m_motion; x.pDepthTexture = m_depth; x.pOutputTexture = upscaled;
+        // the distrust mask as XeSS's responsive one (where the motion cannot be trusted, or is fast); clipped to nothing without it (frame
+        // generation's flow: the mask is then not written)
+        x.pResponsivePixelMaskTexture = m_distrust;
+        if (const float maxValue = estimating && !m_noMask ? 1.0f : 0.0f; maxValue != m_xess->maxResponsive) { m_xess->SetMaxResponsive(m_xess->context, maxValue); m_xess->maxResponsive = maxValue; }
         x.jitterOffsetX = 0.0f; x.jitterOffsetY = 0.0f; x.exposureScale = 1.0f; x.resetHistory = (reset || fresh) ? 1u : 0u;
         x.inputWidth = inW; x.inputHeight = inH;
         const xess_result_t rc = m_xess->Execute(m_xess->context, m_list, &x);
@@ -926,10 +938,10 @@ bool SrEngine::Run(ID3D12Resource* in, uint32_t inW, uint32_t inH, DXGI_FORMAT i
     p->Set(NVSDK_NGX_Parameter_Depth, m_depth);
     p->Set(NVSDK_NGX_Parameter_MotionVectors, m_motion);
     // where the measured motion cannot be trusted, DLSS leans on this frame instead of its history (none with frame generation's flow)
-    p->Set(NVSDK_NGX_Parameter_DLSS_Input_Bias_Current_Color_Mask, estimating ? m_distrust : static_cast<ID3D12Resource*>(nullptr));
+    p->Set(NVSDK_NGX_Parameter_DLSS_Input_Bias_Current_Color_Mask, estimating && !m_noMask ? m_distrust : static_cast<ID3D12Resource*>(nullptr));
     p->Set(NVSDK_NGX_Parameter_DLSS_Input_Bias_Current_Color_SubrectBase_X, 0u); p->Set(NVSDK_NGX_Parameter_DLSS_Input_Bias_Current_Color_SubrectBase_Y, 0u);
     p->Set(NVSDK_NGX_Parameter_Jitter_Offset_X, 0.0f); p->Set(NVSDK_NGX_Parameter_Jitter_Offset_Y, 0.0f);
-    p->Set(NVSDK_NGX_Parameter_MV_Scale_X, 1.0f); p->Set(NVSDK_NGX_Parameter_MV_Scale_Y, 1.0f);
+    p->Set(NVSDK_NGX_Parameter_MV_Scale_X, m_motionScale); p->Set(NVSDK_NGX_Parameter_MV_Scale_Y, m_motionScale);
     p->Set(NVSDK_NGX_Parameter_Reset, (reset || fresh) ? 1 : 0);
     p->Set(NVSDK_NGX_Parameter_Sharpness, 0.0f);
     p->Set(NVSDK_NGX_Parameter_DLSS_Pre_Exposure, 1.0f);

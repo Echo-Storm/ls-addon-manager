@@ -93,9 +93,48 @@ Also on 2026-09-27 (a second session, on the same recordings; `tools/fgeval_comp
   character is not still on screen in a turn (it shifts a few pixels, and the backlit hair's brightness changes by 15 levels or more).
   Would suit a HUD.
 
+## Turn ghosting, found: the upscalers' history (2026-09-27, afternoon)
+
+`nr_sreval` (new, `addons/DLSS5NR01/tools/sr_eval.cpp`) runs the addon's own upscaler engine offline: each recorded frame shrunk 1.5x (as
+1440p to 4K), the motion estimated, upscaled back by FSR 3.1, DLSS or XeSS, and compared with the frame itself beside a plain bilinear
+stretch. Scores in full and at a quarter of the size (where things are, not their detail).
+
+- **Every upscaler trails in a fast turn.** Silent Hill f, a 30-frame turn: FSR 39.4, DLSS 36.8, XeSS 39.1 dB at a quarter of the size,
+  against 43.3 for the plain stretch. After a reset the upscaler matches the stretch (48.3 against 49.1) and then falls behind frame by
+  frame as its history builds: the leaves get soft doubled edges. Without our vectors it is far worse (30.2), so the vectors are not the
+  fault; the history is. Lossless Scaling's frames carry no sub-pixel jitter, so a temporal upscaler's history adds little detail here and
+  in fast motion mostly trails.
+- **The fix: lean on the frame in fast motion.** The distrust mask now also rises with the motion itself (from 0.5 % of the frame's width a
+  frame, fully at twice that; `kFastMotionShare` in sr_engine.cpp). FSR 39.4 -> 41.8 dB in the turn, the doubled edges gone; slow motion
+  untouched. XeSS now gets the mask too, as its responsive pixel mask (39.1 -> 40.2).
+- **DLSS ignores the mask.** Its bias-current-colour mask changes nothing (36.8 with and without): the DLSS Upscaler has never used our
+  distrust. Open.
+- **A slow drift remains** in slow pans for FSR and DLSS (not XeSS): 49 -> 44 dB at a quarter of the size over 40 frames, in foliage
+  detail. Not motion error (scaling the vectors 0.8 to 1.2 changes nothing). Open.
+
+## FSR 3.1 frame generation from the inside (AMD's MIT-licensed source, FidelityFX SDK)
+
+- The frame between is built by scattering each pixel of the newer frame half way along its vector; where two land on one pixel, the
+  priority is (high bits) the view-space depth, nearer wins, then (low bits) how well its colour matched along the vector. With our flat
+  depth the colour match decides, and in a turn the background often wins over a character: leaves pasted over the head.
+- Its own optical flow reaches only small motion: in a 170 px turn it reads zero everywhere (debug view), so its fallback is a plain
+  blend, weighted in where the colours along our vectors agree less than a blend's do (haze).
+- `nr_fgeval debugview=1` draws FSR's debug views (game vectors | depth priority | optical flow / disocclusion | source | backbuffer);
+  `ffxdebug=1` its messages. The runtime we ship holds frame generation 1.1.3 (the camera info of 3.1.4 does not apply).
+- **Depth from an orbiting camera** (`depth=orbit`): how far a block moves along the turn's direction orders it in depth (the character at
+  the pivot moves least, the far scene most). FSR's priority then shows the character in front (debug view), but the frames between at the
+  live gap change little; not carried into the addon yet. `depth=layer` (two layers by departure from a fitted camera motion) marks too much:
+  in an orbit the scene's motion itself varies with depth.
+- **The motion estimate on a character in a turn**: its cost of straying from the coarser guess was unbounded, so in a 170 px turn a dark,
+  faintly textured character took random vectors; it is now capped at 2 px of each size (`FlowEstimator::SetStrayCap`). The character's
+  own motion stays ambiguous in an orbit (it turns in 3D, walks), which no vector captures.
+- `nr_fgeval` also scores a **band** around what moves unlike the camera (the character and a margin), where whole-frame scores could not
+  see the ghosting; `worstby=band`, `mvdump=1` (the vectors as a picture), `live=1` for the live gap.
+
 ## Next
 
-1. **Rule out the FSR Upscaler's history** (live: frame generation with the FSR Upscaler off, NIS only).
+1. **Live check of the upscaler fix** (fast motion leaning on the frame): the same turns with frame generation on, then with the FSR
+   Upscaler off (NIS only), to see what trailing is left and whose. Then DLSS's ignored mask, and the slow drift.
 2. **The character in turns.** A measure that sees it (the error in a band around what moves unlike the background, not the whole frame),
    then: the character as a layer of its own (its motion measured apart from the background's at the edge, where today's 8x8 blocks
    straddle both), or a disocclusion mask of our own over FSR's result.

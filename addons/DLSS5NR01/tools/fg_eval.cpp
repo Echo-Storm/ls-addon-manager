@@ -11,7 +11,9 @@
 // Frames are compared in their SDR view: HDR recordings are rolled off as screenshots show them.
 //
 //   nr_fgeval <recording.lsrec> <output folder> [gen=fsr|xess] [first=N] [count=N] [worst=N] [fsr=<amd_fidelityfx_dx12.dll>] [xessfg=<libxess_fg.dll>]
-//             [live=1] [mvcheck=1] [mvscale=N] [depth=motion [depthpx=N]] [estin=light|view] [depthdir=<folder> [depthinv=0]] [motion=none] [refine=...]
+//             [live=1] [mvcheck=1] [mvscale=N] [depth=motion|noise|layer|orbit [depthpx=N] [layern=N]] [estin=light|view] [depthdir=<folder> [depthinv=0]]
+//             [motion=none] [refine=...] [keepstill=N] [straycap=N] [worstby=band] [mvdump=1] [debugview=1] [ffxdebug=1]
+// Besides the whole picture, a "band" score: around what moves unlike the camera (a character it follows, and a margin), where turn ghosting is.
 // Scores come in full and "coarse" (a quarter of the size: where things are, not their fine detail). In dense foliage the full score cannot
 // tell a sharp frame a little off from a double image; look at the pictures (worst=, live=1) before trusting a fraction of a dB.
 #include <windows.h>
@@ -26,6 +28,7 @@
 #include <string>
 #include <vector>
 #include "addon/lsrec.h"
+#include "eval_common.h"
 #include "engine/flow_estimator.h"
 #include "ffx_api/ffx_api.h"
 #include "ffx_api/ffx_framegeneration.h"
@@ -43,45 +46,7 @@ namespace {
 
 template <class T> void SafeRelease(T*& p) { if (p) { p->Release(); p = nullptr; } }
 
-std::wstring Wide(const char* s) { const int n = MultiByteToWideChar(CP_UTF8, 0, s, -1, nullptr, 0); std::wstring w(n > 0 ? n - 1 : 0, L'\0'); MultiByteToWideChar(CP_UTF8, 0, s, -1, w.data(), n); return w; }
-int Arg(int argc, char** argv, const char* key, int fallback) {
-    const size_t k = strlen(key);
-    for (int i = 3; i < argc; ++i) if (!strncmp(argv[i], key, k) && argv[i][k] == '=') return atoi(argv[i] + k + 1);
-    return fallback;
-}
-std::string ArgText(int argc, char** argv, const char* key) {
-    const size_t k = strlen(key);
-    for (int i = 3; i < argc; ++i) if (!strncmp(argv[i], key, k) && argv[i][k] == '=') return argv[i] + k + 1;
-    return {};
-}
-
-// A frame of the recording as 8-bit RGBA in its SDR view. Light (the upscalers' HDR frames, 1 = the SDR white) and scRGB are rolled off
-// above 0.75 as the screenshots do, then sRGB-encoded; an SDR view is taken as it is; 8-bit frames as they are (BGRA swapped to RGBA).
-bool ToRgba8(const nr::lsrec::FileHeader& h, const std::vector<uint8_t>& px, std::vector<uint8_t>& out) {
-    const size_t n = static_cast<size_t>(h.width) * h.height;
-    out.resize(n * 4);
-    if (h.bytesPerPixel == 4) {
-        const bool bgra = h.format == DXGI_FORMAT_B8G8R8A8_UNORM || h.format == DXGI_FORMAT_B8G8R8X8_UNORM;
-        for (size_t i = 0; i < n; ++i) {
-            out[i * 4 + 0] = px[i * 4 + (bgra ? 2 : 0)]; out[i * 4 + 1] = px[i * 4 + 1]; out[i * 4 + 2] = px[i * 4 + (bgra ? 0 : 2)]; out[i * 4 + 3] = 255;
-        }
-        return true;
-    }
-    if (h.bytesPerPixel != 8) return false;
-    const uint16_t* in = reinterpret_cast<const uint16_t*>(px.data());
-    const float scale = h.content == nr::lsrec::kOwnEncoding ? 80.0f / 200.0f : 1.0f;   // scRGB of its own: 1.0 = 80 nits, SDR white taken as 200
-    for (size_t i = 0; i < n; ++i) for (int c = 0; c < 3; ++c) {
-        float v = DirectX::PackedVector::XMConvertHalfToFloat(in[i * 4 + c]);
-        if (h.content != nr::lsrec::kSdrView) {
-            v = std::max(v * scale, 0.0f);
-            if (v > 0.75f) v = 0.75f + 0.25f * (1.0f - std::exp(-(v - 0.75f) / 0.25f));
-            v = v <= 0.0031308f ? v * 12.92f : 1.055f * std::pow(v, 1.0f / 2.4f) - 0.055f;
-        }
-        out[i * 4 + c] = static_cast<uint8_t>(std::clamp(v, 0.0f, 1.0f) * 255.0f + 0.5f);
-        if (c == 2) out[i * 4 + 3] = 255;
-    }
-    return true;
-}
+using namespace nr::eval;
 
 // What stays put between two real frames stays put in the frame between: where a and b (RGBA8) are alike, the picture becomes their mix.
 // Alike: the largest channel difference, averaged over the pixel's 3x3, at most `still` levels (all mix), fading to the picture's own by
@@ -103,49 +68,6 @@ void KeepStill(std::vector<uint8_t>& picture, const std::vector<uint8_t>& a, con
         const size_t k = (static_cast<size_t>(y) * w + x) * 4;
         for (int c = 0; c < 3; ++c) picture[k + c] = static_cast<uint8_t>(std::lround((a[k + c] + b[k + c]) * 0.5f * (1.0f - t) + picture[k + c] * t));
     }
-}
-
-// Peak signal-to-noise ratio of two RGBA8 pictures over R, G and B (dB; higher is closer), and the mean absolute difference (levels).
-double Psnr(const std::vector<uint8_t>& a, const std::vector<uint8_t>& b, double* meanAbs) {
-    double se = 0, ae = 0; size_t n = 0;
-    for (size_t i = 0; i < a.size(); i += 4) for (int c = 0; c < 3; ++c) { const double d = double(a[i + c]) - double(b[i + c]); se += d * d; ae += std::abs(d); ++n; }
-    if (meanAbs) *meanAbs = n ? ae / n : 0;
-    const double mse = n ? se / n : 0;
-    return mse <= 1e-12 ? 99.0 : 10.0 * std::log10(255.0 * 255.0 / mse);
-}
-
-// The same, at a quarter of the size (4x4 averages): what is left is where things are, not their fine detail, so a double image (ghosting)
-// still costs and a leaf a pixel off does not. W: the pictures' width.
-double PsnrCoarse(const std::vector<uint8_t>& a, const std::vector<uint8_t>& b, uint32_t W) {
-    const uint32_t H = static_cast<uint32_t>(a.size() / 4 / W), w = W / 4, h = H / 4;
-    double se = 0; size_t n = 0;
-    for (uint32_t y = 0; y < h; ++y) for (uint32_t x = 0; x < w; ++x) for (int c = 0; c < 3; ++c) {
-        double sa = 0, sb = 0;
-        for (int j = 0; j < 4; ++j) for (int i = 0; i < 4; ++i) { const size_t p = ((static_cast<size_t>(y) * 4 + j) * W + x * 4 + i) * 4 + c; sa += a[p]; sb += b[p]; }
-        const double d = (sa - sb) / 16.0; se += d * d; ++n;
-    }
-    const double mse = n ? se / n : 0;
-    return mse <= 1e-12 ? 99.0 : 10.0 * std::log10(255.0 * 255.0 / mse);
-}
-
-bool WriteBmp(const std::wstring& path, const std::vector<const std::vector<uint8_t>*>& tiles, uint32_t w, uint32_t h) {
-    const uint32_t W = w * static_cast<uint32_t>(tiles.size()), rowBytes = W * 3, pad = (4 - rowBytes % 4) % 4;
-    FILE* f = _wfopen(path.c_str(), L"wb"); if (!f) return false;
-    const uint32_t imageSize = (rowBytes + pad) * h, fileSize = 54 + imageSize;
-    uint8_t hdr[54] = { 'B', 'M' };
-    auto put32 = [&](int at, uint32_t v) { memcpy(hdr + at, &v, 4); };
-    put32(2, fileSize); put32(10, 54); put32(14, 40); put32(18, W); put32(22, h); hdr[26] = 1; hdr[28] = 24; put32(34, imageSize);
-    fwrite(hdr, 1, 54, f);
-    std::vector<uint8_t> row(rowBytes + pad, 0);
-    for (int y = static_cast<int>(h) - 1; y >= 0; --y) {
-        for (size_t t = 0; t < tiles.size(); ++t) for (uint32_t x = 0; x < w; ++x) {
-            const uint8_t* p = tiles[t]->data() + (static_cast<size_t>(y) * w + x) * 4;
-            uint8_t* o = row.data() + (t * w + x) * 3; o[0] = p[2]; o[1] = p[1]; o[2] = p[0];
-        }
-        fwrite(row.data(), 1, row.size(), f);
-    }
-    fclose(f);
-    return true;
 }
 
 struct Gpu {
@@ -369,6 +291,184 @@ void MidMatch(const std::vector<uint8_t>& before, const std::vector<uint8_t>& no
     }
 }
 
+// The camera's own motion, fitted to the vectors: a turning camera moves the picture by u = a0 + a1 x + a2 y + a6 x^2 + a7 xy,
+// v = a3 + a4 x + a5 y + a6 xy + a7 y^2 (x, y from -1 to 1 across the picture; the eight-parameter model of a camera rotating, and of
+// a far scene), fitted by least squares over one sample per 8x8 block, three more times without the samples furthest off (the character,
+// wrong vectors). What departs from it moves on its own (or is near: parallax).
+struct CameraMotion {
+    double a[8] = {};
+    bool ok = false;
+    float At(float px, float py, uint32_t W, uint32_t H, float* vy) const {
+        const double x = 2.0 * px / W - 1.0, y = 2.0 * py / H - 1.0;
+        *vy = static_cast<float>(a[3] + a[4] * x + a[5] * y + a[6] * x * y + a[7] * y * y);
+        return static_cast<float>(a[0] + a[1] * x + a[2] * y + a[6] * x * x + a[7] * x * y);
+    }
+};
+CameraMotion FitCamera(const std::vector<uint16_t>& mv, uint32_t W, uint32_t H) {
+    using DirectX::PackedVector::XMConvertHalfToFloat;
+    struct S { double x, y, u, v; bool in; };
+    std::vector<S> s;
+    for (uint32_t y = 4; y < H; y += 8) for (uint32_t x = 4; x < W; x += 8) {
+        const size_t p = static_cast<size_t>(y) * W + x;
+        s.push_back({ 2.0 * x / W - 1.0, 2.0 * y / H - 1.0, XMConvertHalfToFloat(mv[p * 2]), XMConvertHalfToFloat(mv[p * 2 + 1]), true });
+    }
+    CameraMotion m;
+    for (int pass = 0; pass < 4; ++pass) {
+        double A[8][9] = {};   // normal equations, augmented
+        for (const S& q : s) {
+            if (!q.in) continue;
+            const double ru[8] = { 1, q.x, q.y, 0, 0, 0, q.x * q.x, q.x * q.y }, rv[8] = { 0, 0, 0, 1, q.x, q.y, q.x * q.y, q.y * q.y };
+            for (int i = 0; i < 8; ++i) { for (int j = 0; j < 8; ++j) A[i][j] += ru[i] * ru[j] + rv[i] * rv[j]; A[i][8] += ru[i] * q.u + rv[i] * q.v; }
+        }
+        for (int i = 0; i < 8; ++i) A[i][i] += 1e-6;
+        for (int c = 0; c < 8; ++c) {   // Gauss-Jordan with partial pivoting
+            int piv = c; for (int r = c + 1; r < 8; ++r) if (std::abs(A[r][c]) > std::abs(A[piv][c])) piv = r;
+            if (std::abs(A[piv][c]) < 1e-12) return m;
+            for (int k = 0; k < 9; ++k) std::swap(A[c][k], A[piv][k]);
+            for (int r = 0; r < 8; ++r) if (r != c) { const double f = A[r][c] / A[c][c]; for (int k = c; k < 9; ++k) A[r][k] -= f * A[c][k]; }
+        }
+        for (int i = 0; i < 8; ++i) m.a[i] = A[i][8] / A[i][i];
+        m.ok = true;
+        if (pass == 3) break;
+        std::vector<double> res;   // keep the samples within twice the median distance from the fit (at least 2 px)
+        for (const S& q : s) { float vy; const double ux = m.At(static_cast<float>((q.x + 1) * W / 2), static_cast<float>((q.y + 1) * H / 2), W, H, &vy); res.push_back(std::hypot(q.u - ux, q.v - vy)); }
+        std::vector<double> sorted = res; std::nth_element(sorted.begin(), sorted.begin() + sorted.size() / 2, sorted.end());
+        const double keep = std::max(2.0, 2.0 * sorted[sorted.size() / 2]);
+        for (size_t k = 0; k < s.size(); ++k) s[k].in = res[k] <= keep;
+    }
+    return m;
+}
+
+// The 8x8 blocks that move on their own: most of their pixels depart from the camera's motion (FitCamera) by a quarter of its speed there
+// (at least 4 px), and at least `neighbours` of the 8 blocks around do too (a character, not foliage whose vectors stray). Empty when the
+// camera hardly moves (under 8 px at the picture's centre). bw, bh: the grid's size.
+std::vector<uint8_t> OwnMotionBlocks(const std::vector<uint16_t>& mv, uint32_t W, uint32_t H, int neighbours, int& bw, int& bh, CameraMotion* camOut = nullptr) {
+    using DirectX::PackedVector::XMConvertHalfToFloat;
+    bw = static_cast<int>((W + 7) / 8); bh = static_cast<int>((H + 7) / 8);
+    std::vector<uint8_t> fg(static_cast<size_t>(bw) * bh, 0), kept(fg.size(), 0);
+    const CameraMotion cam = FitCamera(mv, W, H);
+    if (camOut) *camOut = cam;
+    float cy; const float cx = cam.ok ? cam.At(W * 0.5f, H * 0.5f, W, H, &cy) : (cy = 0.0f);
+    if (!cam.ok || std::hypot(cx, cy) < 8.0f) return kept;
+    for (int by = 0; by < bh; ++by) for (int bx = 0; bx < bw; ++bx) {
+        int n = 0, in = 0;
+        for (uint32_t y = by * 8; y < std::min<uint32_t>(H, by * 8 + 8); y += 2) for (uint32_t x = bx * 8; x < std::min<uint32_t>(W, bx * 8 + 8); x += 2) {
+            const size_t p = static_cast<size_t>(y) * W + x;
+            float ey; const float ex = cam.At(static_cast<float>(x), static_cast<float>(y), W, H, &ey);
+            const float t = std::max(4.0f, 0.25f * std::hypot(ex, ey));
+            const float dx = XMConvertHalfToFloat(mv[p * 2]) - ex, dy = XMConvertHalfToFloat(mv[p * 2 + 1]) - ey;
+            ++n; in += dx * dx + dy * dy > t * t ? 1 : 0;
+        }
+        fg[static_cast<size_t>(by) * bw + bx] = in * 2 > n ? 1 : 0;
+    }
+    for (int by = 0; by < bh; ++by) for (int bx = 0; bx < bw; ++bx) {
+        if (!fg[static_cast<size_t>(by) * bw + bx]) continue;
+        int agree = 0;
+        for (int j = -1; j <= 1; ++j) for (int i = -1; i <= 1; ++i) {
+            const int x = bx + i, y = by + j;
+            if ((i || j) && x >= 0 && y >= 0 && x < bw && y < bh && fg[static_cast<size_t>(y) * bw + x]) ++agree;
+        }
+        kept[static_cast<size_t>(by) * bw + bx] = agree >= neighbours ? 1 : 0;
+    }
+    return kept;
+}
+
+// A depth read from the motion of a camera orbiting what it follows (a third-person camera turning): a point at the pivot (the character)
+// stays put, the far scene moves the most in the turn's direction, nearer things less, things nearer than the pivot the other way. So each
+// 8x8 block's motion along the turn's direction (its median, over the picture's 90th percentile, 0..1) says how far it is: 0 near (0.5 m)
+// to 1 far (50 m), spread geometrically, smoothed over the 3x3 blocks around. A first-person turn (no orbit) moves everything alike and
+// gives a flat depth. Flat (5 m) when the picture hardly moves (under 8 px). depth: W x H, device depth, inverted, for near 0.1 / far 1000.
+void DepthOrbit(const std::vector<uint16_t>& mv, uint32_t W, uint32_t H, std::vector<float>& depth) {
+    using DirectX::PackedVector::XMConvertHalfToFloat;
+    auto device = [](float metres) { return 0.1f / metres; };
+    depth.assign(static_cast<size_t>(W) * H, device(5.0f));
+    std::vector<float> xs, ys;
+    for (uint32_t y = 4; y < H; y += 8) for (uint32_t x = 4; x < W; x += 8) {
+        const size_t p = static_cast<size_t>(y) * W + x; xs.push_back(XMConvertHalfToFloat(mv[p * 2])); ys.push_back(XMConvertHalfToFloat(mv[p * 2 + 1]));
+    }
+    std::vector<float> sx = xs, sy = ys;
+    std::nth_element(sx.begin(), sx.begin() + sx.size() / 2, sx.end()); std::nth_element(sy.begin(), sy.begin() + sy.size() / 2, sy.end());
+    const float gx = sx[sx.size() / 2], gy = sy[sy.size() / 2], g = std::hypot(gx, gy);
+    if (g < 8.0f) return;
+    const float dx = gx / g, dy = gy / g;
+    const int bw = static_cast<int>((W + 7) / 8), bh = static_cast<int>((H + 7) / 8);
+    std::vector<float> s(static_cast<size_t>(bw) * bh);
+    for (int by = 0; by < bh; ++by) for (int bx = 0; bx < bw; ++bx) {   // each block's median motion along the turn
+        float v[16]; int n = 0;
+        for (uint32_t y = by * 8 + 1; y < std::min<uint32_t>(H, by * 8 + 8); y += 2) for (uint32_t x = bx * 8 + 1; x < std::min<uint32_t>(W, bx * 8 + 8); x += 2) {
+            const size_t p = static_cast<size_t>(y) * W + x;
+            v[n++] = XMConvertHalfToFloat(mv[p * 2]) * dx + XMConvertHalfToFloat(mv[p * 2 + 1]) * dy;
+        }
+        if (!n) { s[static_cast<size_t>(by) * bw + bx] = g; continue; }
+        std::nth_element(v, v + n / 2, v + n); s[static_cast<size_t>(by) * bw + bx] = v[n / 2];
+    }
+    std::vector<float> sorted = s; std::nth_element(sorted.begin(), sorted.begin() + sorted.size() * 9 / 10, sorted.end());
+    const float farthest = std::max(sorted[sorted.size() * 9 / 10], 1.0f);
+    std::vector<float> t(s.size());
+    for (int by = 0; by < bh; ++by) for (int bx = 0; bx < bw; ++bx) {   // 0..1, smoothed over 3x3 blocks
+        float sum = 0; int n = 0;
+        for (int j = -1; j <= 1; ++j) for (int i = -1; i <= 1; ++i) {
+            const int x = bx + i, y = by + j;
+            if (x >= 0 && y >= 0 && x < bw && y < bh) { sum += std::clamp(s[static_cast<size_t>(y) * bw + x] / farthest, 0.0f, 1.0f); ++n; }
+        }
+        t[static_cast<size_t>(by) * bw + bx] = sum / n;
+    }
+    #pragma omp parallel for
+    for (int y = 0; y < static_cast<int>(H); ++y) for (uint32_t x = 0; x < W; ++x) {   // bilinear between block centres
+        const float fx = std::clamp((x + 0.5f) / 8.0f - 0.5f, 0.0f, bw - 1.0f), fy = std::clamp((y + 0.5f) / 8.0f - 0.5f, 0.0f, bh - 1.0f);
+        const int x0 = static_cast<int>(fx), y0 = static_cast<int>(fy), x1 = std::min(x0 + 1, bw - 1), y1 = std::min(y0 + 1, bh - 1);
+        const float ax = fx - x0, ay = fy - y0;
+        const float k = (t[y0 * bw + x0] * (1 - ax) + t[y0 * bw + x1] * ax) * (1 - ay) + (t[y1 * bw + x0] * (1 - ax) + t[y1 * bw + x1] * ax) * ay;
+        depth[static_cast<size_t>(y) * W + x] = device(0.5f * std::pow(100.0f, k));
+    }
+}
+
+// A depth of two layers, for FSR's priority where two motions land on the same pixel of the frame between (FSR takes the nearer in view
+// space; with a flat depth the better colour match wins, and in a turn that is often the background sweeping over the character): near
+// where the blocks move on their own (OwnMotionBlocks), far elsewhere. depth: W x H, 1 = near, 0.1 = far (inverted). Returns the near fraction.
+double DepthLayers(const std::vector<uint16_t>& mv, uint32_t W, uint32_t H, std::vector<float>& depth, int neighbours) {
+    depth.assign(static_cast<size_t>(W) * H, 0.1f);
+    int bw = 0, bh = 0; CameraMotion cam;
+    const std::vector<uint8_t> own = OwnMotionBlocks(mv, W, H, neighbours, bw, bh, &cam);
+    size_t nearCount = 0;
+    for (int by = 0; by < bh; ++by) for (int bx = 0; bx < bw; ++bx) {
+        if (!own[static_cast<size_t>(by) * bw + bx]) continue;
+        for (uint32_t y = by * 8; y < std::min<uint32_t>(H, by * 8 + 8); ++y) for (uint32_t x = bx * 8; x < std::min<uint32_t>(W, bx * 8 + 8); ++x) { depth[static_cast<size_t>(y) * W + x] = 1.0f; ++nearCount; }
+    }
+    float cy; const float cx = cam.ok ? cam.At(W * 0.5f, H * 0.5f, W, H, &cy) : (cy = 0.0f);
+    printf("  layers: the camera moves the centre (%.0f, %.0f) px; %.1f%% near\n", cx, cy, 100.0 * nearCount / (static_cast<double>(W) * H));
+    return static_cast<double>(nearCount) / (static_cast<double>(W) * H);
+}
+
+// Where turn ghosting shows (the character a camera follows, pasted over by the background sweeping past): the blocks that move on their own
+// (OwnMotionBlocks, 3 neighbours), widened by half the camera's speed at the centre (at least 8 px). Empty when the camera hardly moves.
+// Returns the fraction of the picture it covers.
+double BandMask(const std::vector<uint16_t>& mv, uint32_t W, uint32_t H, std::vector<uint8_t>& mask) {
+    mask.assign(static_cast<size_t>(W) * H, 0);
+    int bw = 0, bh = 0; CameraMotion cam;
+    const std::vector<uint8_t> fg = OwnMotionBlocks(mv, W, H, 3, bw, bh, &cam);
+    float cy; const float cx = cam.ok ? cam.At(W * 0.5f, H * 0.5f, W, H, &cy) : (cy = 0.0f);
+    const int r = static_cast<int>(std::ceil(std::max(8.0f, 0.5f * std::hypot(cx, cy)) / 8.0f));
+    size_t covered = 0;
+    for (int by = 0; by < bh; ++by) for (int bx = 0; bx < bw; ++bx) {
+        bool beside = false;
+        for (int j = -r; j <= r && !beside; ++j) for (int i = -r; i <= r && !beside; ++i) {
+            const int x = bx + i, y = by + j;
+            beside = x >= 0 && y >= 0 && x < bw && y < bh && fg[static_cast<size_t>(y) * bw + x];
+        }
+        if (!beside) continue;
+        for (uint32_t y = by * 8; y < std::min<uint32_t>(H, by * 8 + 8); ++y) for (uint32_t x = bx * 8; x < std::min<uint32_t>(W, bx * 8 + 8); ++x) { mask[static_cast<size_t>(y) * W + x] = 1; ++covered; }
+    }
+    return static_cast<double>(covered) / (static_cast<double>(W) * H);
+}
+
+double PsnrMasked(const std::vector<uint8_t>& a, const std::vector<uint8_t>& b, const std::vector<uint8_t>& mask) {
+    double se = 0; size_t n = 0;
+    for (size_t p = 0; p < mask.size(); ++p) if (mask[p]) for (int c = 0; c < 3; ++c) { const double d = double(a[p * 4 + c]) - double(b[p * 4 + c]); se += d * d; ++n; }
+    const double mse = n ? se / n : 0;
+    return mse <= 1e-12 ? 99.0 : 10.0 * std::log10(255.0 * 255.0 / mse);
+}
+
 // The frame between, from the vectors alone (the simplest interpolation, a yardstick for the generators): a pixel of it at p, at time t
 // (0 the frame before, 1 this one), is taken from this frame at p - (1 - t) v and from the frame before at p + t v (v: the vector at p,
 // standing for the one at the frame between), mixed by t.
@@ -427,7 +527,13 @@ int main(int argc, char** argv) {
     const float mvScale = Arg(argc, argv, "mvscale", 100) / 100.0f;
     // depth=motion: a depth made from the vectors (DepthFromMotion: what moves unlike the picture as a whole is near) in place of a flat one;
     // depthpx=N: the difference from the picture's motion (pixels) that counts as fully near
-    const bool depthFromMotion = ArgText(argc, argv, "depth") == "motion";
+    const bool depthFromMotion = ArgText(argc, argv, "depth") == "motion", depthNoise = ArgText(argc, argv, "depth") == "noise", depthLayer = ArgText(argc, argv, "depth") == "layer", depthOrbit = ArgText(argc, argv, "depth") == "orbit";
+    const int layerNeighbours = Arg(argc, argv, "layern", 5);   // depth=layer: how many of the 8 blocks around a near block must be near too
+    // worstby=band: the worst frames pictured are those worst around the character (the band score), not over the whole picture
+    const bool worstByBand = ArgText(argc, argv, "worstby") == "band";
+    // ffxdebug=1: FidelityFX's checks and messages; debugview=1: FSR draws its own views of its inputs into the frame it makes
+    const bool ffxDebug = Arg(argc, argv, "ffxdebug", 0) != 0, debugView = Arg(argc, argv, "debugview", 0) != 0;
+    const bool mvDump = Arg(argc, argv, "mvdump", 0) != 0;   // mvdump=1: each kept frame's vectors as a picture
     // estin=light|view: the motion estimate fed the frames as scRGB (half floats), taken as they are (light) or in their SDR view (view)
     const std::string estIn = ArgText(argc, argv, "estin");
     // live=1: as live, a frame made between every two frames of the recording (none dropped, so nothing to score against): each kept as a
@@ -450,6 +556,7 @@ int main(int argc, char** argv) {
     Gpu g; if (!g.Init()) { printf("no Direct3D 12 device\n"); return 4; }
     FlowEstimator est;
     if (!est.Init(g.dev, [](const char* m) { printf("  %s\n", m); }) || !est.Ensure(W, H)) { printf("the motion estimate could not start\n"); return 4; }
+    if (const int cap = Arg(argc, argv, "straycap", -1); cap >= 0) est.SetStrayCap(cap == 0 ? 1e9f : static_cast<float>(cap));   // straycap=N (0: uncapped, as before)
 
     // textures: the kept frame (read by the estimate and the generator), the motion vectors and the distrust mask, a flat depth
     ID3D12Resource* cur = g.Texture(W, H, DXGI_FORMAT_R8G8B8A8_UNORM, false, D3D12_RESOURCE_STATE_COPY_DEST);
@@ -533,16 +640,30 @@ int main(int argc, char** argv) {
         if (!ffxModule) { printf("AMD's runtime could not be loaded from %ls\n", dll.c_str()); return 4; }
         ffxLoadFunctions(&fx, ffxModule);
         if (!fx.CreateContext || !fx.Configure || !fx.Dispatch) { printf("AMD's runtime lacks the FidelityFX API\n"); return 4; }
+        if (fx.Query) {   // the frame generation versions the runtime holds (the first is the one used)
+            uint64_t n = 8; uint64_t ids[8] = {}; const char* names[8] = {};
+            ffxQueryDescGetVersions q{}; q.header.type = FFX_API_QUERY_DESC_TYPE_GET_VERSIONS; q.createDescType = FFX_API_CREATE_CONTEXT_DESC_TYPE_FRAMEGENERATION;
+            q.device = g.dev; q.outputCount = &n; q.versionIds = ids; q.versionNames = names;
+            if (fx.Query(nullptr, &q.header) == FFX_API_RETURN_OK) { printf("  FSR frame generation in the runtime:"); for (uint64_t k = 0; k < n && k < 8; ++k) printf(" %s", names[k] ? names[k] : "?"); printf("\n"); }
+        }
+        if (ffxDebug) {   // ffxdebug=1: the runtime's own checks and messages
+            ffxConfigureDescGlobalDebug1 dbg{}; dbg.header.type = FFX_API_CONFIGURE_DESC_TYPE_GLOBALDEBUG1; dbg.debugLevel = FFX_API_CONFIGURE_GLOBALDEBUG_LEVEL_VERBOSE;
+            dbg.fpMessage = [](uint32_t type, const wchar_t* message) { printf("  FidelityFX %s: %ls\n", type == FFX_API_MESSAGE_TYPE_ERROR ? "error" : "warning", message); };
+            fx.Configure(nullptr, &dbg.header);
+        }
         ffxCreateContextDescFrameGenerationSwapChainForHwndDX12 scd{}; scd.header.type = FFX_API_CREATE_CONTEXT_DESC_TYPE_FRAMEGENERATIONSWAPCHAIN_FOR_HWND_DX12;
         scd.swapchain = &chain; scd.hwnd = hwnd; scd.desc = &sd; scd.fullscreenDesc = nullptr; scd.dxgiFactory = factory; scd.gameQueue = g.queue;
         if (const ffxReturnCode_t rc = fx.CreateContext(&chainCtx, &scd.header, nullptr); rc != FFX_API_RETURN_OK || !chain) { printf("FidelityFX's swap chain could not be made (code %u)\n", rc); return 4; }
         ffxCreateBackendDX12Desc backend{}; backend.header.type = FFX_API_CREATE_CONTEXT_DESC_TYPE_BACKEND_DX12; backend.device = g.dev;
         ffxCreateContextDescFrameGeneration create{}; create.header.type = FFX_API_CREATE_CONTEXT_DESC_TYPE_FRAMEGENERATION; create.header.pNext = &backend.header;
-        create.flags = (depthDir.empty() && !depthFromMotion) || !depthNearIsOne ? 0u : static_cast<uint32_t>(FFX_FRAMEGENERATION_ENABLE_DEPTH_INVERTED); create.displaySize = { W, H }; create.maxRenderSize = { W, H }; create.backBufferFormat = FFX_API_SURFACE_FORMAT_R8G8B8A8_UNORM;
+        create.flags = (depthDir.empty() && !depthFromMotion && !depthNoise && !depthLayer && !depthOrbit) || !depthNearIsOne ? 0u : static_cast<uint32_t>(FFX_FRAMEGENERATION_ENABLE_DEPTH_INVERTED);
+        if (ffxDebug) create.flags |= FFX_FRAMEGENERATION_ENABLE_DEBUG_CHECKING;
+        create.displaySize = { W, H }; create.maxRenderSize = { W, H }; create.backBufferFormat = FFX_API_SURFACE_FORMAT_R8G8B8A8_UNORM;
         if (fx.CreateContext(&ctx, &create.header, nullptr) != FFX_API_RETURN_OK || !ctx) { printf("FSR frame generation could not make its context\n"); return 4; }
         cfg.header.type = FFX_API_CONFIGURE_DESC_TYPE_FRAMEGENERATION;
         cfg.swapChain = chain; cfg.frameGenerationEnabled = true; cfg.allowAsyncWorkloads = false; cfg.onlyPresentGenerated = false;
         cfg.generationRect = { 0, 0, static_cast<int>(W), static_cast<int>(H) };
+        if (debugView) cfg.flags |= FFX_FRAMEGENERATION_FLAG_DRAW_DEBUG_VIEW;   // debugview=1: FSR's own views of what it was given, in the frame it makes
         // the generation callback: the runtime makes the frame, then it is copied into the readback buffer on the same command list
         cfg.frameGenerationCallback = [](ffxDispatchDescFrameGeneration* params, void* user) -> ffxReturnCode_t {
             const ffxReturnCode_t rc = s_fx->Dispatch(static_cast<ffxContext*>(user), &params->header);
@@ -690,7 +811,7 @@ int main(int argc, char** argv) {
 #endif
     }
 
-    struct Score { int frame; double gen, hold, blend, genAbs, genCoarse, blendCoarse; std::vector<uint8_t> picture, mix; };
+    struct Score { int frame; double gen, hold, blend, genAbs, genCoarse, blendCoarse, genBand = 0, blendBand = 0, bandFrac = 0; std::vector<uint8_t> picture, mix; };
     std::vector<Score> scores;
     D3D12_RESOURCE_STATES curState = D3D12_RESOURCE_STATE_COPY_DEST;
     for (int i = 0; i < count; i += stride) {   // the kept frames: 0, 2, 4...; each one's generated frame stands for the one before it (i - 1)
@@ -748,7 +869,8 @@ int main(int argc, char** argv) {
             if (!loadDepth(first + i)) { printf("frame %d: no depth_%05d.bin in the depth folder\n", first + i, first + i); return 3; }
             writeDepth(depthValues.data());
         }
-        if (!refine.empty() || mvCheck || depthFromMotion) {   // the estimate's vectors to the CPU (refined and back, checked, or made into depth)
+        std::vector<uint8_t> band; double bandFrac = 0;   // where turn ghosting shows (BandMask), for the band score
+        if (!refine.empty() || mvCheck || depthFromMotion || depthNoise || depthLayer || depthOrbit || stride == 2) {   // the estimate's vectors to the CPU (refined and back, checked, made into depth, for the band)
             static ID3D12Resource* mvReadback = nullptr; static ID3D12Resource* mvUpload = nullptr; static D3D12_PLACED_SUBRESOURCE_FOOTPRINT mfp{}; static UINT64 mtotal = 0;
             if (!mvReadback) {
                 D3D12_RESOURCE_DESC md = motion->GetDesc(); UINT mrows = 0; UINT64 mrow = 0;
@@ -796,6 +918,24 @@ int main(int argc, char** argv) {
             g.list->CopyTextureRegion(&ut, 0, 0, 0, &uf, nullptr);
             g.Barrier(motion, D3D12_RESOURCE_STATE_COPY_DEST, D3D12_RESOURCE_STATE_UNORDERED_ACCESS);
             if (depthFromMotion) { DepthFromMotion(mv, W, H, depthValues, depthPx); writeDepth(depthValues.data()); }
+            if (depthNoise) {   // depth=noise: random depth (does the generator read depth at all?)
+                depthValues.resize(static_cast<size_t>(W) * H); uint32_t r = 0x9E3779B9u ^ static_cast<uint32_t>(i);
+                for (float& d : depthValues) { r ^= r << 13; r ^= r >> 17; r ^= r << 5; d = 0.1f + 0.9f * (r & 0xFFFF) / 65535.0f; }
+                writeDepth(depthValues.data());
+            }
+            if (depthLayer) { DepthLayers(mv, W, H, depthValues, layerNeighbours); writeDepth(depthValues.data()); }
+            if (depthOrbit) { DepthOrbit(mv, W, H, depthValues); writeDepth(depthValues.data()); }
+            bandFrac = BandMask(mv, W, H, band);
+            if (mvDump && i >= 2) {   // mvdump=1: the vectors as a picture beside the frame (red: x, green: y; 1 level a pixel, 128 = none)
+                std::vector<uint8_t> pic(static_cast<size_t>(W) * H * 4);
+                for (size_t p = 0; p < static_cast<size_t>(W) * H; ++p) {
+                    const float vx = DirectX::PackedVector::XMConvertHalfToFloat(mv[p * 2]), vy = DirectX::PackedVector::XMConvertHalfToFloat(mv[p * 2 + 1]);
+                    pic[p * 4] = static_cast<uint8_t>(std::clamp(128.0f + vx, 0.0f, 255.0f)); pic[p * 4 + 1] = static_cast<uint8_t>(std::clamp(128.0f + vy, 0.0f, 255.0f));
+                    pic[p * 4 + 2] = 128; pic[p * 4 + 3] = 255;
+                }
+                wchar_t name[64]; swprintf(name, 64, L"\\vectors_%05d.bmp", first + i);
+                WriteBmp(outDir + name, { &frames[i], &pic }, W, H);
+            }
         }
         g.Barrier(motion, D3D12_RESOURCE_STATE_UNORDERED_ACCESS, D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE);
         Score s; s.frame = first + i - 1;
@@ -820,9 +960,12 @@ int main(int argc, char** argv) {
         for (size_t k = 0; k < truth.size(); ++k) s.mix[k] = static_cast<uint8_t>((frames[i - 2][k] + frames[i][k] + 1) / 2);
         s.gen = Psnr(s.picture, truth, &s.genAbs); s.hold = Psnr(frames[i - 2], truth, nullptr); s.blend = Psnr(s.mix, truth, nullptr);
         s.genCoarse = PsnrCoarse(s.picture, truth, W); s.blendCoarse = PsnrCoarse(s.mix, truth, W);
+        s.bandFrac = bandFrac;
+        if (bandFrac > 0.002) { s.genBand = PsnrMasked(s.picture, truth, band); s.blendBand = PsnrMasked(s.mix, truth, band); }
         const double same = Psnr(s.picture, frames[i], nullptr);
         printf("  frame %4d  %s %5.2f dB (%.2f levels off; coarse %5.2f dB)   hold %5.2f dB   blend %5.2f dB (coarse %5.2f dB)   motion %4.0f px (%+.0f, %+.0f)%s\n", s.frame, G, s.gen, s.genAbs, s.genCoarse, s.hold, s.blend, s.blendCoarse, mlen, mx, my,
                same > 60.0 ? "   (the generator's frame is the kept frame itself)" : "");
+        if (s.bandFrac > 0.002) printf("  frame %4d  band (%.1f%% of the picture): %s %5.2f dB, blend %5.2f dB\n", s.frame, 100.0 * s.bandFrac, G, s.genBand, s.blendBand);
         scores.push_back(std::move(s));
     }
     if (stride == 1) return 0;
@@ -832,8 +975,12 @@ int main(int argc, char** argv) {
     for (const Score& s : scores) { gen += s.gen; hold += s.hold; blend += s.blend; genC += s.genCoarse; blendC += s.blendCoarse; better += s.gen > std::max(s.hold, s.blend) ? 1 : 0; }
     const double n = static_cast<double>(scores.size());
     printf("average over %zu rebuilt frames: %s %.2f dB, hold %.2f dB, blend %.2f dB; %s the closest in %d of them; coarse: %s %.2f dB, blend %.2f dB\n", scores.size(), G, gen / n, hold / n, blend / n, G, better, G, genC / n, blendC / n);
+    { double gb = 0, bb = 0; int nb = 0; for (const Score& s : scores) if (s.bandFrac > 0.002) { gb += s.genBand; bb += s.blendBand; ++nb; }
+      if (nb) printf("band (around what moves unlike the picture, over %d turning frames): %s %.2f dB, blend %.2f dB\n", nb, G, gb / nb, bb / nb); }
     std::vector<const Score*> order; for (const Score& s : scores) order.push_back(&s);
-    std::sort(order.begin(), order.end(), [](const Score* a, const Score* b) { return a->gen < b->gen; });
+    // the worst by the whole picture, or (worstby=band) by the band, frames without one last
+    auto key = [&](const Score* s) { return !worstByBand ? s->gen : s->bandFrac > 0.002 ? s->genBand : 1e9; };
+    std::sort(order.begin(), order.end(), [&](const Score* a, const Score* b) { return key(a) < key(b); });
     for (int k = 0; k < worstShown && k < static_cast<int>(order.size()); ++k) {
         const Score& s = *order[k];
         wchar_t name[64]; swprintf(name, 64, L"\\worst%d_frame%05d.bmp", k + 1, s.frame);

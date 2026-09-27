@@ -15,7 +15,7 @@ template <class T> void SafeRelease(T*& p) { if (p) { p->Release(); p = nullptr;
 const char* const kCommonHlsl = R"(
 RWByteAddressBuffer uStats : register(u7);
 SamplerState sLinear : register(s0);
-cbuffer C : register(b0) { uint2 size; uint2 grid; uint2 coarse; uint radius; uint flags; float lambda; float bias; float stability; uint unused; };
+cbuffer C : register(b0) { uint2 size; uint2 grid; uint2 coarse; uint radius; uint flags; float lambda; float bias; float stability; float strayCap; float fastMotion; uint pad0; uint pad1; uint pad2; };
 )";
 
 // the frame's brightness at its own size (and the statistics cleared for this frame). An HDR frame (radius: its encoding, lambda: the SDR
@@ -76,6 +76,10 @@ RWTexture2D<float2> uGrid : register(u0);
 static const float kExact = 0.0005, kShallow = 0.002;   // an exact match (brightness 0..1, per pixel); the least rise either side to refine on
 static float cw[64];
 static int2 origin;
+// The cost of straying from the coarser size's guess, capped at strayCap pixels (of this size): it settles near-ties (flat areas follow their
+// surroundings), but never holds a block to a guess that is plainly wrong for it. Uncapped, a character the camera follows in a fast turn (the
+// guess: the background sweeping past, 170 px) paid more for "not moving" than its dark, faint texture could win back, and took random vectors.
+float Stray(float2 d) { return lambda * min(length(d), strayCap); }
 float Sad(int2 v) {   // all 64 pixels of the 8x8 (the final answer and its fraction of a pixel)
     const int2 last = int2(size) - 1;
     float s = 0;
@@ -105,11 +109,11 @@ void main(uint3 id : SV_DispatchThreadID) {
     if (flags & 1) {   // the coarser size's answers for this block and its neighbours, doubled
         const int2 c = min(int2((id.xy * 2 + 1) >> 2), int2(coarse) - 1);
         predicted = tCoarse.Load(int3(c, 0)) * 2.0;
-        bestCost += lambda * length(predicted);   // "not moving" strays from the guess too
+        bestCost += Stray(predicted);   // "not moving" strays from the guess too
         const int2 seeds[5] = { int2(0, 0), int2(-1, 0), int2(1, 0), int2(0, -1), int2(0, 1) };
         [unroll] for (int s = 0; s < 5; ++s) {
             const int2 v = int2(round(tCoarse.Load(int3(clamp(c + seeds[s], int2(0, 0), int2(coarse) - 1), 0)) * 2.0));
-            const float cost = SadHalf(v) + lambda * length(float2(v) - predicted);
+            const float cost = SadHalf(v) + Stray(float2(v) - predicted);
             if (cost < bestCost) { bestCost = cost; best = v; }
         }
     } else if (flags & 4) {   // the whole picture's shift, the guess (a block moving with the camera needs no search of its own)
@@ -120,20 +124,20 @@ void main(uint3 id : SV_DispatchThreadID) {
         [loop] for (int j = 0; j < n; ++j) [loop] for (int i = 0; i < n; ++i) { const float c = tGlobal.Load(int3(i, j, 0)); if (c < g) { g = c; shift = int2(i, j) - gr; } }
         if (any(shift != int2(0, 0))) {
             predicted = float2(shift);
-            bestCost += lambda * length(predicted);
+            bestCost += Stray(predicted);
             const float cost = SadHalf(shift);
             if (cost < bestCost) { bestCost = cost; best = shift; }
         }
     }
     const int2 center = best;
     const int r = int(radius);
-    const float seedCost = bestCost - lambda * length(float2(best) - predicted);
+    const float seedCost = bestCost - Stray(float2(best) - predicted);
     if (seedCost > kExact) {   // a guess that already matches exactly (a still area, mostly) needs no search around it
         [loop] for (int dy = -r; dy <= r; ++dy) {
             [loop] for (int dx = -r; dx <= r; ++dx) {
                 if (dx == 0 && dy == 0) continue;
                 const int2 v = center + int2(dx, dy);
-                const float cost = SadHalf(v) + lambda * length(float2(v) - predicted);
+                const float cost = SadHalf(v) + Stray(float2(v) - predicted);
                 if (cost < bestCost) { bestCost = cost; best = v; }
             }
         }
@@ -240,6 +244,9 @@ float Pixel(uint2 id) {
         const float thin = max(max(ridgeX, valleyX), max(ridgeY, valleyY));
         distrust = max(distrust, saturate((thin - 0.04) / 0.08));
     }
+    // Fast motion (fastMotion > 0: from that many pixels, fully at twice it): the upscaler leans on this frame. The frames come without the
+    // sub-pixel jitter a game gives its temporal upscaler, so history adds little detail there, and in a fast turn it mostly trails.
+    if (fastMotion > 0.0) distrust = max(distrust, saturate((length(best) - fastMotion) / fastMotion));
     uDistrust[id.xy] = distrust;
     return distrust;
 }
@@ -261,7 +268,7 @@ void main(uint3 id : SV_DispatchThreadID, uint index : SV_GroupIndex) {
 }
 )";
 
-struct Constants { uint32_t w, h, gw, gh, cw, ch, radius, flags; float lambda, bias, stability; uint32_t unused; };
+struct Constants { uint32_t w, h, gw, gh, cw, ch, radius, flags; float lambda, bias, stability, strayCap, fastMotion; uint32_t pad[3]; };
 constexpr float kLambda = 0.003f;   // match cost per pixel of straying from the coarser size's guess
 constexpr float kBias = 0.004f;     // a pixel's extra cost for another block's vector (or none) over its own
 
@@ -464,7 +471,7 @@ void FlowEstimator::Record(ID3D12GraphicsCommandList* list, int slot, ID3D12Reso
             ID3D12Resource* const srv[4] = { m_luma[cur][k], m_luma[prev][k], coarser ? m_grid[k + 1] : nullptr, coarser ? nullptr : m_global };
             const DXGI_FORMAT fmt[4] = { R16, R16, RG16, coarser ? NONE : DXGI_FORMAT_R32_FLOAT };
             Constants c{ m_lw[k], m_lh[k], m_gw[k], m_gh[k], coarser ? m_gw[k + 1] : static_cast<uint32_t>(kGlobalRadius), coarser ? m_gh[k + 1] : 0u, coarser ? 2u : 4u,
-                         (coarser ? 1u : 4u) | (k == 1 ? 2u : 0u), kLambda, kBias };
+                         (coarser ? 1u : 4u) | (k == 1 ? 2u : 0u), kLambda, kBias, 0.0f, m_strayCap };
             run(Search, srv, fmt, m_grid[k], RG16, c, m_gw[k], m_gh[k], true);
         }
         stamp(2);
@@ -476,7 +483,7 @@ void FlowEstimator::Record(ID3D12GraphicsCommandList* list, int slot, ID3D12Reso
     }
     {   // every pixel (zero without a frame before)
         ID3D12Resource* const srv[4] = { m_luma[cur][0], m_luma[prev][0], m_filtered, nullptr }; const DXGI_FORMAT fmt[4] = { R16, R16, RG16, NONE };
-        Constants c{ m_lw[0], m_lh[0], m_gw[1], m_gh[1], 0, 0, 0, m_havePrevious ? 1u : 0u, kLambda, kBias, std::clamp(stability, 0.0f, 1.0f) };
+        Constants c{ m_lw[0], m_lh[0], m_gw[1], m_gh[1], 0, 0, 0, m_havePrevious ? 1u : 0u, kLambda, kBias, std::clamp(stability, 0.0f, 1.0f), 0.0f, m_fastMotion };
         run(Pixel, srv, fmt, motion, RG16, c, m_lw[0], m_lh[0], false, distrust);
     }
     if (m_havePrevious && m_stamps) {

@@ -124,6 +124,12 @@ if(MSVC)
 endif()
 add_dependencies(nr_fgeval FSR3UPSC)   # (AMD's runtime, in the build's fsr folder)
 
+# nr_sreval: an upscaler scored offline on a recording (tools/sr_eval.cpp): each frame shrunk and upscaled back by the addon's own engine
+add_executable(nr_sreval tools/sr_eval.cpp src/addon/lsrec.cpp src/engine/sr_engine.cpp src/engine/flow_estimator.cpp)
+target_include_directories(nr_sreval PRIVATE ${CMAKE_SOURCE_DIR}/src ${NGX_DIR}/include ${CMAKE_SOURCE_DIR}/third_party/ffx/include ${XESS_DIR}/inc)
+target_link_libraries(nr_sreval PRIVATE ${NGX_LIB} d3d12 dxgi d3dcompiler shell32)
+add_dependencies(nr_sreval FSR3UPSC)   # (AMD's runtime, in the build's fsr folder)
+
 # ---- offline test of the frame tap (which pass is the capture, the motion hand-over, presents); a D3D11 device, no model, no SDK at run time ----
 add_executable(nr_taptest tools/tap_test.cpp src/addon/frame_tap.cpp)
 target_include_directories(nr_taptest PRIVATE src)

@@ -1,0 +1,204 @@
+// nr_sreval: an upscaler scored offline on a recording (no Lossless Scaling, no game): each frame is shrunk, upscaled back to its own size
+// by the addon's own engine (SrEngine: the motion estimate, then AMD's FSR 3.1, NVIDIA's DLSS or Intel's XeSS, as live), and compared with
+// the frame itself, beside the shrunk frame stretched back plainly (bilinear). Temporal upscalers keep a history; where the motion they are
+// given is wrong (a character a turning camera follows, background just uncovered) that history trails: the pictures show it.
+//
+//   nr_sreval <recording.lsrec> <output folder> [first=N] [count=N] [shrink=150] [backend=fsr|dlss|xess] [show=N]
+//             [straycap=N] [fast=N] [mask=0] [mvscale=N] [motion=none]
+//
+// shrink: the ratio in hundredths (150: 1440p from 960p, as 4K from 1440p). show=N: the N worst frames kept as pictures (the frame | the
+// upscaler's | plainly stretched). The checks: straycap=N, the motion estimate's cap on straying from its coarser guess (0: none); fast=N, the
+// motion (pixels a frame) from which the upscaler leans on the frame (0: never); mask=0, no distrust mask; mvscale=N, the vectors scaled by
+// N/100 as the upscaler is told them; motion=none, no vectors at all.
+//
+// Silent Hill f, 2026-09-27 (docs/frame-generation-research.md): in a fast turn every upscaler trailed behind a plain stretch at a quarter of
+// the size (FSR 39.4, DLSS 36.8, XeSS 39.1 dB against 43.3); fast motion leaning on the frame took FSR to 41.8.
+#include <windows.h>
+#include <shlobj.h>
+#include <d3d12.h>
+#include <dxgi1_6.h>
+#include <algorithm>
+#include <cstdio>
+#include <string>
+#include <vector>
+#include "addon/lsrec.h"
+#include "engine/sr_engine.h"
+#include "eval_common.h"
+
+using namespace nr::eval;
+
+namespace {
+
+template <class T> void SafeRelease(T*& p) { if (p) { p->Release(); p = nullptr; } }
+
+// src (sw x sh RGBA8) resampled to dw x dh by area (each output pixel the average of the source it covers): a fair "rendered smaller"
+void ResizeArea(const std::vector<uint8_t>& src, uint32_t sw, uint32_t sh, std::vector<uint8_t>& dst, uint32_t dw, uint32_t dh) {
+    dst.assign(static_cast<size_t>(dw) * dh * 4, 255);
+    const double rx = double(sw) / dw, ry = double(sh) / dh;
+    for (uint32_t y = 0; y < dh; ++y) for (uint32_t x = 0; x < dw; ++x) {
+        const double x0 = x * rx, x1 = (x + 1) * rx, y0 = y * ry, y1 = (y + 1) * ry;
+        double acc[3] = {}, wsum = 0;
+        for (uint32_t sy = static_cast<uint32_t>(y0); sy < std::min<double>(sh, std::ceil(y1)); ++sy) {
+            const double wy = std::min<double>(sy + 1, y1) - std::max<double>(sy, y0);
+            for (uint32_t sx = static_cast<uint32_t>(x0); sx < std::min<double>(sw, std::ceil(x1)); ++sx) {
+                const double w = wy * (std::min<double>(sx + 1, x1) - std::max<double>(sx, x0));
+                const uint8_t* p = src.data() + (static_cast<size_t>(sy) * sw + sx) * 4;
+                for (int c = 0; c < 3; ++c) acc[c] += w * p[c];
+                wsum += w;
+            }
+        }
+        for (int c = 0; c < 3; ++c) dst[(static_cast<size_t>(y) * dw + x) * 4 + c] = static_cast<uint8_t>(acc[c] / wsum + 0.5);
+    }
+}
+
+// src (sw x sh) stretched to dw x dh, bilinear (pixel centres aligned)
+void ResizeBilinear(const std::vector<uint8_t>& src, uint32_t sw, uint32_t sh, std::vector<uint8_t>& dst, uint32_t dw, uint32_t dh) {
+    dst.assign(static_cast<size_t>(dw) * dh * 4, 255);
+    for (uint32_t y = 0; y < dh; ++y) for (uint32_t x = 0; x < dw; ++x) {
+        const float fx = std::clamp((x + 0.5f) * sw / dw - 0.5f, 0.0f, sw - 1.0f), fy = std::clamp((y + 0.5f) * sh / dh - 0.5f, 0.0f, sh - 1.0f);
+        const uint32_t x0 = static_cast<uint32_t>(fx), y0 = static_cast<uint32_t>(fy), x1 = std::min(x0 + 1, sw - 1), y1 = std::min(y0 + 1, sh - 1);
+        const float ax = fx - x0, ay = fy - y0;
+        for (int c = 0; c < 3; ++c) {
+            auto at = [&](uint32_t xx, uint32_t yy) { return float(src[(static_cast<size_t>(yy) * sw + xx) * 4 + c]); };
+            dst[(static_cast<size_t>(y) * dw + x) * 4 + c] = static_cast<uint8_t>((at(x0, y0) * (1 - ax) + at(x1, y0) * ax) * (1 - ay) + (at(x0, y1) * (1 - ax) + at(x1, y1) * ax) * ay + 0.5f);
+        }
+    }
+}
+
+} // namespace
+
+int main(int argc, char** argv) {
+    setvbuf(stdout, nullptr, _IONBF, 0);
+    if (argc < 3) { printf("usage: nr_sreval <recording.lsrec> <output folder> [first=N] [count=N] [shrink=150] [backend=fsr|dlss|xess] [show=N] [straycap=N] [fast=N] [mask=0] [mvscale=N] [motion=none]\n"); return 2; }
+    nr::lsrec::Reader rec; std::string error;
+    if (!rec.Open(Wide(argv[1]), &error)) { printf("%s: %s\n", argv[1], error.c_str()); return 2; }
+    std::wstring outDir = Wide(argv[2]);
+    { wchar_t full[MAX_PATH]; if (GetFullPathNameW(outDir.c_str(), MAX_PATH, full, nullptr)) outDir = full; SHCreateDirectoryExW(nullptr, outDir.c_str(), nullptr); }
+    const nr::lsrec::FileHeader& h = rec.Header();
+    const uint32_t W = h.width, H = h.height;
+    const int first = std::max(0, Arg(argc, argv, "first", 0));
+    const int count = std::min<int>(Arg(argc, argv, "count", 1 << 30), static_cast<int>(rec.Count()) - first);
+    const double shrink = std::max(1.0, Arg(argc, argv, "shrink", 150) / 100.0);
+    const uint32_t w = static_cast<uint32_t>(W / shrink + 0.5) & ~1u, hh = static_cast<uint32_t>(H / shrink + 0.5) & ~1u;
+    const std::string backendName = ArgText(argc, argv, "backend").empty() ? "fsr" : ArgText(argc, argv, "backend");
+    const SrEngine::Backend backend = backendName == "dlss" ? SrEngine::Backend::Dlss : backendName == "xess" ? SrEngine::Backend::Xess : SrEngine::Backend::Fsr;
+    const int show = Arg(argc, argv, "show", 3);
+    const bool noMotion = ArgText(argc, argv, "motion") == "none";   // motion=none: no motion vectors (all zero), to see what ours give
+    if (count < 2) { printf("the recording has too few frames\n"); return 2; }
+    std::wstring exeDir; { wchar_t exe[MAX_PATH]; GetModuleFileNameW(nullptr, exe, MAX_PATH); exeDir = exe; exeDir = exeDir.substr(0, exeDir.find_last_of(L'\\')); }
+
+    // our side: a device on the same card, the shared frame in and picture out, two shared fences
+    IDXGIFactory6* factory = nullptr; if (FAILED(CreateDXGIFactory2(0, IID_PPV_ARGS(&factory)))) return 4;
+    IDXGIAdapter1* adapter = nullptr; factory->EnumAdapterByGpuPreference(0, DXGI_GPU_PREFERENCE_HIGH_PERFORMANCE, IID_PPV_ARGS(&adapter)); factory->Release();
+    DXGI_ADAPTER_DESC1 ad{}; adapter->GetDesc1(&ad);
+    ID3D12Device* dev = nullptr; if (FAILED(D3D12CreateDevice(adapter, D3D_FEATURE_LEVEL_12_0, IID_PPV_ARGS(&dev)))) { printf("no Direct3D 12 device\n"); return 4; }
+    adapter->Release();
+    ID3D12CommandQueue* queue = nullptr; ID3D12CommandAllocator* alloc = nullptr; ID3D12GraphicsCommandList* list = nullptr; ID3D12Fence* fence = nullptr; uint64_t fv = 0;
+    D3D12_COMMAND_QUEUE_DESC qd{}; qd.Type = D3D12_COMMAND_LIST_TYPE_DIRECT;
+    dev->CreateCommandQueue(&qd, IID_PPV_ARGS(&queue)); dev->CreateCommandAllocator(D3D12_COMMAND_LIST_TYPE_DIRECT, IID_PPV_ARGS(&alloc));
+    dev->CreateCommandList(0, D3D12_COMMAND_LIST_TYPE_DIRECT, alloc, nullptr, IID_PPV_ARGS(&list)); list->Close();
+    dev->CreateFence(0, D3D12_FENCE_FLAG_NONE, IID_PPV_ARGS(&fence));
+    HANDLE event = CreateEventW(nullptr, FALSE, FALSE, nullptr);
+    auto submit = [&] { list->Close(); ID3D12CommandList* l[] = { list }; queue->ExecuteCommandLists(1, l); queue->Signal(fence, ++fv); fence->SetEventOnCompletion(fv, event); WaitForSingleObject(event, INFINITE); };
+    auto texture = [&](uint32_t tw, uint32_t th, bool uav) {
+        D3D12_HEAP_PROPERTIES heap{}; heap.Type = D3D12_HEAP_TYPE_DEFAULT;
+        D3D12_RESOURCE_DESC d{}; d.Dimension = D3D12_RESOURCE_DIMENSION_TEXTURE2D; d.Width = tw; d.Height = th; d.DepthOrArraySize = 1; d.MipLevels = 1; d.SampleDesc.Count = 1;
+        d.Format = DXGI_FORMAT_R8G8B8A8_UNORM; d.Flags = D3D12_RESOURCE_FLAG_ALLOW_SIMULTANEOUS_ACCESS | (uav ? D3D12_RESOURCE_FLAG_ALLOW_UNORDERED_ACCESS : D3D12_RESOURCE_FLAG_NONE);
+        ID3D12Resource* r = nullptr; dev->CreateCommittedResource(&heap, D3D12_HEAP_FLAG_SHARED, &d, D3D12_RESOURCE_STATE_COMMON, nullptr, IID_PPV_ARGS(&r)); return r;
+    };
+    auto buffer = [&](UINT64 size, D3D12_HEAP_TYPE type, D3D12_RESOURCE_STATES state) {
+        D3D12_HEAP_PROPERTIES heap{}; heap.Type = type;
+        D3D12_RESOURCE_DESC d{}; d.Dimension = D3D12_RESOURCE_DIMENSION_BUFFER; d.Width = size; d.Height = 1; d.DepthOrArraySize = 1; d.MipLevels = 1; d.SampleDesc.Count = 1; d.Layout = D3D12_TEXTURE_LAYOUT_ROW_MAJOR;
+        ID3D12Resource* r = nullptr; dev->CreateCommittedResource(&heap, D3D12_HEAP_FLAG_NONE, &d, state, nullptr, IID_PPV_ARGS(&r)); return r;
+    };
+    ID3D12Resource* in = texture(w, hh, false); ID3D12Resource* out = texture(W, H, true);
+    ID3D12Fence* copied = nullptr; ID3D12Fence* done = nullptr;
+    dev->CreateFence(0, D3D12_FENCE_FLAG_SHARED, IID_PPV_ARGS(&copied)); dev->CreateFence(0, D3D12_FENCE_FLAG_SHARED, IID_PPV_ARGS(&done));
+    if (!in || !out || !copied || !done) { printf("the shared textures or fences could not be made\n"); return 4; }
+    D3D12_RESOURCE_DESC inDesc = in->GetDesc(), outDesc = out->GetDesc();
+    D3D12_PLACED_SUBRESOURCE_FOOTPRINT inFp{}, outFp{}; UINT rows = 0; UINT64 rowBytes = 0, inTotal = 0, outTotal = 0;
+    dev->GetCopyableFootprints(&inDesc, 0, 1, 0, &inFp, &rows, &rowBytes, &inTotal); dev->GetCopyableFootprints(&outDesc, 0, 1, 0, &outFp, &rows, &rowBytes, &outTotal);
+    ID3D12Resource* upload = buffer(inTotal, D3D12_HEAP_TYPE_UPLOAD, D3D12_RESOURCE_STATE_GENERIC_READ);
+    ID3D12Resource* readback = buffer(outTotal, D3D12_HEAP_TYPE_READBACK, D3D12_RESOURCE_STATE_COPY_DEST);
+
+    // the engine, as the addon starts it (its own device on the same card), given our shared resources
+    SrEngine eng;
+    const std::wstring runtimeDir = exeDir + (backend == SrEngine::Backend::Fsr ? L"\\fsr" : backend == SrEngine::Backend::Xess ? L"\\xess" : L"\\dlss");
+    if (!eng.Init(ad.AdapterLuid, exeDir, runtimeDir, [](const char* m) { printf("  %s\n", m); }, backend)) { printf("the upscaler could not start: %s\n", eng.LastError().c_str()); return 4; }
+    if (const int cap = Arg(argc, argv, "straycap", -1); cap >= 0) eng.SetStrayCap(cap == 0 ? 1e9f : static_cast<float>(cap));
+    eng.SetMotionScale(Arg(argc, argv, "mvscale", 100) / 100.0f);
+    eng.SetNoMask(Arg(argc, argv, "mask", 1) == 0);
+    if (const int fast = Arg(argc, argv, "fast", -1); fast >= 0) eng.SetFastMotion(static_cast<float>(fast));
+    auto share = [&](ID3D12DeviceChild* obj) { HANDLE sh = nullptr; dev->CreateSharedHandle(obj, nullptr, GENERIC_ALL, nullptr, &sh); return sh; };
+    HANDLE hIn = share(in), hOut = share(out), hCopied = share(copied), hDone = share(done);
+    ID3D12Resource* inE = eng.OpenSharedTexture(hIn); ID3D12Resource* outE = eng.OpenSharedTexture(hOut);
+    ID3D12Fence* copiedE = eng.OpenSharedFence(hCopied); ID3D12Fence* doneE = eng.OpenSharedFence(hDone);
+    CloseHandle(hIn); CloseHandle(hOut); CloseHandle(hCopied); CloseHandle(hDone);
+    if (!inE || !outE || !copiedE || !doneE) { printf("the engine could not open the shared resources\n"); return 4; }
+    printf("%ls: %ux%u, %d frames from %d, shrunk to %ux%u and upscaled back by %s\n", Wide(argv[1]).c_str(), W, H, count, first, w, hh, backendName.c_str());
+
+    struct Score { int frame; double up, plain, upCoarse, plainCoarse; std::vector<uint8_t> truth, picture, stretched; };
+    std::vector<Score> scores;
+    std::vector<uint8_t> px, frame, shrunk, picture, stretched;
+    double sumUp = 0, sumPlain = 0, sumUpC = 0, sumPlainC = 0; int n = 0;
+    for (int i = 0; i < count; ++i) {
+        if (!rec.Read(first + i, px) || !ToRgba8(h, px, frame)) { printf("frame %d could not be read\n", first + i); return 3; }
+        ResizeArea(frame, W, H, shrunk, w, hh);
+        { uint8_t* m = nullptr; upload->Map(0, nullptr, reinterpret_cast<void**>(&m));
+          for (uint32_t y = 0; y < hh; ++y) memcpy(m + inFp.Offset + y * inFp.Footprint.RowPitch, shrunk.data() + static_cast<size_t>(y) * w * 4, w * 4);
+          upload->Unmap(0, nullptr); }
+        alloc->Reset(); list->Reset(alloc, nullptr);
+        auto barrier = [&](ID3D12Resource* r, D3D12_RESOURCE_STATES a, D3D12_RESOURCE_STATES b) {
+            D3D12_RESOURCE_BARRIER br{}; br.Type = D3D12_RESOURCE_BARRIER_TYPE_TRANSITION; br.Transition = { r, D3D12_RESOURCE_BARRIER_ALL_SUBRESOURCES, a, b }; list->ResourceBarrier(1, &br);
+        };
+        barrier(in, D3D12_RESOURCE_STATE_COMMON, D3D12_RESOURCE_STATE_COPY_DEST);
+        D3D12_TEXTURE_COPY_LOCATION to{ in, D3D12_TEXTURE_COPY_TYPE_SUBRESOURCE_INDEX }; to.SubresourceIndex = 0;
+        D3D12_TEXTURE_COPY_LOCATION from{ upload, D3D12_TEXTURE_COPY_TYPE_PLACED_FOOTPRINT }; from.PlacedFootprint = inFp;
+        list->CopyTextureRegion(&to, 0, 0, 0, &from, nullptr);
+        barrier(in, D3D12_RESOURCE_STATE_COPY_DEST, D3D12_RESOURCE_STATE_COMMON);
+        submit();
+        queue->Signal(copied, static_cast<uint64_t>(i) + 1);
+        // the engine's run, on this thread (live, the engine's own thread runs it): the motion measured from the frames, no sharpening
+        eng.Run(inE, w, hh, DXGI_FORMAT_R8G8B8A8_UNORM, outE, W, H, DXGI_FORMAT_R8G8B8A8_UNORM, nullptr, 0, 0, 0.0f, 1.0f, !noMotion, 0, 0.0f, i == 0, false,
+                copiedE, static_cast<uint64_t>(i) + 1, doneE, static_cast<uint64_t>(i) + 1);
+        queue->Wait(done, static_cast<uint64_t>(i) + 1);
+        alloc->Reset(); list->Reset(alloc, nullptr);
+        barrier(out, D3D12_RESOURCE_STATE_COMMON, D3D12_RESOURCE_STATE_COPY_SOURCE);
+        D3D12_TEXTURE_COPY_LOCATION rt{ readback, D3D12_TEXTURE_COPY_TYPE_PLACED_FOOTPRINT }; rt.PlacedFootprint = outFp;
+        D3D12_TEXTURE_COPY_LOCATION rf{ out, D3D12_TEXTURE_COPY_TYPE_SUBRESOURCE_INDEX }; rf.SubresourceIndex = 0;
+        list->CopyTextureRegion(&rt, 0, 0, 0, &rf, nullptr);
+        barrier(out, D3D12_RESOURCE_STATE_COPY_SOURCE, D3D12_RESOURCE_STATE_COMMON);
+        submit();
+        picture.resize(static_cast<size_t>(W) * H * 4);
+        { uint8_t* m = nullptr; readback->Map(0, nullptr, reinterpret_cast<void**>(&m));
+          for (uint32_t y = 0; y < H; ++y) memcpy(picture.data() + static_cast<size_t>(y) * W * 4, m + outFp.Offset + y * outFp.Footprint.RowPitch, W * 4);
+          D3D12_RANGE none{ 0, 0 }; readback->Unmap(0, &none); }
+        for (size_t k = 3; k < picture.size(); k += 4) picture[k] = 255;
+        ResizeBilinear(shrunk, w, hh, stretched, W, H);
+        Score s; s.frame = first + i;
+        s.up = Psnr(picture, frame, nullptr); s.plain = Psnr(stretched, frame, nullptr);
+        s.upCoarse = PsnrCoarse(picture, frame, W); s.plainCoarse = PsnrCoarse(stretched, frame, W);
+        printf("  frame %4d  upscaled %5.2f dB (coarse %5.2f)   stretched %5.2f dB (coarse %5.2f)\n", s.frame, s.up, s.upCoarse, s.plain, s.plainCoarse);
+        if (i >= 8) { sumUp += s.up; sumPlain += s.plain; sumUpC += s.upCoarse; sumPlainC += s.plainCoarse; ++n; }   // (after the history has built)
+        if (show > 0) { s.truth = frame; s.picture = picture; s.stretched = stretched; }
+        scores.push_back(std::move(s));
+        if (show > 0 && scores.size() > 64) {   // keep the pictures of the worst only
+            auto worst = std::max_element(scores.begin(), scores.end(), [](const Score& a, const Score& b) { return (a.truth.empty() ? -1e9 : a.up - a.plain) < (b.truth.empty() ? -1e9 : b.up - b.plain); });
+            worst->truth.clear(); worst->truth.shrink_to_fit(); worst->picture.clear(); worst->picture.shrink_to_fit(); worst->stretched.clear(); worst->stretched.shrink_to_fit();
+        }
+    }
+    if (n) printf("average over %d frames (after the first 8): upscaled %.2f dB (coarse %.2f), stretched %.2f dB (coarse %.2f)\n", n, sumUp / n, sumUpC / n, sumPlain / n, sumPlainC / n);
+    // the frames where the upscaler did worst against a plain stretch (its history hurt most)
+    std::vector<const Score*> order; for (const Score& s : scores) if (!s.truth.empty() && s.frame - first >= 8) order.push_back(&s);
+    std::sort(order.begin(), order.end(), [](const Score* a, const Score* b) { return a->up - a->plain < b->up - b->plain; });
+    for (int k = 0; k < show && k < static_cast<int>(order.size()); ++k) {
+        const Score& s = *order[k];
+        wchar_t name[64]; swprintf(name, 64, L"\\worst%d_frame%05d.bmp", k + 1, s.frame);
+        WriteBmp(outDir + name, { &s.truth, &s.picture, &s.stretched }, W, H);
+        printf("  worst %d: frame %d, upscaled %.2f dB against stretched %.2f: %ls (the frame | upscaled | stretched)\n", k + 1, s.frame, s.up, s.plain, (outDir + name).c_str());
+    }
+    eng.Drain();
+    SafeRelease(inE); SafeRelease(outE); SafeRelease(copiedE); SafeRelease(doneE);
+    eng.Shutdown();
+    return 0;
+}
