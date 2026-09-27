@@ -86,7 +86,9 @@ static int Export(int argc, char** argv) {
             } else if (!nr::screenshot::ToBgra8(static_cast<DXGI_FORMAT>(h.format), px.data() + static_cast<size_t>(y) * h.width * h.bytesPerPixel, h.width, bgra.data() + static_cast<size_t>(y) * h.width * 4)) {
                 printf("format %u cannot be converted to a picture\n", h.format); return 3;
             }
-        wchar_t name[32]; swprintf(name, 32, L"\\frame_%05zu.bmp", i);
+        // (the presented frames with frame generation of our own say which they are: a frame made between, or a real one)
+        const uint32_t tag = r.FrameInfo(i).tag;
+        wchar_t name[48]; swprintf(name, 48, L"\\frame_%05zu%ls.bmp", i, tag == nr::lsrec::kMadeBetween ? L"_made" : tag == nr::lsrec::kReal ? L"_real" : L"");
         if (!WriteBmp(folder + name, bgra.data(), h.width, h.height)) { printf("could not write into %s\n", argv[3]); return 3; }
         ++written;
     }
