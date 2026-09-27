@@ -87,8 +87,45 @@ Release ParseLatestRelease(const std::string& json) {
             }
             r.zipUrl = std::string(kReleasesPage) + "/download/" + r.tag + "/" + r.zipName;
         }
+    if (const auto body = j.find("body"); body != j.end() && body->is_string()) r.notes = PlainNotes(body->get<std::string>());
     r.ok = true;
     return r;
+}
+
+std::string PlainNotes(const std::string& markdown, size_t maxChars) {
+    std::string out;
+    size_t at = 0;
+    while (at < markdown.size()) {
+        size_t end = markdown.find('\n', at);
+        if (end == std::string::npos) end = markdown.size();
+        std::string line = markdown.substr(at, end - at);
+        at = end + 1;
+        if (!line.empty() && line.back() == '\r') line.pop_back();
+        size_t lead = line.find_first_not_of(' ');
+        const std::string indent = lead == std::string::npos ? std::string() : line.substr(0, lead);
+        std::string text = lead == std::string::npos ? std::string() : line.substr(lead);
+        while (!text.empty() && text[0] == '#') text.erase(0, 1);   // headings: the text alone
+        if (!text.empty() && text[0] == ' ' && line.find_first_not_of(' ') != std::string::npos && line[lead] == '#') text.erase(0, 1);
+        if (text.rfind("* ", 0) == 0) text[0] = '-';                // "* " bullets as "- "
+        std::string clean;
+        for (size_t i = 0; i < text.size(); ++i) {
+            const char ch = text[i];
+            if (ch == '*' || ch == '`') continue;                       // bold, italics and code marks
+            if (ch == '[') {                                            // a link: its text only
+                const size_t close = text.find("](", i);
+                const size_t paren = close == std::string::npos ? std::string::npos : text.find(')', close);
+                if (close != std::string::npos && paren != std::string::npos) { clean += text.substr(i + 1, close - i - 1); i = paren; continue; }
+            }
+            clean += ch;
+        }
+        std::string plain = indent + clean;
+        while (!plain.empty() && plain.back() == ' ') plain.pop_back();
+        if (plain.empty() && (out.empty() || out.size() >= 2 && out.compare(out.size() - 2, 2, "\n\n") == 0)) continue;   // no runs of blank lines
+        if (out.size() + plain.size() + 1 > maxChars) { out += "...\n(the release page has the rest)"; return out; }
+        out += plain; out += '\n';
+    }
+    while (!out.empty() && (out.back() == '\n' || out.back() == ' ')) out.pop_back();
+    return out;
 }
 
 bool ShouldCheckNow(bool enabled, int64_t lastCheck, int64_t now, int64_t intervalSeconds) {
@@ -198,7 +235,7 @@ Status Check(const std::string& currentVersion, const std::wstring& url, unsigne
     s.latest = rel.version;
     const Version now = ParseVersion(currentVersion), latest = ParseVersion(rel.version);
     if (!rel.draft && !rel.prerelease && now.ok && Compare(latest, now) > 0) {
-        s.state = State::Available; s.url = rel.url; s.zipUrl = rel.zipUrl; s.zipSha256 = rel.zipSha256; s.zipSize = rel.zipSize;
+        s.state = State::Available; s.url = rel.url; s.zipUrl = rel.zipUrl; s.zipSha256 = rel.zipSha256; s.zipSize = rel.zipSize; s.notes = rel.notes;
     }
     else s.state = State::UpToDate;
     return s;

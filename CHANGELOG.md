@@ -29,6 +29,8 @@ code now runs on threads of their own. Tried in Silent Hill f (Unreal Engine 5, 
   unticked box left the upscaler off while the manager showed it on. An old "off" saved by that box is ignored.
 - **Fewer repeated pictures.** "Wait on the GPU rather than repeat a picture" works with the engine's own thread (in Silent Hill f: no
   picture shown twice in 17,000 frames), and Neural Rendering no longer leaves out a frame that comes while the one before is being handed over.
+- **The update window shows what is new.** When a release is offered, its release notes appear in the window, as plain text (links and
+  formatting are dropped; nothing in them can be clicked). Shown from 0.9.8 on, so for the release after it.
 - **The updater cleans up after itself.** Each update left its download (about 110 MB) in the temporary folder. Downloads of versions
   already installed, and of other versions than the one being downloaded, are now removed (at a download's start and once a day).
 - **Recordings** of an upscaler in an HDR game say that their frames are the SDR view, and `nr_lsrec` exports them correctly.

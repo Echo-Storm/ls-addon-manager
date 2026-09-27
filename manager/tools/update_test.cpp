@@ -257,6 +257,16 @@ int main(int argc, char** argv) {
         Check("a digest that is not a SHA-256 is not taken", bad.ok && bad.zipSha256.empty() && !bad.zipUrl.empty());
     }
 
+    printf("== the release notes, as plain text\n");
+    {
+        const std::string md = "## 0.9.8\r\n\r\n\r\nIntro with **bold** and `code`.\n- **A point.** More text.\n* star bullet\n  - nested [a link](https://evil.example/x)\n";
+        const std::string plain = PlainNotes(md);
+        Check("headings, bold and code marks go; bullets stay; a link keeps only its text", plain == "0.9.8\n\nIntro with bold and code.\n- A point. More text.\n- star bullet\n  - nested a link", plain);
+        Check("long notes are cut at a line, saying where the rest is", Has(PlainNotes(std::string(5000, 'x') + "\n", 100), "the release page has the rest"));
+        const Release r = ParseLatestRelease("{\"tag_name\":\"v0.9.9\",\"body\":\"- **New** thing\"}");
+        Check("the notes come from the release's body", r.ok && r.notes == "- New thing", r.notes);
+    }
+
     printf("== \"Don't ask again for this release\"\n");
     {
         Skip("0.9.9");

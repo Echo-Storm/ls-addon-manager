@@ -87,8 +87,16 @@ void UpdateOffer() {
             ImGui::PopStyleColor();
         }
         ImGui::Dummy(ImVec2(0, S(2)));
-        if (ImGui::SmallButton("What's new")) ShellExecuteA(nullptr, "open", st.url.c_str(), nullptr, nullptr, SW_SHOWNORMAL);
-        ImGui::SameLine(); ImGui::TextDisabled("(the release page)");
+        if (!st.notes.empty()) {   // the release's own notes (GitHub's), as plain text, in a box of their own
+            ImGui::Text("What's new in %s:", st.latest.c_str());
+            ImGui::BeginChild("##notes", ImVec2(0, ImGui::GetTextLineHeightWithSpacing() * 12.0f), ImGuiChildFlags_Borders);
+            ImGui::PushTextWrapPos(0.0f);
+            ImGui::TextUnformatted(st.notes.c_str());
+            ImGui::PopTextWrapPos();
+            ImGui::EndChild();
+        }
+        if (ImGui::SmallButton(st.notes.empty() ? "What's new" : "The release page")) ShellExecuteA(nullptr, "open", st.url.c_str(), nullptr, nullptr, SW_SHOWNORMAL);
+        if (st.notes.empty()) { ImGui::SameLine(); ImGui::TextDisabled("(the release page)"); }
         ImGui::Dummy(ImVec2(0, S(6)));
         const bool canDownload = !st.zipUrl.empty();
         if (!canDownload) ImGui::BeginDisabled();

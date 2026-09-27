@@ -28,8 +28,12 @@ struct Release {
     // size and SHA-256 ("digest"), which the download is checked against (empty / 0 when the answer has no such file)
     std::string zipName, zipUrl, zipSha256;
     uint64_t zipSize = 0;
+    std::string notes;             // the release notes ("body"), as plain text (PlainNotes), for the update window
 };
 Release ParseLatestRelease(const std::string& json);
+// Release notes written in Markdown, as plain text to show: "## " headings and "**", "`" and "_" marks dropped, "- " bullets kept, links
+// reduced to their text (nothing in them can be opened). Cut at a line near maxChars, with a note that the release page has the rest.
+std::string PlainNotes(const std::string& markdown, size_t maxChars = 3000);
 
 // ---- when to ask
 // Once a day while the check is switched on. A last-check time in the future (the clock was set back) counts as never, so the check cannot be stuck.
@@ -55,6 +59,7 @@ struct Status {
     std::string error;             // why it failed, in words
     int64_t checkedAt = 0;         // when, as seconds since 1970
     std::string zipUrl, zipSha256; uint64_t zipSize = 0;   // its zip (only when Available and the release has one): see Release
+    std::string notes;                                      // its release notes, as plain text (only when Available)
 };
 
 extern const wchar_t* const kLatestReleaseUrl;   // https://api.github.com/repos/Echo-Storm/ls-addon-manager/releases/latest

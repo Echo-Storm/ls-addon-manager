@@ -411,9 +411,16 @@ int main(int argc, char** argv) {
         update::Status st;
         st.state = update::State::Available;
         st.current = EAM_VERSION_STRING;
-        st.latest = "0.9.7";
-        st.url = std::string(update::kReleasesPage) + "/tag/v0.9.7";
+        st.latest = "0.9.9";
+        st.url = std::string(update::kReleasesPage) + "/tag/v0.9.9";
+        st.checkedAt = 1;   // the window opens once per check
         st.zipUrl = st.url;
+        st.notes = update::PlainNotes("HDR games in the DLSS and FSR Upscalers, before / after pictures, and addons that can no longer freeze Lossless Scaling.\n\n"
+                                      "- **HDR games in the DLSS and FSR Upscalers.** 10-bit and 16-bit frames are upscaled in their SDR view and go back as HDR.\n"
+                                      "- **A stuck runtime can no longer freeze Lossless Scaling.** NVIDIA's and AMD's code runs on threads of its own.\n"
+                                      "- **Before / after pictures** (Ctrl+Shift+F4): the upscaled picture and NIS's, side by side.\n"
+                                      "- **Saying why nothing happens**: a card that is not NVIDIA's, a window layout, a frame format.\n"
+                                      "- The [changelog](https://example.invalid) has the rest.");
         update::SetStatusForTest(st);
         shot.Frame([&] { Shell("About", status, [&] { RenderTabAbout(); widgets::UpdateOffer(); }); }, 12);
         shot.Save((out + "/preview_update.bmp").c_str());
