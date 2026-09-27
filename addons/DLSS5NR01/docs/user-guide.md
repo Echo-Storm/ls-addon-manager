@@ -179,7 +179,7 @@ are still there, folded under *Exact numbers*. The areas are saved with looks, s
 
 ### Screenshots
 
-**Take a screenshot** (or **Ctrl+Shift+F11** in the game; the key can be changed) saves the picture as it is shown, with the
+**Take a screenshot** (or **Ctrl+Shift+F4** in the game; the key can be changed) saves the picture as it is shown, with the
 model's result, the scaling and frame generation in it, as a PNG. It is copied on the GPU and written on a thread of its own, so the
 game does not stall. Files are named after the game and the time and go to `Pictures\Lossless Scaling`, or a folder you choose.
 8-bit, 10-bit and half-float frames are handled (HDR highlights are cut, not tone-mapped). The in-game corner marker never ends up

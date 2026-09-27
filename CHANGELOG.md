@@ -14,9 +14,12 @@ code now runs on threads of their own. Tried in Silent Hill f (Unreal Engine 5, 
   thread of the engine's own; Lossless Scaling's render thread only hands frames over. FSR 4.1.1b once stopped for good on its first HDR
   frame and froze the picture; now NIS (or the untouched picture) carries on, the panel says when a runtime is getting ready, and after 20
   seconds it says the runtime stopped responding. The engines' threads run at high priority, so a busy game cannot delay them.
-- **Before / after pictures in the upscalers.** Ctrl+Shift+F11 (or the button under *Compare and hotkeys*) saves two PNGs of the same
+- **Before / after pictures in the upscalers.** Ctrl+Shift+F4 (or the button under *Compare and hotkeys*) saves two PNGs of the same
   moment to Pictures\Lossless Scaling: the upscaled picture and Lossless Scaling's NIS (one frame of NIS shows while it is taken). Windows'
   own screenshots show the game's window, not Lossless Scaling's picture. HDR games are saved in their SDR view, highlights rolled off.
+- **The screenshot key is Ctrl+Shift+F4 now, not F11.** The game still sees the keys (they are only watched), and F11 switches full screen in
+  Unreal Engine games and many others: in Silent Hill f a screenshot also put the game in full screen, which stopped the scaling. Settings
+  still on F11 move to F4 once.
 - **Saying why nothing happens.** The DLSS Upscaler names the card when Lossless Scaling runs on one that is not NVIDIA's, and says to set
   Lossless Scaling's Preferred GPU or use the FSR Upscaler (it used to say only "not running yet"). Neural Rendering does the same for the card
   frame generation runs on. The upscalers also say when a window layout cannot be followed (it used to read "Choose NIS", although NIS was

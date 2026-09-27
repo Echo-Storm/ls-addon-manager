@@ -16,7 +16,7 @@ Status: **0.9.8**, getting ready for 1.0 (the [roadmap](ROADMAP.md) says what is
 
 > [!TIP]
 > **New in 0.9.8:** **HDR games in the DLSS and FSR Upscalers** (Silent Hill f at 1440p to 4K: DLSS about 1.5 ms a frame), **before / after
-> pictures** (Ctrl+Shift+F11 saves the upscaled picture and NIS's side by side), and addons that **can no longer freeze Lossless Scaling**
+> pictures** (Ctrl+Shift+F4 saves the upscaled picture and NIS's side by side), and addons that **can no longer freeze Lossless Scaling**
 > (NVIDIA's and AMD's code runs on threads of its own). The panels now say why when something is in the way. Since 0.9.7 the manager also
 > **updates itself**: it offers the new release, checks it and installs it when you close Lossless Scaling.
 > The [changelog](CHANGELOG.md) has the rest.
@@ -65,7 +65,7 @@ Scaling wait for it.
   and a ghost guard that fades the result where the motion cannot be trusted.
 - **HDR games too:** 16-bit (scRGB) and 10-bit (HDR10) frames are worked on through an SDR view of them, and only the change goes back, so
   highlights keep their brightness. Automatic, with a *Frame encoding* setting for a setup it gets wrong.
-- **Compare while you play:** before / after, a split view, screenshots of what you see ([hotkeys](#hotkeys) Ctrl+Shift+F6 to F11).
+- **Compare while you play:** before / after, a split view, screenshots of what you see ([hotkeys](#hotkeys) Ctrl+Shift+F4 to F10).
 - **Auto quality:** keeps the model within a time budget by picking its resolution; changing it never stalls the game.
 - **Requirements check** and a **compatibility test** that tries the model on your card before you play.
 
@@ -210,7 +210,9 @@ The Neural Rendering panel comes from the offline test host.</sub>
 
 ### Hotkeys
 
-They work while the game has focus; the Ctrl+Shift pair keeps them away from the game's own keys. Each addon can change its keys (Compare and hotkeys).
+They work while the game has focus. The game still sees the key too: most games ignore an F-key held with Ctrl+Shift, but one that acts on the
+F-key alone does it anyway (F11 switched Silent Hill f to full screen, so the screenshot key moved to F4). If a key clashes in your game, change it
+in the addon's *Compare and hotkeys* section.
 
 | Keys | What they do | Where |
 |------|--------------|-------|
@@ -219,7 +221,7 @@ They work while the game has focus; the Ctrl+Shift pair keeps them away from the
 | Ctrl+Shift+F7 | Split view: the original at the left of a line, ours at the right | Neural Rendering |
 | Ctrl+Shift+F8 / F9 | Sharpening down / up | all three addons |
 | Ctrl+Shift+F10 | The next saved look | Neural Rendering |
-| Ctrl+Shift+F11 | A screenshot of the picture as you see it | Neural Rendering |
+| Ctrl+Shift+F4 | A screenshot of the picture as you see it (Neural Rendering); a before / after pair, upscaled and NIS (the upscalers) | All three |
 | Ctrl+Shift+F5 | Save the recording (the last few seconds, when *Recording* is on) | all three addons |
 | Home | ReShade input passthrough on and off | the manager (Features) |
 

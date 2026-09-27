@@ -174,9 +174,12 @@ Loaded LoadSettings(IHost* host, const char* id) {
     c.frameEncoding = std::clamp(integer("frameEncoding", 0), 0, 2);
     c.hotkeys = flag("hotkeys", true);
     c.keyAB = integer("keyAB", VK_F6); c.keySplit = integer("keySplit", VK_F7); c.keySharpDn = integer("keySharpDn", VK_F8);
-    c.keySharpUp = integer("keySharpUp", VK_F9); c.keyPreset = integer("keyPreset", VK_F10); c.keyShot = integer("keyShot", VK_F11);
+    c.keySharpUp = integer("keySharpUp", VK_F9); c.keyPreset = integer("keyPreset", VK_F10); c.keyShot = integer("keyShot", VK_F4);
     c.keyRecord = integer("keyRecord", VK_F5);
-    if (c.keyRecord == VK_F12) c.keyRecord = VK_F5;   // the first default, saved by builds before 0.9.5: Ctrl+Shift+F12 is the manager's own (show its window)
+    if (c.keyRecord == VK_F12) c.keyRecord = VK_F5;
+    // Ctrl+Shift+F11 was the screenshot key until 0.9.8, but games still see the F11 (the keys are only watched), and F11 toggles full screen
+    // in Unreal Engine games and many others: moved to F4 once (keysVersion 2), so a later choice of F11 stays
+    if (integer("keysVersion", 1) < 2 && c.keyShot == VK_F11) c.keyShot = VK_F4;   // the first default, saved by builds before 0.9.5: Ctrl+Shift+F12 is the manager's own (show its window)
     c.recordOn = flag("recordOn", false);
     c.recordSeconds = std::clamp(static_cast<float>(number("recordSeconds", 5.0)), 1.0f, 60.0f);
     c.recordBudgetMb = std::clamp(integer("recordBudgetMb", 3072), 256, 65536);
@@ -234,7 +237,7 @@ void SaveSettings(IHost* host, const char* id, const Config& c, const std::vecto
     put("frameEncoding", std::to_string(c.frameEncoding));
     put("keyAB", std::to_string(c.keyAB)); put("keySplit", std::to_string(c.keySplit)); put("keySharpDn", std::to_string(c.keySharpDn));
     put("keySharpUp", std::to_string(c.keySharpUp)); put("keyPreset", std::to_string(c.keyPreset)); put("keyShot", std::to_string(c.keyShot));
-    put("keyRecord", std::to_string(c.keyRecord));
+    put("keyRecord", std::to_string(c.keyRecord)); put("keysVersion", "2");
     putFlag("recordOn", c.recordOn); put("recordSeconds", Number(c.recordSeconds)); put("recordBudgetMb", std::to_string(c.recordBudgetMb));
     put("recordFolder", c.recordFolder);
     put("screenshotFolder", c.screenshotFolder);

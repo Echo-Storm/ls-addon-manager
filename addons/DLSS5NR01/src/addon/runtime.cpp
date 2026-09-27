@@ -372,7 +372,7 @@ void ApplyLookNow(const std::string& name, const std::string& data, const char* 
     Log("%s: preset '%s'%s", why, name.c_str(), rebuild ? " (working scale changed: the model rebuilds)" : "");
 }
 
-// ---- the upscalers' before / after pair (Ctrl+Shift+F11, or the panel's button): the upscaled picture at the next pass that replaces NIS,
+// ---- the upscalers' before / after pair (Ctrl+Shift+F4, or the panel's button): the upscaled picture at the next pass that replaces NIS,
 // then NIS's own at the pass after (the upscaler steps aside for that one pass, and the post-dispatch callback takes NIS's result), saved
 // as "<game>_<date>_DLSS.png" (or _FSR) and "..._NIS.png". Render thread only, except the request.
 std::atomic<bool> g_pairRequested{ false };
