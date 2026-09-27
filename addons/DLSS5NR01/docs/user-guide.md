@@ -90,7 +90,10 @@ tells you where the addon is:
 | waiting for LSFG dispatches | Device seen, no LSFG passes yet. Scaling must be active. |
 | engine: loading model... | The model is being created on the GPU that issued the LSFG pass. A few seconds. |
 | running | The model runs and the compose lands on presented frames. |
-| unsupported frame format | The captured frame is not 8-bit RGBA/BGRA (for example HDR). |
+| unsupported frame format: ... | The captured frame is in a format the model cannot take (the status names it). 8-bit, 10-bit and half-float (HDR) frames are all taken; please report the format. |
+| the frame copy for the model could not be set up | The format is fine, but the shared textures could not be made. The Logs tab says why. |
+| frame generation runs on ..., not an NVIDIA card | Lossless Scaling runs on that card. Set its **Preferred GPU** to your NVIDIA RTX card. |
+| engine: the model stopped responding ... | NVIDIA's model stopped on a frame; Lossless Scaling carries on untouched. Restart Lossless Scaling, and send us the log. |
 | DISABLED: ... | The addon switched itself off. See *Troubleshooting*. *Re-arm* turns it back on. |
 
 Below the status line, *frame* shows the captured size and format, *NR* the model time of the
