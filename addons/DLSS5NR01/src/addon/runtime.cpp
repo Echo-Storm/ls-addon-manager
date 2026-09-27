@@ -957,6 +957,10 @@ bool ScalerPass(ID3D11DeviceContext* ctx, uint32_t x, uint32_t y, uint32_t z) {
     }
     ++g_nisSeen; ++g_nisSinceTap;
     screenshot::Tick(ctx);
+    if (g_pairStep == 3) {   // NIS's half is taken right after its own dispatch: still waiting at the next NIS pass, it never came
+        Log("before / after pair: NIS's picture was not taken (its pass did not run); only the upscaled one was saved");
+        ForgetPair();
+    }
     if (g_pairRequested.exchange(false) && !g_pairStep) {
         std::string game; { std::lock_guard<std::mutex> lock(g_settingsMutex); game = g_scalerGame; }
         g_pairBase = screenshot::PairBase(game); g_pairStep = 1; g_pairWaited = 0;
