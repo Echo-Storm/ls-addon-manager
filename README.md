@@ -92,8 +92,8 @@ smaller than the screen (for example 2560x1440 on a 4K screen); at the screen's 
   build, AMD's machine-learning upscaler made to run on cards AMD's own FSR 4 does not support, NVIDIA's included. It follows a moving
   picture noticeably better. Switching takes a second while the game runs.
 - **Frame generation on or off**, every frame it presents, real and generated.
-- **HDR games too:** 16-bit (scRGB) and 10-bit (HDR10) frames are upscaled through an SDR view of them and go back in their own encoding,
-  so highlights keep their brightness. *Frame encoding* under Upscaling overrides the automatic choice.
+- **HDR games too:** 16-bit (scRGB) and 10-bit (HDR10) frames are upscaled in DLSS's and FSR's own HDR mode and go back in their own
+  encoding, so highlights keep their brightness. *Frame encoding* under Upscaling overrides the automatic choice.
 - **4:3 and other window shapes:** a window of another shape than the screen is upscaled into the part of the screen Lossless Scaling puts it in, borders left alone.
 - **Stability:** less shimmer on thin lines, wires and leaves (the upscaler averages the flicker out), while thin things that move stay sharp. FSR 4 does this by itself.
 - **Edge smoothing:** anti-aliasing of the upscaled picture's edges, for older games without anti-aliasing of their own.

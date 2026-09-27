@@ -3,7 +3,7 @@
 What 1.0 should mean: someone who has never seen this project can **install it, keep it up to date, understand what it does and does not do, and get help**, without
 editing files by hand, and the promises it makes (the addon API, the settings file, safety) are stable. This page is honest about where each part stands.
 
-Status on 2026-09-26, at version 0.9.5 (the current work is on `main`).
+Status on 2026-09-27, at version 0.9.10 (the current work is on `main`).
 
 | # | For 1.0 | State | Notes |
 |---|---------|-------|-------|
@@ -58,7 +58,8 @@ What it has to do (and what it must never do):
 - 0.9.4 took them out of preview. 0.9.5 added FSR 4 (the OptiScaler team's build, until AMD's own FSR 4 runs on every card: then
   AMD's signed one takes its place), DLSS model E, colour and tone controls, and FSR set up as AMD's SDK 2.3 asks. Still open:
   - **A real 4:3 game**, to confirm what the test host shows.
-  - **FSR 4 in real use:** its cost in games, on NVIDIA and AMD cards (the panel shows it), and AMD's own build once it covers every card.
+  - **FSR 4 in real use:** tried in real games by the maintainer on an NVIDIA card (2026-09-26): it looks good, below DLSS 4, and is
+    shippable. Still open: its cost on an AMD card, and AMD's own build once it covers every card.
   - **Text and HUD.** A game's HUD is drawn into the captured frame, so the upscaler sees it; DLSS softens thin text a little (FSR 3 less).
     A game with DLSS built in draws its HUD after upscaling. Options: areas that keep NIS's picture (drawn like Neural Rendering's HUD areas),
     or finding the HUD automatically, which would be an addon of its own. On hold.
@@ -67,8 +68,11 @@ What it has to do (and what it must never do):
 
 - **Updating from the manager** (0.9.7): the update check offers to download the release, checks it against GitHub's SHA-256 and Setup's own
   version, and Setup waits for Lossless Scaling to close, updates it and starts it again. "Don't ask again for this release" is remembered.
-- **HDR games in the upscalers**: 16-bit (scRGB) and 10-bit (HDR10) frames are upscaled through their SDR view and put back in their own
-  encoding, as Neural Rendering does. Seen working with FSR 4 on scRGB frames in a real game.
+- **HDR games in the upscalers**: 16-bit (scRGB) and 10-bit (HDR10) frames are upscaled in DLSS's and FSR's own HDR mode (0.9.10; 0.9.8
+  and 0.9.9 went through an SDR view, which dimmed highlights) and put back in their own encoding. Seen working with FSR 4 on scRGB frames
+  in a real game; the HDR mode is tested offline (a 1000-nit highlight comes back within 0.2 %), not yet in a game.
+- **Faster tests** (0.9.9): the model scenarios three at a time and without an idle wait (the full set in about 6 minutes, it was 20); the
+  everyday run takes only the scenarios for what changed; ten scenarios retired (kept, with the reason, runnable by name).
 - **The engines on threads of their own.** The upscalers and Neural Rendering call NVIDIA's and AMD's code from a thread of the engine's own;
   Lossless Scaling's render thread only hands frames over. A runtime that stops responding (FSR 4.1.1b once did on its first HDR frame and
   froze Lossless Scaling) now only stops the addon, and after 20 seconds its panel says so. A step towards frame generation of our own too:

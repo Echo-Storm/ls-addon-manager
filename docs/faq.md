@@ -91,7 +91,7 @@ On an NVIDIA RTX card try both: DLSS smooths edges better, FSR 3.1 costs less an
 costs the most. On any other card, FSR.
 
 **Does it work with HDR games?**
-Yes: 16-bit (scRGB) and 10-bit (HDR10) frames are upscaled in their SDR view and go back as HDR. If a game looks washed out or too dark,
+Yes: 16-bit (scRGB) and 10-bit (HDR10) frames are upscaled in DLSS's and FSR's own HDR mode (since 0.9.10) and go back as HDR. If a game looks washed out or too dark,
 set *Frame encoding* under Upscaling by hand.
 
 ## Reporting a problem
