@@ -264,6 +264,21 @@ int main(int argc, char** argv) {
         Check("a newer one is", !Skipped("0.9.10") && !Skipped(""));
     }
 
+    printf("== old downloads cleaned up\n");
+    {
+        const fs::path root = dir / "downloads";
+        for (const char* v : { "0.9.1", "9.9.8", "9.9.9", "not-a-version" }) { fs::create_directories(root / v); std::ofstream(root / v / "LSAddonManagerSetup.exe") << "x"; }
+        SetDownloadRootForTest(root.wstring().c_str());
+        CleanOldDownloads("9.9.9");
+        Check("a version already installed is removed", !fs::exists(root / "0.9.1"));
+        Check("another newer version than the one downloading is removed", !fs::exists(root / "9.9.8"));
+        Check("the one downloading stays", fs::exists(root / "9.9.9" / "LSAddonManagerSetup.exe"));
+        Check("a folder that is not a version (not ours) stays", fs::exists(root / "not-a-version"));
+        CleanOldDownloads("");
+        Check("with nothing downloading, a newer version stays (it may be ready to install)", fs::exists(root / "9.9.9"));
+        SetDownloadRootForTest(nullptr);
+    }
+
     printf("== downloading and checking an update (a local server; the Setup exe this build made)\n");
     {
         wchar_t exe[MAX_PATH]; GetModuleFileNameW(nullptr, exe, MAX_PATH);

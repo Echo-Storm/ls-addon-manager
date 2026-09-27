@@ -38,6 +38,7 @@ bool StartSetup(const std::wstring& lsDir, std::string& error);
 // is or is newer than, and of any other version than keep (the one being downloaded now; empty: none). Called at a download's start and
 // once a day from Tick. A folder in use (a Setup still running from it) is simply left for next time.
 void CleanOldDownloads(const std::string& keep);
+void SetDownloadRootForTest(const wchar_t* folder);   // the folder CleanOldDownloads looks in (null: %TEMP%\LSAddonManager-update)
 
 bool Skipped(const std::string& version);      // "Don't ask again for this release"
 void Skip(const std::string& version);

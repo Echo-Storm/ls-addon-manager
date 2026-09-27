@@ -154,10 +154,13 @@ Progress DownloadAndCheck(const std::string& version, const std::wstring& url, c
     return p;
 }
 
+namespace { std::wstring g_rootForTest; }
+void SetDownloadRootForTest(const wchar_t* folder) { g_rootForTest = folder ? folder : L""; }
+
 void CleanOldDownloads(const std::string& keep) {
     wchar_t tmp[MAX_PATH] = {};
-    if (!GetTempPathW(MAX_PATH, tmp)) return;
-    const std::filesystem::path root = std::filesystem::path(tmp) / L"LSAddonManager-update";
+    if (g_rootForTest.empty() && !GetTempPathW(MAX_PATH, tmp)) return;
+    const std::filesystem::path root = g_rootForTest.empty() ? std::filesystem::path(tmp) / L"LSAddonManager-update" : std::filesystem::path(g_rootForTest);
     std::error_code ec;
     if (!std::filesystem::is_directory(root, ec)) return;
     const Version running = ParseVersion(EAM_VERSION_STRING);
