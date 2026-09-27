@@ -202,6 +202,36 @@ void PatchSlot(void** vtable, int slot, void* hook, void** original) {
     VirtualProtect(&vtable[slot], sizeof(void*), old, &old);
 }
 
+// Motion vectors that follow object edges: each pixel's vector re-taken from its neighbourhood (5x5 samples, 4 px apart), weighted by how
+// alike each neighbour is to it in depth (when given) and in colour: a cross-bilateral filter of the motion field, guided by the picture. A
+// pixel of a character then takes the character's motion and a pixel of the sky the sky's, where the estimate's 4x4 blocks straddle the edge.
+// mv: RG half floats (W x H); rgba: the frame; depth: W x H (1 = near) or empty. sigmaDepth <= 0 leaves depth out, sigmaColour <= 0 colour.
+void RefineMotion(std::vector<uint16_t>& mv, const std::vector<uint8_t>& rgba, const std::vector<float>& depth, uint32_t W, uint32_t H,
+                  float sigmaDepth, float sigmaColour) {
+    using DirectX::PackedVector::XMConvertHalfToFloat; using DirectX::PackedVector::XMConvertFloatToHalf;
+    std::vector<float> vx(static_cast<size_t>(W) * H), vy(vx.size());
+    for (size_t i = 0; i < vx.size(); ++i) { vx[i] = XMConvertHalfToFloat(mv[i * 2]); vy[i] = XMConvertHalfToFloat(mv[i * 2 + 1]); }
+    const bool useDepth = sigmaDepth > 0 && depth.size() == vx.size(), useColour = sigmaColour > 0;
+    const float kd = useDepth ? 1.0f / (2 * sigmaDepth * sigmaDepth) : 0, kc = useColour ? 1.0f / (2 * sigmaColour * sigmaColour) : 0;
+    const int step = 4;
+    #pragma omp parallel for schedule(dynamic, 16)
+    for (int y = 0; y < static_cast<int>(H); ++y) for (int x = 0; x < static_cast<int>(W); ++x) {
+        const size_t p = static_cast<size_t>(y) * W + x;
+        const uint8_t* cp = rgba.data() + p * 4;
+        float sw = 0, sx = 0, sy = 0;
+        for (int dy = -2; dy <= 2; ++dy) for (int dx = -2; dx <= 2; ++dx) {
+            const int qx = std::clamp(x + dx * step, 0, static_cast<int>(W) - 1), qy = std::clamp(y + dy * step, 0, static_cast<int>(H) - 1);
+            const size_t q = static_cast<size_t>(qy) * W + qx;
+            float e = 0;
+            if (useDepth) { const float d = depth[p] - depth[q]; e += d * d * kd; }
+            if (useColour) { const uint8_t* cq = rgba.data() + q * 4; const float r = float(cp[0]) - cq[0], g = float(cp[1]) - cq[1], b = float(cp[2]) - cq[2]; e += (r * r + g * g + b * b) * kc; }
+            const float w = std::exp(-e);
+            sw += w; sx += w * vx[q]; sy += w * vy[q];
+        }
+        mv[p * 2] = XMConvertFloatToHalf(sx / sw); mv[p * 2 + 1] = XMConvertFloatToHalf(sy / sw);
+    }
+}
+
 } // namespace
 
 int main(int argc, char** argv) {
@@ -223,6 +253,10 @@ int main(int argc, char** argv) {
     const bool depthNearIsOne = Arg(argc, argv, "depthinv", 1) != 0;
     // motion=none: the generators get zero motion vectors (to see how much they rely on ours, against their own optical flow)
     const bool noMotion = ArgText(argc, argv, "motion") == "none";
+    // refine=depth|colour|both: the motion vectors refined along depth and / or colour edges (RefineMotion; depth needs depthdir=)
+    const std::string refine = ArgText(argc, argv, "refine");
+    const float sigmaDepth = refine == "depth" || refine == "both" ? Arg(argc, argv, "sd", 50) / 1000.0f : 0.0f;       // sd= in thousandths
+    const float sigmaColour = refine == "colour" || refine == "both" ? static_cast<float>(Arg(argc, argv, "sc", 20)) : 0.0f;   // sc= in levels
     if (count < 3) { printf("the recording has too few frames (%zu)\n", rec.Count()); return 2; }
     std::wstring exeDir; { wchar_t exe[MAX_PATH]; GetModuleFileNameW(nullptr, exe, MAX_PATH); exeDir = exe; exeDir = exeDir.substr(0, exeDir.find_last_of(L'\\')); }
 
@@ -505,6 +539,34 @@ int main(int argc, char** argv) {
         if (!depthDir.empty()) {
             if (!loadDepth(first + i)) { printf("frame %d: no depth_%05d.bin in the depth folder\n", first + i, first + i); return 3; }
             writeDepth(depthValues.data());
+        }
+        if (!refine.empty()) {   // the estimate's vectors to the CPU, refined, and back
+            static ID3D12Resource* mvReadback = nullptr; static ID3D12Resource* mvUpload = nullptr; static D3D12_PLACED_SUBRESOURCE_FOOTPRINT mfp{}; static UINT64 mtotal = 0;
+            if (!mvReadback) {
+                D3D12_RESOURCE_DESC md = motion->GetDesc(); UINT mrows = 0; UINT64 mrow = 0;
+                g.dev->GetCopyableFootprints(&md, 0, 1, 0, &mfp, &mrows, &mrow, &mtotal);
+                mvReadback = g.Buffer(mtotal, D3D12_HEAP_TYPE_READBACK, D3D12_RESOURCE_STATE_COPY_DEST);
+                mvUpload = g.Buffer(mtotal, D3D12_HEAP_TYPE_UPLOAD, D3D12_RESOURCE_STATE_GENERIC_READ);
+            }
+            g.Barrier(motion, D3D12_RESOURCE_STATE_UNORDERED_ACCESS, D3D12_RESOURCE_STATE_COPY_SOURCE);
+            D3D12_TEXTURE_COPY_LOCATION rt{ mvReadback, D3D12_TEXTURE_COPY_TYPE_PLACED_FOOTPRINT }; rt.PlacedFootprint = mfp;
+            D3D12_TEXTURE_COPY_LOCATION rf{ motion, D3D12_TEXTURE_COPY_TYPE_SUBRESOURCE_INDEX }; rf.SubresourceIndex = 0;
+            g.list->CopyTextureRegion(&rt, 0, 0, 0, &rf, nullptr);
+            g.Submit();
+            std::vector<uint16_t> mv(static_cast<size_t>(W) * H * 2);
+            { uint8_t* m = nullptr; mvReadback->Map(0, nullptr, reinterpret_cast<void**>(&m));
+              for (uint32_t y = 0; y < H; ++y) memcpy(mv.data() + static_cast<size_t>(y) * W * 2, m + mfp.Offset + y * mfp.Footprint.RowPitch, W * 4);
+              D3D12_RANGE none{ 0, 0 }; mvReadback->Unmap(0, &none); }
+            RefineMotion(mv, frames[i], depthValues, W, H, sigmaDepth, sigmaColour);
+            { uint8_t* m = nullptr; mvUpload->Map(0, nullptr, reinterpret_cast<void**>(&m));
+              for (uint32_t y = 0; y < H; ++y) memcpy(m + mfp.Offset + y * mfp.Footprint.RowPitch, mv.data() + static_cast<size_t>(y) * W * 2, W * 4);
+              mvUpload->Unmap(0, nullptr); }
+            g.Begin();
+            g.Barrier(motion, D3D12_RESOURCE_STATE_COPY_SOURCE, D3D12_RESOURCE_STATE_COPY_DEST);
+            D3D12_TEXTURE_COPY_LOCATION ut{ motion, D3D12_TEXTURE_COPY_TYPE_SUBRESOURCE_INDEX }; ut.SubresourceIndex = 0;
+            D3D12_TEXTURE_COPY_LOCATION uf{ mvUpload, D3D12_TEXTURE_COPY_TYPE_PLACED_FOOTPRINT }; uf.PlacedFootprint = mfp;
+            g.list->CopyTextureRegion(&ut, 0, 0, 0, &uf, nullptr);
+            g.Barrier(motion, D3D12_RESOURCE_STATE_COPY_DEST, D3D12_RESOURCE_STATE_UNORDERED_ACCESS);
         }
         g.Barrier(motion, D3D12_RESOURCE_STATE_UNORDERED_ACCESS, D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE);
         Score s; s.frame = first + i - 1;

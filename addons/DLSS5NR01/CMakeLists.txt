@@ -119,6 +119,9 @@ if(EXISTS ${XESS_DIR}/bin/libxess_fg.dll)   # Intel's frame generation runtime, 
         COMMAND ${CMAKE_COMMAND} -E copy_if_different ${XESS_DIR}/bin/libxess_fg.dll ${XESS_DIR}/bin/libxell.dll $<TARGET_FILE_DIR:nr_fgeval>/xess)
 endif()
 target_link_libraries(nr_fgeval PRIVATE d3d12 dxgi d3dcompiler)
+if(MSVC)
+    target_compile_options(nr_fgeval PRIVATE /openmp)   # the CPU motion refinement (RefineMotion)
+endif()
 add_dependencies(nr_fgeval FSR3UPSC)   # (AMD's runtime, in the build's fsr folder)
 
 # ---- offline test of the frame tap (which pass is the capture, the motion hand-over, presents); a D3D11 device, no model, no SDK at run time ----

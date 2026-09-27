@@ -43,11 +43,22 @@ The same recordings with zero motion vectors (FSR falls back on its own optical 
 30.48 against 33.38 (easier one). Our motion estimate gives most of FSR's lead over a blend, so **better motion vectors are better generated
 frames.**
 
+## Motion vectors refined along depth and colour edges: no gain (2026-09-27)
+
+`nr_fgeval refine=depth|colour|both`: each pixel's vector re-taken from a 5x5 neighbourhood (4 px apart), weighted by likeness in model
+depth and colour (a cross-bilateral filter of the motion field). Average scores moved -0.1 to -0.2 dB (hard recording 20.71 -> 20.49 to 20.53;
+easier 33.38 -> 33.27 to 33.29), though FSR beat both baselines in 48 of 49 frames instead of 44 on the hard one. The worst frames are not
+edge failures: in fast camera turns (30 fps worth of motion between the kept frames) the whole scene is misplaced or doubled, and averaging
+vectors adds a little ghosting in branches. Kept as an option, not pursued.
+
+The offline test is harsher than live use: dropping every other frame of a 60 fps recording leaves 30 fps motion to bridge, where frame
+generation from 60 to 120 fps bridges half of it. Recordings at 120 fps or more (a lighter game or lower settings) would test the 60 -> 120
+case directly.
+
 ## Next
 
-1. **Motion vectors that follow object edges.** Depth edges are motion edges: the model's depth map says where a character ends and the
-   background begins, which is exactly where the estimate's 4x4 blocks blur the motion and FSR breaks the edge. Refine the vectors along
-   depth (and colour) edges; measure with `nr_fgeval`.
+1. **Large motion.** The worst frames come from fast camera turns: check how far the estimate's search reaches against the motion in
+   those frames, and whether a wider search (or seeding it with the previous frame's motion) keeps track.
 2. **Depth for the upscalers.** DLSS, FSR and XeSS upscaling take depth (to follow the right object's motion at an edge, to throw history
    away where something is uncovered) and get a flat one today. Measure with an offline upscaler test: a recorded frame shrunk, upscaled
    back with flat and with model depth, scored against the original.
