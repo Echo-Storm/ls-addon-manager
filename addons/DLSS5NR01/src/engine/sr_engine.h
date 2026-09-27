@@ -48,6 +48,7 @@ public:
     struct Job {
         ID3D12Resource* in; uint32_t inW, inH; DXGI_FORMAT inFormat; ID3D12Resource* out; uint32_t outW, outH; DXGI_FORMAT outFormat;
         ID3D12Resource* flow; uint32_t flowW, flowH; float flowUnit, motionFraction; bool estimate; unsigned preset; float sharpen; bool reset;
+        bool hdr;   // the frame is an HDR frame as light (1 = the SDR white): the upscaler takes it in its HDR mode and writes light
         ID3D12Fence* copied; uint64_t copiedValue; ID3D12Fence* done; uint64_t doneValue;
     };
     void Submit(const Job& job);   // "done" = job.doneValue is signalled on the engine's queue once it has run (or could not), never before
@@ -76,7 +77,7 @@ public:
     // before it), so it only ever moves forward.
     bool Run(ID3D12Resource* in, uint32_t inW, uint32_t inH, DXGI_FORMAT inFormat, ID3D12Resource* out, uint32_t outW, uint32_t outH, DXGI_FORMAT outFormat,
              ID3D12Resource* flow, uint32_t flowW, uint32_t flowH, float flowUnit, float motionFraction, bool estimate, unsigned preset, float sharpen, bool reset,
-             ID3D12Fence* copied, uint64_t copiedValue, ID3D12Fence* done, uint64_t doneValue);
+             bool hdr, ID3D12Fence* copied, uint64_t copiedValue, ID3D12Fence* done, uint64_t doneValue);
 
     // Stability 0..1 (from the next run): the motion's distrust mask looks past flicker, and FSR 3 keeps more of its history and reacts less
     // to small changes of shading. Less shimmer on thin lines and leaves; more trailing behind what moves. 0 = as before.
@@ -95,7 +96,8 @@ private:
     static const int kSlots = 4;
     bool HasFeature() const;
     const char* Name() const { return m_backend == Backend::Fsr ? "FSR" : "DLSS"; }   // for the log
-    bool EnsureFeature(uint32_t inW, uint32_t inH, uint32_t outW, uint32_t outH, unsigned preset);
+    bool EnsureFeature(uint32_t inW, uint32_t inH, uint32_t outW, uint32_t outH, unsigned preset, bool hdr);
+    bool EnsureViewInput(uint32_t w, uint32_t h);
     bool EnsureInputs(uint32_t w, uint32_t h);
     bool EnsureSharpenTarget(uint32_t w, uint32_t h, DXGI_FORMAT fmt);
     int TakeSlot();
@@ -133,7 +135,7 @@ private:
     double m_gpuMs = 0, m_motionMs = 0;
     FlowEstimator m_estimator; bool m_estimatedLast = false; uint64_t m_estimates = 0;
     std::atomic<float> m_stability{ 0.0f }, m_edges{ 0.0f };
-    static const int kDescriptors = 6;   // per slot: flow, motion, sharpen in/out, edges in/out
+    static const int kDescriptors = 8;   // per slot: flow, motion, sharpen in/out, edges in/out, view in/out
     ID3D12PipelineState* m_edgesPso = nullptr;
     ID3D12Resource* m_smoothed = nullptr; uint32_t m_smoothedW = 0, m_smoothedH = 0; DXGI_FORMAT m_smoothedFmt = DXGI_FORMAT_UNKNOWN;
     double m_afterMs = 0;
@@ -151,10 +153,12 @@ private:
     int64_t m_lastRunQpc = 0;   // FSR wants the time between frames
     void* m_params = nullptr;   // NVSDK_NGX_Parameter*
     void* m_feature = nullptr;  // NVSDK_NGX_Handle*
-    uint32_t m_inW = 0, m_inH = 0, m_outW = 0, m_outH = 0; unsigned m_preset = ~0u;
+    uint32_t m_inW = 0, m_inH = 0, m_outW = 0, m_outH = 0; unsigned m_preset = ~0u; bool m_hdr = false;
     ID3D12Resource* m_motion = nullptr;   // RG16F at the game's size, rests readable
     ID3D12Resource* m_distrust = nullptr; // R8 at the game's size, rests readable: where the measured motion cannot be trusted (DLSS's bias mask)
     ID3D12Resource* m_depth = nullptr;    // R32F, flat
+    ID3D12Resource* m_view = nullptr; uint32_t m_viewW = 0, m_viewH = 0;   // RGBA16F: an HDR frame's SDR view, for the motion estimate; rests in UNORDERED_ACCESS
+    ID3D12PipelineState* m_viewPso = nullptr;
     ID3D12Resource* m_depthUpload = nullptr;
     uint64_t m_runs = 0; double m_buildMs = 0;
 };

@@ -179,7 +179,7 @@ EAM_EXPORT void AddonShutdown() {
 EAM_EXPORT void AddonRenderSettings() { DrawPanel(); }
 EAM_EXPORT uint32_t GetAddonCapabilities() { return EAM_CAP_HAS_SETTINGS | EAM_CAP_D3D11_DEVICE_ACCESS | EAM_CAP_DISPATCH_HOOK; }
 EAM_EXPORT const char* GetAddonName() { return kProductName; }
-EAM_EXPORT const char* GetAddonVersion() { return "0.9.9"; }
+EAM_EXPORT const char* GetAddonVersion() { return "0.9.10"; }
 EAM_EXPORT const char* GetAddonAuthor() { return "Echo-Storm"; }
 EAM_EXPORT const char* GetAddonDescription() {
     return kFsrScaler

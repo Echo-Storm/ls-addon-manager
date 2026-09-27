@@ -600,9 +600,7 @@ int main(int argc, char** argv) {
                 float bandWant[3]; HdrPixel(0, VH / 2, VW, VH, pq, bandWant);
                 const double coreMean = core ? coreSum / core : 0, restMean = rest ? restSum / rest : 0, restWantMean = rest ? restWant / rest : 0;
                 const bool replaced = magenta < (uint64_t)VW * VH / 100;
-                // scRGB is linear light: within 15 % (a fifth of a stop; DLSS and FSR, run on the SDR view, move its top by a few thousandths, 5 to
-                // 12 % in light). HDR10 is compared in PQ, where 3 % is about as much light.
-                const bool bright = bandWant[0] > 0 && std::abs(coreMean - bandWant[0]) < (nisHdr == 1 ? 0.15 : 0.03) * bandWant[0];
+                const bool bright = bandWant[0] > 0 && std::abs(coreMean - bandWant[0]) < 0.03 * bandWant[0];
                 const bool level = restWantMean > 0 && std::abs(restMean - restWantMean) < 0.05 * restWantMean;
                 printf("[check-nishdr] %s %ux%u -> %ux%u: %.2f%% magenta (%s), %llu NaN, the highlights %.4f against %.4f (%s), the rest's mean %.4f against %.4f (%s)\n",
                        pq ? "HDR10" : "scRGB", NW, NH, VW, VH, 100.0 * magenta / (double(VW) * VH), replaced ? "HDR REPLACED NIS" : "HDR NIS KEPT", (unsigned long long)bad,

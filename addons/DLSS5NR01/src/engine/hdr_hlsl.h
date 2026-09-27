@@ -31,14 +31,21 @@ float3 NitsToPq(float3 n) {
 float3 Compress(float3 x) { const float3 over = max(x - kKnee, 0.0); return min(x, kKnee) + (1.0 - kKnee) * log(1.0 + over / kLogA) / kLogSpan; }
 float3 Expand(float3 y) { const float3 over = clamp(y - kKnee, 0.0, 1.0 - kKnee); return min(y, kKnee) + kLogA * (exp(over / (1.0 - kKnee) * kLogSpan) - 1.0); }
 // encoding: 0 SDR, 1 scRGB, 2 HDR10 (PQ); white: the SDR white in nits
+float3 ToLight(float3 c, uint encoding, float white) {   // an HDR frame as light, Rec.709, 1 = the SDR white
+    return encoding == 1u ? c * (80.0 / white) : mul(kRec2020To709, PqToNits(c)) / white;
+}
 float3 ToSdr(float3 c, uint encoding, float white) {
     if (encoding == 0u) return c;
-    const float3 lin = encoding == 1u ? c * (80.0 / white) : mul(kRec2020To709, PqToNits(c)) / white;   // 1 = the SDR white
-    return LinearToSrgb(Compress(max(lin, 0.0)));
+    return LinearToSrgb(Compress(max(ToLight(c, encoding, white), 0.0)));
+}
+// Light (linear, Rec.709, 1 = the SDR white) and the SDR view, both ways: the upscalers take HDR frames as light, in DLSS's and FSR's own HDR mode
+float3 SdrToLight(float3 s) { return Expand(SrgbToLinear(saturate(s))); }
+float3 LightToSdr(float3 l) { return LinearToSrgb(Compress(max(l, 0.0))); }
+float3 FromLight(float3 lin, uint encoding, float white) {
+    return encoding == 1u ? lin * (white / 80.0) : NitsToPq(mul(kRec709To2020, max(lin, 0.0)) * white);
 }
 float3 FromSdr(float3 s, uint encoding, float white) {
     if (encoding == 0u) return s;
-    const float3 lin = Expand(SrgbToLinear(saturate(s)));
-    return encoding == 1u ? lin * (white / 80.0) : NitsToPq(mul(kRec709To2020, lin) * white);
+    return FromLight(SdrToLight(s), encoding, white);
 }
 )HLSL"

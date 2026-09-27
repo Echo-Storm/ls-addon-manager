@@ -64,7 +64,9 @@ void CSGrab(uint3 id : SV_DispatchThreadID) {
     uint w, h; uOut.GetDimensions(w, h);
     if (id.x >= w || id.y >= h) return;
     float4 c = tFrame.Load(int3(id.xy + origin, 0));
-    c.rgb = ToSdr(c.rgb, encoding, white);   // an HDR frame's SDR view (SDR: as it is)
+    const float3 frame = c.rgb;
+    c.rgb = ToSdr(c.rgb, encoding, white);   // an HDR frame's SDR view (SDR: as it is); the controls work on it
+    const float3 view = c.rgb;
     if (tone != 0u) {
         c.rgb = saturate((c.rgb - 0.5) * contrast + 0.5 + brightness);                  // tone, as a monitor's controls
         c.rgb = pow(max(c.rgb, 1e-5), 1.0 / max(gamma, 0.05));
@@ -74,11 +76,13 @@ void CSGrab(uint3 id : SV_DispatchThreadID) {
         const float spread = max(c.r, max(c.g, c.b)) - min(c.r, min(c.g, c.b));
         c.rgb = saturate(l + (c.rgb - l) * (saturation + vibrance * (1.0 - saturate(spread))));
     }
+    // HDR: the frame goes to the upscaler as light, with only the controls' change, so a highlight they leave alone reaches it exactly
+    if (encoding != 0u) c.rgb = ToLight(frame, encoding, white) + (SdrToLight(c.rgb) - SdrToLight(view));
     uOut[id.xy] = c;
 }
 )HLSL";
 
-// The place pass (HDR frames only): the upscaler's picture, made in the frame's SDR view, back into the frame's own encoding, written into
+// The place pass (HDR frames only): the upscaler's picture, made as light (1 = the SDR white) in DLSS's or FSR's HDR mode, into the frame's own encoding, written into
 // NIS's output (at the output viewport's corner). SDR frames are copied as they are, without it.
 const char* const kPlaceHlsl = R"HLSL(
 Texture2D<float4>   tPicture : register(t0);
@@ -88,7 +92,7 @@ cbuffer C : register(b0) { uint2 origin; uint2 size; uint encoding; float white;
 void CSPlace(uint3 id : SV_DispatchThreadID) {
     if (id.x >= size.x || id.y >= size.y) return;
     const float4 p = tPicture.Load(int3(id.xy, 0));
-    uOut[id.xy + origin] = float4(FromSdr(p.rgb, encoding, white), p.a);
+    uOut[id.xy + origin] = float4(FromLight(p.rgb, encoding, white), p.a);
 }
 )HLSL";
 
@@ -355,6 +359,8 @@ bool ScalerLink::Upscale(const NisPass& pass, ID3D11Resource* flow, uint32_t flo
     // writes through a UAV
     // 10-bit and half-float frames (HDR, or 10-bit SDR) go through a half-float frame texture, so their SDR view keeps its precision
     const DXGI_FORMAT outFmt = Bridge::ViewFormat(pass.outFmt), inView = Bridge::ViewFormat(pass.inFmt);
+    // HDR: the picture is light (above 1 where the frame is brighter than the SDR white), so half-float whatever NIS's output is; the place pass writes it in
+    const DXGI_FORMAT pictureFmt = m_encoding ? DXGI_FORMAT_R16G16B16A16_FLOAT : outFmt;
     const bool in8 = inView == DXGI_FORMAT_R8G8B8A8_UNORM || inView == DXGI_FORMAT_B8G8R8A8_UNORM;
     const DXGI_FORMAT inFmt = in8 ? DXGI_FORMAT_R8G8B8A8_UNORM : DXGI_FORMAT_R16G16B16A16_FLOAT;
     m_refusedFormat = (!in8 && inView != DXGI_FORMAT_R10G10B10A2_UNORM && inView != DXGI_FORMAT_R16G16B16A16_FLOAT) ||
@@ -376,7 +382,7 @@ bool ScalerLink::Upscale(const NisPass& pass, ID3D11Resource* flow, uint32_t flo
     }
     for (int i = 0; i < kOut && refit; ++i) {
         ID3D11Texture2D* const before = m_out[i].d3d11;
-        refit = Fit(m_out[i], pass.outW, pass.outH, outFmt, true, outNames[i]);
+        refit = Fit(m_out[i], pass.outW, pass.outH, pictureFmt, true, outNames[i]);
         if (refit && m_out[i].d3d11 != before) m_holds[i] = 0;   // a new texture holds nothing yet
     }
     if (!refit) return false;
@@ -423,9 +429,9 @@ bool ScalerLink::Upscale(const NisPass& pass, ID3D11Resource* flow, uint32_t flo
         m_ctx->Flush();   // the engine's queue waits for this signal: hand it to the GPU now
         // The engine signals "done" = n on its own queue in every case (after the frames before it), also when it could not run this one.
         // to the engine's own thread: this one never waits on NVIDIA's or AMD's code (SrEngine::Submit)
-        const SrEngine::Job job{ m_in[in].d3d12, pass.inW, pass.inH, inFmt, m_out[out].d3d12, pass.outW, pass.outH, outFmt,
+        const SrEngine::Job job{ m_in[in].d3d12, pass.inW, pass.inH, inFmt, m_out[out].d3d12, pass.outW, pass.outH, pictureFmt,
                                  flowTex ? m_flow[in].d3d12 : nullptr, m_flow[in].w, m_flow[in].h, flowUnit, motionFraction, estimate, preset, sharpen,
-                                 m_pendingReset, m_copied.d3d12, n, m_done.d3d12, n };
+                                 m_pendingReset, m_encoding != 0, m_copied.d3d12, n, m_done.d3d12, n };
         m_step = "handing the frame to the engine";
         m_engine->Submit(job);
         m_holds[out] = n;   // a picture only counts once the engine says it ran (RanOk)
@@ -487,7 +493,7 @@ bool ScalerLink::PlacePicture(const NisPass& pass, ID3D11Texture2D* picture) {
     m_step = m_encoding ? "the HDR place pass" : "copying the picture";
     if (m_encoding != m_loggedEncoding) {
         m_loggedEncoding = m_encoding;
-        if (m_encoding) Log("%s upscaler: HDR frames (%s, SDR white %.0f nits): upscaled in their SDR view, the picture put back in their own encoding",
+        if (m_encoding) Log("%s upscaler: HDR frames (%s, SDR white %.0f nits): upscaled as light in the upscaler's HDR mode, the picture put back in their own encoding",
                             kUpscalerName, m_encoding == 1 ? "scRGB" : "HDR10", m_white);
     }
     if (m_encoding) return PlaceHdr(pass, picture);

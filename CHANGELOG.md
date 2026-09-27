@@ -1,5 +1,15 @@
 # Changelog
 
+## 0.9.10 (2026-09-27)
+
+The DLSS and FSR Upscalers in their own HDR mode.
+
+- **HDR games upscaled as HDR.** 0.9.9 brought highlights back from about 170 nits to 885-950 of 1000; now they come out as the game made
+  them (in the test: 1000 nits in, 999 to 1001 out, with DLSS and with FSR, in scRGB and HDR10). The frame is handed to DLSS and FSR as
+  light, with their HDR mode switched on, instead of in a view squeezed into SDR's range; the motion estimate still works on that view.
+  The picture controls, sharpening and edge smoothing still decide in the SDR view, but only their change goes back into the light, so
+  whatever they leave alone stays exactly as it was. SDR games are unchanged.
+
 ## 0.9.9 (2026-09-26)
 
 A fix for HDR games in the DLSS and FSR Upscalers, and faster tests.

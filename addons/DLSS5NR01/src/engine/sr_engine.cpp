@@ -1,4 +1,5 @@
 #include "engine/sr_engine.h"
+#include "engine/hdr_hlsl.h"
 #include <d3dcompiler.h>
 #include <algorithm>
 #include <cstdarg>
@@ -46,7 +47,8 @@ struct MotionConstants { uint32_t w, h; float scale; uint32_t hasFlow; };
 const char* kSharpenHlsl = R"(
 Texture2D<float4> tIn : register(t0);
 RWTexture2D<float4> uOut : register(u0);
-cbuffer C : register(b0) { uint2 size; float amount; float gain; };
+cbuffer C : register(b0) { uint2 size; float amount; float gain; uint hdr; };
+float3 View(float3 c) { return hdr != 0u ? LightToSdr(c) : c; }   // HDR: the picture is light; CAS decides in the SDR view
 float3 Sharpen(float3 n, float3 w, float3 c, float3 e, float3 s, float a) {
     const float3 lo = min(min(min(w, c), min(e, n)), s);
     const float3 hi = max(max(max(w, c), max(e, n)), s);
@@ -59,12 +61,15 @@ void main(uint3 id : SV_DispatchThreadID) {
     if (id.x >= size.x || id.y >= size.y) return;
     const int2 p = int2(id.xy), last = int2(size) - 1;
     const float4 c = tIn[p];
-    const float3 s = Sharpen(tIn[clamp(p + int2(0, -1), 0, last)].rgb, tIn[clamp(p + int2(-1, 0), 0, last)].rgb, c.rgb,
-                             tIn[clamp(p + int2(1, 0), 0, last)].rgb, tIn[clamp(p + int2(0, 1), 0, last)].rgb, saturate(amount));
-    uOut[p] = float4(saturate(c.rgb + (s - c.rgb) * gain), c.a);
+    const float3 v = View(c.rgb);
+    const float3 s = Sharpen(View(tIn[clamp(p + int2(0, -1), 0, last)].rgb), View(tIn[clamp(p + int2(-1, 0), 0, last)].rgb), v,
+                             View(tIn[clamp(p + int2(1, 0), 0, last)].rgb), View(tIn[clamp(p + int2(0, 1), 0, last)].rgb), saturate(amount));
+    const float3 r = saturate(v + (s - v) * gain);
+    // HDR: only the change goes back into light, so what sharpening leaves alone (a highlight's flat middle) stays exactly as it was
+    uOut[p] = float4(hdr != 0u ? c.rgb + (SdrToLight(r) - SdrToLight(v)) : r, c.a);
 }
 )";
-struct SharpenConstants { uint32_t w, h; float amount, gain; };
+struct SharpenConstants { uint32_t w, h; float amount, gain; uint32_t hdr; };
 
 // Edge smoothing of the upscaler's picture, for games without anti-aliasing of their own. Where the brightness steps sharply (an edge drawn
 // without anti-aliasing: stair steps), it finds which way the edge runs and how far along it each way the step continues, which says where
@@ -77,8 +82,8 @@ const char* kEdgesHlsl = R"(
 Texture2D<float4> tIn : register(t0);
 RWTexture2D<float4> uOut : register(u0);
 SamplerState sLinear : register(s0);
-cbuffer C : register(b0) { uint2 size; float strength; float unused; };
-float Luma(float3 c) { return dot(c, float3(0.299, 0.587, 0.114)); }
+cbuffer C : register(b0) { uint2 size; float strength; uint hdr; };
+float Luma(float3 c) { if (hdr != 0u) c = LightToSdr(c); return dot(c, float3(0.299, 0.587, 0.114)); }   // HDR: judged in the SDR view
 float LumaAt(float2 uv) { return Luma(tIn.SampleLevel(sLinear, uv, 0).rgb); }
 static const float kSteps[12] = { 1.0, 1.0, 1.0, 1.5, 2.0, 2.0, 2.0, 2.0, 4.0, 4.0, 8.0, 8.0 };
 [numthreads(8, 8, 1)]
@@ -126,7 +131,21 @@ void main(uint3 id : SV_DispatchThreadID) {
     uOut[p] = float4(tIn.SampleLevel(sLinear, uv + across * (offset * dir), 0).rgb, c.a);
 }
 )";
-struct EdgeConstants { uint32_t w, h; float strength, unused; };
+struct EdgeConstants { uint32_t w, h; float strength; uint32_t hdr; };
+
+// An HDR frame, which comes as light (1 = the SDR white) for the upscaler's HDR mode, in its SDR view: what the motion estimate measures
+const char* kViewHlsl = R"(
+Texture2D<float4> tIn : register(t0);
+RWTexture2D<float4> uOut : register(u0);
+cbuffer C : register(b0) { uint2 size; };
+[numthreads(8, 8, 1)]
+void main(uint3 id : SV_DispatchThreadID) {
+    if (id.x >= size.x || id.y >= size.y) return;
+    const float4 c = tIn[id.xy];
+    uOut[id.xy] = float4(LightToSdr(c.rgb), c.a);
+}
+)";
+struct ViewConstants { uint32_t w, h, unused[2]; };
 
 
 const char* ResultName(NVSDK_NGX_Result r) {
@@ -227,7 +246,7 @@ bool SrEngine::Init(const LUID& card, const std::wstring& dataPath, const std::w
     D3D12_ROOT_PARAMETER params[3]{};
     params[0].ParameterType = D3D12_ROOT_PARAMETER_TYPE_DESCRIPTOR_TABLE; params[0].DescriptorTable = { 1, &srv };
     params[1].ParameterType = D3D12_ROOT_PARAMETER_TYPE_DESCRIPTOR_TABLE; params[1].DescriptorTable = { 1, &uav };
-    params[2].ParameterType = D3D12_ROOT_PARAMETER_TYPE_32BIT_CONSTANTS; params[2].Constants.Num32BitValues = 4;
+    params[2].ParameterType = D3D12_ROOT_PARAMETER_TYPE_32BIT_CONSTANTS; params[2].Constants.Num32BitValues = 8;
     for (auto& p : params) p.ShaderVisibility = D3D12_SHADER_VISIBILITY_ALL;
     D3D12_STATIC_SAMPLER_DESC sampler{}; sampler.Filter = D3D12_FILTER_MIN_MAG_LINEAR_MIP_POINT; sampler.ShaderVisibility = D3D12_SHADER_VISIBILITY_ALL;
     sampler.AddressU = sampler.AddressV = sampler.AddressW = D3D12_TEXTURE_ADDRESS_MODE_CLAMP;
@@ -240,7 +259,8 @@ bool SrEngine::Init(const LUID& card, const std::wstring& dataPath, const std::w
     SafeRelease(blob);
     auto build = [&](const char* source, const char* name, ID3D12PipelineState** out) {
         ID3DBlob* code = nullptr; ID3DBlob* err = nullptr;
-        if (FAILED(D3DCompile(source, strlen(source), name, nullptr, nullptr, "main", "cs_5_0", D3DCOMPILE_OPTIMIZATION_LEVEL3, 0, &code, &err))) {
+        const std::string text = std::string(NR_HDR_HLSL) + source;   // the HDR curve (hdr_hlsl.h) in front of every pass
+        if (FAILED(D3DCompile(text.c_str(), text.size(), name, nullptr, nullptr, "main", "cs_5_0", D3DCOMPILE_OPTIMIZATION_LEVEL3, 0, &code, &err))) {
             Log("%s: %s", name, err ? static_cast<const char*>(err->GetBufferPointer()) : "?"); SafeRelease(err); Fail("the %s shader did not compile", name); return false;
         }
         D3D12_COMPUTE_PIPELINE_STATE_DESC pso{}; pso.pRootSignature = m_rootSig; pso.CS = { code->GetBufferPointer(), code->GetBufferSize() };
@@ -249,7 +269,8 @@ bool SrEngine::Init(const LUID& card, const std::wstring& dataPath, const std::w
         if (FAILED(h)) { Fail("the %s pipeline 0x%08x", name, (unsigned)h); return false; }
         return true;
     };
-    if (!build(kMotionHlsl, "sr_motion", &m_motionPso) || !build(kSharpenHlsl, "sr_sharpen", &m_sharpenPso) || !build(kEdgesHlsl, "sr_edges", &m_edgesPso)) return false;
+    if (!build(kMotionHlsl, "sr_motion", &m_motionPso) || !build(kSharpenHlsl, "sr_sharpen", &m_sharpenPso) || !build(kEdgesHlsl, "sr_edges", &m_edgesPso) ||
+        !build(kViewHlsl, "sr_view", &m_viewPso)) return false;
     static_assert(FlowEstimator::kSlots == kSlots, "the estimator reads its statistics back per engine slot");
     if (!m_estimator.Init(m_dev, [this](const char* m) { Log("%s", m); })) Log("%s upscaler: the motion estimator could not start; motion comes from frame generation only", Name());
     m_estimator.SetTimestampFrequency(m_timestampFreq);
@@ -336,7 +357,7 @@ bool SrEngine::Shutdown() {
     if (m_dev && m_backend == Backend::Dlss) NVSDK_NGX_D3D12_Shutdown1(m_dev);
     m_estimator.Shutdown(); m_estimatedLast = false; m_estimates = 0;
     SafeRelease(m_motion); SafeRelease(m_distrust); SafeRelease(m_depth); SafeRelease(m_depthUpload);
-    SafeRelease(m_motionPso); SafeRelease(m_sharpenPso); SafeRelease(m_edgesPso); SafeRelease(m_smoothed); m_smoothedW = m_smoothedH = 0; SafeRelease(m_unsharpened); m_unsharpenedW = m_unsharpenedH = 0; SafeRelease(m_rootSig); SafeRelease(m_heap);
+    SafeRelease(m_motionPso); SafeRelease(m_sharpenPso); SafeRelease(m_edgesPso); SafeRelease(m_viewPso); SafeRelease(m_view); m_viewW = m_viewH = 0; SafeRelease(m_smoothed); m_smoothedW = m_smoothedH = 0; SafeRelease(m_unsharpened); m_unsharpenedW = m_unsharpenedH = 0; SafeRelease(m_rootSig); SafeRelease(m_heap);
     SafeRelease(m_timestamps); SafeRelease(m_timestampReadback);
     SafeRelease(m_list); for (auto*& a : m_alloc) SafeRelease(a);
     SafeRelease(m_fence); if (m_event) { CloseHandle(m_event); m_event = nullptr; }
@@ -429,7 +450,7 @@ void SrEngine::WorkerLoop() {
         // marked as going through before it is submitted (the GPU may finish it before this thread gets back), taken back if it did not
         m_okRing[j.doneValue % kOkRing].store(j.doneValue, std::memory_order_release);
         const bool ok = Run(j.in, j.inW, j.inH, j.inFormat, j.out, j.outW, j.outH, j.outFormat, j.flow, j.flowW, j.flowH, j.flowUnit, j.motionFraction,
-                            j.estimate, j.preset, j.sharpen, j.reset, j.copied, j.copiedValue, j.done, j.doneValue);
+                            j.estimate, j.preset, j.sharpen, j.reset, j.hdr, j.copied, j.copiedValue, j.done, j.doneValue);
         m_busySince = 0;
         m_okRing[j.doneValue % kOkRing].store(ok ? j.doneValue : 0, std::memory_order_release);
         m_submitted.store(j.doneValue, std::memory_order_release);
@@ -542,9 +563,21 @@ bool SrEngine::EnsureSharpenTarget(uint32_t w, uint32_t h, DXGI_FORMAT fmt) {
     return true;
 }
 
-bool SrEngine::EnsureFeature(uint32_t inW, uint32_t inH, uint32_t outW, uint32_t outH, unsigned preset) {
+// An HDR frame's SDR view, the motion estimate's input (the game's size), left in UNORDERED_ACCESS between runs.
+bool SrEngine::EnsureViewInput(uint32_t w, uint32_t h) {
+    if (m_view && m_viewW == w && m_viewH == h) return true;
+    if (m_view) { WaitIdle(); SafeRelease(m_view); }
+    D3D12_HEAP_PROPERTIES heap{}; heap.Type = D3D12_HEAP_TYPE_DEFAULT;
+    D3D12_RESOURCE_DESC d{}; d.Dimension = D3D12_RESOURCE_DIMENSION_TEXTURE2D; d.Width = w; d.Height = h; d.DepthOrArraySize = 1; d.MipLevels = 1; d.SampleDesc.Count = 1;
+    d.Format = DXGI_FORMAT_R16G16B16A16_FLOAT; d.Flags = D3D12_RESOURCE_FLAG_ALLOW_UNORDERED_ACCESS;
+    if (FAILED(m_dev->CreateCommittedResource(&heap, D3D12_HEAP_FLAG_NONE, &d, D3D12_RESOURCE_STATE_UNORDERED_ACCESS, nullptr, IID_PPV_ARGS(&m_view)))) return false;
+    m_viewW = w; m_viewH = h;
+    return true;
+}
+
+bool SrEngine::EnsureFeature(uint32_t inW, uint32_t inH, uint32_t outW, uint32_t outH, unsigned preset, bool hdr) {
     if (m_backend == Backend::Fsr) preset = 0;   // FSR has no models to choose
-    if (HasFeature() && inW == m_inW && inH == m_inH && outW == m_outW && outH == m_outH && preset == m_preset) return true;
+    if (HasFeature() && inW == m_inW && inH == m_inH && outW == m_outW && outH == m_outH && preset == m_preset && hdr == m_hdr) return true;
     LARGE_INTEGER f, a, b; QueryPerformanceFrequency(&f); QueryPerformanceCounter(&a);
     if (!WaitIdle()) { Fail("the GPU did not finish the earlier work"); return false; }
     for (auto& v : m_slotDone) v = 0;
@@ -569,15 +602,16 @@ bool SrEngine::EnsureFeature(uint32_t inW, uint32_t inH, uint32_t outW, uint32_t
         // gamma-encoded colour (the frame as the game shows it: AMD asks for this flag with the dispatch's sRGB flag, FSR 4 above all);
         // motion at the game's size; no jitter, no inverted or infinite depth. Auto exposure and AMD's own tuning of OptiScaler's were tried
         // (test host, 2026-09-26): no better, and OptiScaler's values put a swaying wire 10.4 levels off against our 8.8.
-        desc.flags = FFX_UPSCALE_ENABLE_NON_LINEAR_COLORSPACE;
+        // HDR frames: light (1 = the SDR white) in FSR's HDR mode, which keeps highlights far above the SDR white as they were
+        desc.flags = hdr ? FFX_UPSCALE_ENABLE_HIGH_DYNAMIC_RANGE : FFX_UPSCALE_ENABLE_NON_LINEAR_COLORSPACE;
         desc.maxRenderSize = { inW, inH }; desc.maxUpscaleSize = { outW, outH }; desc.fpMessage = FfxMessage;
         const ffxReturnCode_t rc = m_ffx->fn.CreateContext(&m_ffx->context, &desc.header, nullptr);
         QueryPerformanceCounter(&b);
         if (rc != FFX_API_RETURN_OK || !m_ffx->context) { m_ffx->context = nullptr; Fail("FSR could not make its upscaling context (code %u)", rc); return false; }
-        m_inW = inW; m_inH = inH; m_outW = outW; m_outH = outH; m_preset = preset;
+        m_inW = inW; m_inH = inH; m_outW = outW; m_outH = outH; m_preset = preset; m_hdr = hdr;
         m_ffxStability = -1.0f;   // a new context has AMD's defaults
         m_buildMs = (b.QuadPart - a.QuadPart) * 1000.0 / f.QuadPart;
-        Log("FSR upscaler: %ux%u -> %ux%u (x%.2f), made in %.0f ms", inW, inH, outW, outH, ratio, m_buildMs);
+        Log("FSR upscaler: %ux%u -> %ux%u (x%.2f)%s, made in %.0f ms", inW, inH, outW, outH, ratio, hdr ? ", HDR" : "", m_buildMs);
         // which upscaler the runtime chose (a newer runtime can hold FSR 4 as well as FSR 3), and what else it holds
         {
             ffxQueryGetProviderVersion used{}; used.header.type = FFX_API_QUERY_DESC_TYPE_GET_PROVIDER_VERSION;
@@ -604,7 +638,8 @@ bool SrEngine::EnsureFeature(uint32_t inW, uint32_t inH, uint32_t outW, uint32_t
     p->Set(NVSDK_NGX_Parameter_Width, inW); p->Set(NVSDK_NGX_Parameter_Height, inH);
     p->Set(NVSDK_NGX_Parameter_OutWidth, outW); p->Set(NVSDK_NGX_Parameter_OutHeight, outH);
     p->Set(NVSDK_NGX_Parameter_PerfQualityValue, static_cast<int>(quality));
-    p->Set(NVSDK_NGX_Parameter_DLSS_Feature_Create_Flags, static_cast<int>(NVSDK_NGX_DLSS_Feature_Flags_MVLowRes));   // motion at the game's size
+    // motion at the game's size; HDR frames as light (1 = the SDR white), in DLSS's HDR mode
+    p->Set(NVSDK_NGX_Parameter_DLSS_Feature_Create_Flags, static_cast<int>(NVSDK_NGX_DLSS_Feature_Flags_MVLowRes | (hdr ? NVSDK_NGX_DLSS_Feature_Flags_IsHDR : 0)));
     p->Set(NVSDK_NGX_Parameter_DLSS_Enable_Output_Subrects, 0);
     for (const char* key : { NVSDK_NGX_Parameter_DLSS_Hint_Render_Preset_DLAA, NVSDK_NGX_Parameter_DLSS_Hint_Render_Preset_Quality,
                              NVSDK_NGX_Parameter_DLSS_Hint_Render_Preset_Balanced, NVSDK_NGX_Parameter_DLSS_Hint_Render_Preset_Performance,
@@ -619,9 +654,9 @@ bool SrEngine::EnsureFeature(uint32_t inW, uint32_t inH, uint32_t outW, uint32_t
     SafeRelease(m_depthUpload);
     QueryPerformanceCounter(&b);
     if (NVSDK_NGX_FAILED(r) || !handle) { Fail("CreateFeature(DLSS): %s", ResultName(r)); return false; }
-    m_feature = handle; m_inW = inW; m_inH = inH; m_outW = outW; m_outH = outH; m_preset = preset;
+    m_feature = handle; m_inW = inW; m_inH = inH; m_outW = outW; m_outH = outH; m_preset = preset; m_hdr = hdr;
     m_buildMs = (b.QuadPart - a.QuadPart) * 1000.0 / f.QuadPart;
-    Log("%s upscaler: %ux%u -> %ux%u (x%.2f), preset %u, made in %.0f ms", Name(), inW, inH, outW, outH, ratio, preset, m_buildMs);
+    Log("%s upscaler: %ux%u -> %ux%u (x%.2f), preset %u%s, made in %.0f ms", Name(), inW, inH, outW, outH, ratio, preset, hdr ? ", HDR" : "", m_buildMs);
     return true;
 }
 
@@ -654,13 +689,15 @@ void SrEngine::ConfigureFsrStability(float s) {
 
 bool SrEngine::Run(ID3D12Resource* in, uint32_t inW, uint32_t inH, DXGI_FORMAT inFormat, ID3D12Resource* out, uint32_t outW, uint32_t outH, DXGI_FORMAT outFormat,
                    ID3D12Resource* flow, uint32_t flowW, uint32_t flowH, float flowUnit, float motionFraction, bool estimate, unsigned preset, float sharpen, bool reset,
-                   ID3D12Fence* copied, uint64_t copiedValue, ID3D12Fence* done, uint64_t doneValue) {
+                   bool hdr, ID3D12Fence* copied, uint64_t copiedValue, ID3D12Fence* done, uint64_t doneValue) {
     if (!m_ready) { if (m_queue && done) m_queue->Signal(done, doneValue); return false; }
     // A frame that cannot run is still marked done, on this queue after the frames before it, so "done" only ever moves forward.
     const auto skip = [&] { if (m_queue && done) m_queue->Signal(done, doneValue); return false; };
     const bool fsr = m_backend == Backend::Fsr;
-    const bool fresh = !HasFeature() || inW != m_inW || inH != m_inH || outW != m_outW || outH != m_outH || (!fsr && preset != m_preset);
-    if (!EnsureFeature(inW, inH, outW, outH, preset)) return skip();
+    const bool fresh = !HasFeature() || inW != m_inW || inH != m_inH || outW != m_outW || outH != m_outH || (!fsr && preset != m_preset) || hdr != m_hdr;
+    if (!EnsureFeature(inW, inH, outW, outH, preset, hdr)) return skip();
+    if (hdr && !EnsureViewInput(inW, inH)) { Fail("the HDR frame's SDR view could not be made"); return skip(); }
+    ID3D12Resource* const color = in;   // what the upscaler reads (HDR: light)
     // Sharpening (strength 0..1.6, see kScalerSharpenScale): DLSS has none of its own, so the upscaler writes into a texture of ours and the
     // sharpening pass goes from there into out. FSR sharpens by itself (its RCAS) up to 1; beyond that our pass adds the rest on top.
     const bool sharpening = (fsr ? sharpen > 1.001f : sharpen > 0.001f) && EnsureSharpenTarget(outW, outH, outFormat);
@@ -709,6 +746,15 @@ bool SrEngine::Run(ID3D12Resource* in, uint32_t inW, uint32_t inH, DXGI_FORMAT i
         D3D12_UNORDERED_ACCESS_VIEW_DESC uo{}; uo.Format = outFormat; uo.ViewDimension = D3D12_UAV_DIMENSION_TEXTURE2D;
         m_dev->CreateUnorderedAccessView(out, nullptr, &uo, cpuOut);
     }
+    if (hdr) {   // the view pass: the frame (light) in, its SDR view out
+        D3D12_CPU_DESCRIPTOR_HANDLE cpuIn = cpu; cpuIn.ptr += 6 * m_descriptorSize;
+        D3D12_SHADER_RESOURCE_VIEW_DESC si{}; si.Format = inFormat == DXGI_FORMAT_UNKNOWN ? DXGI_FORMAT_R16G16B16A16_FLOAT : inFormat;
+        si.ViewDimension = D3D12_SRV_DIMENSION_TEXTURE2D; si.Shader4ComponentMapping = D3D12_DEFAULT_SHADER_4_COMPONENT_MAPPING; si.Texture2D.MipLevels = 1;
+        m_dev->CreateShaderResourceView(in, &si, cpuIn);
+        D3D12_CPU_DESCRIPTOR_HANDLE cpuOut = cpu; cpuOut.ptr += 7 * m_descriptorSize;
+        D3D12_UNORDERED_ACCESS_VIEW_DESC uo{}; uo.Format = DXGI_FORMAT_R16G16B16A16_FLOAT; uo.ViewDimension = D3D12_UAV_DIMENSION_TEXTURE2D;
+        m_dev->CreateUnorderedAccessView(m_view, nullptr, &uo, cpuOut);
+    }
 
     m_list->Reset(m_alloc[slot], nullptr);
     m_list->EndQuery(m_timestamps, D3D12_QUERY_TYPE_TIMESTAMP, slot * 4);
@@ -717,12 +763,26 @@ bool SrEngine::Run(ID3D12Resource* in, uint32_t inW, uint32_t inH, DXGI_FORMAT i
     if (flow) Transition(flow, D3D12_RESOURCE_STATE_COMMON, D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE);
     Transition(out, D3D12_RESOURCE_STATE_COMMON, D3D12_RESOURCE_STATE_UNORDERED_ACCESS);
 
+    if (hdr) {   // the frame's SDR view, for the motion estimate
+        { ID3D12DescriptorHeap* viewHeaps[] = { m_heap }; m_list->SetDescriptorHeaps(1, viewHeaps); }
+        m_list->SetComputeRootSignature(m_rootSig);
+        m_list->SetPipelineState(m_viewPso);
+        D3D12_GPU_DESCRIPTOR_HANDLE gpuIn = gpu; gpuIn.ptr += 6 * m_descriptorSize;
+        D3D12_GPU_DESCRIPTOR_HANDLE gpuOut = gpu; gpuOut.ptr += 7 * m_descriptorSize;
+        m_list->SetComputeRootDescriptorTable(0, gpuIn);
+        m_list->SetComputeRootDescriptorTable(1, gpuOut);
+        const ViewConstants lc{ inW, inH, { 0, 0 } };
+        m_list->SetComputeRoot32BitConstants(2, 2, &lc, 0);
+        m_list->Dispatch((inW + 7) / 8, (inH + 7) / 8, 1);
+        Transition(m_view, D3D12_RESOURCE_STATE_UNORDERED_ACCESS, D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE);
+    }
     // 1. motion vectors: measured from the frames, or frame generation's flow (or none)
     Transition(m_motion, D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE, D3D12_RESOURCE_STATE_UNORDERED_ACCESS);
     ID3D12DescriptorHeap* heaps[] = { m_heap };
     if (estimating) {
         Transition(m_distrust, D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE, D3D12_RESOURCE_STATE_UNORDERED_ACCESS);
-        m_estimator.Record(m_list, slot, in, inFormat == DXGI_FORMAT_UNKNOWN ? DXGI_FORMAT_R8G8B8A8_UNORM : inFormat, m_motion, m_distrust, stability);
+        m_estimator.Record(m_list, slot, hdr ? m_view : in, hdr ? DXGI_FORMAT_R16G16B16A16_FLOAT : inFormat == DXGI_FORMAT_UNKNOWN ? DXGI_FORMAT_R8G8B8A8_UNORM : inFormat,
+                           m_motion, m_distrust, stability);
         Transition(m_distrust, D3D12_RESOURCE_STATE_UNORDERED_ACCESS, D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE);
     } else {
         m_list->SetDescriptorHeaps(1, heaps);
@@ -744,7 +804,7 @@ bool SrEngine::Run(ID3D12Resource* in, uint32_t inW, uint32_t inH, DXGI_FORMAT i
     if (fsr) {
         ffxDispatchDescUpscale d{}; d.header.type = FFX_API_DISPATCH_DESC_TYPE_UPSCALE;
         d.commandList = m_list;
-        d.color = ffxApiGetResourceDX12(in, FFX_API_RESOURCE_STATE_COMPUTE_READ);
+        d.color = ffxApiGetResourceDX12(color, FFX_API_RESOURCE_STATE_COMPUTE_READ);
         d.depth = ffxApiGetResourceDX12(m_depth, FFX_API_RESOURCE_STATE_COMPUTE_READ);
         d.motionVectors = ffxApiGetResourceDX12(m_motion, FFX_API_RESOURCE_STATE_COMPUTE_READ);
         d.reactive = ffxApiGetResourceDX12(estimating ? m_distrust : nullptr, FFX_API_RESOURCE_STATE_COMPUTE_READ);   // where the motion cannot be trusted
@@ -754,13 +814,13 @@ bool SrEngine::Run(ID3D12Resource* in, uint32_t inW, uint32_t inH, DXGI_FORMAT i
         d.enableSharpening = sharpen > 0.001f; d.sharpness = std::clamp(sharpen, 0.0f, 1.0f);
         d.frameTimeDelta = frameMs; d.preExposure = 1.0f; d.reset = reset || fresh;
         d.cameraNear = 0.1f; d.cameraFar = 1000.0f; d.cameraFovAngleVertical = 1.0f; d.viewSpaceToMetersFactor = 1.0f;   // the depth is flat anyway
-        d.flags = FFX_UPSCALE_FLAG_NON_LINEAR_COLOR_SRGB;   // the frame as the game shows it (gamma-encoded)
+        d.flags = hdr ? 0u : FFX_UPSCALE_FLAG_NON_LINEAR_COLOR_SRGB;   // the frame as the game shows it (gamma-encoded), or light in HDR
         const ffxReturnCode_t rc = m_ffx->fn.Dispatch(&m_ffx->context, &d.header);
         if (rc != FFX_API_RETURN_OK) { evaluated = false; snprintf(evalError, sizeof evalError, "FSR dispatch failed (code %u)", rc); }
     }
     auto* p = static_cast<NVSDK_NGX_Parameter*>(m_params);
     if (!fsr) {
-    p->Set(NVSDK_NGX_Parameter_Color, in);
+    p->Set(NVSDK_NGX_Parameter_Color, color);
     p->Set(NVSDK_NGX_Parameter_Output, upscaled);
     p->Set(NVSDK_NGX_Parameter_Depth, m_depth);
     p->Set(NVSDK_NGX_Parameter_MotionVectors, m_motion);
@@ -789,7 +849,7 @@ bool SrEngine::Run(ID3D12Resource* in, uint32_t inW, uint32_t inH, DXGI_FORMAT i
         D3D12_GPU_DESCRIPTOR_HANDLE gpuOut = gpu; gpuOut.ptr += 5 * m_descriptorSize;
         m_list->SetComputeRootDescriptorTable(0, gpuIn);
         m_list->SetComputeRootDescriptorTable(1, gpuOut);
-        const EdgeConstants ec{ outW, outH, std::clamp(edges, 0.0f, 1.0f), 0.0f };
+        const EdgeConstants ec{ outW, outH, std::clamp(edges, 0.0f, 1.0f), hdr ? 1u : 0u };
         m_list->SetComputeRoot32BitConstants(2, 4, &ec, 0);
         m_list->Dispatch((outW + 7) / 8, (outH + 7) / 8, 1);
         Transition(m_unsharpened, D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE, D3D12_RESOURCE_STATE_UNORDERED_ACCESS);
@@ -806,13 +866,15 @@ bool SrEngine::Run(ID3D12Resource* in, uint32_t inW, uint32_t inH, DXGI_FORMAT i
         m_list->SetComputeRootDescriptorTable(0, gpuIn);
         m_list->SetComputeRootDescriptorTable(1, gpuOut);
         // DLSS: CAS up to its maximum, amplified above it. FSR: RCAS did up to 1; this adds what is above it (CAS at full strength, scaled)
-        const SharpenConstants sc = fsr ? SharpenConstants{ outW, outH, 1.0f, sharpen - 1.0f } : SharpenConstants{ outW, outH, std::min(sharpen, 1.0f), std::max(sharpen, 1.0f) };
-        m_list->SetComputeRoot32BitConstants(2, 4, &sc, 0);
+        const SharpenConstants sc = fsr ? SharpenConstants{ outW, outH, 1.0f, sharpen - 1.0f, hdr ? 1u : 0u }
+                                     : SharpenConstants{ outW, outH, std::min(sharpen, 1.0f), std::max(sharpen, 1.0f), hdr ? 1u : 0u };
+        m_list->SetComputeRoot32BitConstants(2, 5, &sc, 0);
         m_list->Dispatch((outW + 7) / 8, (outH + 7) / 8, 1);
         Transition(source, D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE, D3D12_RESOURCE_STATE_UNORDERED_ACCESS);
     }
 
     Transition(in, D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE, D3D12_RESOURCE_STATE_COMMON);
+    if (hdr) Transition(m_view, D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE, D3D12_RESOURCE_STATE_UNORDERED_ACCESS);
     if (flow) Transition(flow, D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE, D3D12_RESOURCE_STATE_COMMON);
     Transition(out, D3D12_RESOURCE_STATE_UNORDERED_ACCESS, D3D12_RESOURCE_STATE_COMMON);
     m_list->EndQuery(m_timestamps, D3D12_QUERY_TYPE_TIMESTAMP, slot * 4 + 3);
