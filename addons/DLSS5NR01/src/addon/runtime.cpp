@@ -97,8 +97,11 @@ bool g_presentWait = false;   // ...and each compose waits for its own frame's r
 uint64_t g_tapsSeen = 0, g_presentIndex = 0, g_presentOwn = 0, g_presentEarlier = 0, g_tapSeenAtMs = 0;
 int g_presentsWithoutTap = 0;
 ID3D11Device* g_presentHookTriedOn = nullptr;   // the device the Present hook was last tried from (once per device, not every pass)
+void ForgetPair();
+
 void ForgetDevice() {   // under g_frameMutex
     screenshot::Forget();
+    ForgetPair();
     g_recorder.Forget();
     g_bridge.Shutdown(); g_compose.Shutdown(); g_tap.Reset();
     g_presentMode = false; g_tapsSeen = 0; g_presentsWithoutTap = 0; g_presentHookTriedOn = nullptr;
@@ -369,6 +372,23 @@ void ApplyLookNow(const std::string& name, const std::string& data, const char* 
     Log("%s: preset '%s'%s", why, name.c_str(), rebuild ? " (working scale changed: the model rebuilds)" : "");
 }
 
+// ---- the upscalers' before / after pair (Ctrl+Shift+F11, or the panel's button): the upscaled picture at the next pass that replaces NIS,
+// then NIS's own at the pass after (the upscaler steps aside for that one pass, and the post-dispatch callback takes NIS's result), saved
+// as "<game>_<date>_DLSS.png" (or _FSR) and "..._NIS.png". Render thread only, except the request.
+std::atomic<bool> g_pairRequested{ false };
+int g_pairStep = 0;                  // 0 none; 1 waiting to take the upscaled picture; 2 NIS's next; 3 NIS's taken after its dispatch
+int g_pairWaited = 0;                // passes waited in step 1 (no upscaled picture comes when the upscaler is not replacing NIS)
+std::wstring g_pairBase;
+ID3D11Resource* g_pairOut = nullptr; D3D11_BOX g_pairBox{}; DXGI_FORMAT g_pairFormat = DXGI_FORMAT_UNKNOWN; uint32_t g_pairEncoding = 0; float g_pairWhite = 200.0f;
+
+void SafeReleasePair() { if (g_pairOut) { g_pairOut->Release(); g_pairOut = nullptr; } }
+void ForgetPair() { SafeReleasePair(); g_pairStep = 0; }   // the device is going away (under g_frameMutex)
+
+D3D11_BOX PairBox(const NisPass& pass) {   // the part of NIS's output the picture is in (the whole of it, or its output viewport)
+    D3D11_BOX b{}; b.left = pass.Partial() ? pass.outX : 0; b.top = pass.Partial() ? pass.outY : 0; b.right = b.left + pass.outW; b.bottom = b.top + pass.outH; b.back = 1;
+    return b;
+}
+
 void ReadHotkeys() {
     bool on; int keys[7];
     { std::lock_guard<std::mutex> lock(g_settingsMutex);   // only what is needed: a copy of the whole Config would allocate at every present
@@ -381,10 +401,11 @@ void ReadHotkeys() {
         const bool down = modifiers && keys[i] > 0 && (GetAsyncKeyState(keys[i]) & 0x8000);
         // the upscalers have no split view, looks or screenshots: only before / after and the sharpening keys act there (a look could
         // otherwise overwrite the upscaler's sharpening with one saved for Neural Rendering)
-        const bool applies = !kScalerAddon || i == 0 || i == 2 || i == 3 || i == 6;
+        const bool applies = !kScalerAddon || i == 0 || i == 2 || i == 3 || i == 5 || i == 6;   // (5, the screenshot key: the before / after pair there)
         if (down && !wasDown[i] && applies) {
             if (i == 0) { g_compare = g_compare == 2 ? 0 : 2; ShowMarker(g_compare == 2 ? 2 : 1); Log("hotkey: %s", g_compare == 2 ? "original only" : "enhanced"); }
             else if (i == 1) { g_compare = g_compare == 1 ? 0 : 1; ShowMarker(g_compare == 1 ? 3 : 1); Log("hotkey: %s", g_compare == 1 ? "split view" : "enhanced"); }
+            else if (i == 5 && kScalerAddon) { g_pairRequested = true; Log("hotkey: before / after pair"); }
             else if (i == 5) { screenshot::Request(); Log("hotkey: screenshot"); }   // no corner square: it would be in the picture
             else if (i == 6) { Log("hotkey: save the recording"); SaveRecording(); }   // no corner square either: it would be recorded
             else if (i == 4) {
@@ -935,6 +956,19 @@ bool ScalerPass(ID3D11DeviceContext* ctx, uint32_t x, uint32_t y, uint32_t z) {
         return false;
     }
     ++g_nisSeen; ++g_nisSinceTap;
+    screenshot::Tick(ctx);
+    if (g_pairRequested.exchange(false) && !g_pairStep) {
+        std::string game; { std::lock_guard<std::mutex> lock(g_settingsMutex); game = g_scalerGame; }
+        g_pairBase = screenshot::PairBase(game); g_pairStep = 1; g_pairWaited = 0;
+    }
+    if (g_pairStep == 2) {   // NIS's half: this pass runs as NIS, and its result is taken right after its dispatch (OnPostPass)
+        SafeReleasePair();
+        g_pairOut = pass.out; g_pairOut->AddRef();
+        g_pairBox = PairBox(pass); g_pairFormat = Bridge::ViewFormat(pass.outFmt); g_pairEncoding = g_link.Encoding(); g_pairWhite = g_link.White();
+        g_pairStep = 3;
+        ReleaseNisPass(pass);
+        return false;
+    }
     FollowRuntimeChoice();
     if ((g_nisSeen & 63u) == 1) FollowScalerGame(pass.inW, pass.inH);
     g_scaleInW = pass.inW; g_scaleInH = pass.inH; g_scaleOutW = pass.outW; g_scaleOutH = pass.outH;
@@ -1009,6 +1043,13 @@ bool ScalerPass(ID3D11DeviceContext* ctx, uint32_t x, uint32_t y, uint32_t z) {
                 g_passStep = "after Upscale";   // the frame as DLSS or FSR got it
                 if (flow) flow->Release();
                 if (replaced) ++g_upscaled;
+                if (g_pairStep == 1) {   // the upscaled half: NIS's output as the upscaler just wrote it
+                    if (replaced) {
+                        const std::wstring path = g_pairBase + L"_" + (kFsrScaler ? std::wstring(L"FSR") : std::wstring(L"DLSS")) + L".png";
+                        if (screenshot::Capture(ctx, pass.out, PairBox(pass), Bridge::ViewFormat(pass.outFmt), path, g_link.Encoding(), g_link.White())) g_pairStep = 2;
+                        else { g_pairStep = 0; Log("before / after pair: the upscaled picture could not be copied"); }
+                    } else if (++g_pairWaited > 240) { g_pairStep = 0; Log("before / after pair not taken: the upscaler is not replacing NIS"); }
+                }
                 if (!replaced && g_sr.IsFailed()) SetStatus(g_sr.LastError());
                 ++g_linkTries;
                 if (!replaced && g_link.LastRefusedFormat())
@@ -1104,6 +1145,18 @@ void StopScaler() {
     Log("%s upscaler: %.2f ms a frame on the GPU at the end (motion %.2f ms of it)", kUpscalerName, g_sr.GpuMs(), g_sr.MotionMs());
     Log("%s upscaler stopped: the link in %.0f ms, the engine in %.0f ms%s", kUpscalerName, (b.QuadPart - a.QuadPart) * 1000.0 / f.QuadPart,
         (c.QuadPart - b.QuadPart) * 1000.0 / f.QuadPart, clean ? "" : " (the GPU had not finished: its teardown is left for Lossless Scaling's exit)");
+}
+
+// After each of Lossless Scaling's passes (the upscalers only): NIS's half of a before / after pair, taken right after NIS wrote it.
+void OnPostPass(uint32_t, uint32_t, uint32_t, void*) {
+    if (!kScalerAddon || g_pairStep != 3) return;
+    auto* const ctx = static_cast<ID3D11DeviceContext*>(g_host ? g_host->GetDispatchingContext() : nullptr);
+    std::lock_guard<std::mutex> lock(g_frameMutex);
+    if (g_pairStep != 3 || !g_pairOut || !ctx) return;
+    if (!screenshot::Capture(ctx, g_pairOut, g_pairBox, g_pairFormat, g_pairBase + L"_NIS.png", g_pairEncoding, g_pairWhite))
+        Log("before / after pair: NIS's picture could not be copied");
+    SafeReleasePair();
+    g_pairStep = 0;
 }
 
 bool OnPass(uint32_t x, uint32_t y, uint32_t z, void*) {
@@ -1235,6 +1288,8 @@ void FollowModelChoice() {
     ScanRequirements();
     RestartEngine();
 }
+
+void RequestPair() { g_pairRequested = true; }   // the panel's button (the pair is taken at the next passes)
 
 std::string ScalerEngineText() {
     if (g_srStarting) return "starting";

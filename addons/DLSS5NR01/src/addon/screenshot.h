@@ -29,5 +29,18 @@ std::string LastResult(bool& ok);
 
 // For the test: the conversion of one row of a presented buffer to 8-bit BGRA with full alpha. False for a format it cannot convert.
 bool ToBgra8(DXGI_FORMAT format, const void* row, unsigned width, unsigned char* out);
+// The same for an HDR frame (encoding 1 scRGB, 2 HDR10; white: the SDR white in nits): its SDR view, the curve engine/hdr_hlsl.h uses, so
+// highlights roll off instead of being cut. Encoding 0 is ToBgra8.
+bool ToBgra8Sdr(DXGI_FORMAT format, const void* row, unsigned width, uint32_t encoding, float white, unsigned char* out);
+
+// ---- pictures taken now, of part of a texture (the upscalers' before / after pair, at the NIS pass)
+// The region is copied on the GPU at once, read back at a later Tick without waiting for the GPU, and written as a PNG on a thread of its
+// own at `path`. viewFormat: how to read the texture (a typeless one has none of its own). HDR pictures are saved in their SDR view.
+bool Capture(ID3D11DeviceContext* ctx, ID3D11Resource* source, const D3D11_BOX& region, DXGI_FORMAT viewFormat, const std::wstring& path,
+             uint32_t encoding, float white);
+void Tick(ID3D11DeviceContext* ctx);   // on the render thread, at each pass: finishes the captures whose copies are done
+void ForgetCaptures();                  // the device is going away
+// "<folder>\<game>_<date>" without an extension (the pair adds "_NIS.png" and "_DLSS.png" or "_FSR.png").
+std::wstring PairBase(const std::string& game);
 
 } // namespace nr::screenshot

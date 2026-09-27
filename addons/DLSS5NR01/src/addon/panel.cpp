@@ -592,9 +592,17 @@ void DrawPanel() {
             if (ImGui::Combo(label, &idx, names, 12)) { *vk = VK_F1 + idx; changed = true; }
         };
         fkey("Before / after", &c.keyAB); fkey("Sharpen -", &c.keySharpDn); fkey("Sharpen +", &c.keySharpUp); fkey("Save the recording", &c.keyRecord);
+        fkey("Before / after pictures", &c.keyShot);
         auto fname = [](int vk) { static char b[4][8]; static int n = 0; char* o = b[n++ & 3]; snprintf(o, 8, "F%d", vk - VK_F1 + 1); return (const char*)o; };
-        Note("Now: Ctrl+Shift+%s before/after  |  %s / %s sharpen - / +  |  %s save the recording  (%s)", fname(c.keyAB), fname(c.keySharpDn), fname(c.keySharpUp),
-             fname(c.keyRecord), c.hotkeys ? "hotkeys on" : "hotkeys OFF: tick the box above");
+        Note("Now: Ctrl+Shift+%s before/after  |  %s / %s sharpen - / +  |  %s save the recording  |  %s before/after pictures  (%s)", fname(c.keyAB),
+             fname(c.keySharpDn), fname(c.keySharpUp), fname(c.keyRecord), fname(c.keyShot), c.hotkeys ? "hotkeys on" : "hotkeys OFF: tick the box above");
+        if (ImGui::SmallButton("Save before / after pictures")) RequestPair();
+        Tip("Two PNGs of the same moment: the upscaled picture and Lossless Scaling's NIS (one frame of NIS shows on screen while it is taken). "
+            "Windows' own screenshots show the game's window, not Lossless Scaling's picture. HDR games are saved in their SDR view.");
+        ImGui::SameLine();
+        if (ImGui::SmallButton("Open the pictures folder")) ShellExecuteW(nullptr, L"open", screenshot::Folder().c_str(), nullptr, nullptr, SW_SHOWNORMAL);
+        { bool ok; const std::string msg = screenshot::LastResult(ok);
+          if (!msg.empty()) { ImGui::PushStyleColor(ImGuiCol_Text, ok ? eam::ui::theme::V(eam::ui::theme::kAccent) : eam::ui::theme::V(eam::ui::theme::kWarn)); ImGui::TextWrapped("%s", msg.c_str()); ImGui::PopStyleColor(); } }
     }
     if (!kScalerAddon && eam::ui::SectionHeader("Compare and hotkeys")) {
         int cm = g_compare; const char* cms[] = { "Enhanced", "Split: left original | right enhanced", "Original only (before)" };

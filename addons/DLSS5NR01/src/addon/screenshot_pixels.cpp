@@ -1,5 +1,6 @@
 // The conversion of a presented buffer's rows to 8-bit BGRA with full alpha, for the PNG (kept apart so the offline test can use it alone).
 #include "addon/screenshot.h"
+#include <cmath>
 #include <cstdint>
 #include <cstring>
 
@@ -18,6 +19,18 @@ float HalfToFloat(uint16_t h) {
     return f;
 }
 unsigned char Byte(float v) { return static_cast<unsigned char>(v <= 0.0f ? 0 : v >= 1.0f ? 255 : v * 255.0f + 0.5f); }
+
+// engine/hdr_hlsl.h's ToSdr, on the CPU: light relative to the SDR white, the identity up to 0.75 and brighter rolled off into the rest
+// of 0..1, then sRGB encoding
+float Compress(float x) { const float k = 0.75f; return x <= k ? x : k + (1.0f - k) * (1.0f - std::exp(-(x - k) / (1.0f - k))); }
+float SrgbEncode(float l) { l = l < 0.0f ? 0.0f : l > 1.0f ? 1.0f : l; return l <= 0.0031308f ? l * 12.92f : 1.055f * std::pow(l, 1.0f / 2.4f) - 0.055f; }
+float PqToNits(float e) {
+    const float m1 = 0.1593017578125f, m2 = 78.84375f, c1 = 0.8359375f, c2 = 18.8515625f, c3 = 18.6875f;
+    const float p = std::pow(e < 0.0f ? 0.0f : e > 1.0f ? 1.0f : e, 1.0f / m2);
+    const float num = p - c1 > 0.0f ? p - c1 : 0.0f;
+    return 10000.0f * std::pow(num / (c2 - c3 * p), 1.0f / m1);
+}
+unsigned char SdrByte(float linearToWhite) { return Byte(SrgbEncode(Compress(linearToWhite > 0.0f ? linearToWhite : 0.0f))); }
 
 } // namespace
 
@@ -47,6 +60,31 @@ bool ToBgra8(DXGI_FORMAT format, const void* row, unsigned width, unsigned char*
     default:
         return false;
     }
+}
+
+bool ToBgra8Sdr(DXGI_FORMAT format, const void* row, unsigned width, uint32_t encoding, float white, unsigned char* out) {
+    if (encoding == 0) return ToBgra8(format, row, width, out);
+    const auto* in = static_cast<const unsigned char*>(row);
+    const float w = white > 1.0f ? white : 200.0f;
+    if (encoding == 1 && (format == DXGI_FORMAT_R16G16B16A16_FLOAT || format == DXGI_FORMAT_R16G16B16A16_TYPELESS)) {   // scRGB: 1.0 = 80 nits
+        const float scale = 80.0f / w;
+        for (unsigned x = 0; x < width; ++x) {
+            uint16_t c[4]; memcpy(c, in + x * 8, 8);
+            out[x * 4] = SdrByte(HalfToFloat(c[2]) * scale); out[x * 4 + 1] = SdrByte(HalfToFloat(c[1]) * scale);
+            out[x * 4 + 2] = SdrByte(HalfToFloat(c[0]) * scale); out[x * 4 + 3] = 255;
+        }
+        return true;
+    }
+    if (encoding == 2 && (format == DXGI_FORMAT_R10G10B10A2_UNORM || format == DXGI_FORMAT_R10G10B10A2_TYPELESS)) {   // HDR10: PQ, Rec.2020
+        for (unsigned x = 0; x < width; ++x) {
+            uint32_t v; memcpy(&v, in + x * 4, 4);
+            const float r = PqToNits((v & 1023) / 1023.0f), g = PqToNits(((v >> 10) & 1023) / 1023.0f), b = PqToNits(((v >> 20) & 1023) / 1023.0f);
+            const float r7 = 1.6605f * r - 0.5876f * g - 0.0728f * b, g7 = -0.1246f * r + 1.1329f * g - 0.0083f * b, b7 = -0.0182f * r - 0.1006f * g + 1.1187f * b;
+            out[x * 4] = SdrByte(b7 / w); out[x * 4 + 1] = SdrByte(g7 / w); out[x * 4 + 2] = SdrByte(r7 / w); out[x * 4 + 3] = 255;
+        }
+        return true;
+    }
+    return ToBgra8(format, row, width, out);   // a format with no HDR meaning: as it is
 }
 
 } // namespace nr::screenshot

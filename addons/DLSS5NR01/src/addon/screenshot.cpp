@@ -127,6 +127,73 @@ void Finish(ID3D11DeviceContext* ctx, bool wait) {
 
 } // namespace
 
+// ---- pictures taken now (Capture): their own list, apart from the present's screenshot
+namespace {
+struct Captured { ID3D11Texture2D* staging = nullptr; DXGI_FORMAT format = DXGI_FORMAT_UNKNOWN; unsigned w = 0, h = 0; int ticks = 0; std::wstring path;
+                  uint32_t encoding = 0; float white = 200.0f; };
+std::vector<Captured> g_captures;   // render thread only (under g_frameMutex)
+}
+
+std::wstring PairBase(const std::string& game) {
+    std::wstring path = NewPath(game);   // "...\<game>_<date>.png", free
+    if (path.size() > 4) path.resize(path.size() - 4);
+    return path;
+}
+
+bool Capture(ID3D11DeviceContext* ctx, ID3D11Resource* source, const D3D11_BOX& region, DXGI_FORMAT viewFormat, const std::wstring& path,
+             uint32_t encoding, float white) {
+    if (!ctx || !source || region.right <= region.left || region.bottom <= region.top) return false;
+    ID3D11Texture2D* tex = nullptr;
+    if (FAILED(source->QueryInterface(IID_PPV_ARGS(&tex)))) return false;
+    D3D11_TEXTURE2D_DESC desc; tex->GetDesc(&desc); tex->Release();
+    if (desc.SampleDesc.Count != 1) return false;
+    D3D11_TEXTURE2D_DESC s{}; s.Width = region.right - region.left; s.Height = region.bottom - region.top; s.MipLevels = 1; s.ArraySize = 1;
+    s.Format = desc.Format; s.SampleDesc = { 1, 0 }; s.Usage = D3D11_USAGE_STAGING; s.CPUAccessFlags = D3D11_CPU_ACCESS_READ;
+    ID3D11Device* dev = nullptr; ctx->GetDevice(&dev);
+    ID3D11Texture2D* staging = nullptr;
+    const bool made = dev && SUCCEEDED(dev->CreateTexture2D(&s, nullptr, &staging));
+    if (dev) dev->Release();
+    if (!made) { SetResult("The picture could not be copied.", false); return false; }
+    D3D11_BOX box = region; box.front = 0; box.back = 1;
+    ctx->CopySubresourceRegion(staging, 0, 0, 0, 0, source, 0, &box);
+    g_captures.push_back({ staging, viewFormat, s.Width, s.Height, 0, path, encoding, white });
+    return true;
+}
+
+void Tick(ID3D11DeviceContext* ctx) {
+    for (size_t i = 0; i < g_captures.size();) {
+        Captured& c = g_captures[i];
+        D3D11_MAPPED_SUBRESOURCE mapped{};
+        const HRESULT hr = ctx->Map(c.staging, 0, D3D11_MAP_READ, ++c.ticks >= kWaitPresents ? 0 : D3D11_MAP_FLAG_DO_NOT_WAIT, &mapped);
+        if (hr == DXGI_ERROR_WAS_STILL_DRAWING) { ++i; continue; }
+        const Captured done = c;
+        g_captures.erase(g_captures.begin() + static_cast<std::ptrdiff_t>(i));
+        if (FAILED(hr)) { done.staging->Release(); SetResult("The picture could not be read back from the graphics card.", false); continue; }
+        const size_t rowBytes = static_cast<size_t>(done.w) * (done.format == DXGI_FORMAT_R16G16B16A16_FLOAT || done.format == DXGI_FORMAT_R16G16B16A16_TYPELESS ? 8 : 4);
+        std::vector<unsigned char> raw(rowBytes * done.h);
+        for (unsigned y = 0; y < done.h; ++y) memcpy(raw.data() + y * rowBytes, static_cast<const unsigned char*>(mapped.pData) + static_cast<size_t>(y) * mapped.RowPitch, rowBytes);
+        ctx->Unmap(done.staging, 0);
+        done.staging->Release();
+        g_writing = true;
+        std::thread([raw = std::move(raw), done, rowBytes] {   // the conversion (HDR: its SDR view) and the PNG, off the render thread
+            std::vector<unsigned char> bgra(static_cast<size_t>(done.w) * done.h * 4);
+            bool converted = true;
+            for (unsigned y = 0; y < done.h && converted; ++y)
+                converted = ToBgra8Sdr(done.format, raw.data() + y * rowBytes, done.w, done.encoding, done.white, bgra.data() + static_cast<size_t>(y) * done.w * 4);
+            std::string error;
+            if (!converted) { SetResult("Frames in this format cannot be saved yet.", false); Log("screenshot: format %d cannot be saved", (int)done.format); }
+            else if (WritePng(done.path, bgra, done.w, done.h, error)) { SetResult("Saved " + Utf8(done.path), true); Log("screenshot: %s", Utf8(done.path).c_str()); }
+            else { SetResult("Not saved: " + error, false); Log("screenshot failed: %s", error.c_str()); }
+            g_writing = false;
+        }).detach();
+    }
+}
+
+void ForgetCaptures() {
+    for (Captured& c : g_captures) if (c.staging) c.staging->Release();
+    g_captures.clear();
+}
+
 void Request() { g_requested = true; }
 void RequestSnapshot() { g_snapshotRequested = true; }
 
@@ -160,6 +227,7 @@ void OnPresent(ID3D11DeviceContext* ctx, IDXGISwapChain* chain, const std::strin
 }
 
 void Forget() {
+    ForgetCaptures();
     if (g_pending.staging) { g_pending.staging->Release(); g_pending = {}; g_writing = false; }
 }
 

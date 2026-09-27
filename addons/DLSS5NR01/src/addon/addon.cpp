@@ -122,7 +122,10 @@ void Start(IHost* host, ImGuiContext* ctx, void* allocFunc, void* freeFunc, void
     // Lossless Scaling's passes come from the manager's dispatch callback; the present hook needs a device to find DXGI's table, so it is put
     // in place at the first tapped frame. No device is taken from the host here: the newest one it has seen may be gone already (Lossless
     // Scaling makes and drops devices as it starts and stops scaling); devices are only touched in the events or from a live pass.
-    if (host->GetHostVersion() >= 0x010100) host->SetPreDispatchCallback(OnPass, nullptr);
+    if (host->GetHostVersion() >= 0x010100) {
+        host->SetPreDispatchCallback(OnPass, nullptr);
+        if (kScalerAddon) host->SetPostDispatchCallback(OnPostPass, nullptr);   // NIS's half of the before / after pair
+    }
     else SwitchOff("needs LS Addon Manager with addon API 1.1 or newer (for its dispatch callback)");
 }
 
@@ -154,6 +157,7 @@ EAM_EXPORT void AddonShutdown() {
     // The manager waits for a pass already in the callback before the call returns.
     if (g_host) {
         g_host->SetPreDispatchCallback(nullptr, nullptr);
+        if (kScalerAddon) g_host->SetPostDispatchCallback(nullptr, nullptr);
         g_host->UnsubscribeEvent(EAM_EVENT_D3D11_DEVICE_READY, OnDeviceEvent);
         g_host->UnsubscribeEvent(EAM_EVENT_D3D11_DEVICE_CHANGED, OnDeviceEvent);
     }

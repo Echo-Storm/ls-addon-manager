@@ -2,6 +2,9 @@
 
 ## Unreleased
 
+- **Before / after pictures in the upscalers.** Ctrl+Shift+F11 (or the button under *Compare and hotkeys*) saves two PNGs of the same
+  moment to Pictures\Lossless Scaling: the upscaled picture and Lossless Scaling's NIS (one frame of NIS shows while it is taken). Windows'
+  own screenshots show the game's window, not Lossless Scaling's picture. HDR games are saved in their SDR view, highlights rolled off.
 - **The updater cleans up after itself.** Each update left its download (about 110 MB) in the temporary folder. Downloads of versions
   already installed, and of other versions than the one being downloaded, are now removed (at a download's start and once a day).
 - **Neural Rendering on its own thread too.** NVIDIA's model is now called from a thread of the engine's own; Lossless Scaling's render

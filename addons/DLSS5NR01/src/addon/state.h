@@ -108,6 +108,8 @@ std::wstring ChosenRuntimeFile();
 void ChooseRuntimeFile(const std::wstring& path);   // sets the setting the Runtimes list sets; the engine follows it   // the upscalers: Neural Rendering is on too (its Picture controls are in charge of the tone then)   // the frame path's device state, as at a device change                      // on the card the frames come from
 void OnDeviceEvent(uint32_t id, const void* data, uint32_t size, void* user);
 bool OnPass(uint32_t x, uint32_t y, uint32_t z, void* user);   // the manager's pre-dispatch callback
+void OnPostPass(uint32_t x, uint32_t y, uint32_t z, void* user);   // its post-dispatch callback (the upscalers: NIS's half of the before / after pair)
+void RequestPair();   // the upscalers' before / after pair (the panel's button)
 std::string PassText(const DispatchSig& sig);                    // the views of a pass, for the log and the panel
 void ResetWatchdog();
 

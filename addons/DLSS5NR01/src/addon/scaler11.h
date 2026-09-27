@@ -82,6 +82,7 @@ public:
     // upscaler, the sharpening and the picture controls all see the 0..1 pictures they are made for, and highlights keep their brightness.
     void SetEncoding(uint32_t encoding, float white) { m_encoding = encoding; m_white = white; }
     uint32_t Encoding() const { return m_encoding; }
+    float White() const { return m_white; }
     // The frame the last Upscale handed to the engine, as the grab pass wrote it (for the recorder: NIS's own input may be a texture a plain
     // copy reads as black, see the grab pass), or null when none was handed over. Taken once.
     ID3D11Texture2D* TakeGrabbed() { ID3D11Texture2D* t = m_grabbed; m_grabbed = nullptr; return t; }
