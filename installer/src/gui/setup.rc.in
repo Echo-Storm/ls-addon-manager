@@ -5,6 +5,8 @@
 101 RCDATA "@SETUP_PAYLOAD_RC@"
 #endif
 
+// ProductName "LS Addon Manager Setup" and ProductVersion (the release's number) are checked by every released manager's updater from 0.9.7
+// on before it runs a downloaded Setup (manager/src/update/updater.cpp): keep that name, or no one can update to this release from inside.
 VS_VERSION_INFO VERSIONINFO
  FILEVERSION @SETUP_VERSION_CSV@
  PRODUCTVERSION @SETUP_VERSION_CSV@

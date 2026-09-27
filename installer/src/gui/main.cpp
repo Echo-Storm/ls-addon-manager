@@ -8,6 +8,8 @@
 //                                                                   the manager's update: waits (a window with Cancel) until Lossless Scaling
 //                                                                   running from that folder has closed, then updates it as the wizard does;
 //                                                                   --restart starts Lossless Scaling again afterwards
+//                                                                   KEEP THESE FLAGS: every released manager from 0.9.7 on starts a
+//                                                                   newer Setup with exactly them (manager/src/update/updater.cpp)
 //   LSAddonManagerSetup.exe --shot <dir> --folder <fake folder>     the README's pictures: the start page, then (after installing into that folder)
 //                                                                   the result page, saved as setup-start.bmp and setup-done.bmp; the window
 //                                                                   is kept off the screen, nothing is remembered. For a throwaway folder only.
