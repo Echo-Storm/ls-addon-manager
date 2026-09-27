@@ -217,6 +217,12 @@ int main(int argc, char** argv) {
     const int worstShown = Arg(argc, argv, "worst", 3);
     const bool xess = ArgText(argc, argv, "gen") == "xess";
     const char* const G = xess ? "XeSS" : "FSR";
+    // depthdir=<folder>: depth per frame (depth_NNNNN.bin, width x height floats, 1 = near: tools\depth_maps.py) in place of a flat depth
+    const std::wstring depthDir = Wide(ArgText(argc, argv, "depthdir").c_str());
+    // depthinv=0: the depth files hold 1 = far (the generators told depth is not inverted); for checking how depth is read
+    const bool depthNearIsOne = Arg(argc, argv, "depthinv", 1) != 0;
+    // motion=none: the generators get zero motion vectors (to see how much they rely on ours, against their own optical flow)
+    const bool noMotion = ArgText(argc, argv, "motion") == "none";
     if (count < 3) { printf("the recording has too few frames (%zu)\n", rec.Count()); return 2; }
     std::wstring exeDir; { wchar_t exe[MAX_PATH]; GetModuleFileNameW(nullptr, exe, MAX_PATH); exeDir = exe; exeDir = exeDir.substr(0, exeDir.find_last_of(L'\\')); }
 
@@ -243,21 +249,32 @@ int main(int argc, char** argv) {
     ID3D12Resource* upload = g.Buffer(total, D3D12_HEAP_TYPE_UPLOAD, D3D12_RESOURCE_STATE_GENERIC_READ);
     ID3D12Resource* readback = g.Buffer(total, D3D12_HEAP_TYPE_READBACK, D3D12_RESOURCE_STATE_COPY_DEST);
     if (!cur || !motion || !distrust || !depth || !upload || !readback) { printf("textures could not be made\n"); return 4; }
-    {   // the flat depth (Lossless Scaling has none), once
-        D3D12_RESOURCE_DESC dd = depth->GetDesc(); D3D12_PLACED_SUBRESOURCE_FOOTPRINT dfp{}; UINT drows = 0; UINT64 drow = 0, dtotal = 0;
-        g.dev->GetCopyableFootprints(&dd, 0, 1, 0, &dfp, &drows, &drow, &dtotal);
-        ID3D12Resource* dup = g.Buffer(dtotal, D3D12_HEAP_TYPE_UPLOAD, D3D12_RESOURCE_STATE_GENERIC_READ);
-        uint8_t* m = nullptr; dup->Map(0, nullptr, reinterpret_cast<void**>(&m));
-        const std::vector<float> row(W, 0.5f);
-        for (UINT y = 0; y < drows; ++y) memcpy(m + dfp.Offset + y * dfp.Footprint.RowPitch, row.data(), W * 4);
-        dup->Unmap(0, nullptr);
-        g.Begin();
+    // the depth: flat (Lossless Scaling has none), or each frame's from depthdir=; written on g.list (open), left readable
+    D3D12_RESOURCE_DESC depthDesc = depth->GetDesc(); D3D12_PLACED_SUBRESOURCE_FOOTPRINT dfp{}; UINT drows = 0; UINT64 drow = 0, dtotal = 0;
+    g.dev->GetCopyableFootprints(&depthDesc, 0, 1, 0, &dfp, &drows, &drow, &dtotal);
+    ID3D12Resource* depthUpload = g.Buffer(dtotal, D3D12_HEAP_TYPE_UPLOAD, D3D12_RESOURCE_STATE_GENERIC_READ);
+    D3D12_RESOURCE_STATES depthState = D3D12_RESOURCE_STATE_COPY_DEST;
+    auto writeDepth = [&](const float* values) {   // W x H values; nullptr: flat
+        uint8_t* m = nullptr; depthUpload->Map(0, nullptr, reinterpret_cast<void**>(&m));
+        const std::vector<float> flat(W, 0.5f);
+        for (UINT y = 0; y < H; ++y) memcpy(m + dfp.Offset + y * dfp.Footprint.RowPitch, values ? values + static_cast<size_t>(y) * W : flat.data(), W * 4);
+        depthUpload->Unmap(0, nullptr);
+        g.Barrier(depth, depthState, D3D12_RESOURCE_STATE_COPY_DEST);
         D3D12_TEXTURE_COPY_LOCATION to{ depth, D3D12_TEXTURE_COPY_TYPE_SUBRESOURCE_INDEX }; to.SubresourceIndex = 0;
-        D3D12_TEXTURE_COPY_LOCATION from{ dup, D3D12_TEXTURE_COPY_TYPE_PLACED_FOOTPRINT }; from.PlacedFootprint = dfp;
+        D3D12_TEXTURE_COPY_LOCATION from{ depthUpload, D3D12_TEXTURE_COPY_TYPE_PLACED_FOOTPRINT }; from.PlacedFootprint = dfp;
         g.list->CopyTextureRegion(&to, 0, 0, 0, &from, nullptr);
-        g.Barrier(depth, D3D12_RESOURCE_STATE_COPY_DEST, D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE);
-        g.Submit(); dup->Release();
-    }
+        g.Barrier(depth, D3D12_RESOURCE_STATE_COPY_DEST, D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE); depthState = D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE;
+    };
+    g.Begin(); writeDepth(nullptr); g.Submit();
+    std::vector<float> depthValues;
+    auto loadDepth = [&](int recordingIndex) -> bool {
+        wchar_t name[40]; swprintf(name, 40, L"\\depth_%05d.bin", recordingIndex);
+        FILE* f = _wfopen((depthDir + name).c_str(), L"rb"); if (!f) return false;
+        depthValues.resize(static_cast<size_t>(W) * H);
+        const size_t got = fread(depthValues.data(), sizeof(float), depthValues.size(), f); fclose(f);
+        return got == depthValues.size();
+    };
+    if (!depthDir.empty()) printf("  depth from %ls (1 = near)\n", depthDir.c_str());
     auto readPicture = [&](ID3D12Resource* buffer, std::vector<uint8_t>& out) {
         out.resize(static_cast<size_t>(W) * H * 4);
         uint8_t* m = nullptr; buffer->Map(0, nullptr, reinterpret_cast<void**>(&m));
@@ -309,7 +326,7 @@ int main(int argc, char** argv) {
         if (const ffxReturnCode_t rc = fx.CreateContext(&chainCtx, &scd.header, nullptr); rc != FFX_API_RETURN_OK || !chain) { printf("FidelityFX's swap chain could not be made (code %u)\n", rc); return 4; }
         ffxCreateBackendDX12Desc backend{}; backend.header.type = FFX_API_CREATE_CONTEXT_DESC_TYPE_BACKEND_DX12; backend.device = g.dev;
         ffxCreateContextDescFrameGeneration create{}; create.header.type = FFX_API_CREATE_CONTEXT_DESC_TYPE_FRAMEGENERATION; create.header.pNext = &backend.header;
-        create.flags = 0; create.displaySize = { W, H }; create.maxRenderSize = { W, H }; create.backBufferFormat = FFX_API_SURFACE_FORMAT_R8G8B8A8_UNORM;
+        create.flags = depthDir.empty() || !depthNearIsOne ? 0u : static_cast<uint32_t>(FFX_FRAMEGENERATION_ENABLE_DEPTH_INVERTED); create.displaySize = { W, H }; create.maxRenderSize = { W, H }; create.backBufferFormat = FFX_API_SURFACE_FORMAT_R8G8B8A8_UNORM;
         if (fx.CreateContext(&ctx, &create.header, nullptr) != FFX_API_RETURN_OK || !ctx) { printf("FSR frame generation could not make its context\n"); return 4; }
         cfg.header.type = FFX_API_CONFIGURE_DESC_TYPE_FRAMEGENERATION;
         cfg.swapChain = chain; cfg.frameGenerationEnabled = true; cfg.allowAsyncWorkloads = false; cfg.onlyPresentGenerated = false;
@@ -412,7 +429,7 @@ int main(int argc, char** argv) {
         { decltype(&xefgSwapChainD3D12BuildPipelines) xBuild = nullptr;
           if (get(xBuild, "xefgSwapChainD3D12BuildPipelines")) printf("  XeSS frame generation: pipelines built (code %d)\n", static_cast<int>(xBuild(xefg, nullptr, 1, XEFG_SWAPCHAIN_INIT_FLAG_NONE))); }
         get(xStatus, "xefgSwapChainGetLastPresentStatus");
-        xefg_swapchain_d3d12_init_params_t ip{}; ip.pApplicationSwapChain = real; ip.initFlags = XEFG_SWAPCHAIN_INIT_FLAG_NONE; ip.maxInterpolatedFrames = 1;
+        xefg_swapchain_d3d12_init_params_t ip{}; ip.pApplicationSwapChain = real; ip.initFlags = depthDir.empty() || !depthNearIsOne ? XEFG_SWAPCHAIN_INIT_FLAG_NONE : XEFG_SWAPCHAIN_INIT_FLAG_INVERTED_DEPTH; ip.maxInterpolatedFrames = 1;
         ip.creationNodeMask = 1; ip.visibleNodeMask = 1; ip.uiMode = XEFG_SWAPCHAIN_UI_MODE_NONE;
         if (const xefg_swapchain_result_t rc = xInit(xefg, g.queue, &ip); rc != XEFG_SWAPCHAIN_RESULT_SUCCESS) { printf("XeSS frame generation could not start (code %d)\n", static_cast<int>(rc)); return 4; }
         if (xPtr(xefg, IID_PPV_ARGS(&proxy)) != XEFG_SWAPCHAIN_RESULT_SUCCESS || !proxy) { printf("XeSS frame generation gave no swap chain\n"); return 4; }
@@ -478,6 +495,17 @@ int main(int argc, char** argv) {
         g.Barrier(cur, D3D12_RESOURCE_STATE_COPY_DEST, D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE); curState = D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE;
         // the motion from the kept frame before to this one (the estimate keeps the frame before itself), left readable for the generator
         est.Record(g.list, 0, cur, DXGI_FORMAT_R8G8B8A8_UNORM, motion, distrust);
+        if (noMotion) {   // overwritten with zeros (a copy from an all-zero texture of the same format)
+            static ID3D12Resource* zero = nullptr;
+            if (!zero) zero = g.Texture(W, H, DXGI_FORMAT_R16G16_FLOAT, false, D3D12_RESOURCE_STATE_COPY_SOURCE);
+            g.Barrier(motion, D3D12_RESOURCE_STATE_UNORDERED_ACCESS, D3D12_RESOURCE_STATE_COPY_DEST);
+            g.list->CopyResource(motion, zero);
+            g.Barrier(motion, D3D12_RESOURCE_STATE_COPY_DEST, D3D12_RESOURCE_STATE_UNORDERED_ACCESS);
+        }
+        if (!depthDir.empty()) {
+            if (!loadDepth(first + i)) { printf("frame %d: no depth_%05d.bin in the depth folder\n", first + i, first + i); return 3; }
+            writeDepth(depthValues.data());
+        }
         g.Barrier(motion, D3D12_RESOURCE_STATE_UNORDERED_ACCESS, D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE);
         Score s; s.frame = first + i - 1;
         const float frameMs = i >= 2 ? static_cast<float>(times[i] - times[i - 2]) : 33.3f;

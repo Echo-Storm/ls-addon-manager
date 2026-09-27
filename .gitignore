@@ -34,3 +34,6 @@ addons/DLSS5NR01/external/*
 !addons/DLSS5NR01/external/ngx/
 build_setup/
 imgui.ini
+
+# the tools' own Python environment (tools\depth_maps.py)
+tools/.venv/
