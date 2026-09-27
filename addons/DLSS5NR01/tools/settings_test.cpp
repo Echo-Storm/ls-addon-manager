@@ -76,7 +76,20 @@ int main() {
     StandInHost host;
     Loaded fresh = LoadSettings(&host, "DLSS5NR01");
     Check("with nothing saved, every setting is its default", LookToText(fresh.config.p) == LookToText(NrParams()) && fresh.config.enabled && fresh.config.freshFlow &&
-          fresh.config.keyAB == VK_F6 && fresh.looks.empty());
+          fresh.config.keyAB == VK_F7 && fresh.config.keyRecord == VK_F1 && fresh.config.keyShot == VK_F4 && fresh.looks.empty());
+    {   // the hotkeys: settings saved before 0.9.8 with the old defaults move to the safer ones once; a key chosen by hand stays
+        StandInHost old;
+        old.values["keyAB"] = std::to_string(VK_F6); old.values["keySharpUp"] = std::to_string(VK_F9); old.values["keyRecord"] = std::to_string(VK_F5);
+        old.values["keyShot"] = std::to_string(VK_F11); old.values["keySplit"] = std::to_string(VK_F12);   // (F12: chosen by hand)
+        const Loaded moved = LoadSettings(&old, "DLSS5NR01");
+        Check("old default keys move to the safer ones (F6 to F7, F9 to F3, F5 to F1, F11 to F4)", moved.config.keyAB == VK_F7 && moved.config.keySharpUp == VK_F3 &&
+              moved.config.keyRecord == VK_F1 && moved.config.keyShot == VK_F4);
+        Check("...and a key chosen by hand stays", moved.config.keySplit == VK_F12);
+        StandInHost now;
+        now.values["keysVersion"] = "3"; now.values["keyAB"] = std::to_string(VK_F6); now.values["keyRecord"] = std::to_string(VK_F5);
+        const Loaded kept = LoadSettings(&now, "DLSS5NR01");
+        Check("once moved (keysVersion 3), F6 or F5 chosen again later stay", kept.config.keyAB == VK_F6 && kept.config.keyRecord == VK_F5);
+    }
     Config config; config.p = a; config.enabled = false; config.keySplit = VK_F11; config.games = { { "wowb.exe", "Night" } };
     config.tapMode = 1; config.tapSig = "1,2,3"; config.snippetPath = "D:\\model.dll"; config.watchdogMs = 55;
     SaveSettings(&host, "DLSS5NR01", config, { { "Night", LookToText(a) }, { "Day", "sharpen=0.2" } });

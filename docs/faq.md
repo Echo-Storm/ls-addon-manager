@@ -76,7 +76,7 @@ Yes, please: see [model-compatibility.md](model-compatibility.md).
 
 **The upscaler is on, but nothing changes.**
 In Lossless Scaling choose **NIS** as the Scaling Type: the upscalers take the place of that pass. The addon's panel says what it is doing,
-and when something is in the way, what (a card that is not NVIDIA's for DLSS, a frame format, a window layout). Ctrl+Shift+F6 switches
+and when something is in the way, what (a card that is not NVIDIA's for DLSS, a frame format, a window layout). Ctrl+Shift+F7 switches
 between the upscaler and NIS while you play.
 
 **Why is the difference smaller than in a game with DLSS built in?**

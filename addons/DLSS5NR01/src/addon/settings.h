@@ -44,7 +44,7 @@ struct Config {
     bool freshFlow = true;               // run the model once LSFG has this frame's own motion (off: at capture, with the frame before's)
     bool lsFirst = true;                 // give Lossless Scaling's GPU work priority over the model's
     bool hotkeys = true;                 // Ctrl+Shift + an F key, read at every present
-    int keyAB = VK_F6, keySplit = VK_F7, keySharpDn = VK_F8, keySharpUp = VK_F9, keyPreset = VK_F10, keyShot = VK_F4, keyRecord = VK_F5;
+    int keyAB = VK_F7, keySplit = VK_F8, keySharpDn = VK_F2, keySharpUp = VK_F3, keyPreset = VK_F10, keyShot = VK_F4, keyRecord = VK_F1;
     bool recordOn = false;               // the recorder (recorder.h): keep the last few seconds of frames ready to save
     float recordSeconds = 5.0f;
     int recordBudgetMb = 3072;           // at most this much memory for them (the oldest go first)

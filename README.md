@@ -65,7 +65,7 @@ Scaling wait for it.
   and a ghost guard that fades the result where the motion cannot be trusted.
 - **HDR games too:** 16-bit (scRGB) and 10-bit (HDR10) frames are worked on through an SDR view of them, and only the change goes back, so
   highlights keep their brightness. Automatic, with a *Frame encoding* setting for a setup it gets wrong.
-- **Compare while you play:** before / after, a split view, screenshots of what you see ([hotkeys](#hotkeys) Ctrl+Shift+F4 to F10).
+- **Compare while you play:** before / after, a split view, screenshots of what you see ([hotkeys](#hotkeys) Ctrl+Shift+F1 to F10).
 - **Auto quality:** keeps the model within a time budget by picking its resolution; changing it never stalls the game.
 - **Requirements check** and a **compatibility test** that tries the model on your card before you play.
 
@@ -135,7 +135,7 @@ covers the settings, what to expect and what to do when something is wrong.
   *modified* when the file is not as its maker signed it. Hover for the maker, the path and the SHA-256. **+** switches between the shipped
   file and others you add, while the game runs; *Shipped* is always the first choice, and updates never touch your files.
   <p align="center"><img src="docs/images/runtimes.png" alt="The Runtimes list with the FSR menu open: the shipped FSR 3.1.4 and FSR 4.1.1b" width="75%"></p>
-- **Record a bug.** Each addon can keep the last few seconds of the frames it receives and save them (Ctrl+Shift+F5) as a file that plays the
+- **Record a bug.** Each addon can keep the last few seconds of the frames it receives and save them (Ctrl+Shift+F1) as a file that plays the
   problem back on another computer.
 - **Each addon's own settings, inline**, with its live status in the list and in the status bar. Sliders reset on double-click, show a tick at their default, and
   fine-tune with Ctrl+scroll.
@@ -211,18 +211,19 @@ The Neural Rendering panel comes from the offline test host.</sub>
 ### Hotkeys
 
 They work while the game has focus. The game still sees the key too: most games ignore an F-key held with Ctrl+Shift, but one that acts on the
-F-key alone does it anyway (F11 switched Silent Hill f to full screen, so the screenshot key moved to F4). If a key clashes in your game, change it
+F-key alone does it anyway (F11 switched Silent Hill f to full screen). So the defaults, since 0.9.8, keep away from F5 and F9 (quicksave and
+quickload in many games), F6 (quicksave in Source games) and F11 (full screen). If a key clashes in your game, change it
 in the addon's *Compare and hotkeys* section.
 
 | Keys | What they do | Where |
 |------|--------------|-------|
 | Ctrl+Shift+F12 | Show or hide the manager window | the manager (Settings) |
-| Ctrl+Shift+F6 | Before / after: the original picture (or Lossless Scaling's NIS) against ours | all three addons |
-| Ctrl+Shift+F7 | Split view: the original at the left of a line, ours at the right | Neural Rendering |
-| Ctrl+Shift+F8 / F9 | Sharpening down / up | all three addons |
+| Ctrl+Shift+F7 | Before / after: the original picture (or Lossless Scaling's NIS) against ours | all three addons |
+| Ctrl+Shift+F8 | Split view: the original at the left of a line, ours at the right | Neural Rendering |
+| Ctrl+Shift+F2 / F3 | Sharpening down / up | all three addons |
 | Ctrl+Shift+F10 | The next saved look | Neural Rendering |
 | Ctrl+Shift+F4 | A screenshot of the picture as you see it (Neural Rendering); a before / after pair, upscaled and NIS (the upscalers) | All three |
-| Ctrl+Shift+F5 | Save the recording (the last few seconds, when *Recording* is on) | all three addons |
+| Ctrl+Shift+F1 | Save the recording (the last few seconds, when *Recording* is on) | all three addons |
 | Home | ReShade input passthrough on and off | the manager (Features) |
 
 ## Keeping it up to date
@@ -254,7 +255,7 @@ and version, as with any download). The check itself downloads nothing.
 | Neural Rendering says the model file is missing | It needs your own `nvngx_dlssnr.dll` next to `LosslessScaling.exe`. Use Setup's **Copy my nvngx_dlssnr.dll...** or the addon's **Browse for the model file...**, then **Test compatibility**. |
 | FSR 4 looks wrong, costs too much or does not start | Set *FSR version* back to **FSR 3.1.4 (AMD, shipped)** in the FSR Upscaler's panel (or **+** next to FSR in the Runtimes list). If a chosen file goes missing, the addon falls back to the shipped one by itself. |
 | The Runtimes list shows a circle or a cross | A circle means the addon is on and waits for a game to be scaled; a cross means the addon is off. A file is only loaded once Lossless Scaling scales a game with that addon on (for the upscalers, with **NIS** as the Scaling Type). |
-| Something looks wrong in a game | Turn on *Recording* in the addon's panel, make it happen, press **Ctrl+Shift+F5**, and attach the `.lsrec` file (in `Videos\Lossless Scaling`) to your report: it lets us play the problem back. |
+| Something looks wrong in a game | Turn on *Recording* in the addon's panel, make it happen, press **Ctrl+Shift+F1**, and attach the `.lsrec` file (in `Videos\Lossless Scaling`) to your report: it lets us play the problem back. |
 | An upscaler is on but the picture looks like NIS | Choose **NIS** as the Scaling Type in Lossless Scaling: the upscalers take the place of that pass. The panel's status line says what it is doing; the [upscalers' guide](addons/DLSS5NR01/docs/upscalers.md#when-something-is-wrong) has the rest. |
 | The DLSS Upscaler (or Neural Rendering) names a card that is not NVIDIA's | Lossless Scaling runs on that card, and DLSS needs an NVIDIA RTX card. In Lossless Scaling's settings set **Preferred GPU** to your NVIDIA card, or use the **FSR Upscaler**, which runs on any card. |
 | An addon says its runtime or the model "stopped responding" | NVIDIA's or AMD's code stopped on a frame; Lossless Scaling carries on without the addon. For FSR 4, choose **FSR 3.1.4** with **+** next to FSR in the Runtimes list. Then restart Lossless Scaling, and send us the addon's log from the `logs` folder. |

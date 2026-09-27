@@ -46,7 +46,7 @@ has the graphics card to spare for it. A post-process anti-aliasing (FXAA, CMAA)
   picks the runtime (the shipped one, or one added with **+** in the Runtimes list).
 - **Sharpening** (0.3 to start with): DLSS 4 has no sharpening of its own, so the DLSS addon sharpens its picture with the contrast-adaptive
   (CAS) formula; the FSR addon uses AMD's own RCAS. NIS sharpens too (Lossless Scaling's Sharpness), so without it the upscaler can look
-  softer next to NIS. 0.2 to 0.6 is the useful range. Ctrl+Shift+F8 / F9 lower and raise it in the game.
+  softer next to NIS. 0.2 to 0.6 is the useful range. Ctrl+Shift+F2 / F3 lower and raise it in the game.
 - **Motion**: *Measured from the frames* (the default), *Lossless Scaling's frame generation* (its flow: coarser, a quarter of the game's size,
   and only with frame generation on), or *None* (the upscaler assumes nothing moves: sharp when still, smeared when the camera turns; there to
   compare).
@@ -75,7 +75,7 @@ has the graphics card to spare for it. A post-process anti-aliasing (FXAA, CMAA)
   frame's own encoding, so highlights keep their brightness. Set SDR or HDR only if the picture comes out washed out, too dark or too
   bright; Technical status shows the frame's format and what was decided.
 - There is no Enable box in the panel: the upscaler is switched on and off in the manager's addon list, like every addon.
-- **Before / after** (Ctrl+Shift+F6): switches between the upscaler and Lossless Scaling's own NIS while you play. The hotkeys work only while
+- **Before / after** (Ctrl+Shift+F7): switches between the upscaler and Lossless Scaling's own NIS while you play. The hotkeys work only while
   the upscaler is actually upscaling.
 
 ## What it costs
@@ -122,7 +122,7 @@ The addon writes `logs\DLSS4DLAA.log` or `logs\FSR3UPSC.log` in the Lossless Sca
 | A black picture | Should not happen since 0.9.1. The log's `probe:` lines say how bright the frame the upscaler got and the picture it made are: 0 of 255 means black. Please report it with the log. |
 | Smear when moving | Check Motion is *Measured from the frames*. The log's `motion estimator:` lines give the average motion found and how much of the picture was marked untrusted. |
 | FSR 4 looks wrong, costs too much or does not start | Set *FSR version* back to FSR 3.1.4. A chosen runtime that has gone missing falls back to the shipped one by itself (the log says so). |
-| You want us to see it | Turn on *Recording* (the addon's panel), make it happen, press Ctrl+Shift+F5 and send the `.lsrec` file from `Videos\Lossless Scaling`: it holds the frames as they went to the upscaler, and we can play them back. |
+| You want us to see it | Turn on *Recording* (the addon's panel), make it happen, press Ctrl+Shift+F1 and send the `.lsrec` file from `Videos\Lossless Scaling`: it holds the frames as they went to the upscaler, and we can play them back. |
 | "... could not run: ..." in the panel | The runtime is missing from the addon's `dlss` or `fsr` folder (reinstall the addon), or, for DLSS, the card is not an NVIDIA RTX card. NIS runs as usual meanwhile. |
 
 ## How it works

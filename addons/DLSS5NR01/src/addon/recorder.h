@@ -1,5 +1,5 @@
 // The recorder: the last few seconds of the frames the addon receives, kept in memory (losslessly compressed) and saved as a .lsrec file on
-// request (the panel's button, Ctrl+Shift+F5). For bug reports that can be replayed offline (nr_hosttest replay=), tests and tuning on real
+// request (the panel's button, Ctrl+Shift+F1). For bug reports that can be replayed offline (nr_hosttest replay=), tests and tuning on real
 // footage, and comparisons. It records the frames as they come in, before anything of ours is done to them.
 //
 // Nothing ever waits: each frame is copied on the GPU into one of a few staging textures; a later call maps it without waiting (the GPU has

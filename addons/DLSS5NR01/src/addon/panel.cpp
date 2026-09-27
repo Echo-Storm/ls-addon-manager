@@ -382,10 +382,10 @@ void DrawPanel() {
         }
         changed |= SL("Sharpening", &c.p.sharpen, 0.0f, 1.0f, c.p.sharpen <= 0.001f ? "off" : "%.2f");
         if (kFsrScaler) Tip("FSR's own sharpening (AMD's RCAS), part of its upscaling pass; above about 0.6 an extra pass adds more than RCAS can. Lossless Scaling's "
-                            "NIS sharpens too (its Sharpness setting), so without it FSR can look softer next to NIS. 0.5 is a good start (Ctrl+Shift+F8 / F9 in the game).");
+                            "NIS sharpens too (its Sharpness setting), so without it FSR can look softer next to NIS. 0.5 is a good start (Ctrl+Shift+F2 / F3 in the game).");
         else Tip("Contrast-adaptive sharpening of DLSS's picture (the FidelityFX CAS formula), which costs a fraction of a millisecond; above about 0.6 its effect is amplified "
                  "past CAS's own maximum. DLSS has no sharpening of its own, while Lossless Scaling's NIS does (its Sharpness setting), so without it DLSS can look softer "
-                 "next to NIS. 0.5 is a good start (Ctrl+Shift+F8 / F9 in the game).");
+                 "next to NIS. 0.5 is a good start (Ctrl+Shift+F2 / F3 in the game).");
         // FSR 4 keeps its history its own way and takes none of FSR 3.1's tuning (nor the mask the slider widens): the slider would do nothing
         const bool fsr4 = kFsrScaler && GetScalerView().provider.rfind("4", 0) == 0;
         if (fsr4) ImGui::BeginDisabled();
@@ -585,7 +585,7 @@ void DrawPanel() {
         changed |= ImGui::Checkbox("Hotkeys: Ctrl+Shift + key (work while the game has focus and the upscaler runs)", &c.hotkeys);
         Tip("Switch between the upscaler and NIS, and change the sharpening, from inside the game. The Ctrl+Shift pair keeps them away from the game's own key bindings.");
         auto fkey = [&](const char* label, int* vk) {
-            int idx = *vk - VK_F1; if (idx < 0 || idx > 11) idx = 5;
+            int idx = *vk - VK_F1; if (idx < 0 || idx > 11) idx = 6;
             const char* names[] = { "F1", "F2", "F3", "F4", "F5", "F6", "F7", "F8", "F9", "F10", "F11", "F12" };
             const ImGuiStyle& st = ImGui::GetStyle();
             ImGui::SetNextItemWidth(ImGui::CalcTextSize("F12").x + st.FramePadding.x * 2.0f + ImGui::GetFrameHeight() + st.ItemInnerSpacing.x);
@@ -614,7 +614,7 @@ void DrawPanel() {
         changed |= ImGui::Checkbox("Hotkeys: Ctrl+Shift + key (work while the game has focus)", &c.hotkeys);
         Tip("Switch the compare view, sharpen and presets from inside the game. They are read while Lossless Scaling is presenting frames. The Ctrl+Shift pair keeps them away from the game's own key bindings.");
         auto fkey = [&](const char* label, int* vk) {
-            int idx = *vk - VK_F1; if (idx < 0 || idx > 11) idx = 5;
+            int idx = *vk - VK_F1; if (idx < 0 || idx > 11) idx = 6;
             const char* names[] = { "F1", "F2", "F3", "F4", "F5", "F6", "F7", "F8", "F9", "F10", "F11", "F12" };
             // wide enough for "F12" plus the arrow at any display scale (a fixed pixel width clipped the key name)
             const ImGuiStyle& st = ImGui::GetStyle();

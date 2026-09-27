@@ -17,9 +17,11 @@ code now runs on threads of their own. Tried in Silent Hill f (Unreal Engine 5, 
 - **Before / after pictures in the upscalers.** Ctrl+Shift+F4 (or the button under *Compare and hotkeys*) saves two PNGs of the same
   moment to Pictures\Lossless Scaling: the upscaled picture and Lossless Scaling's NIS (one frame of NIS shows while it is taken). Windows'
   own screenshots show the game's window, not Lossless Scaling's picture. HDR games are saved in their SDR view, highlights rolled off.
-- **The screenshot key is Ctrl+Shift+F4 now, not F11.** The game still sees the keys (they are only watched), and F11 switches full screen in
-  Unreal Engine games and many others: in Silent Hill f a screenshot also put the game in full screen, which stopped the scaling. Settings
-  still on F11 move to F4 once.
+- **Safer hotkeys.** The game still sees our keys (they are only watched), and a game that acts on an F-key alone did: in Silent Hill f the
+  screenshot key's F11 put the game in full screen, which stopped the scaling. The defaults now keep away from F5 and F9 (quicksave and
+  quickload in Bethesda's and many other games), F6 (quicksave in Source games) and F11: before / after Ctrl+Shift+**F7**, split view
+  **F8**, sharpening **F2 / F3**, screenshot and before / after pictures **F4**, save the recording **F1**, the next look F10 (as before).
+  Keys still on an old default move once; keys chosen by hand stay.
 - **Saying why nothing happens.** The DLSS Upscaler names the card when Lossless Scaling runs on one that is not NVIDIA's, and says to set
   Lossless Scaling's Preferred GPU or use the FSR Upscaler (it used to say only "not running yet"). Neural Rendering does the same for the card
   frame generation runs on. The upscalers also say when a window layout cannot be followed (it used to read "Choose NIS", although NIS was
