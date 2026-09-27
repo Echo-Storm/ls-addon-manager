@@ -114,6 +114,15 @@ Agreed as worth doing, in no particular order; none of them is started. They com
   It is early, with no quality or performance claims yet. Nothing to build here: if it ever produces a working DLL, the person points Neural Rendering at it and runs **Test compatibility**.
   We never ship, host or link the DLSS NR model, or files made from it.
 
+## Pipe dreams
+
+Not planned, and may never be possible; kept so the idea is not lost.
+
+- **One program with Lossless Scaling.** Lossless Scaling is closed source, so the manager works beside it rather than inside it. With its
+  source, its controls could live in the manager's window and the addons could use its passes directly. Short of that: read its settings
+  file to show (and, while it is closed, change) its profiles, and warn when a game's profile does not suit an addon, such as an upscaler on
+  with a scaler other than NIS. Its interface is not replaced, and its files are never patched.
+
 ## Not planned for 1.0
 
 Downloading or bundling the DLSS 5 model file, in any form. Automatic installation of updates. Support for anything other than Windows and Lossless Scaling.
