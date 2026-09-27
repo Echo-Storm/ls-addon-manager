@@ -33,8 +33,10 @@ public:
     // reading `out`); false when there is none this time (the first frame, a reset, an error: `made` is still signalled, `out` untouched).
     // frameMs: the time since frame n - 1. encoding, whiteNits: what the frames hold (hdr_hlsl.h: 0 SDR, 1 scRGB, 2 HDR10) and the SDR white;
     // the motion is measured in their SDR view.
+    // guard: the guard against pasted background (where the two real frames agree around a pixel the motion calls slow, and the frame made
+    // is far from both, the real frames' mix goes there: a character the camera follows, pasted over by the scene sweeping past in a turn).
     bool Generate(ID3D12Resource* in, ID3D12Fence* copied, uint64_t n, ID3D12Resource* out, ID3D12Fence* made, uint64_t madeValue, float frameMs, bool reset,
-                  uint32_t encoding = 0, float whiteNits = 80.0f);
+                  uint32_t encoding = 0, float whiteNits = 80.0f, bool guard = true);
     // How long the GPU took for a frame between (the motion, FSR, the copy out), smoothed over the frames it has finished; 0 before any.
     double GpuMs() const { return m_gpuMs; }
     const char* LastError() const { return m_error.c_str(); }
@@ -57,6 +59,10 @@ private:
     FlowEstimator m_estimator;
     ID3D12Resource* m_motion = nullptr; ID3D12Resource* m_distrust = nullptr; ID3D12Resource* m_depth = nullptr;
     ID3D12Resource* m_made = nullptr;   // FSR's output (unordered access, the frames' format), copied into the caller's shared texture
+    // the guard: its pass, the frame before (kept for it) and its output
+    ID3D12RootSignature* m_guardRoot = nullptr; ID3D12PipelineState* m_guardPso = nullptr; ID3D12DescriptorHeap* m_guardHeap = nullptr; UINT m_descSize = 0;
+    ID3D12Resource* m_before = nullptr; ID3D12Resource* m_guarded = nullptr; bool m_haveBefore = false;
+    bool InitGuard();
     Ffx* m_ffx = nullptr;
     uint64_t m_frameId = 0, m_runs = 0;
 };

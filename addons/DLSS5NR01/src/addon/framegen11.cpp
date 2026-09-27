@@ -46,7 +46,7 @@ struct State {
     ID3D11Fence* copied11 = nullptr; ID3D12Fence* copied12 = nullptr; uint64_t copiedValue = 0;
     ID3D11Fence* made11 = nullptr; ID3D12Fence* made12 = nullptr; uint64_t madeValue = 0;   // the frame between is in out11 (a GPU wait here)
     ID3D11DeviceContext4* ctx4 = nullptr;
-    bool resetNext = true;
+    bool resetNext = true; bool guard = true;
     // for the log: how long Lossless Scaling's thread is held here, and how soon after it comes back with the next real frame
     LARGE_INTEGER returned{}; double heldSum = 0, freeSum = 0; uint64_t heldCount = 0, freeCount = 0;
 } g;
@@ -197,7 +197,7 @@ bool BeforeRealPresent(IDXGISwapChain* sc, UINT sync, UINT flags, uint32_t encod
         g.ctx4->Signal(g.copied11, ++g.copiedValue);
         g.ctx->Flush();   // the copy and the signal on the GPU's way before the engine waits for them
         // queued, not waited for: Lossless Scaling's queue waits on the GPU for "made" before the frame between is copied in
-        byFsr = g.engine.Generate(g.in12, g.copied12, g.copiedValue, g.out12, g.made12, ++g.madeValue, static_cast<float>(g.intervalMs), g.resetNext, encoding, whiteNits);
+        byFsr = g.engine.Generate(g.in12, g.copied12, g.copiedValue, g.out12, g.made12, ++g.madeValue, static_cast<float>(g.intervalMs), g.resetNext, encoding, whiteNits, g.guard);
         g.resetNext = false;
         if (byFsr) {
             g.ctx4->Wait(g.made11, g.madeValue);
@@ -259,7 +259,7 @@ bool BeforeRealPresent(IDXGISwapChain* sc, UINT sync, UINT flags, uint32_t encod
     return true;
 }
 
-void SetRuntime(const std::wstring& dll) { std::lock_guard<std::mutex> lock(g_mutex); g.runtime = dll; }
+void SetRuntime(const std::wstring& dll) { std::lock_guard<std::mutex> lock(g_mutex); g.runtime = dll; } void SetGuard(bool on) { std::lock_guard<std::mutex> lock(g_mutex); g.guard = on; }
 void Reset() { std::lock_guard<std::mutex> lock(g_mutex); g.haveBefore = false; g.lastReal = {}; g.intervalMs = 0; g.leadMs = 0; g.resetNext = true; }
 void Shutdown() { std::lock_guard<std::mutex> lock(g_mutex); ReleaseAll(); if (g.timer) { CloseHandle(g.timer); g.timer = nullptr; } }
 Stats GetStats() { std::lock_guard<std::mutex> lock(g_mutex); return g.stats; }

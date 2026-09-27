@@ -19,6 +19,7 @@ using ShownFn = std::function<void(ID3D11DeviceContext*, ID3D11Texture2D*, bool 
 // encoding, whiteNits: what its frames hold (0 SDR, 1 scRGB, 2 HDR10; hdr.h) and the SDR white, for measuring their motion. shown (may be
 // empty): told of each frame as it goes out, the frame between and then the real one.
 bool BeforeRealPresent(IDXGISwapChain* sc, UINT sync, UINT flags, uint32_t encoding, float whiteNits, const LogFn& log, const ShownFn& shown = {});
+void SetGuard(bool on);   // the guard against pasted background (FgEngine::Generate); on by default
 void SetRuntime(const std::wstring& amdFidelityFxDll);   // AMD's runtime FgEngine loads (the FSR Upscaler's shipped FSR 3.1)
 void Reset();      // forgets the frame before (switched off, a new swap chain)
 void Shutdown();   // lets the textures go

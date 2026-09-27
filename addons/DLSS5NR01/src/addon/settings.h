@@ -32,7 +32,8 @@ struct Config {
     // picture again (ScalerLink::Upscale). A CPU wait tried before made repeats more frequent on a busy GPU and is gone (2026-09-25).
     bool scalerGpuWait = true;
     bool frameGen = false;   // the FSR Upscaler's frame generation of our own (a prototype, framegen11.h)
-    bool scalerFastMotion = true;        // the upscalers lean on the frame in fast motion (SrEngine::SetFastMotion; off: never, as before 0.9.13)
+    bool frameGenGuard = true;           // ...its guard against pasted background (FgEngine::Generate)
+    bool scalerFastMotion = true;       // the upscalers lean on the frame in fast motion (SrEngine::SetFastMotion; off: never, as before 0.9.13)
     float scalerStability = 0.0f;        // the upscalers: less shimmer, more trailing (SrEngine::SetStability)
     float scalerEdges = 0.0f;            // the upscalers: edge smoothing of the upscaled picture (SrEngine::SetEdgeSmoothing)
     bool scalerPerGame = true;           // the upscalers: their picture settings kept per game (scalerGames), back when the game takes focus

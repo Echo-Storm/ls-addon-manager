@@ -441,6 +441,63 @@ double DepthLayers(const std::vector<uint16_t>& mv, uint32_t W, uint32_t H, std:
     return static_cast<double>(nearCount) / (static_cast<double>(W) * H);
 }
 
+// The guard against pasted background: where the two real frames agree around a pixel (within `r` pixels, a character that shifts a
+// little) and the frame made between is far from both, it was pasted over (the background sweeping past in a turn winning over a character
+// FSR saw as no nearer): the two real frames' mix goes there instead. Where the real frames differ (the moving scene), the frame made stays.
+// agree / apart: brightness levels (0..255). Returns the share of the picture replaced.
+// Only where the motion estimate calls the picture slow (under a fifth of the picture's median motion, at least 3 px; mv: this frame's
+// vectors, RG half floats; empty: everywhere): a leaf moving through the canopy is at the frame between's place in neither real frame, and
+// the frame made is right to show it there.
+double Guard(std::vector<uint8_t>& made, const std::vector<uint8_t>& before, const std::vector<uint8_t>& now, uint32_t W, uint32_t H, int r, float agree, float apart,
+             const std::vector<uint16_t>& mv = {}) {
+    using DirectX::PackedVector::XMConvertHalfToFloat;
+    float slow = 1e9f;
+    if (mv.size() >= static_cast<size_t>(W) * H * 2) {
+        std::vector<float> len;
+        for (size_t p = 0; p < static_cast<size_t>(W) * H; p += 61) len.push_back(std::hypot(XMConvertHalfToFloat(mv[p * 2]), XMConvertHalfToFloat(mv[p * 2 + 1])));
+        std::nth_element(len.begin(), len.begin() + len.size() / 2, len.end());
+        slow = std::max(3.0f, 0.2f * len[len.size() / 2]);
+    }
+    auto slowAt = [&](int x, int y) {
+        x = std::clamp(x, 0, static_cast<int>(W) - 1); y = std::clamp(y, 0, static_cast<int>(H) - 1);
+        const size_t p = static_cast<size_t>(y) * W + x;
+        return std::hypot(XMConvertHalfToFloat(mv[p * 2]), XMConvertHalfToFloat(mv[p * 2 + 1])) <= slow;
+    };
+    auto isSlow = [&](int x, int y) {   // slow here, and around (5 of 8 on a ring 3 reaches out: a character, not a gap of sky in a moving canopy)
+        if (slow >= 1e9f) return true;
+        if (!slowAt(x, y)) return false;
+        int around = 0;
+        for (int k = 0; k < 8; ++k) around += slowAt(x + static_cast<int>(std::lround(std::cos(k * 0.785398) * 3.0 * r)), y + static_cast<int>(std::lround(std::sin(k * 0.785398) * 3.0 * r))) ? 1 : 0;
+        return around >= 5;
+    };
+    // distances in colour (the largest channel difference): a pasted leaf can be about as bright as the hair it covers, not as blue
+    auto at = [&](const std::vector<uint8_t>& img, int x, int y) {
+        x = std::clamp(x, 0, static_cast<int>(W) - 1); y = std::clamp(y, 0, static_cast<int>(H) - 1);
+        return img.data() + (static_cast<size_t>(y) * W + x) * 4;
+    };
+    auto dist = [](const uint8_t* a, const uint8_t* b) { return static_cast<float>(std::max({ std::abs(a[0] - b[0]), std::abs(a[1] - b[1]), std::abs(a[2] - b[2]) })); };
+    std::vector<uint8_t> out = made; long long replaced = 0;
+    #pragma omp parallel for reduction(+ : replaced) schedule(dynamic, 8)
+    for (int y = 0; y < static_cast<int>(H); ++y) for (int x = 0; x < static_cast<int>(W); ++x) {
+        if (!isSlow(x, y)) continue;
+        const uint8_t *pb = at(before, x, y), *pn = at(now, x, y), *pm = at(made, x, y);
+        float dBN = dist(pb, pn), dMB = dist(pm, pb), dMN = dist(pm, pn);
+        if (dBN > agree) {   // not alike here: alike a little way off? (the character shifts a few pixels)
+            for (int j = -r; j <= r && dBN > agree; ++j) for (int i = -r; i <= r; ++i) dBN = std::min(dBN, dist(pb, at(now, x + i, y + j)));
+        }
+        if (dBN > agree) continue;
+        if (std::min(dMB, dMN) <= dBN + apart) continue;
+        for (int j = -r; j <= r; ++j) for (int i = -r; i <= r; ++i) { dMB = std::min(dMB, dist(pm, at(before, x + i, y + j))); dMN = std::min(dMN, dist(pm, at(now, x + i, y + j))); }
+        const float t = std::clamp((std::min(dMB, dMN) - dBN - apart) / apart, 0.0f, 1.0f);   // 0 keep the frame made .. 1 the real frames' mix
+        if (t <= 0.0f) continue;
+        const size_t p = (static_cast<size_t>(y) * W + x) * 4;
+        for (int c = 0; c < 3; ++c) out[p + c] = static_cast<uint8_t>(made[p + c] * (1 - t) + 0.5f * (before[p + c] + now[p + c]) * t + 0.5f);
+        ++replaced;
+    }
+    made.swap(out);
+    return static_cast<double>(replaced) / (static_cast<double>(W) * H);
+}
+
 // Where turn ghosting shows (the character a camera follows, pasted over by the background sweeping past): the blocks that move on their own
 // (OwnMotionBlocks, 3 neighbours), widened by half the camera's speed at the centre (at least 8 px). Empty when the camera hardly moves.
 // Returns the fraction of the picture it covers.
@@ -504,7 +561,7 @@ int main(int argc, char** argv) {
     const nr::lsrec::FileHeader& h = rec.Header();
     const uint32_t W = h.width, H = h.height;
     const int first = std::max(0, Arg(argc, argv, "first", 0));
-    const int count = std::min<int>(Arg(argc, argv, "count", 1 << 30), static_cast<int>(rec.Count()) - first);
+    int count = std::min<int>(Arg(argc, argv, "count", 1 << 30), static_cast<int>(rec.Count()) - first);   // (fewer with realonly=1)
     const int worstShown = Arg(argc, argv, "worst", 3);
     const bool xess = ArgText(argc, argv, "gen") == "xess";
     const char* const G = xess ? "XeSS" : "FSR";
@@ -538,7 +595,11 @@ int main(int argc, char** argv) {
     // direct=1: FSR frame generation dispatched on our own command list (no FidelityFX swap chain, no presents, no pacing); else through its swap chain
     const bool direct = Arg(argc, argv, "direct", 0) != 0;
     // engine=1: the addon's own FgEngine (src/engine/fg_engine.cpp) makes the frames, through shared textures and fences, as live
-    const bool useEngine = Arg(argc, argv, "engine", 0) != 0;   // mvdump=1: each kept frame's vectors as a picture
+    const bool useEngine = Arg(argc, argv, "engine", 0) != 0;
+    // guard=N: the guard against pasted background (Guard): the frame made must be N levels further from both real frames than they are from
+    // each other; guardagree=N: how alike the real frames must be (levels); the reach for a character's shift scales with the width
+    const int guardApart = Arg(argc, argv, "guard", 0), guardAgree = Arg(argc, argv, "guardagree", 16);
+    const int guardRadius = std::max(2, static_cast<int>(h.width / 640));   // mvdump=1: each kept frame's vectors as a picture
     // estin=light|view: the motion estimate fed the frames as scRGB (half floats), taken as they are (light) or in their SDR view (view)
     const std::string estIn = ArgText(argc, argv, "estin");
     // live=1: as live, a frame made between every two frames of the recording (none dropped, so nothing to score against): each kept as a
@@ -552,10 +613,18 @@ int main(int argc, char** argv) {
     // the frames, in their SDR view
     std::vector<std::vector<uint8_t>> frames(count); std::vector<double> times(count);
     { std::vector<uint8_t> px;
-      for (int i = 0; i < count; ++i) {
-          if (!rec.Read(first + i, px) || !ToRgba8(h, px, frames[i])) { printf("frame %d could not be read or converted (format %u)\n", first + i, h.format); return 3; }
-          times[i] = h.qpcFrequency ? rec.FrameInfo(first + i).qpc * 1000.0 / static_cast<double>(h.qpcFrequency) : i * 16.7;   // ms
-      } }
+      // realonly=1: a recording of what was shown (frame generation of our own) holds frames made between too: only the real ones are taken,
+      // which is exactly what the engine was given live
+      const bool realOnly = Arg(argc, argv, "realonly", 0) != 0;
+      int kept = 0;
+      for (int i = 0; first + i < static_cast<int>(rec.Count()) && kept < count; ++i) {
+          if (realOnly && rec.FrameInfo(first + i).tag == nr::lsrec::kMadeBetween) continue;
+          if (!rec.Read(first + i, px) || !ToRgba8(h, px, frames[kept])) { printf("frame %d could not be read or converted (format %u)\n", first + i, h.format); return 3; }
+          times[kept] = h.qpcFrequency ? rec.FrameInfo(first + i).qpc * 1000.0 / static_cast<double>(h.qpcFrequency) : i * 16.7;   // ms
+          ++kept;
+      }
+      if (kept < count) { frames.resize(kept); times.resize(kept); count = kept; }
+      if (count < 3) { printf("too few frames\n"); return 2; } }
     printf("%ls: %ux%u, %d frames from %d; every other one is rebuilt by %s frame generation\n", Wide(argv[1]).c_str(), W, H, count, first, G);
 
     Gpu g; if (!g.Init()) { printf("no Direct3D 12 device\n"); return 4; }
@@ -949,7 +1018,8 @@ int main(int argc, char** argv) {
             writeDepth(depthValues.data());
         }
         std::vector<uint8_t> band; double bandFrac = 0;   // where turn ghosting shows (BandMask), for the band score
-        if (!refine.empty() || mvCheck || depthFromMotion || depthNoise || depthLayer || depthOrbit || stride == 2) {   // the estimate's vectors to the CPU (refined and back, checked, made into depth, for the band)
+        std::vector<uint16_t> frameMv;                     // this frame's vectors, for the guard
+        if (!refine.empty() || mvCheck || depthFromMotion || depthNoise || depthLayer || depthOrbit || stride == 2 || guardApart > 0) {   // the estimate's vectors to the CPU (refined and back, checked, made into depth, for the band)
             static ID3D12Resource* mvReadback = nullptr; static ID3D12Resource* mvUpload = nullptr; static D3D12_PLACED_SUBRESOURCE_FOOTPRINT mfp{}; static UINT64 mtotal = 0;
             if (!mvReadback) {
                 D3D12_RESOURCE_DESC md = motion->GetDesc(); UINT mrows = 0; UINT64 mrow = 0;
@@ -1005,6 +1075,7 @@ int main(int argc, char** argv) {
             if (depthLayer) { DepthLayers(mv, W, H, depthValues, layerNeighbours); writeDepth(depthValues.data()); }
             if (depthOrbit) { DepthOrbit(mv, W, H, depthValues); writeDepth(depthValues.data()); }
             bandFrac = BandMask(mv, W, H, band);
+            if (guardApart > 0) frameMv = mv;
             if (mvDump && i >= 2) {   // mvdump=1: the vectors as a picture beside the frame (red: x, green: y; 1 level a pixel, 128 = none)
                 std::vector<uint8_t> pic(static_cast<size_t>(W) * H * 4);
                 for (size_t p = 0; p < static_cast<size_t>(W) * H; ++p) {
@@ -1032,13 +1103,21 @@ int main(int argc, char** argv) {
         if (stride == 1) {   // live: nothing to score against; the frame between is kept as a picture (the frame before | the generator's | this frame)
             if (i >= 2) {
                 wchar_t name[64]; swprintf(name, 64, L"\\live_%05d_%05d.bmp", first + i - 1, first + i);
-                WriteBmp(outDir + name, { &frames[i - 1], &s.picture, &frames[i] }, W, H);
-                printf("  between frames %d and %d: %ls\n", first + i - 1, first + i, (outDir + name).c_str());
+                if (guardApart > 0) {   // (the frame before | the generator's | guarded | this frame)
+                    std::vector<uint8_t> guarded = s.picture;
+                    const double share = Guard(guarded, frames[i - 1], frames[i], W, H, guardRadius, static_cast<float>(guardAgree), static_cast<float>(guardApart), frameMv);
+                    WriteBmp(outDir + name, { &frames[i - 1], &s.picture, &guarded, &frames[i] }, W, H);
+                    printf("  between frames %d and %d: %ls (guard replaced %.2f%%)\n", first + i - 1, first + i, (outDir + name).c_str(), 100.0 * share);
+                } else {
+                    WriteBmp(outDir + name, { &frames[i - 1], &s.picture, &frames[i] }, W, H);
+                    printf("  between frames %d and %d: %ls\n", first + i - 1, first + i, (outDir + name).c_str());
+                }
             }
             continue;
         }
         if (i < 2) continue;   // the first kept frame has no frame before it
         if (keepStill > 0) KeepStill(s.picture, frames[i - 2], frames[i], W, H, static_cast<float>(keepStill));
+        if (guardApart > 0) Guard(s.picture, frames[i - 2], frames[i], W, H, guardRadius, static_cast<float>(guardAgree), static_cast<float>(guardApart), frameMv);
         const std::vector<uint8_t>& truth = frames[i - 1];
         s.mix.resize(truth.size());
         for (size_t k = 0; k < truth.size(); ++k) s.mix[k] = static_cast<uint8_t>((frames[i - 2][k] + frames[i][k] + 1) / 2);

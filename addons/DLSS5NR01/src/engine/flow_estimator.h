@@ -47,6 +47,8 @@ public:
     void ReadStats(int slot);
     // The average vector (game pixels), match cost (0..1 per pixel) and distrust (0..1) since the last call; false when no frame was measured.
     bool TakeAverages(double& x, double& y, double& length, double& cost, double& distrust, uint64_t& frames);
+    // The average vector length (the frame's pixels) of the last frame whose statistics were read (ReadStats); 0 before any.
+    double LastLength() const { return m_lastLength; }
     int Levels() const { return m_levels; }
     // How far (pixels of each size) straying from the coarser size's guess costs more (the search pass): 2 by default; very large leaves it
     // uncapped, as it was until 2026-09-27 (for comparing).
@@ -92,4 +94,5 @@ private:
     int m_current = 0; bool m_havePrevious = false; float m_strayCap = 2.0f; float m_fastMotion = 0.0f;
     // running totals for TakeAverages
     double m_sumCost = 0, m_sumX = 0, m_sumY = 0, m_sumLength = 0, m_blocks = 0, m_sumDistrust = 0, m_pixels = 0; uint64_t m_frames = 0;
+    double m_lastLength = 0;   // the average vector length of the frame read last (LastLength)
 };

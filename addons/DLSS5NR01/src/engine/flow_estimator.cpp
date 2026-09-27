@@ -519,6 +519,7 @@ void FlowEstimator::ReadStats(int slot) {
     uint32_t* v = nullptr;
     if (FAILED(m_statsReadback->Map(0, &range, reinterpret_cast<void**>(&v)))) return;
     const uint32_t* s = v + slot * 8;
+    if (s[3]) m_lastLength = s[4] / 16.0 / s[3];
     m_sumCost += s[0] / 4096.0; m_sumX += static_cast<int32_t>(s[1]) / 16.0; m_sumY += static_cast<int32_t>(s[2]) / 16.0;
     m_blocks += s[3]; m_sumLength += s[4] / 16.0; m_sumDistrust += s[5] / 100.0; m_pixels += s[6]; ++m_frames;
     const D3D12_RANGE none{ 0, 0 };

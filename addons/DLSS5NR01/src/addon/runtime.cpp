@@ -674,7 +674,8 @@ void OnPresent(IDXGISwapChain* sc, UINT sync, UINT flags) {
             float white = 80.0f; uint32_t encoding = 0;
             { ID3D11Texture2D* back = nullptr;   // what its frames hold (scRGB or HDR10 on an HDR display), for measuring their motion in their SDR view
               if (SUCCEEDED(sc->GetBuffer(0, IID_PPV_ARGS(&back))) && back) { D3D11_TEXTURE2D_DESC d; back->GetDesc(&d); back->Release(); encoding = static_cast<uint32_t>(FrameEncodingOf(d.Format, sc, &white)); } }
-            bool recordShown; { std::lock_guard<std::mutex> lock(g_settingsMutex); recordShown = g_config.recordShown; }
+            bool recordShown, guard; { std::lock_guard<std::mutex> lock(g_settingsMutex); recordShown = g_config.recordShown; guard = g_config.frameGenGuard; }
+            nr::framegen::SetGuard(guard);
             nr::framegen::ShownFn shown;   // "record what is shown": every frame presented, the frames between and the real ones, tagged
             if (recordShown) shown = [](ID3D11DeviceContext* ctx, ID3D11Texture2D* frame, bool made) { Record(ctx, frame, lsrec::kPresented, 0, made ? lsrec::kMadeBetween : lsrec::kReal); };
             nr::framegen::BeforeRealPresent(sc, sync, flags, encoding, white, [](const char* m) { Log("%s", m); }, shown);
