@@ -1,5 +1,19 @@
 # Changelog
 
+## 0.9.12 (not released yet)
+
+A third upscaler: Intel XeSS.
+
+- **The XeSS Upscaler.** Intel XeSS Super Resolution in place of Lossless Scaling's NIS pass, beside the DLSS and FSR Upscalers (only one
+  of them runs at a time), off until switched on. It runs on any DirectX 12 card with Shader Model 6.4: Intel Arc (on its matrix units),
+  NVIDIA and AMD. Intel's runtime, `libxess.dll` 2.0.2 from the XeSS 3 SDK (signed by Intel; the same file OptiScaler ships), comes with
+  it, with Intel's licence. It uses the same motion measured from the frames, picks the XeSS quality setting that takes the game's size
+  by itself, runs HDR games in its HDR mode, and has the upscalers' sharpening, edge smoothing and picture controls. Tried in the test host
+  (upscaling, a sliding picture, HDR highlights, a 4:3 window); not yet in a game. Intel's runtime is 74 MB and packs to 57 MB,
+  and the release zip holds it twice (loose and inside Setup), so the zip grows from 113 to 223 MB.
+- **Tests:** five XeSS scenarios. Told that nothing moves while the picture slides, XeSS drifts in average colour where DLSS and FSR do
+  not; with the measured motion it follows the picture as the others do.
+
 ## 0.9.11 (2026-09-27)
 
 - **Recordings of the upscalers in HDR games.** Since 0.9.10 an HDR frame reaches the upscaler as light, but the recorder still marked

@@ -14,7 +14,7 @@ new. The original copyright and licence are in [LICENSE](LICENSE), which must st
 |------|--------|---------|
 | `manager/` | Echo-Storm, on FrankBarretta's LosslessProxy | MIT, [LICENSE](LICENSE) |
 | `manager/src/features` (ReShade passthrough, Windowed mode) | FrankBarretta's addons, reworked and built in by Echo-Storm | MIT, [LICENSE](LICENSE) |
-| `addons/DLSS5NR01` | Echo-Storm; it began as andreiday's DLSS 5 plugin for LosslessProxy, with thanks. The same sources also build the DLSS Upscaler and the FSR Upscaler | MIT, its `LICENSE` |
+| `addons/DLSS5NR01` | Echo-Storm; it began as andreiday's DLSS 5 plugin for LosslessProxy, with thanks. The same sources also build the DLSS Upscaler, the FSR Upscaler and the XeSS Upscaler | MIT, its `LICENSE` |
 | `tools/` | Echo-Storm | MIT |
 
 ## Third-party code that is built in or fetched at build time
@@ -28,6 +28,7 @@ new. The original copyright and licence are in [LICENSE](LICENSE), which must st
 | Icon shapes | drawn in the manner of the [Lucide](https://lucide.dev) set (ISC) | `manager/sdk/include/eam/icons.h` |
 | [AMD FidelityFX API headers](https://github.com/GPUOpen-LibrariesAndSDKs/FidelityFX-SDK) (SDK v1.1.4, FSR 3.1.4), unchanged | MIT (AMD) | `addons/DLSS5NR01/third_party/ffx`, compiled into the upscaler addons |
 | FSR 4.1.1b INT8 with the RDNA 2 fix: AMD's FSR 4 upscaler library (AMD FidelityFX Upscaler Library 4.1.1.2740), as changed by the OptiScaler team so it runs on cards AMD's own FSR 4 does not; not signed. With thanks to the OptiScaler team | AMD's FidelityFX SDK 2.x licence (binary form; `LICENSE.txt` beside it, from `addons/DLSS5NR01/third_party/ffx4`) | fetched by `tools/fetch_fsr4.ps1` (pinned SHA-256); ships in `addons/FSR3UPSC/runtimes/FSR/0dd77d9c/` with `ABOUT.txt` and `LICENSE.txt`, as the FSR Upscaler's second choice (0.9.5). A stand-in until AMD's own FSR 4 runs on every card |
+| Intel's XeSS runtime (`libxess.dll` 2.0.2.68, from the XeSS SDK 3.0.2, signed by Intel), unmodified | Intel Simplified Software License | fetched with Intel's headers by `tools/fetch_xess_sdk.ps1` (pinned SHA-256s, Intel's signature checked; the headers are never committed); ships in `addons/XESSUPSC/xess/` with `Intel-XeSS-LICENSE.txt`, with the XeSS Upscaler (since 0.9.12) |
 | AMD's FidelityFX runtime (`amd_fidelityfx_dx12.dll`, the SDK v1.1.4 prebuilt, signed by AMD), unmodified | MIT (AMD) | fetched by `tools/fetch_ffx_sdk.ps1` (pinned SHA-256, AMD's signature checked); ships in `addons/FSR3UPSC/fsr/` with `AMD-FidelityFX-LICENSE.txt`, with the FSR Upscaler (in the release since 0.9.1) |
 
 ## NVIDIA software in the release (not MIT)

@@ -3,7 +3,7 @@
 What 1.0 should mean: someone who has never seen this project can **install it, keep it up to date, understand what it does and does not do, and get help**, without
 editing files by hand, and the promises it makes (the addon API, the settings file, safety) are stable. This page is honest about where each part stands.
 
-Status on 2026-09-27, at version 0.9.11 (the current work is on `main`).
+Status on 2026-09-27, at version 0.9.12 (the current work is on `main`).
 
 | # | For 1.0 | State | Notes |
 |---|---------|-------|-------|

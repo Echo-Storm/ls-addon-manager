@@ -14,9 +14,28 @@
 #include "ffx_api/ffx_api.h"
 #include "ffx_api/ffx_upscale.h"
 #include "ffx_api/ffx_api_loader.h"
+#if __has_include("xess/xess_d3d12.h")
+#include "xess/xess_d3d12.h"
+#endif
+#include <type_traits>
 #include "ffx_api/dx12/ffx_api_dx12.h"
 
 struct SrEngine::FfxState { HMODULE module = nullptr; ffxFunctions fn{}; ffxContext context = nullptr; };
+
+// Intel's XeSS runtime (libxess.dll from the addon's xess folder, loaded by its full path; its headers come with Intel's SDK, which
+// tools\fetch_xess_sdk.ps1 puts in external\xess). Built without them, the XeSS backend only says so.
+#if __has_include("xess/xess_d3d12.h")
+#define NR_HAVE_XESS 1
+struct SrEngine::XessState {
+    HMODULE module = nullptr; xess_context_handle_t context = nullptr; bool initialised = false; xess_version_t version{};
+    decltype(&xessGetVersion) GetVersion = nullptr; decltype(&xessD3D12CreateContext) CreateContext = nullptr;
+    decltype(&xessGetOptimalInputResolution) OptimalInput = nullptr; decltype(&xessD3D12Init) Init = nullptr;
+    decltype(&xessD3D12Execute) Execute = nullptr; decltype(&xessDestroyContext) DestroyContext = nullptr;
+    decltype(&xessSetLoggingCallback) SetLogging = nullptr;
+};
+#else
+struct SrEngine::XessState { HMODULE module = nullptr; bool initialised = false; };
+#endif
 
 namespace {
 
@@ -185,7 +204,9 @@ void NVSDK_CONV NgxMessage(const char* message, NVSDK_NGX_Logging_Level, NVSDK_N
 
 } // namespace
 
-bool SrEngine::HasFeature() const { return m_backend == Backend::Fsr ? (m_ffx && m_ffx->context) : m_feature != nullptr; }
+bool SrEngine::HasFeature() const {
+    return m_backend == Backend::Fsr ? (m_ffx && m_ffx->context) : m_backend == Backend::Xess ? (m_xess && m_xess->initialised) : m_feature != nullptr;
+}
 
 void SrEngine::Log(const char* fmt, ...) {
     if (!m_log) return;
@@ -293,6 +314,34 @@ bool SrEngine::Init(const LUID& card, const std::wstring& dataPath, const std::w
         return true;
     }
 
+    if (m_backend == Backend::Xess) {   // Intel's runtime from the addon's xess folder (signed by Intel; loaded by its full path only)
+#if NR_HAVE_XESS
+        m_xess = new XessState;
+        const std::wstring path = runtimeDir + L"\\libxess.dll";
+        m_xess->module = LoadLibraryExW(path.c_str(), nullptr, LOAD_WITH_ALTERED_SEARCH_PATH);
+        if (!m_xess->module) { Fail("Intel's XeSS runtime could not be loaded from %ls (error %lu)", path.c_str(), GetLastError()); return false; }
+        auto get = [&](auto& fn, const char* name) { fn = reinterpret_cast<std::remove_reference_t<decltype(fn)>>(GetProcAddress(m_xess->module, name)); return fn != nullptr; };
+        if (!get(m_xess->GetVersion, "xessGetVersion") || !get(m_xess->CreateContext, "xessD3D12CreateContext") || !get(m_xess->OptimalInput, "xessGetOptimalInputResolution") ||
+            !get(m_xess->Init, "xessD3D12Init") || !get(m_xess->Execute, "xessD3D12Execute") || !get(m_xess->DestroyContext, "xessDestroyContext")) {
+            Fail("Intel's XeSS runtime lacks the XeSS API"); return false;
+        }
+        get(m_xess->SetLogging, "xessSetLoggingCallback");
+        m_xess->GetVersion(&m_xess->version);
+        const xess_result_t rc = m_xess->CreateContext(m_dev, &m_xess->context);
+        if (rc != XESS_RESULT_SUCCESS || !m_xess->context) { m_xess->context = nullptr; Fail("XeSS could not make its context (code %d)", static_cast<int>(rc)); return false; }
+        {
+            char v[32]; snprintf(v, sizeof v, "%u.%u.%u", m_xess->version.major, m_xess->version.minor, m_xess->version.patch);
+            std::lock_guard<std::mutex> lock(m_providerMutex); m_provider = v;
+        }
+        StartWorker();
+        m_ready = true;
+        Log("XeSS upscaler ready on its own D3D12 device (XeSS %u.%u.%u, runtime from %ls)", m_xess->version.major, m_xess->version.minor, m_xess->version.patch, runtimeDir.c_str());
+        return true;
+#else
+        Fail("this build has no XeSS (Intel's SDK was not there when it was built)"); return false;
+#endif
+    }
+
     // NGX, with NVIDIA's runtime from the addon's dlss folder
     const wchar_t* paths[] = { runtimeDir.c_str() };
     NVSDK_NGX_FeatureCommonInfo info{}; info.PathListInfo.Path = paths; info.PathListInfo.Length = 1;
@@ -350,6 +399,13 @@ bool SrEngine::Shutdown() {
         if (m_ffx->module) FreeLibrary(m_ffx->module);
         delete m_ffx; m_ffx = nullptr;
         g_ffxLog = nullptr;
+    }
+    if (m_xess) {
+#if NR_HAVE_XESS
+        if (m_xess->context) m_xess->DestroyContext(m_xess->context);
+#endif
+        if (m_xess->module) FreeLibrary(m_xess->module);
+        delete m_xess; m_xess = nullptr;
     }
     g_ngxLog = nullptr;
     if (m_feature) { NVSDK_NGX_D3D12_ReleaseFeature(static_cast<NVSDK_NGX_Handle*>(m_feature)); m_feature = nullptr; }
@@ -468,7 +524,7 @@ bool SrEngine::CheckStuck() {
     const std::string provider = Provider();
     {
         std::lock_guard<std::mutex> lock(m_errorMutex);
-        m_error = std::string(m_backend == Backend::Fsr ? "AMD's FSR runtime" : "NVIDIA's DLSS runtime") + (provider.empty() ? "" : " (" + provider + ")") +
+        m_error = std::string(m_backend == Backend::Fsr ? "AMD's FSR runtime" : m_backend == Backend::Xess ? "Intel's XeSS runtime" : "NVIDIA's DLSS runtime") + (provider.empty() ? "" : " (" + provider + ")") +
                   " stopped responding on this frame format; choose another runtime in the Runtimes list, then restart Lossless Scaling";
     }
     m_jobCv.notify_all();
@@ -576,7 +632,7 @@ bool SrEngine::EnsureViewInput(uint32_t w, uint32_t h) {
 }
 
 bool SrEngine::EnsureFeature(uint32_t inW, uint32_t inH, uint32_t outW, uint32_t outH, unsigned preset, bool hdr) {
-    if (m_backend == Backend::Fsr) preset = 0;   // FSR has no models to choose
+    if (m_backend != Backend::Dlss) preset = 0;   // only DLSS has models to choose
     if (HasFeature() && inW == m_inW && inH == m_inH && outW == m_outW && outH == m_outH && preset == m_preset && hdr == m_hdr) return true;
     LARGE_INTEGER f, a, b; QueryPerformanceFrequency(&f); QueryPerformanceCounter(&a);
     if (!WaitIdle()) { Fail("the GPU did not finish the earlier work"); return false; }
@@ -587,6 +643,41 @@ bool SrEngine::EnsureFeature(uint32_t inW, uint32_t inH, uint32_t outW, uint32_t
     m_list->Reset(m_alloc[0], nullptr);
     if (!EnsureInputs(inW, inH)) { m_list->Close(); Fail("the motion-vector and depth textures could not be made"); return false; }
     const float ratio = std::max(static_cast<float>(outW) / inW, static_cast<float>(outH) / inH);
+#if NR_HAVE_XESS
+    if (m_backend == Backend::Xess) {   // the depth upload runs first; XeSS is set up on its context, without a command list
+        m_list->Close();
+        ID3D12CommandList* upload[] = { m_list };
+        m_queue->ExecuteCommandLists(1, upload);
+        WaitIdle();
+        SafeRelease(m_depthUpload);
+        m_xess->initialised = false;
+        // XeSS's quality settings are fixed ratios, each with a range of input sizes it takes: the first (finest) whose range holds the game's size
+        const xess_2d_t outRes{ outW, outH };
+        static const xess_quality_settings_t kQualities[] = { XESS_QUALITY_SETTING_AA, XESS_QUALITY_SETTING_ULTRA_QUALITY_PLUS, XESS_QUALITY_SETTING_ULTRA_QUALITY,
+            XESS_QUALITY_SETTING_QUALITY, XESS_QUALITY_SETTING_BALANCED, XESS_QUALITY_SETTING_PERFORMANCE, XESS_QUALITY_SETTING_ULTRA_PERFORMANCE };
+        xess_quality_settings_t quality = XESS_QUALITY_SETTING_ULTRA_PERFORMANCE; bool fits = false;
+        for (const xess_quality_settings_t q : kQualities) {
+            xess_2d_t optimal{}, lo{}, hi{};
+            if (m_xess->OptimalInput(m_xess->context, &outRes, q, &optimal, &lo, &hi) != XESS_RESULT_SUCCESS) continue;
+            if (inW >= lo.x && inW <= hi.x && inH >= lo.y && inH <= hi.y) { quality = q; fits = true; break; }
+        }
+        if (!fits) { Fail("XeSS takes no input of %ux%u for an output of %ux%u", inW, inH, outW, outH); return false; }
+        xess_d3d12_init_params_t ip{}; ip.outputResolution = outRes; ip.qualitySetting = quality;
+        // motion at the game's size with the (flat) depth; SDR frames as they are shown, HDR frames as light (1 = the SDR white)
+        ip.initFlags = hdr ? XESS_INIT_FLAG_NONE : XESS_INIT_FLAG_LDR_INPUT_COLOR;
+        ip.creationNodeMask = 1; ip.visibleNodeMask = 1;
+        const xess_result_t rc = m_xess->Init(m_xess->context, &ip);
+        QueryPerformanceCounter(&b);
+        if (rc != XESS_RESULT_SUCCESS) { Fail("XeSS could not be set up (code %d)", static_cast<int>(rc)); return false; }
+        m_xess->initialised = true;
+        m_inW = inW; m_inH = inH; m_outW = outW; m_outH = outH; m_preset = preset; m_hdr = hdr;
+        m_buildMs = (b.QuadPart - a.QuadPart) * 1000.0 / f.QuadPart;
+        static const char* const kNames[] = { "ultra performance", "performance", "balanced", "quality", "ultra quality", "ultra quality plus", "anti-aliasing" };
+        Log("XeSS upscaler: %ux%u -> %ux%u (x%.2f), %s%s, made in %.0f ms", inW, inH, outW, outH, ratio, kNames[quality - XESS_QUALITY_SETTING_ULTRA_PERFORMANCE],
+            hdr ? ", HDR" : "", m_buildMs);
+        return true;
+    }
+#endif
     if (m_backend == Backend::Fsr) {   // the depth upload runs first; FSR's context needs no command list
         m_list->Close();
         ID3D12CommandList* upload[] = { m_list };
@@ -693,8 +784,8 @@ bool SrEngine::Run(ID3D12Resource* in, uint32_t inW, uint32_t inH, DXGI_FORMAT i
     if (!m_ready) { if (m_queue && done) m_queue->Signal(done, doneValue); return false; }
     // A frame that cannot run is still marked done, on this queue after the frames before it, so "done" only ever moves forward.
     const auto skip = [&] { if (m_queue && done) m_queue->Signal(done, doneValue); return false; };
-    const bool fsr = m_backend == Backend::Fsr;
-    const bool fresh = !HasFeature() || inW != m_inW || inH != m_inH || outW != m_outW || outH != m_outH || (!fsr && preset != m_preset) || hdr != m_hdr;
+    const bool fsr = m_backend == Backend::Fsr, dlss = m_backend == Backend::Dlss;
+    const bool fresh = !HasFeature() || inW != m_inW || inH != m_inH || outW != m_outW || outH != m_outH || (dlss && preset != m_preset) || hdr != m_hdr;
     if (!EnsureFeature(inW, inH, outW, outH, preset, hdr)) return skip();
     if (hdr && !EnsureViewInput(inW, inH)) { Fail("the HDR frame's SDR view could not be made"); return skip(); }
     ID3D12Resource* const color = in;   // what the upscaler reads (HDR: light)
@@ -819,7 +910,17 @@ bool SrEngine::Run(ID3D12Resource* in, uint32_t inW, uint32_t inH, DXGI_FORMAT i
         if (rc != FFX_API_RETURN_OK) { evaluated = false; snprintf(evalError, sizeof evalError, "FSR dispatch failed (code %u)", rc); }
     }
     auto* p = static_cast<NVSDK_NGX_Parameter*>(m_params);
-    if (!fsr) {
+#if NR_HAVE_XESS
+    if (m_backend == Backend::Xess) {
+        xess_d3d12_execute_params_t x{};
+        x.pColorTexture = color; x.pVelocityTexture = m_motion; x.pDepthTexture = m_depth; x.pOutputTexture = upscaled;
+        x.jitterOffsetX = 0.0f; x.jitterOffsetY = 0.0f; x.exposureScale = 1.0f; x.resetHistory = (reset || fresh) ? 1u : 0u;
+        x.inputWidth = inW; x.inputHeight = inH;
+        const xess_result_t rc = m_xess->Execute(m_xess->context, m_list, &x);
+        if (rc != XESS_RESULT_SUCCESS) { evaluated = false; snprintf(evalError, sizeof evalError, "XeSS execute failed (code %d)", static_cast<int>(rc)); }
+    }
+#endif
+    if (dlss) {
     p->Set(NVSDK_NGX_Parameter_Color, color);
     p->Set(NVSDK_NGX_Parameter_Output, upscaled);
     p->Set(NVSDK_NGX_Parameter_Depth, m_depth);

@@ -12,10 +12,10 @@ unofficial project, not affiliated with the Lossless Scaling developers: read th
 
 [![build](https://github.com/Echo-Storm/ls-addon-manager/actions/workflows/build.yml/badge.svg)](https://github.com/Echo-Storm/ls-addon-manager/actions/workflows/build.yml)
 
-Status: **0.9.11**, getting ready for 1.0 (the [roadmap](ROADMAP.md) says what is left). You need Lossless Scaling 3.2.2.0 and Windows 10 or 11, x64.
+Status: **0.9.12**, getting ready for 1.0 (the [roadmap](ROADMAP.md) says what is left). You need Lossless Scaling 3.2.2.0 and Windows 10 or 11, x64.
 
 > [!TIP]
-> **New in 0.9.10:** the DLSS and FSR Upscalers run HDR games in their own HDR mode: highlights come out exactly as bright as the game made them. **Since 0.9.8:** **HDR games in the DLSS and FSR Upscalers** (Silent Hill f at 1440p to 4K: DLSS about 1.5 ms a frame), **before / after
+> **New in 0.9.12:** the **XeSS Upscaler**, Intel XeSS in place of NIS on any card with Shader Model 6.4. **0.9.10:** the DLSS and FSR Upscalers run HDR games in their own HDR mode: highlights come out exactly as bright as the game made them. **Since 0.9.8:** **HDR games in the DLSS and FSR Upscalers** (Silent Hill f at 1440p to 4K: DLSS about 1.5 ms a frame), **before / after
 > pictures** (Ctrl+Shift+F4 saves the picture with and without Neural Rendering, or upscaled and with NIS, side by side), and addons that **can no longer freeze Lossless Scaling**
 > (NVIDIA's and AMD's code runs on threads of its own). The panels now say why when something is in the way. Since 0.9.7 the manager also
 > **updates itself**: it offers the new release, checks it and installs it when you close Lossless Scaling.
@@ -50,6 +50,7 @@ screenshots a few seconds apart; Ctrl+Shift+F4 now takes such a pair in one go.<
 | **DLSS 5 Neural Rendering** | NVIDIA's neural rendering model on every frame Lossless Scaling shows: a new look for any game | NVIDIA RTX, your own model file | on |
 | **DLSS Upscaler** | NVIDIA DLSS in place of Lossless Scaling's NIS scaler: upscaling, or DLAA at the screen's own size | NVIDIA RTX (runtime included) | off |
 | **FSR Upscaler** | AMD FSR 3.1, or FSR 4, in the same place, on any graphics card | any DirectX 12 GPU (runtime included) | off |
+| **XeSS Upscaler** | Intel XeSS in the same place, on any graphics card with Shader Model 6.4 | Intel Arc, NVIDIA or AMD (runtime included) | off |
 | **ReShade input passthrough** | Mouse and keyboard reach a ReShade overlay while Lossless Scaling scales the game | ReShade | off |
 | **Windowed mode and second monitor** | Lossless Scaling with a windowed game, or on a second monitor | | off |
 
@@ -87,6 +88,9 @@ smaller than the screen (for example 2560x1440 on a 4K screen); at the screen's 
 
 - **DLSS Upscaler:** NVIDIA DLSS Super Resolution with the model of your choice: NVIDIA's default K (DLSS 4), DLSS 4.5's M, or DLSS 3's E,
   which keeps a still picture crisper here. NVIDIA RTX.
+- **XeSS Upscaler:** Intel XeSS Super Resolution (Intel's runtime 2.0.2, from the XeSS 3 SDK), on any DirectX 12 card with Shader Model 6.4: on
+  Intel Arc it runs on the card's matrix units, elsewhere on the shader cores. It picks the XeSS quality setting that fits the game's size
+  by itself, and HDR games run in its HDR mode, as with DLSS and FSR. Our own sharpening, as with DLSS. New in 0.9.12, not yet tried in a game.
 - **FSR Upscaler:** AMD FidelityFX Super Resolution with AMD's own sharpening (RCAS). Any DirectX 12 graphics card: AMD, NVIDIA or Intel.
   *FSR version*, at the top of its panel, picks AMD's FSR 3.1.4 (shipped, signed) or **FSR 4**: the OptiScaler team's 4.1.1b INT8
   build, AMD's machine-learning upscaler made to run on cards AMD's own FSR 4 does not support, NVIDIA's included. It follows a moving
@@ -358,7 +362,7 @@ addons. The manager's code has since been rewritten; about a tenth of its lines 
 (`tools/measure_original_share.py` measures it). Neural Rendering began as **andreiday**'s DLSS 5 plugin for LosslessProxy and has been rewritten and extended here;
 fewer than one line in ten still matches theirs. The upscalers run NVIDIA DLSS and AMD FidelityFX Super Resolution (FSR 3.1 from AMD's FidelityFX SDK, MIT; FSR 4 under AMD's FidelityFX SDK licence, as
 built by the OptiScaler team, with thanks); their motion
-measurement, stability and edge smoothing are this project's own. The full list, with licences, is in [NOTICE.md](NOTICE.md). NVIDIA, DLSS, AMD, FidelityFX and FSR
+measurement, stability and edge smoothing are this project's own. The full list, with licences, is in [NOTICE.md](NOTICE.md). NVIDIA, DLSS, AMD, FidelityFX, FSR, Intel and XeSS
 are trademarks of their owners; this project is not affiliated with or endorsed by them. Lossless Scaling belongs to its author; this project is unofficial.
 
 If it is useful to you, you can [support it on Ko-fi](https://ko-fi.com/xechostormx).

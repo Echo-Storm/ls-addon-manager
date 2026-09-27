@@ -45,7 +45,12 @@ $addons = @(
                   # the second choice in the manager's Runtimes list: FSR 4.1.1b, OptiScaler's build (tools\fetch_fsr4.ps1)
                   'runtimes\FSR\0dd77d9c\amd_fidelityfx_dx12.dll' = "$root\addons\DLSS5NR01\external\fsr4\amd_fidelityfx_dx12.dll";
                   'runtimes\FSR\0dd77d9c\ABOUT.txt' = "$root\addons\DLSS5NR01\products\FSR3UPSC\FSR4-ABOUT.txt";
-                  'runtimes\FSR\0dd77d9c\LICENSE.txt' = "$root\addons\DLSS5NR01\third_party\ffx4\LICENSE.txt" } }
+                  'runtimes\FSR\0dd77d9c\LICENSE.txt' = "$root\addons\DLSS5NR01\third_party\ffx4\LICENSE.txt" } },
+    # XeSS Upscaler: the same sources again; Intel's XeSS runtime (Intel Simplified Software License, signed by Intel) ships in its xess folder,
+    # with Intel's licence next to it, as that licence asks (tools\fetch_xess_sdk.ps1)
+    @{ Id = 'XESSUPSC'; Dir = "$root\addons\DLSS5NR01\products\XESSUPSC"; Bin = "$root\addons\DLSS5NR01\build\Release"; Files = @('XESSUPSC.dll');
+       Extra = @{ 'Intel-XeSS-LICENSE.txt' = "$root\addons\DLSS5NR01\external\xess\LICENSE.txt"; 'LICENSE.txt' = "$root\addons\DLSS5NR01\LICENSE";
+                  'xess\libxess.dll' = "$root\addons\DLSS5NR01\external\xess\bin\libxess.dll" } }
 )
 $included = @(); $skipped = @()
 foreach ($a in $addons) {
@@ -58,7 +63,7 @@ foreach ($a in $addons) {
     Copy-Item "$($a.Dir)\addon.json" $dst
     foreach ($icon in 'icon.svg', 'icon.png') { if (Test-Path "$($a.Dir)\$icon") { Copy-Item "$($a.Dir)\$icon" $dst } }
     if (Test-Path "$($a.Dir)\LICENSE") { Copy-Item "$($a.Dir)\LICENSE" "$dst\LICENSE.txt" }
-    if ($a.Extra) { foreach ($extra in $a.Extra.Keys) { Need $a.Extra[$extra] "$extra for $($a.Id) (run tools\$(if ($a.Id -eq 'FSR3UPSC') { 'fetch_ffx_sdk.ps1' } else { 'fetch_ngx_sdk.ps1' }))"; New-Item -ItemType Directory -Force (Split-Path "$dst\$extra") | Out-Null; Copy-Item $a.Extra[$extra] "$dst\$extra" } }
+    if ($a.Extra) { foreach ($extra in $a.Extra.Keys) { Need $a.Extra[$extra] "$extra for $($a.Id) (run tools\$(if ($a.Id -eq 'FSR3UPSC') { 'fetch_ffx_sdk.ps1' } elseif ($a.Id -eq 'XESSUPSC') { 'fetch_xess_sdk.ps1' } else { 'fetch_ngx_sdk.ps1' }))"; New-Item -ItemType Directory -Force (Split-Path "$dst\$extra") | Out-Null; Copy-Item $a.Extra[$extra] "$dst\$extra" } }
     $included += $a.Id
 }
 if (-not ($included -contains 'DLSS5NR01')) { Write-Host 'Neural Rendering did not build: it is not in this package.' }

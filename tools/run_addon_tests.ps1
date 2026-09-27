@@ -61,6 +61,8 @@ $suites = [ordered]@{
                             @('Neural Rendering frame tap', "$nrBuild\Release\nr_taptest.exe", @()));
                    Matrix = $true }
 }
+# the XeSS Upscaler is built only when Intel's SDK is in external\xess (tools\fetch_xess_sdk.ps1)
+if (Test-Path "$root\addons\DLSS5NR01\external\xess\inc\xess\xess_d3d12.h") { $suites.nr.Build += 'XESSUPSC' }
 $buildDirs = @{ manager = "$root\manager\build"; installer = "$root\installer\build"; nr = $nrBuild }
 
 if ($List) { foreach ($n in $suites.Keys) { Write-Host ("{0,-10} when {1}" -f $n, $suites[$n].When) }; exit 0 }

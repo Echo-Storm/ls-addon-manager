@@ -1,0 +1,7 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round">
+  <!-- XeSS Upscaler: a small frame grown into a large one, through a grid of matrix units (Echo-Storm, MIT) -->
+  <path d="M9.5 9.5H20V20H9.5Z"/>
+  <path d="M13 13h4v4h-4Z"/>
+  <path d="M4 4h5v5H4Z"/>
+  <path d="M9 9l2.5 2.5"/>
+</svg>

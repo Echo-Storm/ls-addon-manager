@@ -27,7 +27,7 @@
 class SrEngine {
 public:
     using LogFn = std::function<void(const char*)>;
-    enum class Backend { Dlss, Fsr };
+    enum class Backend { Dlss, Fsr, Xess };
     ~SrEngine() { if (m_worker.joinable()) m_worker.detach(); }   // (at the process's exit without a Shutdown: never std::terminate)
     // On the card with this LUID; the runtime is looked for in runtimeDir (NVIDIA's nvngx_dlss.dll, or AMD's amd_fidelityfx_dx12.dll).
     // Touches no device but its own: may run on any thread.
@@ -93,9 +93,10 @@ public:
 
 private:
     struct FfxState;   // AMD's FidelityFX runtime and its upscaling context (sr_engine.cpp)
+    struct XessState;  // Intel's XeSS runtime and its context (sr_engine.cpp)
     static const int kSlots = 4;
     bool HasFeature() const;
-    const char* Name() const { return m_backend == Backend::Fsr ? "FSR" : "DLSS"; }   // for the log
+    const char* Name() const { return m_backend == Backend::Fsr ? "FSR" : m_backend == Backend::Xess ? "XeSS" : "DLSS"; }   // for the log
     bool EnsureFeature(uint32_t inW, uint32_t inH, uint32_t outW, uint32_t outH, unsigned preset, bool hdr);
     bool EnsureViewInput(uint32_t w, uint32_t h);
     bool EnsureInputs(uint32_t w, uint32_t h);
@@ -150,6 +151,7 @@ private:
     // DLSS
     Backend m_backend = Backend::Dlss;
     FfxState* m_ffx = nullptr;
+    XessState* m_xess = nullptr;
     int64_t m_lastRunQpc = 0;   // FSR wants the time between frames
     void* m_params = nullptr;   // NVSDK_NGX_Parameter*
     void* m_feature = nullptr;  // NVSDK_NGX_Handle*

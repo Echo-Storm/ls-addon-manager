@@ -785,7 +785,7 @@ void OnDeviceEvent(uint32_t id, const void*, uint32_t, void*) {
     const Card card = CardOf(dev);
     { std::lock_guard<std::mutex> lock(g_textMutex); g_cardName = card.name; g_cardDrivesDisplay = card.drivesDisplay; }
     Log("device %p on '%s' LUID %08x:%08x display=%d -> %s", static_cast<void*>(dev), card.name.c_str(), card.luid.HighPart, card.luid.LowPart, card.drivesDisplay ? 1 : 0,
-        card.nvidia ? "NVIDIA, ok" : kFsrScaler ? "not NVIDIA, ok for FSR" : "not NVIDIA, ignored");
+        card.nvidia ? "NVIDIA, ok" : kAnyCardScaler ? "not NVIDIA, ok for this upscaler" : "not NVIDIA, ignored");
     // (the upscalers judge the card on the NIS pass itself, which names the card really in use: Lossless Scaling makes devices on others too)
     // (nor does Neural Rendering: the card frame generation really runs on is named from its passes, in Tappable)
     if (kScalerAddon) SetStatus("waiting for Lossless Scaling's NIS pass (Scaling Type: NIS, the game in a window smaller than the screen)");   // once it runs, the upscaler's own line
@@ -849,14 +849,14 @@ std::atomic<uint32_t> g_scaleInW{ 0 }, g_scaleInH{ 0 }, g_scaleOutW{ 0 }, g_scal
 // the one shipped in the addon's fsr or dlss folder. The engine is given the file's folder (NGX looks for nvngx_dlss.dll there by name).
 std::wstring g_srRuntimeDir;   // the folder the engine was started from (empty: not started)
 std::wstring ChosenRuntimeDir() {
-    std::string chosen = g_host ? g_host->GetConfig(kAddonId, kFsrScaler ? "fsrRuntime" : "dlssRuntime", "") : "";
-    if (chosen.empty()) return g_addonDir + (kFsrScaler ? L"\\fsr" : L"\\dlss");
+    std::string chosen = g_host ? g_host->GetConfig(kAddonId, kRuntimeKey, "") : "";
+    if (chosen.empty()) return g_addonDir + L"\\" + kRuntimeFolderW;
     std::wstring w(chosen.size(), L'\0');
     w.resize(std::max(0, MultiByteToWideChar(CP_UTF8, 0, chosen.c_str(), (int)chosen.size(), w.data(), (int)w.size())));
     if (GetFileAttributesW(w.c_str()) == INVALID_FILE_ATTRIBUTES) {   // moved or deleted by hand: the shipped one rather than no upscaler at all
         static std::string said;
         if (said != chosen) { said = chosen; Log("%s upscaler: the chosen runtime %s is not there: the shipped one runs", kUpscalerName, chosen.c_str()); }
-        return g_addonDir + (kFsrScaler ? L"\\fsr" : L"\\dlss");
+        return g_addonDir + L"\\" + kRuntimeFolderW;
     }
     const size_t slash = w.find_last_of(L"\\/");
     return slash == std::wstring::npos ? w : w.substr(0, slash);
@@ -906,8 +906,8 @@ void StartEngineFor(const LUID& card) {   // the engine's own device only: safe 
     g_srRuntimeDir = ChosenRuntimeDir();
     std::thread([card, dir = g_srRuntimeDir] {
         LARGE_INTEGER f, a, b; QueryPerformanceFrequency(&f); QueryPerformanceCounter(&a);
-        const bool ok = kFsrScaler ? g_sr.Init(card, g_addonDir, dir, [](const char* m) { Log("%s", m); }, SrEngine::Backend::Fsr)
-                                   : g_sr.Init(card, g_addonDir, dir, [](const char* m) { Log("%s", m); });
+        const SrEngine::Backend backend = kXessScaler ? SrEngine::Backend::Xess : kFsrScaler ? SrEngine::Backend::Fsr : SrEngine::Backend::Dlss;
+        const bool ok = g_sr.Init(card, g_addonDir, dir, [](const char* m) { Log("%s", m); }, backend);
         QueryPerformanceCounter(&b);
         Log("%s upscaler: engine %s in %.0f ms, on a thread of its own", kUpscalerName, ok ? "started" : "failed", (b.QuadPart - a.QuadPart) * 1000.0 / f.QuadPart);
         SetStatus(ok ? std::string(kUpscalerName) + " ready" : g_sr.LastError());
@@ -1021,7 +1021,7 @@ bool ScalerPass(ID3D11DeviceContext* ctx, uint32_t x, uint32_t y, uint32_t z) {
     if (!g_srStarting && dev) {
         if (!g_sr.IsReady() && !g_sr.IsFailed()) {
             const Card card = CardOf(dev);
-            if (card.nvidia || kFsrScaler) { SetScalerBlocked(""); StartEngineFor(card.luid); }   // FSR runs on any card
+            if (card.nvidia || kAnyCardScaler) { SetScalerBlocked(""); StartEngineFor(card.luid); }   // FSR and XeSS run on any card
             else {
                 if (g_nisSeen == 1) SetStatus("waiting: Lossless Scaling's device is not an NVIDIA card");
                 SetScalerBlocked("Lossless Scaling runs on " + (card.name.empty() ? std::string("a card") : card.name) +
@@ -1088,7 +1088,7 @@ bool ScalerPass(ID3D11DeviceContext* ctx, uint32_t x, uint32_t y, uint32_t z) {
                 if (replaced) ++g_upscaled;
                 if (g_pairStep == 1) {   // the upscaled half: NIS's output as the upscaler just wrote it
                     if (replaced) {
-                        const std::wstring path = g_pairBase + L"_" + (kFsrScaler ? std::wstring(L"FSR") : std::wstring(L"DLSS")) + L".png";
+                        const std::wstring path = g_pairBase + L"_" + std::wstring(kRuntimeListW) + L".png";
                         if (screenshot::Capture(ctx, pass.out, PairBox(pass), Bridge::ViewFormat(pass.outFmt), path, g_link.Encoding(), g_link.White())) g_pairStep = 2;
                         else { g_pairStep = 0; Log("before / after pair: the upscaled picture could not be copied"); }
                     } else if (++g_pairWaited > 240) { g_pairStep = 0; Log("before / after pair not taken: the upscaler is not replacing NIS"); }
@@ -1130,7 +1130,7 @@ bool ScalerPass(ID3D11DeviceContext* ctx, uint32_t x, uint32_t y, uint32_t z) {
         if (replaced) {
             snprintf(text, sizeof text, "%s %ux%u -> %ux%u, %.1f ms", kUpscalerName, g_scaleInW.load(), g_scaleInH.load(), g_scaleOutW.load(), g_scaleOutH.load(), g_sr.GpuMs());
             g_host->SetStatus(kAddonId, text, 1);
-            if (g_host->GetHostVersion() >= 0x010000) g_host->PublishMetric(kAddonId, kFsrScaler ? "fsr_ms" : "dlss_ms", g_sr.GpuMs(), "ms");
+            if (g_host->GetHostVersion() >= 0x010000) g_host->PublishMetric(kAddonId, kXessScaler ? "xess_ms" : kFsrScaler ? "fsr_ms" : "dlss_ms", g_sr.GpuMs(), "ms");
             SetStatus(text);
         } else if (g_compare.load() == 2) g_host->SetStatus(kAddonId, "Showing Lossless Scaling's NIS (Before / after)", 0);
     }
@@ -1271,18 +1271,18 @@ std::string FileVersion(const std::wstring& path) {
     char text[32]; snprintf(text, sizeof text, "%u.%u.%u", HIWORD(fixed->dwFileVersionMS), LOWORD(fixed->dwFileVersionMS), HIWORD(fixed->dwFileVersionLS));
     return text;
 }
-const wchar_t* RuntimeFileName() { return kFsrScaler ? L"amd_fidelityfx_dx12.dll" : L"nvngx_dlss.dll"; }
-const char* RuntimeKey() { return kFsrScaler ? "fsrRuntime" : "dlssRuntime"; }
+const wchar_t* RuntimeFileName() { return kRuntimeFileW; }
+const char* RuntimeKey() { return kRuntimeKey; }
 } // namespace
 
 std::vector<RuntimeChoice> RuntimeChoices() {
     std::vector<RuntimeChoice> list;
     if (!kScalerAddon) return list;
-    const std::wstring shipped = g_addonDir + (kFsrScaler ? L"\\fsr\\" : L"\\dlss\\") + RuntimeFileName();
+    const std::wstring shipped = g_addonDir + L"\\" + kRuntimeFolderW + L"\\" + RuntimeFileName();
     const std::string shippedVersion = kFsrScaler ? std::string("3.1.4") : FileVersion(shipped);
-    list.push_back({ L"", std::string(kFsrScaler ? "FSR " : "DLSS ") + shippedVersion + (kFsrScaler ? " (AMD, shipped)" : " (NVIDIA, shipped)") });
+    list.push_back({ L"", std::string(kUpscalerName) + " " + shippedVersion + " (" + kRuntimeVendor + ", shipped)" });
     WIN32_FIND_DATAW found{};
-    const std::wstring folder = g_addonDir + L"\\runtimes\\" + (kFsrScaler ? L"FSR" : L"DLSS");
+    const std::wstring folder = g_addonDir + L"\\runtimes\\" + kRuntimeListW;
     const HANDLE h = FindFirstFileW((folder + L"\\*").c_str(), &found);
     if (h == INVALID_HANDLE_VALUE) return list;
     do {
@@ -1296,7 +1296,7 @@ std::vector<RuntimeChoice> RuntimeChoices() {
             fclose(about);
             if (name.size() >= 3 && (unsigned char)name[0] == 0xEF) name.erase(0, 3);
         }
-        if (name.empty()) name = std::string(kFsrScaler ? "FSR " : "DLSS ") + FileVersion(file) + " (" + Narrow(found.cFileName) + ")";
+        if (name.empty()) name = std::string(kUpscalerName) + " " + FileVersion(file) + " (" + Narrow(found.cFileName) + ")";
         list.push_back({ file, name });
     } while (FindNextFileW(h, &found));
     FindClose(h);

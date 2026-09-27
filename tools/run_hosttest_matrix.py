@@ -333,7 +333,8 @@ def scenario_move(ctx, res, text, frame):
 
 def scenario_viewport(ctx, res, text, frame, name='DLSS'):
     # a 4:3 window on a 16:9 screen: NIS scales into the middle; the upscaler must read NIS's viewports, fill the middle and leave the borders
-    scenario_scaler_noflow(ctx, res, text, frame) if name == 'DLSS' else scenario_fsr(ctx, res, text, frame)
+    if name == 'DLSS': scenario_scaler_noflow(ctx, res, text, frame)
+    elif name.startswith('FSR'): scenario_fsr(ctx, res, text, frame)   # (XeSS's own checks come from scenario_xess_viewport)
     res.check("the upscaler reads NIS's viewports from its constants", 'the upscaler takes that part' in text)
     vp = re.search(r'\[check-vp\] .*?: (\d+) pixels of the borders lit', text)
     res.check("...and leaves Lossless Scaling's borders as they are", vp is not None and int(vp.group(1)) == 0, vp.group(0)[11:] if vp else 'no check-vp line')
@@ -341,6 +342,11 @@ def scenario_viewport(ctx, res, text, frame, name='DLSS'):
 
 def scenario_fsr_viewport(ctx, res, text, frame):
     scenario_viewport(ctx, res, text, frame, 'FSR 3')
+
+
+def scenario_xess_viewport(ctx, res, text, frame):
+    scenario_xess(ctx, res, text, frame, whole=False)
+    scenario_viewport(ctx, res, text, frame, 'XeSS')
 
 
 def edge_error(text):
@@ -452,6 +458,33 @@ def scenario_fsr(ctx, res, text, frame):
     scenario_scaler_noflow(ctx, res, text, frame)
 
 
+def scenario_xess(ctx, res, text, frame, whole=True):
+    res.check('the XeSS Upscaler loads Intel\'s runtime on a D3D12 device of its own', 'XeSS upscaler ready on its own D3D12 device' in text)
+    made = re.search(r'XeSS upscaler: \d+x\d+ -> \d+x\d+ \(x[0-9.]+\), [a-z ]+, made in \d+ ms', text)
+    res.check('...sets XeSS up for the NIS pass\'s sizes, at a quality setting that takes them', made is not None, made.group(0) if made else 'no line')
+    res.check('...with no XeSS errors', 'XeSS execute failed' not in text and 'XeSS could not' not in text and 'XeSS takes no input' not in text)
+    if whole:
+        scenario_scaler_noflow(ctx, res, text, frame)
+
+
+def scenario_xess_move_none(ctx, res, text, frame):
+    # (only the baseline for xess_move: told that nothing moves while the picture slides, XeSS's picture drifts about 15 levels in average
+    # colour, where DLSS's and FSR's stay within one, so it is not held to the replaced-NIS check here)
+    scenario_xess(ctx, res, text, frame, whole=False)
+    err = move_error(text)
+    res.check('a sliding picture is measured against the moving picture', err is not None, '%s levels' % err)
+    if err is not None:
+        ctx['xess_move_error_none'] = err
+
+
+def scenario_xess_move(ctx, res, text, frame):
+    scenario_xess(ctx, res, text, frame)
+    err = move_error(text)
+    none = ctx.get('xess_move_error_none')
+    res.check('with the measured motion, XeSS follows the sliding picture better than with none', err is not None and none is not None and err < none * 0.85,
+              '%s against %s levels without' % (err, none))
+
+
 def scenario_fsr_move_none(ctx, res, text, frame):
     scenario_fsr(ctx, res, text, frame)
     err = move_error(text)
@@ -532,6 +565,11 @@ SCENARIOS = [
     ('fsr_move_none', ['addon=FSR3UPSC.dll', 'nis=1', 'nisbgra=1', 'nisnoflow=1', 'nismove=1', 'motionSource=2'], scenario_fsr_move_none),
     ('fsr_move', ['addon=FSR3UPSC.dll', 'nis=1', 'nisbgra=1', 'nisnoflow=1', 'nismove=1'], scenario_fsr_move),
     ('fsr_stable', ['addon=FSR3UPSC.dll', 'nis=1', 'nisbgra=1', 'nisnoflow=1', 'nismove=1', 'scalerStability=1'], scenario_fsr_stable),
+    ('xess_scaler', ['addon=XESSUPSC.dll', 'nis=1', 'nisbgra=1', 'nisnoflow=1'], scenario_xess),   # the XeSS Upscaler, frame generation off
+    ('xess_move_none', ['addon=XESSUPSC.dll', 'nis=1', 'nisbgra=1', 'nisnoflow=1', 'nismove=1', 'motionSource=2'], scenario_xess_move_none),
+    ('xess_move', ['addon=XESSUPSC.dll', 'nis=1', 'nisbgra=1', 'nisnoflow=1', 'nismove=1'], scenario_xess_move),
+    ('xess_hdr_scrgb', ['addon=XESSUPSC.dll', 'nis=1', 'nisbgra=1', 'nisnoflow=1', 'nishdr=scrgb'], scenario_scaler_hdr),
+    ('xess_4_3', ['addon=XESSUPSC.dll', 'nis=1', 'nisbgra=1', 'nisnoflow=1', 'nisvp=1', 'nisW=960', 'nisH=720', 'nisScale=1.5'], scenario_xess_viewport),
     ('scaler_tone', ['addon=DLSS4DLAA.dll', 'nis=1', 'nisbgra=1', 'nisnoflow=1', 'sharpen=0', 'brightness=0.15'], scenario_tone),   # brightness before the upscaler
     ('scaler_colour', ['addon=FSR3UPSC.dll', 'nis=1', 'nisbgra=1', 'nisnoflow=1', 'sharpen=0', 'saturation=0'], scenario_colour),   # colour before FSR
     ('scaler_tone_nr_on', ['addon=DLSS4DLAA.dll', 'nis=1', 'nisbgra=1', 'nisnoflow=1', 'sharpen=0', 'brightness=0.15', '_enabled=1'], scenario_tone),   # ...left to NR
@@ -573,6 +611,7 @@ SOLO = {'fsr_runtime_switch', 'dlss_runtime_switch'}   # run alone (see main)
 def area_of(name):
     if name.startswith(('scaler', 'dlaa', 'dlss')): return 'dlss'
     if name.startswith('fsr'): return 'fsr'
+    if name.startswith('xess'): return 'xess'
     if name == 'record_replay': return 'record'
     if name == 'selftest': return 'selftest'
     if name in ('pair', 'exit_abrupt', 'ui_shot'): return 'addon'
@@ -583,6 +622,7 @@ AREA_FILES = {   # regular expressions on the changed paths (forward slashes), u
     'nr':       r'src/engine/(nr_engine|nr_shaders|dlaa_model)|src/addon/(bridge|compose11|present_hook|frame_tap|tasks)',
     'dlss':     r'src/engine/(sr_engine|flow_estimator)|src/addon/scaler11',
     'fsr':      r'src/engine/(sr_engine|flow_estimator)|src/addon/scaler11|external/ffx',
+    'xess':     r'src/engine/(sr_engine|flow_estimator)|src/addon/scaler11|external/xess',
     'record':   r'src/addon/(recorder|lsrec)|tools/lsrec_tool',
     'selftest': r'src/selftest/|src/addon/requirements',
     'addon':    r'src/addon/(panel|hud_editor|screenshot)',

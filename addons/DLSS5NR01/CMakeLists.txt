@@ -36,7 +36,11 @@ target_compile_definitions(nr_selftest PRIVATE NR_ADDON_VERSION_TEXT="${CMAKE_MA
 set_property(DIRECTORY APPEND PROPERTY CMAKE_CONFIGURE_DEPENDS ${CMAKE_SOURCE_DIR}/addon.json)
 add_dependencies(nr_selftest nr_forwarder)
 
-# ---- the addons: DLSS 5 Neural Rendering (DLSS5NR01), the DLSS Upscaler (DLSS4DLAA) and the FSR Upscaler (FSR3UPSC), from the same sources (src/addon/product.h) ----
+# ---- the addons: DLSS 5 Neural Rendering (DLSS5NR01), the DLSS Upscaler (DLSS4DLAA), the FSR Upscaler (FSR3UPSC) and the XeSS Upscaler (XESSUPSC),
+# from the same sources (src/addon/product.h) ----
+# Intel's XeSS SDK (headers and libxess.dll, not redistributed in source form): tools/fetch_xess_sdk.ps1 puts it in external/xess; without it
+# the XeSS Upscaler is not built and the others do not need it (libxess.dll is loaded by its full path at run time)
+set(XESS_DIR ${CMAKE_SOURCE_DIR}/external/xess)
 set(NR_ADDON_SOURCES
     src/addon/addon.cpp src/addon/runtime.cpp src/addon/panel.cpp src/addon/tasks.cpp src/addon/settings.cpp src/addon/log.cpp
     src/addon/screenshot.cpp src/addon/screenshot_pixels.cpp src/addon/hud_editor.cpp src/addon/auto_quality.cpp
@@ -48,7 +52,7 @@ set(NR_ADDON_SOURCES
     ${imgui_SOURCE_DIR}/imgui_tables.cpp ${imgui_SOURCE_DIR}/imgui_widgets.cpp)
 function(nr_addon target)
     add_library(${target} SHARED ${NR_ADDON_SOURCES})
-    target_include_directories(${target} PRIVATE src ${NGX_DIR}/include ${CMAKE_SOURCE_DIR}/third_party/ffx/include ${CMAKE_SOURCE_DIR}/../../manager/sdk/include ${imgui_SOURCE_DIR})
+    target_include_directories(${target} PRIVATE src ${NGX_DIR}/include ${CMAKE_SOURCE_DIR}/third_party/ffx/include ${XESS_DIR}/inc ${CMAKE_SOURCE_DIR}/../../manager/sdk/include ${imgui_SOURCE_DIR})
     target_link_libraries(${target} PRIVATE ${NGX_LIB} d3d12 d3d11 dxgi d3dcompiler user32 gdi32 advapi32 shlwapi ole32 shell32 comdlg32 windowscodecs)
     set_target_properties(${target} PROPERTIES PREFIX "" OUTPUT_NAME "${target}")
     # Keep a PDB and a linker map next to the Release DLL so the offsets in a crash backtrace can be resolved.
@@ -80,6 +84,19 @@ if(EXISTS ${FFX_DLL})
         COMMAND ${CMAKE_COMMAND} -E copy_if_different ${FFX_DLL} $<TARGET_FILE_DIR:FSR3UPSC>/fsr)
 endif()
 
+if(EXISTS ${XESS_DIR}/inc/xess/xess_d3d12.h)
+    nr_addon(XESSUPSC)
+    target_compile_definitions(XESSUPSC PRIVATE NR_PRODUCT_XESS)
+    # Intel's XeSS runtime, in an xess folder next to the built addon (as in the release)
+    if(EXISTS ${XESS_DIR}/bin/libxess.dll)
+        add_custom_command(TARGET XESSUPSC POST_BUILD
+            COMMAND ${CMAKE_COMMAND} -E make_directory $<TARGET_FILE_DIR:XESSUPSC>/xess
+            COMMAND ${CMAKE_COMMAND} -E copy_if_different ${XESS_DIR}/bin/libxess.dll $<TARGET_FILE_DIR:XESSUPSC>/xess)
+    endif()
+else()
+    message(STATUS "Intel's XeSS SDK is not in external/xess (tools/fetch_xess_sdk.ps1): the XeSS Upscaler is not built")
+endif()
+
 # ---- offline test host: loads the built addon with a fake IHost, headless ImGui and a synthetic LSFG pattern ----
 add_executable(nr_hosttest tools/addon_host_test.cpp src/addon/lsrec.cpp
     ${imgui_SOURCE_DIR}/imgui.cpp ${imgui_SOURCE_DIR}/imgui_draw.cpp
@@ -88,6 +105,9 @@ add_executable(nr_hosttest tools/addon_host_test.cpp src/addon/lsrec.cpp
 target_include_directories(nr_hosttest PRIVATE ${CMAKE_SOURCE_DIR}/src ${CMAKE_SOURCE_DIR}/../../manager/sdk/include ${CMAKE_SOURCE_DIR}/tools ${CMAKE_SOURCE_DIR}/../../manager/tools ${imgui_SOURCE_DIR} ${imgui_SOURCE_DIR}/backends)
 target_link_libraries(nr_hosttest PRIVATE d3d11 dxgi d3dcompiler)
 add_dependencies(nr_hosttest DLSS5NR01 DLSS4DLAA FSR3UPSC)
+if(TARGET XESSUPSC)
+    add_dependencies(nr_hosttest XESSUPSC)
+endif()
 
 # ---- offline test of the frame tap (which pass is the capture, the motion hand-over, presents); a D3D11 device, no model, no SDK at run time ----
 add_executable(nr_taptest tools/tap_test.cpp src/addon/frame_tap.cpp)

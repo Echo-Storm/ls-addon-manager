@@ -179,10 +179,12 @@ EAM_EXPORT void AddonShutdown() {
 EAM_EXPORT void AddonRenderSettings() { DrawPanel(); }
 EAM_EXPORT uint32_t GetAddonCapabilities() { return EAM_CAP_HAS_SETTINGS | EAM_CAP_D3D11_DEVICE_ACCESS | EAM_CAP_DISPATCH_HOOK; }
 EAM_EXPORT const char* GetAddonName() { return kProductName; }
-EAM_EXPORT const char* GetAddonVersion() { return "0.9.11"; }
+EAM_EXPORT const char* GetAddonVersion() { return "0.9.12"; }
 EAM_EXPORT const char* GetAddonAuthor() { return "Echo-Storm"; }
 EAM_EXPORT const char* GetAddonDescription() {
-    return kFsrScaler
+    return kXessScaler
+        ? "Upscales with Intel XeSS Super Resolution in place of Lossless Scaling's NIS scaler, on any graphics card with Shader Model 6.4, with the motion measured from the frames. Intel's XeSS runtime is included."
+        : kFsrScaler
         ? "Upscales with AMD FidelityFX Super Resolution in place of Lossless Scaling's NIS scaler, on any graphics card, with the motion measured from the frames: AMD's FSR 3.1, or FSR 4 (OptiScaler's build) from the Runtimes list. AMD's FSR runtime is included."
         : kScalerAddon
         ? "Upscales with NVIDIA DLSS Super Resolution in place of Lossless Scaling's NIS scaler, on every frame it presents, real and generated. NVIDIA's DLSS runtime is included."

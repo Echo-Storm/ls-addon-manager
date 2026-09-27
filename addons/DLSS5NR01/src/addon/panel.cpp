@@ -116,6 +116,16 @@ void DrawPanel() {
               if (!msg.empty()) { ImGui::PushStyleColor(ImGuiCol_Text, ok ? eam::ui::theme::V(eam::ui::theme::kAccent) : eam::ui::theme::V(eam::ui::theme::kWarn)); ImGui::TextWrapped("%s", msg.c_str()); ImGui::PopStyleColor(); } }
         }
     }
+    else if (kXessScaler) {   // ---- XeSS's requirements: a DirectX 12 card with Shader Model 6.4, and Intel's runtime, which ships in the addon's xess folder
+        Block("Requirements");
+        const std::wstring runtime = g_addonDir + L"\\xess\\libxess.dll";
+        const bool present = GetFileAttributesW(runtime.c_str()) != INVALID_FILE_ATTRIBUTES;
+        if (present) ImGui::TextColored(eam::ui::theme::V(eam::ui::theme::kAccent), "Intel's XeSS runtime is in place (it comes with this addon).");
+        else ImGui::TextColored(eam::ui::theme::V(eam::ui::theme::kDanger), "Intel's XeSS runtime is missing: the addon's xess folder should hold libxess.dll. Reinstall the addon.");
+        Note("Works on any graphics card with DirectX 12 and Shader Model 6.4 (Intel Arc, NVIDIA or AMD); on Intel Arc it runs on the card's XMX units. In Lossless Scaling "
+             "choose NIS as the Scaling Type (XeSS takes the place of that pass), and let the game run in a window smaller than your screen, for example 2560x1440 on a 4K "
+             "screen; at the screen's own size it anti-aliases instead. Frame generation can be on or off. Only one of the upscalers works at a time.");
+    }
     else if (kFsrScaler) {   // ---- FSR's requirements: any DirectX 12 card, and AMD's runtime, which ships in the addon's fsr folder
         Block("Requirements");
         const std::wstring runtime = g_addonDir + L"\\fsr\\amd_fidelityfx_dx12.dll";
@@ -248,18 +258,20 @@ void DrawPanel() {
         int current = 0;
         for (size_t i = 1; i < choices.size(); ++i) if (_wcsicmp(choices[i].path.c_str(), chosen.c_str()) == 0) current = (int)i;
         ImGui::SetNextItemWidth(ImGui::GetFontSize() * 18.0f);
-        if (!choices.empty() && ImGui::BeginCombo(kFsrScaler ? "FSR version" : "DLSS version", choices[current].name.c_str())) {
+        if (!choices.empty() && ImGui::BeginCombo(kXessScaler ? "XeSS version" : kFsrScaler ? "FSR version" : "DLSS version", choices[current].name.c_str())) {
             for (size_t i = 0; i < choices.size(); ++i)
                 if (ImGui::Selectable(choices[i].name.c_str(), (int)i == current) && (int)i != current) ChooseRuntimeFile(choices[i].path);
             ImGui::EndCombo();
         }
-        Tip(kFsrScaler ? "Which FSR runs. AMD's FSR 3.1.4 comes with the addon and runs on any card. FSR 4 is AMD's newer, machine-learning upscaler: "
+        Tip(kXessScaler ? "Which XeSS runtime runs: Intel's, which comes with the addon, or one added with the + next to XeSS in the manager's Runtimes list "
+                          "(bottom left). Switching takes a moment while the game runs."
+          : kFsrScaler ? "Which FSR runs. AMD's FSR 3.1.4 comes with the addon and runs on any card. FSR 4 is AMD's newer, machine-learning upscaler: "
                          "sharper and steadier in motion, and heavier; the OptiScaler team's build runs it on cards AMD's own does not (it is not signed). "
                          "Switching takes a second while the game runs. More files: the + next to FSR in the manager's Runtimes list (bottom left)."
                        : "Which DLSS runtime runs: the one that comes with the addon, or one added with the + next to DLSS in the manager's Runtimes list "
                          "(bottom left). Switching takes a moment while the game runs.");
     }
-    if (dlaa && !kFsrScaler) {
+    if (dlaa && !kAnyCardScaler) {
         int preset = c.dlaaPreset == 13 ? 1 : c.dlaaPreset == 5 ? 2 : 0;
         const char* presets[] = { "NVIDIA's default (K, DLSS 4)", "M (DLSS 4.5, second-generation transformer)", "E (DLSS 3, the older CNN model)" };
         static const unsigned kPresetOf[] = { 0u, 13u, 5u };
@@ -296,7 +308,12 @@ void DrawPanel() {
         if (dlaa) {   // the upscaler: where DLSS's motion vectors come from
             const char* sources[] = { "Measured from the frames (any game)", "Lossless Scaling's frame generation", "None" };
             if (ImGui::Combo("Motion", &c.motionSource, sources, 3)) changed = true;
-            Tip(kFsrScaler ? "FSR combines several frames, and needs to know where each pixel was in the frame before; a game with FSR built in tells it. Here:\n"
+            Tip(kXessScaler ? "XeSS combines several frames, and needs to know where each pixel was in the frame before; a game with XeSS built in tells it. Here:\n"
+                           "Measured from the frames: the upscaler compares each frame with the one before and finds how every part of the picture moved. "
+                           "Works with frame generation on or off, in any game. Costs a little GPU time (shown under Upscaling).\n"
+                           "Lossless Scaling's frame generation: the motion its frame generation measures (only with frame generation on; coarser, a quarter of the game's size).\n"
+                           "None: XeSS assumes nothing moves. Sharp when still, smeared when the camera turns: this is here to compare." :
+                kFsrScaler ? "FSR combines several frames, and needs to know where each pixel was in the frame before; a game with FSR built in tells it. Here:\n"
                            "Measured from the frames: the upscaler compares each frame with the one before and finds how every part of the picture moved. "
                            "Works with frame generation on or off, in any game. Costs a little GPU time (shown under Upscaling).\n"
                            "Lossless Scaling's frame generation: the motion its frame generation measures (only with frame generation on; coarser, a quarter of the game's size).\n"
@@ -354,7 +371,7 @@ void DrawPanel() {
     if (kScalerAddon && eam::ui::SectionHeader("Upscaling")) {
         const ScalerView v = GetScalerView();
         const char* const U = kUpscalerName;
-        if (v.starting) ImGui::TextDisabled(kFsrScaler ? "Loading AMD's FSR runtime..." : "Loading NVIDIA's DLSS runtime...");
+        if (v.starting) ImGui::TextDisabled(kXessScaler ? "Loading Intel's XeSS runtime..." : kFsrScaler ? "Loading AMD's FSR runtime..." : "Loading NVIDIA's DLSS runtime...");
         else if (v.failed) ImGui::TextColored(eam::ui::theme::V(eam::ui::theme::kDanger), "%s could not run: %s. Lossless Scaling's NIS runs as usual.", U, v.error.c_str());
         else if (v.preparing) ImGui::TextColored(eam::ui::theme::V(eam::ui::theme::kWarn), "%s is getting ready for this frame format (the first frame can take a while); NIS runs meanwhile.", U);
         else if (!v.blocked.empty()) {   // the NIS pass is there but the upscaler cannot take it: say why, rather than look like it runs
