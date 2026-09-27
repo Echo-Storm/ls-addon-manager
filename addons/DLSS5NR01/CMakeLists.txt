@@ -109,10 +109,15 @@ if(TARGET XESSUPSC)
     add_dependencies(nr_hosttest XESSUPSC)
 endif()
 
-# nr_fgeval: frame generation scored offline on a recording (tools/fg_eval.cpp): every other frame rebuilt by AMD's FSR 3.1 frame
-# generation, fed this project's motion estimate, and compared with the real one
+# nr_fgeval: frame generation scored offline on a recording (tools/fg_eval.cpp): every other frame rebuilt by AMD's FSR 3.1 or Intel's
+# XeSS frame generation, fed this project's motion estimate, and compared with the real one
 add_executable(nr_fgeval tools/fg_eval.cpp src/addon/lsrec.cpp src/engine/flow_estimator.cpp)
-target_include_directories(nr_fgeval PRIVATE ${CMAKE_SOURCE_DIR}/src ${CMAKE_SOURCE_DIR}/third_party/ffx/include)
+target_include_directories(nr_fgeval PRIVATE ${CMAKE_SOURCE_DIR}/src ${CMAKE_SOURCE_DIR}/third_party/ffx/include ${XESS_DIR}/inc)
+if(EXISTS ${XESS_DIR}/bin/libxess_fg.dll)   # Intel's frame generation runtime, for gen=xess
+    add_custom_command(TARGET nr_fgeval POST_BUILD
+        COMMAND ${CMAKE_COMMAND} -E make_directory $<TARGET_FILE_DIR:nr_fgeval>/xess
+        COMMAND ${CMAKE_COMMAND} -E copy_if_different ${XESS_DIR}/bin/libxess_fg.dll ${XESS_DIR}/bin/libxell.dll $<TARGET_FILE_DIR:nr_fgeval>/xess)
+endif()
 target_link_libraries(nr_fgeval PRIVATE d3d12 dxgi d3dcompiler)
 add_dependencies(nr_fgeval FSR3UPSC)   # (AMD's runtime, in the build's fsr folder)
 
