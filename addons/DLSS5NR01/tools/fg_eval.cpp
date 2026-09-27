@@ -11,7 +11,11 @@
 // Frames are compared in their SDR view: HDR recordings are rolled off as screenshots show them.
 //
 //   nr_fgeval <recording.lsrec> <output folder> [gen=fsr|xess] [first=N] [count=N] [worst=N] [fsr=<amd_fidelityfx_dx12.dll>] [xessfg=<libxess_fg.dll>]
+//             [live=1] [mvcheck=1] [mvscale=N] [depth=motion [depthpx=N]] [estin=light|view] [depthdir=<folder> [depthinv=0]] [motion=none] [refine=...]
+// Scores come in full and "coarse" (a quarter of the size: where things are, not their fine detail). In dense foliage the full score cannot
+// tell a sharp frame a little off from a double image; look at the pictures (worst=, live=1) before trusting a fraction of a dB.
 #include <windows.h>
+#include <shlobj.h>
 #include <d3d12.h>
 #include <dxgi1_6.h>
 #include <DirectXPackedVector.h>
@@ -84,6 +88,20 @@ double Psnr(const std::vector<uint8_t>& a, const std::vector<uint8_t>& b, double
     double se = 0, ae = 0; size_t n = 0;
     for (size_t i = 0; i < a.size(); i += 4) for (int c = 0; c < 3; ++c) { const double d = double(a[i + c]) - double(b[i + c]); se += d * d; ae += std::abs(d); ++n; }
     if (meanAbs) *meanAbs = n ? ae / n : 0;
+    const double mse = n ? se / n : 0;
+    return mse <= 1e-12 ? 99.0 : 10.0 * std::log10(255.0 * 255.0 / mse);
+}
+
+// The same, at a quarter of the size (4x4 averages): what is left is where things are, not their fine detail, so a double image (ghosting)
+// still costs and a leaf a pixel off does not. W: the pictures' width.
+double PsnrCoarse(const std::vector<uint8_t>& a, const std::vector<uint8_t>& b, uint32_t W) {
+    const uint32_t H = static_cast<uint32_t>(a.size() / 4 / W), w = W / 4, h = H / 4;
+    double se = 0; size_t n = 0;
+    for (uint32_t y = 0; y < h; ++y) for (uint32_t x = 0; x < w; ++x) for (int c = 0; c < 3; ++c) {
+        double sa = 0, sb = 0;
+        for (int j = 0; j < 4; ++j) for (int i = 0; i < 4; ++i) { const size_t p = ((static_cast<size_t>(y) * 4 + j) * W + x * 4 + i) * 4 + c; sa += a[p]; sb += b[p]; }
+        const double d = (sa - sb) / 16.0; se += d * d; ++n;
+    }
     const double mse = n ? se / n : 0;
     return mse <= 1e-12 ? 99.0 : 10.0 * std::log10(255.0 * 255.0 / mse);
 }
@@ -232,6 +250,125 @@ void RefineMotion(std::vector<uint16_t>& mv, const std::vector<uint8_t>& rgba, c
     }
 }
 
+// The frame before moved by the vectors (each pixel of this frame taken from where its vector says it was, bilinear): as like this frame as
+// the vectors are right. len: the average vector length (pixels).
+void WarpByMotion(const std::vector<uint8_t>& before, const std::vector<uint16_t>& mv, uint32_t W, uint32_t H, std::vector<uint8_t>& out, double* len) {
+    using DirectX::PackedVector::XMConvertHalfToFloat;
+    out.resize(before.size()); double sum = 0;
+    #pragma omp parallel for reduction(+ : sum)
+    for (int y = 0; y < static_cast<int>(H); ++y) for (uint32_t x = 0; x < W; ++x) {
+        const size_t p = static_cast<size_t>(y) * W + x;
+        const float vx = XMConvertHalfToFloat(mv[p * 2]), vy = XMConvertHalfToFloat(mv[p * 2 + 1]);
+        sum += std::sqrt(vx * vx + vy * vy);
+        const float sx = std::clamp(x + vx, 0.0f, W - 1.0f), sy = std::clamp(y + vy, 0.0f, H - 1.0f);
+        const int x0 = static_cast<int>(sx), y0 = static_cast<int>(sy), x1 = std::min(x0 + 1, static_cast<int>(W) - 1), y1 = std::min(y0 + 1, static_cast<int>(H) - 1);
+        const float fx = sx - x0, fy = sy - y0;
+        for (int c = 0; c < 4; ++c) {
+            auto at = [&](int xx, int yy) { return static_cast<float>(before[(static_cast<size_t>(yy) * W + xx) * 4 + c]); };
+            out[p * 4 + c] = static_cast<uint8_t>((at(x0, y0) * (1 - fx) + at(x1, y0) * fx) * (1 - fy) + (at(x0, y1) * (1 - fx) + at(x1, y1) * fx) * fy + 0.5f);
+        }
+    }
+    if (len) *len = sum / (static_cast<double>(W) * H);
+}
+
+// A depth from the vectors, for a game that gives none (Lossless Scaling sees no depth): the picture's own motion (the median vector, the
+// camera turning or moving) is taken as the far scene, and a pixel is the nearer the more its vector differs from it, fully near at `px`
+// pixels (a third-person character the camera follows, which stays put while the scene sweeps past). depth: W x H, 1 = near, 0.1 = far.
+void DepthFromMotion(const std::vector<uint16_t>& mv, uint32_t W, uint32_t H, std::vector<float>& depth, float px) {
+    using DirectX::PackedVector::XMConvertHalfToFloat;
+    std::vector<float> xs, ys;
+    for (uint32_t y = 0; y < H; y += 8) for (uint32_t x = 0; x < W; x += 8) {
+        const size_t p = static_cast<size_t>(y) * W + x; xs.push_back(XMConvertHalfToFloat(mv[p * 2])); ys.push_back(XMConvertHalfToFloat(mv[p * 2 + 1]));
+    }
+    std::nth_element(xs.begin(), xs.begin() + xs.size() / 2, xs.end()); std::nth_element(ys.begin(), ys.begin() + ys.size() / 2, ys.end());
+    const float gx = xs[xs.size() / 2], gy = ys[ys.size() / 2];
+    depth.resize(static_cast<size_t>(W) * H);
+    #pragma omp parallel for
+    for (int y = 0; y < static_cast<int>(H); ++y) for (uint32_t x = 0; x < W; ++x) {
+        const size_t p = static_cast<size_t>(y) * W + x;
+        const float dx = XMConvertHalfToFloat(mv[p * 2]) - gx, dy = XMConvertHalfToFloat(mv[p * 2 + 1]) - gy;
+        depth[p] = 0.1f + 0.9f * std::clamp(std::sqrt(dx * dx + dy * dy) / px, 0.0f, 1.0f);
+    }
+}
+
+// The frame between, matched at its own time (a yardstick: how far better placement of the vectors goes). Each pixel q of it tries its own
+// vector, those of pixels `reach` away around it, "not moving" and the picture's median: the one under which the two kept frames, sampled
+// at q -/+ v/2 over a 3x3, agree best. Where even the best disagrees (something covered or uncovered), the side that agrees with its own
+// surroundings better (this frame at q - v/2, or the frame before at q + v/2) is taken alone instead of the mix, to leave no double image.
+void MidMatch(const std::vector<uint8_t>& before, const std::vector<uint8_t>& now, const std::vector<uint16_t>& mv, uint32_t W, uint32_t H,
+              std::vector<uint8_t>& out, int reach) {
+    using DirectX::PackedVector::XMConvertHalfToFloat;
+    out.resize(now.size());
+    std::vector<float> xs, ys;
+    for (uint32_t y = 0; y < H; y += 8) for (uint32_t x = 0; x < W; x += 8) {
+        const size_t p = static_cast<size_t>(y) * W + x; xs.push_back(XMConvertHalfToFloat(mv[p * 2])); ys.push_back(XMConvertHalfToFloat(mv[p * 2 + 1]));
+    }
+    std::nth_element(xs.begin(), xs.begin() + xs.size() / 2, xs.end()); std::nth_element(ys.begin(), ys.begin() + ys.size() / 2, ys.end());
+    const float gx = xs[xs.size() / 2], gy = ys[ys.size() / 2];
+    auto luma = [&](const std::vector<uint8_t>& img, float sx, float sy) {   // nearest sample (the match), as brightness
+        const int x = std::clamp(static_cast<int>(sx + 0.5f), 0, static_cast<int>(W) - 1), y = std::clamp(static_cast<int>(sy + 0.5f), 0, static_cast<int>(H) - 1);
+        const uint8_t* p = img.data() + (static_cast<size_t>(y) * W + x) * 4; return 0.299f * p[0] + 0.587f * p[1] + 0.114f * p[2];
+    };
+    auto sample = [&](const std::vector<uint8_t>& img, float sx, float sy, int c) {
+        sx = std::clamp(sx, 0.0f, W - 1.0f); sy = std::clamp(sy, 0.0f, H - 1.0f);
+        const int x0 = static_cast<int>(sx), y0 = static_cast<int>(sy), x1 = std::min(x0 + 1, static_cast<int>(W) - 1), y1 = std::min(y0 + 1, static_cast<int>(H) - 1);
+        const float fx = sx - x0, fy = sy - y0;
+        auto at = [&](int xx, int yy) { return static_cast<float>(img[(static_cast<size_t>(yy) * W + xx) * 4 + c]); };
+        return (at(x0, y0) * (1 - fx) + at(x1, y0) * fx) * (1 - fy) + (at(x0, y1) * (1 - fx) + at(x1, y1) * fx) * fy;
+    };
+    auto vec = [&](int x, int y) {
+        x = std::clamp(x, 0, static_cast<int>(W) - 1); y = std::clamp(y, 0, static_cast<int>(H) - 1);
+        const size_t p = static_cast<size_t>(y) * W + x; return std::pair<float, float>(XMConvertHalfToFloat(mv[p * 2]), XMConvertHalfToFloat(mv[p * 2 + 1]));
+    };
+    #pragma omp parallel for schedule(dynamic, 8)
+    for (int y = 0; y < static_cast<int>(H); ++y) for (int x = 0; x < static_cast<int>(W); ++x) {
+        std::pair<float, float> cand[11]; int n = 0;
+        cand[n++] = vec(x, y); cand[n++] = { 0.0f, 0.0f }; cand[n++] = { gx, gy };
+        for (int k = 0; k < 8; ++k) { static const int ox[8] = { -1, 0, 1, -1, 1, -1, 0, 1 }, oy[8] = { -1, -1, -1, 0, 0, 1, 1, 1 }; cand[n++] = vec(x + ox[k] * reach, y + oy[k] * reach); }
+        float bestCost = 1e30f; std::pair<float, float> best = cand[0];
+        for (int k = 0; k < n; ++k) {
+            const float hx = 0.5f * cand[k].first, hy = 0.5f * cand[k].second; float cost = 0;
+            for (int j = -1; j <= 1; ++j) for (int i = -1; i <= 1; ++i) cost += std::abs(luma(now, x + i * 2 - hx, y + j * 2 - hy) - luma(before, x + i * 2 + hx, y + j * 2 + hy));
+            if (k > 0) cost += 2.0f;   // the own vector wins a tie
+            if (cost < bestCost) { bestCost = cost; best = cand[k]; }
+        }
+        const float hx = 0.5f * best.first, hy = 0.5f * best.second;
+        const size_t p = static_cast<size_t>(y) * W + x;
+        const float agree = bestCost / 9.0f;   // levels of brightness apart
+        // one-sided where they disagree: the side whose vector the pixel's neighbourhood shares (its own sample matches the frame's own vector there)
+        float wNow = 0.5f;
+        if (agree > 12.0f) {
+            const auto vn = vec(static_cast<int>(x - hx), static_cast<int>(y - hy));        // the vector this frame has where q comes from
+            const float dn = std::abs(vn.first - best.first) + std::abs(vn.second - best.second);
+            // this frame's pixel there moves with the chosen vector: this frame shows it (the frame before may have it covered)
+            wNow = dn < 2.0f ? 0.85f : 0.15f;
+        }
+        for (int c = 0; c < 4; ++c) out[p * 4 + c] = static_cast<uint8_t>(wNow * sample(now, x - hx, y - hy, c) + (1 - wNow) * sample(before, x + hx, y + hy, c) + 0.5f);
+    }
+}
+
+// The frame between, from the vectors alone (the simplest interpolation, a yardstick for the generators): a pixel of it at p, at time t
+// (0 the frame before, 1 this one), is taken from this frame at p - (1 - t) v and from the frame before at p + t v (v: the vector at p,
+// standing for the one at the frame between), mixed by t.
+void HalfWay(const std::vector<uint8_t>& before, const std::vector<uint8_t>& now, const std::vector<uint16_t>& mv, uint32_t W, uint32_t H, std::vector<uint8_t>& out, float t) {
+    using DirectX::PackedVector::XMConvertHalfToFloat;
+    out.resize(now.size());
+    auto sample = [&](const std::vector<uint8_t>& img, float sx, float sy, int c) {
+        sx = std::clamp(sx, 0.0f, W - 1.0f); sy = std::clamp(sy, 0.0f, H - 1.0f);
+        const int x0 = static_cast<int>(sx), y0 = static_cast<int>(sy), x1 = std::min(x0 + 1, static_cast<int>(W) - 1), y1 = std::min(y0 + 1, static_cast<int>(H) - 1);
+        const float fx = sx - x0, fy = sy - y0;
+        auto at = [&](int xx, int yy) { return static_cast<float>(img[(static_cast<size_t>(yy) * W + xx) * 4 + c]); };
+        return (at(x0, y0) * (1 - fx) + at(x1, y0) * fx) * (1 - fy) + (at(x0, y1) * (1 - fx) + at(x1, y1) * fx) * fy;
+    };
+    #pragma omp parallel for
+    for (int y = 0; y < static_cast<int>(H); ++y) for (uint32_t x = 0; x < W; ++x) {
+        const size_t p = static_cast<size_t>(y) * W + x;
+        const float vx = XMConvertHalfToFloat(mv[p * 2]), vy = XMConvertHalfToFloat(mv[p * 2 + 1]);
+        for (int c = 0; c < 4; ++c)
+            out[p * 4 + c] = static_cast<uint8_t>(t * sample(now, x - (1 - t) * vx, y - (1 - t) * vy, c) + (1 - t) * sample(before, x + t * vx, y + t * vy, c) + 0.5f);
+    }
+}
+
 } // namespace
 
 int main(int argc, char** argv) {
@@ -239,7 +376,8 @@ int main(int argc, char** argv) {
     if (argc < 3) { printf("usage: nr_fgeval <recording.lsrec> <output folder> [gen=fsr|xess] [first=N] [count=N] [worst=N] [fsr=<amd_fidelityfx_dx12.dll>] [xessfg=<libxess_fg.dll>]\n"); return 2; }
     nr::lsrec::Reader rec; std::string error;
     if (!rec.Open(Wide(argv[1]), &error)) { printf("%s: %s\n", argv[1], error.c_str()); return 2; }
-    const std::wstring outDir = Wide(argv[2]); CreateDirectoryW(outDir.c_str(), nullptr);
+    std::wstring outDir = Wide(argv[2]);
+    { wchar_t full[MAX_PATH]; if (GetFullPathNameW(outDir.c_str(), MAX_PATH, full, nullptr)) outDir = full; SHCreateDirectoryExW(nullptr, outDir.c_str(), nullptr); }   // with its parents
     const nr::lsrec::FileHeader& h = rec.Header();
     const uint32_t W = h.width, H = h.height;
     const int first = std::max(0, Arg(argc, argv, "first", 0));
@@ -257,6 +395,21 @@ int main(int argc, char** argv) {
     const std::string refine = ArgText(argc, argv, "refine");
     const float sigmaDepth = refine == "depth" || refine == "both" ? Arg(argc, argv, "sd", 50) / 1000.0f : 0.0f;       // sd= in thousandths
     const float sigmaColour = refine == "colour" || refine == "both" ? static_cast<float>(Arg(argc, argv, "sc", 20)) : 0.0f;   // sc= in levels
+    // mvcheck=1: how right the motion estimate is, apart from the generator: the kept frame before, moved by the vectors, scored against this
+    // kept frame ("moved"), beside the kept frame before as it is ("still"), and the average vector length
+    const bool mvCheck = Arg(argc, argv, "mvcheck", 0) != 0;
+    // mvscale=N: the vectors scaled by N/100 for FSR (100: as they are); for checking how FSR reads them
+    const float mvScale = Arg(argc, argv, "mvscale", 100) / 100.0f;
+    // depth=motion: a depth made from the vectors (DepthFromMotion: what moves unlike the picture as a whole is near) in place of a flat one;
+    // depthpx=N: the difference from the picture's motion (pixels) that counts as fully near
+    const bool depthFromMotion = ArgText(argc, argv, "depth") == "motion";
+    // estin=light|view: the motion estimate fed the frames as scRGB (half floats), taken as they are (light) or in their SDR view (view)
+    const std::string estIn = ArgText(argc, argv, "estin");
+    // live=1: as live, a frame made between every two frames of the recording (none dropped, so nothing to score against): each kept as a
+    // picture, to be looked at
+    const int stride = Arg(argc, argv, "live", 0) ? 1 : 2;
+    if (stride == 1 && mvCheck) { printf("mvcheck= needs frames dropped (not live=1)\n"); return 2; }
+    const float depthPx = static_cast<float>(Arg(argc, argv, "depthpx", 8));
     if (count < 3) { printf("the recording has too few frames (%zu)\n", rec.Count()); return 2; }
     std::wstring exeDir; { wchar_t exe[MAX_PATH]; GetModuleFileNameW(nullptr, exe, MAX_PATH); exeDir = exe; exeDir = exeDir.substr(0, exeDir.find_last_of(L'\\')); }
 
@@ -360,7 +513,7 @@ int main(int argc, char** argv) {
         if (const ffxReturnCode_t rc = fx.CreateContext(&chainCtx, &scd.header, nullptr); rc != FFX_API_RETURN_OK || !chain) { printf("FidelityFX's swap chain could not be made (code %u)\n", rc); return 4; }
         ffxCreateBackendDX12Desc backend{}; backend.header.type = FFX_API_CREATE_CONTEXT_DESC_TYPE_BACKEND_DX12; backend.device = g.dev;
         ffxCreateContextDescFrameGeneration create{}; create.header.type = FFX_API_CREATE_CONTEXT_DESC_TYPE_FRAMEGENERATION; create.header.pNext = &backend.header;
-        create.flags = depthDir.empty() || !depthNearIsOne ? 0u : static_cast<uint32_t>(FFX_FRAMEGENERATION_ENABLE_DEPTH_INVERTED); create.displaySize = { W, H }; create.maxRenderSize = { W, H }; create.backBufferFormat = FFX_API_SURFACE_FORMAT_R8G8B8A8_UNORM;
+        create.flags = (depthDir.empty() && !depthFromMotion) || !depthNearIsOne ? 0u : static_cast<uint32_t>(FFX_FRAMEGENERATION_ENABLE_DEPTH_INVERTED); create.displaySize = { W, H }; create.maxRenderSize = { W, H }; create.backBufferFormat = FFX_API_SURFACE_FORMAT_R8G8B8A8_UNORM;
         if (fx.CreateContext(&ctx, &create.header, nullptr) != FFX_API_RETURN_OK || !ctx) { printf("FSR frame generation could not make its context\n"); return 4; }
         cfg.header.type = FFX_API_CONFIGURE_DESC_TYPE_FRAMEGENERATION;
         cfg.swapChain = chain; cfg.frameGenerationEnabled = true; cfg.allowAsyncWorkloads = false; cfg.onlyPresentGenerated = false;
@@ -391,7 +544,7 @@ int main(int argc, char** argv) {
         uint64_t frameId = 0;
         step = [&, frameId](int i, float frameMs, std::vector<uint8_t>& picture) mutable -> bool {
             ffxDispatchDescFrameGenerationPrepare prep{}; prep.header.type = FFX_API_DISPATCH_DESC_TYPE_FRAMEGENERATION_PREPARE;
-            prep.frameID = frameId; prep.commandList = g.list; prep.renderSize = { W, H }; prep.jitterOffset = { 0, 0 }; prep.motionVectorScale = { 1.0f, 1.0f };
+            prep.frameID = frameId; prep.commandList = g.list; prep.renderSize = { W, H }; prep.jitterOffset = { 0, 0 }; prep.motionVectorScale = { mvScale, mvScale };
             prep.frameTimeDelta = frameMs; prep.cameraNear = 0.1f; prep.cameraFar = 1000.0f; prep.cameraFovAngleVertical = 1.0f; prep.viewSpaceToMetersFactor = 1.0f;
             prep.depth = ffxApiGetResourceDX12(depth, FFX_API_RESOURCE_STATE_COMPUTE_READ);
             prep.motionVectors = ffxApiGetResourceDX12(motion, FFX_API_RESOURCE_STATE_COMPUTE_READ);
@@ -512,10 +665,10 @@ int main(int argc, char** argv) {
 #endif
     }
 
-    struct Score { int frame; double gen, hold, blend, genAbs; std::vector<uint8_t> picture, mix; };
+    struct Score { int frame; double gen, hold, blend, genAbs, genCoarse, blendCoarse; std::vector<uint8_t> picture, mix; };
     std::vector<Score> scores;
     D3D12_RESOURCE_STATES curState = D3D12_RESOURCE_STATE_COPY_DEST;
-    for (int i = 0; i < count; i += 2) {   // the kept frames: 0, 2, 4...; each one's generated frame stands for the one before it (i - 1)
+    for (int i = 0; i < count; i += stride) {   // the kept frames: 0, 2, 4...; each one's generated frame stands for the one before it (i - 1)
         {   // upload the kept frame
             uint8_t* m = nullptr; upload->Map(0, nullptr, reinterpret_cast<void**>(&m));
             for (uint32_t y = 0; y < H; ++y) memcpy(m + fp.Offset + y * fp.Footprint.RowPitch, frames[i].data() + static_cast<size_t>(y) * W * 4, W * 4);
@@ -528,7 +681,37 @@ int main(int argc, char** argv) {
         g.list->CopyTextureRegion(&to, 0, 0, 0, &from, nullptr);
         g.Barrier(cur, D3D12_RESOURCE_STATE_COPY_DEST, D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE); curState = D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE;
         // the motion from the kept frame before to this one (the estimate keeps the frame before itself), left readable for the generator
-        est.Record(g.list, 0, cur, DXGI_FORMAT_R8G8B8A8_UNORM, motion, distrust);
+        if (estIn.empty()) est.Record(g.list, 0, cur, DXGI_FORMAT_R8G8B8A8_UNORM, motion, distrust);
+        else {   // the estimate fed the frame as light (half floats, 1 = the SDR white), as Lossless Scaling's HDR frames reach it live
+            static ID3D12Resource* light = nullptr; static ID3D12Resource* lightUp = nullptr; static D3D12_PLACED_SUBRESOURCE_FOOTPRINT lfp{};
+            if (!light) {
+                light = g.Texture(W, H, DXGI_FORMAT_R16G16B16A16_FLOAT, false, D3D12_RESOURCE_STATE_COPY_DEST);
+                D3D12_RESOURCE_DESC ld = light->GetDesc(); UINT lr = 0; UINT64 lrow = 0, lt = 0; g.dev->GetCopyableFootprints(&ld, 0, 1, 0, &lfp, &lr, &lrow, &lt);
+                lightUp = g.Buffer(lt, D3D12_HEAP_TYPE_UPLOAD, D3D12_RESOURCE_STATE_GENERIC_READ);
+            } else g.Barrier(light, D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE, D3D12_RESOURCE_STATE_COPY_DEST);
+            uint8_t* m = nullptr; lightUp->Map(0, nullptr, reinterpret_cast<void**>(&m));
+            static float table[256]; static bool made = false;
+            if (!made) {   // the SDR view back to light: sRGB decoded, then the roll-off above 0.75 undone (hdr_hlsl.h's Expand)
+                const float span = std::log(1.0f + 125.0f / 0.03f);
+                for (int v = 0; v < 256; ++v) {
+                    const float s = v / 255.0f, l = s <= 0.04045f ? s / 12.92f : std::pow((s + 0.055f) / 1.055f, 2.4f);
+                    table[v] = l <= 0.75f ? l : 0.75f + 0.03f * (std::exp(std::min(l - 0.75f, 0.25f) / 0.25f * span) - 1.0f);
+                }
+                made = true;
+            }
+            for (uint32_t y = 0; y < H; ++y) {
+                uint16_t* row = reinterpret_cast<uint16_t*>(m + lfp.Offset + y * lfp.Footprint.RowPitch);
+                const uint8_t* src = frames[i].data() + static_cast<size_t>(y) * W * 4;
+                for (uint32_t x = 0; x < W * 4; ++x) row[x] = DirectX::PackedVector::XMConvertFloatToHalf((x & 3) == 3 ? 1.0f : table[src[x]] * 3.0f);   // scRGB (1 = 80 nits), the SDR white at 240
+            }
+            lightUp->Unmap(0, nullptr);
+            D3D12_TEXTURE_COPY_LOCATION lt{ light, D3D12_TEXTURE_COPY_TYPE_SUBRESOURCE_INDEX }; lt.SubresourceIndex = 0;
+            D3D12_TEXTURE_COPY_LOCATION lf{ lightUp, D3D12_TEXTURE_COPY_TYPE_PLACED_FOOTPRINT }; lf.PlacedFootprint = lfp;
+            g.list->CopyTextureRegion(&lt, 0, 0, 0, &lf, nullptr);
+            g.Barrier(light, D3D12_RESOURCE_STATE_COPY_DEST, D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE);
+            // estin=light: taken as it is (before the fix); estin=view: in its SDR view (scRGB, the SDR white at 240 nits)
+            est.Record(g.list, 0, light, DXGI_FORMAT_R16G16B16A16_FLOAT, motion, distrust, 0.0f, estIn == "view" ? 1u : 0u, 240.0f);
+        }
         if (noMotion) {   // overwritten with zeros (a copy from an all-zero texture of the same format)
             static ID3D12Resource* zero = nullptr;
             if (!zero) zero = g.Texture(W, H, DXGI_FORMAT_R16G16_FLOAT, false, D3D12_RESOURCE_STATE_COPY_SOURCE);
@@ -540,7 +723,7 @@ int main(int argc, char** argv) {
             if (!loadDepth(first + i)) { printf("frame %d: no depth_%05d.bin in the depth folder\n", first + i, first + i); return 3; }
             writeDepth(depthValues.data());
         }
-        if (!refine.empty()) {   // the estimate's vectors to the CPU, refined, and back
+        if (!refine.empty() || mvCheck || depthFromMotion) {   // the estimate's vectors to the CPU (refined and back, checked, or made into depth)
             static ID3D12Resource* mvReadback = nullptr; static ID3D12Resource* mvUpload = nullptr; static D3D12_PLACED_SUBRESOURCE_FOOTPRINT mfp{}; static UINT64 mtotal = 0;
             if (!mvReadback) {
                 D3D12_RESOURCE_DESC md = motion->GetDesc(); UINT mrows = 0; UINT64 mrow = 0;
@@ -557,7 +740,27 @@ int main(int argc, char** argv) {
             { uint8_t* m = nullptr; mvReadback->Map(0, nullptr, reinterpret_cast<void**>(&m));
               for (uint32_t y = 0; y < H; ++y) memcpy(mv.data() + static_cast<size_t>(y) * W * 2, m + mfp.Offset + y * mfp.Footprint.RowPitch, W * 4);
               D3D12_RANGE none{ 0, 0 }; mvReadback->Unmap(0, &none); }
-            RefineMotion(mv, frames[i], depthValues, W, H, sigmaDepth, sigmaColour);
+            if (mvCheck && i >= 2) {
+                std::vector<uint8_t> moved, half; double len = 0;
+                WarpByMotion(frames[i - 2], mv, W, H, moved, &len);
+                // the frame between from the vectors alone: both kept frames moved half way (each pixel's own vector), mixed
+                HalfWay(frames[i - 2], frames[i], mv, W, H, half, 0.5f);
+                // and where between them the frame between best fits (its time may not be half way: uneven frame pacing)
+                float bestAt = 0.5f; double bestDb = Psnr(half, frames[i - 1], nullptr); const double halfDb = bestDb;
+                for (float at : { 0.0f, 0.2f, 0.35f, 0.65f, 0.8f, 1.0f }) {
+                    HalfWay(frames[i - 2], frames[i], mv, W, H, moved, at);
+                    const double db = Psnr(moved, frames[i - 1], nullptr); if (db > bestDb) { bestDb = db; bestAt = at; }
+                }
+                printf("  frame %4d  vectors: still %5.2f dB, average length %.1f px; half way %5.2f dB against frame %d, best at %.2f (%5.2f dB); times %.1f + %.1f ms\n",
+                       first + i, Psnr(frames[i - 2], frames[i], nullptr), len, halfDb, first + i - 1, bestAt, bestDb, times[i - 1] - times[i - 2], times[i] - times[i - 1]);
+                for (int reach : { 8, 24 }) {
+                    MidMatch(frames[i - 2], frames[i], mv, W, H, moved, reach);
+                    printf("  frame %4d  matched at its own time (reach %d px): %5.2f dB, coarse %5.2f dB (half way coarse %5.2f dB)\n", first + i - 1, reach,
+                           Psnr(moved, frames[i - 1], nullptr), PsnrCoarse(moved, frames[i - 1], W), PsnrCoarse(half, frames[i - 1], W));
+                    if (reach == 8) { static int saved = 0; if (saved < 2 && len > 40) { wchar_t name[64]; swprintf(name, 64, L"\\mid_frame%05d.bmp", first + i - 1); WriteBmp(outDir + name, { &frames[i - 1], &moved, &half }, W, H); ++saved; } }
+                }
+            }
+            if (!refine.empty()) RefineMotion(mv, frames[i], depthValues, W, H, sigmaDepth, sigmaColour);
             { uint8_t* m = nullptr; mvUpload->Map(0, nullptr, reinterpret_cast<void**>(&m));
               for (uint32_t y = 0; y < H; ++y) memcpy(m + mfp.Offset + y * mfp.Footprint.RowPitch, mv.data() + static_cast<size_t>(y) * W * 2, W * 4);
               mvUpload->Unmap(0, nullptr); }
@@ -567,28 +770,40 @@ int main(int argc, char** argv) {
             D3D12_TEXTURE_COPY_LOCATION uf{ mvUpload, D3D12_TEXTURE_COPY_TYPE_PLACED_FOOTPRINT }; uf.PlacedFootprint = mfp;
             g.list->CopyTextureRegion(&ut, 0, 0, 0, &uf, nullptr);
             g.Barrier(motion, D3D12_RESOURCE_STATE_COPY_DEST, D3D12_RESOURCE_STATE_UNORDERED_ACCESS);
+            if (depthFromMotion) { DepthFromMotion(mv, W, H, depthValues, depthPx); writeDepth(depthValues.data()); }
         }
         g.Barrier(motion, D3D12_RESOURCE_STATE_UNORDERED_ACCESS, D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE);
         Score s; s.frame = first + i - 1;
-        const float frameMs = i >= 2 ? static_cast<float>(times[i] - times[i - 2]) : 33.3f;
+        const float frameMs = i >= stride ? static_cast<float>(times[i] - times[i - stride]) : 33.3f;
         const bool ok = step(i, frameMs, s.picture);
         g.Begin(); g.Barrier(motion, D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE, D3D12_RESOURCE_STATE_UNORDERED_ACCESS); g.Submit();
         if (!ok) { printf("frame %d: stopped\n", first + i); return 5; }
+        if (stride == 1) {   // live: nothing to score against; the frame between is kept as a picture (the frame before | the generator's | this frame)
+            if (i >= 2) {
+                wchar_t name[64]; swprintf(name, 64, L"\\live_%05d_%05d.bmp", first + i - 1, first + i);
+                WriteBmp(outDir + name, { &frames[i - 1], &s.picture, &frames[i] }, W, H);
+                printf("  between frames %d and %d: %ls\n", first + i - 1, first + i, (outDir + name).c_str());
+            }
+            continue;
+        }
         if (i < 2) continue;   // the first kept frame has no frame before it
         const std::vector<uint8_t>& truth = frames[i - 1];
         s.mix.resize(truth.size());
         for (size_t k = 0; k < truth.size(); ++k) s.mix[k] = static_cast<uint8_t>((frames[i - 2][k] + frames[i][k] + 1) / 2);
         s.gen = Psnr(s.picture, truth, &s.genAbs); s.hold = Psnr(frames[i - 2], truth, nullptr); s.blend = Psnr(s.mix, truth, nullptr);
+        s.genCoarse = PsnrCoarse(s.picture, truth, W); s.blendCoarse = PsnrCoarse(s.mix, truth, W);
         const double same = Psnr(s.picture, frames[i], nullptr);
-        printf("  frame %4d  %s %5.2f dB (%.2f levels off)   hold %5.2f dB   blend %5.2f dB%s\n", s.frame, G, s.gen, s.genAbs, s.hold, s.blend,
+        printf("  frame %4d  %s %5.2f dB (%.2f levels off; coarse %5.2f dB)   hold %5.2f dB   blend %5.2f dB (coarse %5.2f dB)%s\n", s.frame, G, s.gen, s.genAbs, s.genCoarse, s.hold, s.blend, s.blendCoarse,
                same > 60.0 ? "   (the generator's frame is the kept frame itself)" : "");
         scores.push_back(std::move(s));
     }
+    if (stride == 1) return 0;
     if (scores.empty()) { printf("nothing was rebuilt\n"); return 5; }
     double gen = 0, hold = 0, blend = 0; int better = 0;
-    for (const Score& s : scores) { gen += s.gen; hold += s.hold; blend += s.blend; better += s.gen > std::max(s.hold, s.blend) ? 1 : 0; }
+    double genC = 0, blendC = 0;
+    for (const Score& s : scores) { gen += s.gen; hold += s.hold; blend += s.blend; genC += s.genCoarse; blendC += s.blendCoarse; better += s.gen > std::max(s.hold, s.blend) ? 1 : 0; }
     const double n = static_cast<double>(scores.size());
-    printf("average over %zu rebuilt frames: %s %.2f dB, hold %.2f dB, blend %.2f dB; %s the closest in %d of them\n", scores.size(), G, gen / n, hold / n, blend / n, G, better);
+    printf("average over %zu rebuilt frames: %s %.2f dB, hold %.2f dB, blend %.2f dB; %s the closest in %d of them; coarse: %s %.2f dB, blend %.2f dB\n", scores.size(), G, gen / n, hold / n, blend / n, G, better, G, genC / n, blendC / n);
     std::vector<const Score*> order; for (const Score& s : scores) order.push_back(&s);
     std::sort(order.begin(), order.end(), [](const Score* a, const Score* b) { return a->gen < b->gen; });
     for (int k = 0; k < worstShown && k < static_cast<int>(order.size()); ++k) {

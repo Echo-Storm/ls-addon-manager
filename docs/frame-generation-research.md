@@ -55,10 +55,35 @@ The offline test is harsher than live use: dropping every other frame of a 60 fp
 generation from 60 to 120 fps bridges half of it. Recordings at 120 fps or more (a lighter game or lower settings) would test the 60 -> 120
 case directly.
 
+## The first live test: turn ghosting (2026-09-27)
+
+The prototype (FSR Upscaler, Silent Hill f, 4K HDR, 30 fps real) ran with FSR 3.1 making every frame between (no fallback to the blend in
+the log), and showed ghosting in fast camera turns. Nine recordings of it (1440p HDR, 30 fps) went through `nr_fgeval`:
+
+- **The motion estimate keeps track.** In a turn of 55-70 px between kept frames (every other frame dropped), the frame before moved by our
+  vectors matches the next one at 26-30 dB against 18-23 dB not moved (`mvcheck=1`); the search reaches about 190 px at 1440p.
+- **The scores stop telling.** FSR, a plain blend, both frames moved half way along our vectors, and a smarter half way (each pixel choosing
+  among its neighbours' vectors where the two frames agree, one-sided where they do not) all land within 0.3 dB, even at a quarter of the size
+  (`PsnrCoarse`). Yet the pictures differ plainly: FSR's frame in a turn is sharp and in place, the blend a double image. In dense foliage a
+  leaf a pixel off costs as much as a ghost, so **look at the pictures** before trusting a fraction of a dB.
+- **Not the vectors' length, not depth.** Vectors scaled by 0.5 help one recording and hurt another (0 to 1.0 all within 0.6 dB); a depth made
+  from the motion (what moves unlike the picture as a whole is near: the third-person character) changes nothing (FSR 3.1 frame generation
+  takes little from depth, as before). Uneven frame times are not it either (33.3 ms apart throughout).
+- **Live cadence looks clean.** `live=1` makes a frame between every two frames of a recording, as live: in the turn, FSR's frames are sharp,
+  in the right place, one speck at the character's hair.
+- **Fixed in the live path:** (1) the frame between went out as soon as it was made and the real frame half a frame after arrival, so with
+  5-10 ms of making at 30 fps they were about 11 and 22 ms apart (uneven: judder, read as doubling in a turn). Both now go out relative to
+  arrival, the frame between after the recent peak of making time. (2) HDR frames reached the motion estimate as light (scRGB) instead of
+  their SDR view, which its thresholds are made for; now in their SDR view (no measurable change on these dark recordings). (3) What frame
+  generation did is logged every 10 s.
+- **Still to rule out:** the FSR Upscaler's own history smearing in fast turns (the recordings are taken before it, so none of this shows it).
+  A live check: frame generation with the FSR Upscaler off (NIS only).
+
 ## Next
 
 1. **Large motion.** The worst frames come from fast camera turns: check how far the estimate's search reaches against the motion in
-   those frames, and whether a wider search (or seeding it with the previous frame's motion) keeps track.
+   those frames, and whether a wider search (or seeding it with the previous frame's motion) keeps track. (2026-09-27: it keeps track to
+   about 190 px at 1440p; see above.)
 2. **Depth for the upscalers.** DLSS, FSR and XeSS upscaling take depth (to follow the right object's motion at an edge, to throw history
    away where something is uncovered) and get a flat one today. Measure with an offline upscaler test: a recorded frame shrunk, upscaled
    back with flat and with model depth, scored against the original.

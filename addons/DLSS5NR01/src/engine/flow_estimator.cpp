@@ -1,4 +1,5 @@
 #include "engine/flow_estimator.h"
+#include "engine/hdr_hlsl.h"
 #include <d3dcompiler.h>
 #include <algorithm>
 #include <cstdarg>
@@ -17,15 +18,16 @@ SamplerState sLinear : register(s0);
 cbuffer C : register(b0) { uint2 size; uint2 grid; uint2 coarse; uint radius; uint flags; float lambda; float bias; float stability; uint unused; };
 )";
 
-// the frame's brightness at its own size (and the statistics cleared for this frame)
-const char* const kLumaHlsl = R"(
+// the frame's brightness at its own size (and the statistics cleared for this frame). An HDR frame (radius: its encoding, lambda: the SDR
+// white in nits) in its SDR view first, which the matching's thresholds are made for
+const char* const kLumaHlsl = NR_HDR_HLSL R"(
 Texture2D<float4> tFrame : register(t0);
 RWTexture2D<float> uLuma : register(u0);
 [numthreads(8, 8, 1)]
 void main(uint3 id : SV_DispatchThreadID) {
     if (id.x == 0 && id.y == 0) { uStats.Store4(0, uint4(0, 0, 0, 0)); uStats.Store4(16, uint4(0, 0, 0, 0)); }
     if (id.x >= size.x || id.y >= size.y) return;
-    uLuma[id.xy] = dot(tFrame.Load(int3(id.xy, 0)).rgb, float3(0.299, 0.587, 0.114));
+    uLuma[id.xy] = dot(ToSdr(tFrame.Load(int3(id.xy, 0)).rgb, radius, lambda), float3(0.299, 0.587, 0.114));
 }
 )";
 
@@ -381,7 +383,7 @@ FlowEstimator::Pass FlowEstimator::MakePass(int slot, int& index, ID3D12Resource
 }
 
 void FlowEstimator::Record(ID3D12GraphicsCommandList* list, int slot, ID3D12Resource* frame, DXGI_FORMAT frameFormat, ID3D12Resource* motion, ID3D12Resource* distrust,
-                           float stability) {
+                           float stability, uint32_t encoding, float whiteNits) {
     const int cur = m_current, prev = 1 - m_current;
     int index = 0;
     auto stamp = [&](int i) { if (m_stamps) list->EndQuery(m_stamps, D3D12_QUERY_TYPE_TIMESTAMP, static_cast<UINT>(slot * kStamps + i)); };
@@ -407,7 +409,8 @@ void FlowEstimator::Record(ID3D12GraphicsCommandList* list, int slot, ID3D12Reso
 
     {   // this frame's pyramid
         ID3D12Resource* const srv[4] = { frame, nullptr, nullptr, nullptr }; const DXGI_FORMAT fmt[4] = { frameFormat, NONE, NONE, NONE };
-        run(Luma, srv, fmt, m_luma[cur][0], R16, Constants{ m_lw[0], m_lh[0] }, m_lw[0], m_lh[0], true);
+        Constants c{ m_lw[0], m_lh[0] }; c.radius = encoding; c.lambda = whiteNits > 0.0f ? whiteNits : 80.0f;
+        run(Luma, srv, fmt, m_luma[cur][0], R16, c, m_lw[0], m_lh[0], true);
     }
     for (int k = 1; k < m_levels; ++k) {
         ID3D12Resource* const srv[4] = { m_luma[cur][k - 1], nullptr, nullptr, nullptr }; const DXGI_FORMAT fmt[4] = { R16, NONE, NONE, NONE };

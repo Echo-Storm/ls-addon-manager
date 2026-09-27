@@ -30,7 +30,8 @@ public:
     ID3D12Fence* OpenSharedFence(HANDLE h);
     // Frame n is in `in` once `copied` reaches n. Makes the frame between frame n - 1 and n into `out` and returns true once it is written
     // there (false: no frame between this time, such as for the first frame; `out` is then untouched). frameMs: the time since frame n - 1.
-    bool Generate(ID3D12Resource* in, ID3D12Fence* copied, uint64_t n, ID3D12Resource* out, float frameMs, bool reset);
+    // encoding, whiteNits: what the frames hold (hdr_hlsl.h: 0 SDR, 1 scRGB, 2 HDR10) and the SDR white; the motion is measured in their SDR view.
+    bool Generate(ID3D12Resource* in, ID3D12Fence* copied, uint64_t n, ID3D12Resource* out, float frameMs, bool reset, uint32_t encoding = 0, float whiteNits = 80.0f);
     const char* LastError() const { return m_error.c_str(); }
 
 private:

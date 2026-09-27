@@ -194,13 +194,13 @@ void FgEngine::Shutdown() {
 ID3D12Resource* FgEngine::OpenSharedTexture(HANDLE h) { ID3D12Resource* r = nullptr; if (m_dev) m_dev->OpenSharedHandle(h, IID_PPV_ARGS(&r)); return r; }
 ID3D12Fence* FgEngine::OpenSharedFence(HANDLE h) { ID3D12Fence* f = nullptr; if (m_dev) m_dev->OpenSharedHandle(h, IID_PPV_ARGS(&f)); return f; }
 
-bool FgEngine::Generate(ID3D12Resource* in, ID3D12Fence* copied, uint64_t n, ID3D12Resource* out, float frameMs, bool reset) {
+bool FgEngine::Generate(ID3D12Resource* in, ID3D12Fence* copied, uint64_t n, ID3D12Resource* out, float frameMs, bool reset, uint32_t encoding, float whiteNits) {
     if (!m_ready) return false;
     if (reset) m_estimator.Forget();
     // the frame's motion (the estimate keeps the frame before), FSR's preparation, and the frame into FidelityFX's back buffer
     m_alloc->Reset(); m_list->Reset(m_alloc, nullptr);
     Barrier(in, D3D12_RESOURCE_STATE_COMMON, D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE);
-    m_estimator.Record(m_list, 0, in, m_fmt, m_motion, m_distrust);
+    m_estimator.Record(m_list, 0, in, m_fmt, m_motion, m_distrust, 0.0f, encoding, whiteNits);
     Barrier(m_motion, D3D12_RESOURCE_STATE_UNORDERED_ACCESS, D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE);
     ffxDispatchDescFrameGenerationPrepare prep{}; prep.header.type = FFX_API_DISPATCH_DESC_TYPE_FRAMEGENERATION_PREPARE;
     prep.frameID = m_frameId; prep.commandList = m_list; prep.renderSize = { m_w, m_h }; prep.jitterOffset = { 0, 0 }; prep.motionVectorScale = { 1.0f, 1.0f };
