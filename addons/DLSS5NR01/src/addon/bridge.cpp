@@ -198,7 +198,7 @@ bool Bridge::Submit(ID3D11Texture2D* frame, ID3D11Texture2D* flow, uint32_t flow
     if (m_engine->CheckStuck() || !m_engine->IsReady()) return false;   // a model that stopped responding: Lossless Scaling runs untouched
     // The engine's thread is still recording the run before (it takes well under a millisecond): this frame is left out, as when the model is
     // busy. The engine's settings (Prepare, SetFlowInput) are only changed while that thread is idle.
-    if (m_engine->Busy()) { ++m_skipped; return false; }
+    if (m_engine->Busy() && !m_engine->WaitNotBusy(2)) { ++m_skipped; return false; }   // (a moment's grace: frames can come fast)
     LARGE_INTEGER freq; QueryPerformanceFrequency(&freq);
     const int64_t start = Now();
     NoteFrameTime(start, freq.QuadPart);

@@ -138,6 +138,7 @@ public:
     };
     void Submit(const Job& job);
     bool Busy();                                       // a run queued or being recorded
+    bool WaitNotBusy(DWORD ms) { return WaitWorkerIdle(ms); }   // a short grace for the run before to be recorded
     uint64_t Submitted() const { return m_submitted.load(std::memory_order_acquire); }   // the newest run whose work is on the GPU queue (its signal value)
     bool WaitSubmitted(uint64_t signalValue, DWORD ms);
     bool RanOk(uint64_t signalValue) const { return signalValue && m_okRing[signalValue % kOkRing].load(std::memory_order_acquire) == signalValue; }
