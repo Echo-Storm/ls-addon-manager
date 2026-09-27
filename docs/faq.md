@@ -72,6 +72,28 @@ It runs your model file once, in a separate program, on your graphics card, and 
 **Can I share what worked on my card?**
 Yes, please: see [model-compatibility.md](model-compatibility.md).
 
+## DLSS and FSR Upscalers
+
+**The upscaler is on, but nothing changes.**
+In Lossless Scaling choose **NIS** as the Scaling Type: the upscalers take the place of that pass. The addon's panel says what it is doing,
+and when something is in the way, what (a card that is not NVIDIA's for DLSS, a frame format, a window layout). Ctrl+Shift+F6 switches
+between the upscaler and NIS while you play.
+
+**Why is the difference smaller than in a game with DLSS built in?**
+A game with DLSS built in moves its camera by a fraction of a pixel every frame, and DLSS combines those frames into detail finer than the
+game renders. Lossless Scaling only sees the finished frames, without those shifts, so DLSS and FSR work as a very good upscaler and
+anti-aliasing rather than adding new detail. The difference to NIS shows most in motion, on fine detail and foliage, and when the game
+renders well below the screen's size (2560x1440 to 4K, for example); on a clean, low-detail game it is smaller. The
+[upscalers' guide](../addons/DLSS5NR01/docs/upscalers.md) has the settings that help most (the model, sharpening, stability).
+
+**DLSS or FSR?**
+On an NVIDIA RTX card try both: DLSS smooths edges better, FSR 3.1 costs less and keeps text crisper, and FSR 4 is the best in motion but
+costs the most. On any other card, FSR.
+
+**Does it work with HDR games?**
+Yes: 16-bit (scRGB) and 10-bit (HDR10) frames are upscaled in their SDR view and go back as HDR. If a game looks washed out or too dark,
+set *Frame encoding* under Upscaling by hand.
+
 ## Reporting a problem
 
 Open an issue at <https://github.com/Echo-Storm/ls-addon-manager/issues>. Attach the **diagnostics file** (*Settings > Create a diagnostics file*): a zip of your logs and settings that is only made on your PC and uploaded nowhere. Say what you did, what you expected, what happened, your Windows version, graphics card and Lossless Scaling version.
