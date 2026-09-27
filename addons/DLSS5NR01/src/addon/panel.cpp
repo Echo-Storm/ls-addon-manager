@@ -470,11 +470,12 @@ void DrawPanel() {
         if (kFsrScaler) {   // a prototype, off by default
             if (ImGui::Checkbox("Frame generation of our own (prototype)", &c.frameGen)) changed = true;
             Tip("Doubles the frame rate with a frame made between each two real ones, shown in Lossless Scaling's own window. Turn Lossless Scaling's frame "
-                "generation OFF first (both at once would double twice). A prototype: for now the frame between is the two real frames mixed half and half, "
-                "to try the pacing; AMD's FSR 3 frame generation comes next. Real frames are shown half a frame later than without it.");
+                "generation OFF first (both at once would double twice). A prototype: the frame between is made by AMD's FSR 3.1 frame generation with the "
+                "motion measured from the frames (when it cannot, the two real frames mixed half and half). Real frames are shown half a frame later than without it.");
             if (c.frameGen) {
                 const nr::framegen::Stats st = nr::framegen::GetStats();
-                ImGui::TextDisabled("  %llu real, %llu made between; real frames every %.1f ms", (unsigned long long)st.real, (unsigned long long)st.generated, st.realIntervalMs);
+                ImGui::TextDisabled("  %llu real, %llu made between (%llu by %s, %.1f ms each); real frames every %.1f ms", (unsigned long long)st.real,
+                                    (unsigned long long)st.generated, (unsigned long long)st.byFsr, st.engine.empty() ? "FSR" : st.engine.c_str(), st.fsrMs, st.realIntervalMs);
             }
         }
         if (ImGui::Checkbox("Wait on the GPU rather than repeat a picture", &c.scalerGpuWait)) changed = true;

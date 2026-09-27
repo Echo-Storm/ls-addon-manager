@@ -668,8 +668,11 @@ void OnPresent(IDXGISwapChain* sc, UINT sync, UINT flags) {
     if (kScalerAddon) {
         ScalerPresentGuarded(sc);
         bool frameGen; { std::lock_guard<std::mutex> lock(g_settingsMutex); frameGen = g_config.frameGen; }
-        if (kFsrScaler && frameGen && sc == g_fgChain.load(std::memory_order_acquire))   // Lossless Scaling's output swap chain only (not the manager's window)
+        if (kFsrScaler && frameGen && sc == g_fgChain.load(std::memory_order_acquire)) {   // Lossless Scaling's output swap chain only (not the manager's window)
+            static const bool runtimeSet = (nr::framegen::SetRuntime(g_addonDir + L"\\fsr\\amd_fidelityfx_dx12.dll"), true);   // the shipped FSR 3.1 (FSR 4's build has no frame generation)
+            (void)runtimeSet;
             nr::framegen::BeforeRealPresent(sc, sync, flags, [](const char* m) { Log("%s", m); });
+        }
         return;
     }   // the upscaler: its picture over NIS's (Handoff::AtPresent); no Enable of its own
     { std::lock_guard<std::mutex> lock(g_settingsMutex); if (!g_config.enabled) return; }
