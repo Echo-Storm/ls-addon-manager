@@ -89,10 +89,10 @@ bool FgEngine::Submit(DWORD waitMs) {
     return WaitForSingleObject(m_event, waitMs) == WAIT_OBJECT_0;
 }
 
-bool FgEngine::Init(const LUID& card, const std::wstring& runtimeDll, uint32_t w, uint32_t h, DXGI_FORMAT fmt, bool hdr, float whiteNits, LogFn log) {
+bool FgEngine::Init(const LUID& card, const std::wstring& runtimeDll, uint32_t w, uint32_t h, DXGI_FORMAT fmt, bool hdr, LogFn log) {
     Shutdown();
     m_log = std::move(log); m_error.clear();
-    m_card = card; m_w = w; m_h = h; m_fmt = fmt; m_hdr = hdr; m_white = whiteNits > 1.0f ? whiteNits : 200.0f;
+    m_card = card; m_w = w; m_h = h; m_fmt = fmt; m_hdr = hdr;
     IDXGIFactory4* factory = nullptr; IDXGIAdapter1* adapter = nullptr;
     if (FAILED(CreateDXGIFactory2(0, IID_PPV_ARGS(&factory)))) return Fail("no DXGI factory");
     if (FAILED(factory->EnumAdapterByLuid(card, IID_PPV_ARGS(&adapter)))) { factory->Release(); return Fail("Lossless Scaling's graphics card was not found"); }
@@ -194,13 +194,13 @@ void FgEngine::Shutdown() {
 ID3D12Resource* FgEngine::OpenSharedTexture(HANDLE h) { ID3D12Resource* r = nullptr; if (m_dev) m_dev->OpenSharedHandle(h, IID_PPV_ARGS(&r)); return r; }
 ID3D12Fence* FgEngine::OpenSharedFence(HANDLE h) { ID3D12Fence* f = nullptr; if (m_dev) m_dev->OpenSharedHandle(h, IID_PPV_ARGS(&f)); return f; }
 
-bool FgEngine::Generate(ID3D12Resource* in, ID3D12Fence* copied, uint64_t n, ID3D12Resource* out, float frameMs, bool reset) {
+bool FgEngine::Generate(ID3D12Resource* in, ID3D12Fence* copied, uint64_t n, ID3D12Resource* out, float frameMs, bool reset, uint32_t encoding, float whiteNits) {
     if (!m_ready) return false;
     if (reset) m_estimator.Forget();
     // the frame's motion (the estimate keeps the frame before), FSR's preparation, and the frame into FidelityFX's back buffer
     m_alloc->Reset(); m_list->Reset(m_alloc, nullptr);
     Barrier(in, D3D12_RESOURCE_STATE_COMMON, D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE);
-    m_estimator.Record(m_list, 0, in, m_fmt, m_motion, m_distrust, 0.0f, m_hdr ? 1u : 0u, m_white);
+    m_estimator.Record(m_list, 0, in, m_fmt, m_motion, m_distrust, 0.0f, encoding, whiteNits);
     Barrier(m_motion, D3D12_RESOURCE_STATE_UNORDERED_ACCESS, D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE);
     ffxDispatchDescFrameGenerationPrepare prep{}; prep.header.type = FFX_API_DISPATCH_DESC_TYPE_FRAMEGENERATION_PREPARE;
     prep.frameID = m_frameId; prep.commandList = m_list; prep.renderSize = { m_w, m_h }; prep.jitterOffset = { 0, 0 }; prep.motionVectorScale = { 1.0f, 1.0f };

@@ -118,7 +118,7 @@ if(EXISTS ${XESS_DIR}/bin/libxess_fg.dll)   # Intel's frame generation runtime, 
         COMMAND ${CMAKE_COMMAND} -E make_directory $<TARGET_FILE_DIR:nr_fgeval>/xess
         COMMAND ${CMAKE_COMMAND} -E copy_if_different ${XESS_DIR}/bin/libxess_fg.dll ${XESS_DIR}/bin/libxell.dll $<TARGET_FILE_DIR:nr_fgeval>/xess)
 endif()
-target_link_libraries(nr_fgeval PRIVATE d3d12 dxgi d3dcompiler)
+target_link_libraries(nr_fgeval PRIVATE d3d12 dxgi d3dcompiler shell32)
 if(MSVC)
     target_compile_options(nr_fgeval PRIVATE /openmp)   # the CPU motion refinement (RefineMotion)
 endif()

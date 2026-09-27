@@ -55,45 +55,58 @@ The offline test is harsher than live use: dropping every other frame of a 60 fp
 generation from 60 to 120 fps bridges half of it. Recordings at 120 fps or more (a lighter game or lower settings) would test the 60 -> 120
 case directly.
 
-## First live test, and the turn ghosting (2026-09-27)
+## The first live test: turn ghosting (2026-09-27)
 
-The prototype (step 2: FSR 3.1 frame generation fed our motion, in Lossless Scaling's own swap chain) ran live in Silent Hill f, HDR,
-3840x2160 output, about 30 real frames a second: FSR made every frame between, no fallbacks. The visible flaw is ghosting in fast camera
-turns. Nine HDR recordings of it (2560x1440, 30 fps, NIS's input) were scored with `nr_fgeval`; `tools/fgeval_compare.py` pairs two runs.
+The prototype (FSR Upscaler, Silent Hill f, 4K HDR, 30 fps real) ran with FSR 3.1 making every frame between (no fallback to the blend in
+the log), and showed ghosting in fast camera turns. Nine recordings of it (1440p HDR, 30 fps) went through `nr_fgeval`:
 
-- **The estimate was given raw scRGB in HDR** (the live path; offline tests only ever fed it the SDR view). `FlowEstimator::Record` now takes
-  the frame's encoding and measures an HDR frame in its SDR view. `nr_fgeval estimate=light|lightview` rebuilds scRGB from a recording to
-  compare: 43.86 -> 43.96 dB on one clip. Right, but not the ghosting.
-- **The whole picture's shift** (a new pass: every shift within +-20 px at the smallest size, about +-640 px at full size; the best one seeds
-  the search's first size, and "not moving" wins unless a shift is clearly better, or a still repeating pattern reads as moving). The
-  estimate reaches 80-210 px between kept frames in the turns. Average over the three hardest clips: +0.00, +0.06, +0.22 dB; the worst frame
-  12.84 -> 13.38. A small gain: range is not the main problem.
-- **What the ghosting is:** the character stays put while the background swings past (a third-person camera), and in the frame between FSR
-  lets the background win where they overlap: leaves pasted over the head, hair dragged sideways, a haze beside the character. PSNR over
-  frames full of foliage barely registers it.
-- **Depth from the motion** (`nr_fgeval depth=motion [dr=N]`: whatever moves unlike the picture's median vector is near): no measurable
-  change (20.75 -> 20.64 dB), and by eye mixed: the patch on the head smaller in some frames, speckles in the sky where lone foliage vectors
-  come forward. Not pursued as it stands.
-- **Keeping what stays put** (`nr_fgeval keepstill=N`: where the two real frames are alike, the frame between is their mix): no help. The
-  character is not still on screen in a turn (it shifts a few pixels, and the hair's brightness changes by 15 levels or more as the backlight
-  moves), so a threshold on likeness does not find it. Would still suit a HUD; not pursued for the character.
-- About half the frames in these turns are below the blend, even with FSR. The offline test bridges two real frames (66 ms at 30 fps),
-  twice the gap live; but live at 30 real frames a second is still a large gap, and the most direct improvement is more real frames (the
-  frame-rate target idea, deferred).
+- **The motion estimate keeps track.** In a turn of 55-70 px between kept frames (every other frame dropped), the frame before moved by our
+  vectors matches the next one at 26-30 dB against 18-23 dB not moved (`mvcheck=1`); the search reaches about 190 px at 1440p.
+- **The scores stop telling.** FSR, a plain blend, both frames moved half way along our vectors, and a smarter half way (each pixel choosing
+  among its neighbours' vectors where the two frames agree, one-sided where they do not) all land within 0.3 dB, even at a quarter of the size
+  (`PsnrCoarse`). Yet the pictures differ plainly: FSR's frame in a turn is sharp and in place, the blend a double image. In dense foliage a
+  leaf a pixel off costs as much as a ghost, so **look at the pictures** before trusting a fraction of a dB.
+- **Not the vectors' length, not depth.** Vectors scaled by 0.5 help one recording and hurt another (0 to 1.0 all within 0.6 dB); a depth made
+  from the motion (what moves unlike the picture as a whole is near: the third-person character) changes nothing (FSR 3.1 frame generation
+  takes little from depth, as before). Uneven frame times are not it either (33.3 ms apart throughout).
+- **Live cadence looks clean.** `live=1` makes a frame between every two frames of a recording, as live: in the turn, FSR's frames are sharp,
+  in the right place, one speck at the character's hair.
+- **Fixed in the live path:** (1) the frame between went out as soon as it was made and the real frame half a frame after arrival, so with
+  5-10 ms of making at 30 fps they were about 11 and 22 ms apart (uneven: judder, read as doubling in a turn). Both now go out relative to
+  arrival, the frame between after the recent peak of making time. (2) HDR frames reached the motion estimate as light (scRGB) instead of
+  their SDR view, which its thresholds are made for; now in their SDR view (no measurable change on these dark recordings). (3) What frame
+  generation did is logged every 10 s.
+- **Still to rule out:** the FSR Upscaler's own history smearing in fast turns (the recordings are taken before it, so none of this shows it).
+  A live check: frame generation with the FSR Upscaler off (NIS only).
+
+
+Also on 2026-09-27 (a second session, on the same recordings; `tools/fgeval_compare.py` pairs two `nr_fgeval` runs frame by frame):
+
+- **The whole picture's shift** seeds the search now (a pass trying every shift within +-20 px at the smallest size, about +-640 px at full
+  size; "not moving" wins unless a shift is clearly better, or a still repeating pattern reads as moving, which the test host caught). The
+  turns reach 80-210 px between kept frames; averages over the three hardest clips +0.00, +0.06, +0.22 dB, the worst frame 12.84 -> 13.38.
+  A small gain: range is not the main problem.
+- **What the ghosting looks like** (the worst frame, cropped): leaves from the background pasted over the character's head, the hair
+  dragged sideways, a haze beside it; the character stays near put while the background swings past, and FSR lets the background win where
+  the two overlap.
+- **Keeping what stays put** (`keepstill=N`: where the two real frames are alike, the frame between is their mix): no help, because the
+  character is not still on screen in a turn (it shifts a few pixels, and the backlit hair's brightness changes by 15 levels or more).
+  Would suit a HUD.
 
 ## Next
 
-1. **The character in turns.** A measure that sees it (the error in a band around what moves unlike the background, instead of the whole
-   frame), then: the character as a layer of its own (its motion measured apart from the background's at the edge, where today's 8x8
-   blocks straddle both), or a disocclusion mask of our own over FSR's result.
-2. **More real frames.** Every gap to bridge halves at 60 real frames a second; the frame-rate target idea (deferred) matters as much as
+1. **Rule out the FSR Upscaler's history** (live: frame generation with the FSR Upscaler off, NIS only).
+2. **The character in turns.** A measure that sees it (the error in a band around what moves unlike the background, not the whole frame),
+   then: the character as a layer of its own (its motion measured apart from the background's at the edge, where today's 8x8 blocks
+   straddle both), or a disocclusion mask of our own over FSR's result.
+3. **More real frames.** Every gap to bridge halves at 60 real frames a second; the frame-rate target idea (deferred) matters as much as
    anything above.
-3. **Depth for the upscalers.** DLSS, FSR and XeSS upscaling take depth (to follow the right object's motion at an edge, to throw history
+4. **Depth for the upscalers.** DLSS, FSR and XeSS upscaling take depth (to follow the right object's motion at an edge, to throw history
    away where something is uncovered) and get a flat one today. Measure with an offline upscaler test: a recorded frame shrunk, upscaled
    back with flat and with model depth, scored against the original.
-4. **The cost.** The model took about 0.45 s a frame through Python and DirectML at 518 px; for live use it needs to run natively, at a lower
+5. **The cost.** The model took about 0.45 s a frame through Python and DirectML at 518 px; for live use it needs to run natively, at a lower
    resolution, and not on every frame (depth changes slowly), with the frames between warped along the motion.
-5. **The prototype against LSFG**, side by side live (the prototype runs: see above).
+6. **The prototype against LSFG**, side by side live (the prototype runs: see above).
 
 Depth from the game itself (ReShade's Generic Depth add-on, and forks such as PatchedReShade that lift ReShade's block on depth in online
 games) stays an optional extra at most: official ReShade switches depth off when a game uses the network, which rules out online games such

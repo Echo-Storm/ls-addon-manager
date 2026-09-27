@@ -14,7 +14,8 @@ using LogFn = std::function<void(const char*)>;
 // On Lossless Scaling's presenting thread, before it presents a real frame into sc (its output swap chain): presents the frame between
 // (through PresentHook::PresentOriginal) and waits until the real frame is due. False when it did nothing (the first frame, a size change,
 // a format it cannot take); the real frame goes out as usual either way.
-bool BeforeRealPresent(IDXGISwapChain* sc, UINT sync, UINT flags, const LogFn& log);
+// encoding, whiteNits: what its frames hold (0 SDR, 1 scRGB, 2 HDR10; hdr.h) and the SDR white, for measuring their motion.
+bool BeforeRealPresent(IDXGISwapChain* sc, UINT sync, UINT flags, uint32_t encoding, float whiteNits, const LogFn& log);
 void SetRuntime(const std::wstring& amdFidelityFxDll);   // AMD's runtime FgEngine loads (the FSR Upscaler's shipped FSR 3.1)
 void Reset();      // forgets the frame before (switched off, a new swap chain)
 void Shutdown();   // lets the textures go

@@ -18,17 +18,16 @@ SamplerState sLinear : register(s0);
 cbuffer C : register(b0) { uint2 size; uint2 grid; uint2 coarse; uint radius; uint flags; float lambda; float bias; float stability; uint unused; };
 )";
 
-// the frame's brightness at its own size (and the statistics cleared for this frame). flags: the frame's encoding (hdr_hlsl.h; 0 SDR),
-// lambda: the SDR white in nits. An HDR frame is measured in its SDR view: the thresholds here are for sRGB-encoded 0..1, and in linear light
-// a dark scene is all near zero (nothing to match) while a highlight outweighs everything else.
-const char* const kLumaHlsl = R"(
+// the frame's brightness at its own size (and the statistics cleared for this frame). An HDR frame (radius: its encoding, lambda: the SDR
+// white in nits) in its SDR view first, which the matching's thresholds are made for
+const char* const kLumaHlsl = NR_HDR_HLSL R"(
 Texture2D<float4> tFrame : register(t0);
 RWTexture2D<float> uLuma : register(u0);
 [numthreads(8, 8, 1)]
 void main(uint3 id : SV_DispatchThreadID) {
     if (id.x == 0 && id.y == 0) { uStats.Store4(0, uint4(0, 0, 0, 0)); uStats.Store4(16, uint4(0, 0, 0, 0)); }
     if (id.x >= size.x || id.y >= size.y) return;
-    uLuma[id.xy] = dot(ToSdr(tFrame.Load(int3(id.xy, 0)).rgb, flags, lambda), float3(0.299, 0.587, 0.114));
+    uLuma[id.xy] = dot(ToSdr(tFrame.Load(int3(id.xy, 0)).rgb, radius, lambda), float3(0.299, 0.587, 0.114));
 }
 )";
 
@@ -296,7 +295,7 @@ bool FlowEstimator::Init(ID3D12Device* dev, LogFn log) {
     const char* sources[PsoCount] = { kLumaHlsl, kDownHlsl, kGlobalHlsl, kSearchHlsl, kMedianHlsl, kPixelHlsl };
     const char* names[PsoCount] = { "flow_luma", "flow_down", "flow_global", "flow_search", "flow_median", "flow_pixel" };
     for (int i = 0; i < PsoCount; ++i) {
-        const std::string text = std::string(kCommonHlsl) + (i == Luma ? NR_HDR_HLSL : "") + sources[i];
+        const std::string text = std::string(kCommonHlsl) + sources[i];
         ID3DBlob* code = nullptr; ID3DBlob* err = nullptr;
         if (FAILED(D3DCompile(text.c_str(), text.size(), names[i], nullptr, nullptr, "main", "cs_5_0", D3DCOMPILE_OPTIMIZATION_LEVEL3, 0, &code, &err))) {
             Log("motion estimator: %s: %s", names[i], err ? static_cast<const char*>(err->GetBufferPointer()) : "?"); SafeRelease(err); Shutdown(); return false;
@@ -445,7 +444,8 @@ void FlowEstimator::Record(ID3D12GraphicsCommandList* list, int slot, ID3D12Reso
 
     {   // this frame's pyramid
         ID3D12Resource* const srv[4] = { frame, nullptr, nullptr, nullptr }; const DXGI_FORMAT fmt[4] = { frameFormat, NONE, NONE, NONE };
-        run(Luma, srv, fmt, m_luma[cur][0], R16, Constants{ m_lw[0], m_lh[0], 0, 0, 0, 0, 0, encoding, whiteNits > 1.0f ? whiteNits : 200.0f }, m_lw[0], m_lh[0], true);
+        Constants c{ m_lw[0], m_lh[0] }; c.radius = encoding; c.lambda = whiteNits > 0.0f ? whiteNits : 80.0f;
+        run(Luma, srv, fmt, m_luma[cur][0], R16, c, m_lw[0], m_lh[0], true);
     }
     for (int k = 1; k < m_levels; ++k) {
         ID3D12Resource* const srv[4] = { m_luma[cur][k - 1], nullptr, nullptr, nullptr }; const DXGI_FORMAT fmt[4] = { R16, NONE, NONE, NONE };

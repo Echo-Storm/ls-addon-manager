@@ -1,5 +1,4 @@
 #include "addon/framegen11.h"
-#include "addon/hdr.h"
 #include "addon/present_hook.h"
 #include "engine/fg_engine.h"
 #include <d3d11_4.h>
@@ -35,8 +34,12 @@ struct State {
     ID3D11ShaderResourceView* beforeSrv = nullptr; ID3D11ShaderResourceView* nowSrv = nullptr;
     UINT w = 0, h = 0; DXGI_FORMAT format = DXGI_FORMAT_UNKNOWN; bool haveBefore = false;
     LARGE_INTEGER lastReal{}; double intervalMs = 0;                                   // between real frames, smoothed
+    // how long after a real frame arrives the frame between goes out: the time making it takes (its recent peak, slowly let down), so the
+    // frame between and the real one half a frame after it go out evenly spaced whatever each frame's making took
+    double leadMs = 0;
     HANDLE timer = nullptr;
     Stats stats;
+    LARGE_INTEGER saidAt{}; Stats said;                                                  // for the log, every 10 s
     // FSR 3.1 frame generation: the frame in and the frame made, shared with FgEngine's device, and a fence for the copy in
     FgEngine engine; std::wstring runtime; bool engineFailed = false;
     ID3D11Texture2D* in11 = nullptr; ID3D11Texture2D* out11 = nullptr; ID3D12Resource* in12 = nullptr; ID3D12Resource* out12 = nullptr;
@@ -60,7 +63,7 @@ void ReleaseTextures() {
 }
 void ReleaseAll() {
     ReleaseTextures(); SafeRelease(g.blend); SafeRelease(g.ctx4); SafeRelease(g.ctx); SafeRelease(g.dev);
-    g.lastReal = {}; g.intervalMs = 0;
+    g.lastReal = {}; g.intervalMs = 0; g.leadMs = 0;
 }
 
 bool EnsureDevice(ID3D11Device* dev, const LogFn& log) {
@@ -93,7 +96,7 @@ bool EnsureTextures(const D3D11_TEXTURE2D_DESC& back, const LogFn& log) {
 }
 
 // FgEngine and the textures and fence it shares with Lossless Scaling's device, for frames like the back buffer. False: the blend stands in.
-bool EnsureEngine(IDXGISwapChain* sc, const D3D11_TEXTURE2D_DESC& back, const LogFn& log) {
+bool EnsureEngine(const D3D11_TEXTURE2D_DESC& back, const LogFn& log) {
     if (g.engineFailed) return false;
     IDXGIDevice* dxgi = nullptr; IDXGIAdapter* adapter = nullptr; DXGI_ADAPTER_DESC ad{};
     if (FAILED(g.dev->QueryInterface(IID_PPV_ARGS(&dxgi)))) return false;
@@ -105,7 +108,7 @@ bool EnsureEngine(IDXGISwapChain* sc, const D3D11_TEXTURE2D_DESC& back, const Lo
     ReleaseShared();
     auto fail = [&](const char* why) { if (log) { std::string m = std::string("frame generation: ") + why + "; the blend stands in"; log(m.c_str()); } ReleaseShared(); g.engineFailed = true; return false; };
     if (g.runtime.empty() || !g.ctx4) return fail("no FSR runtime, or no Direct3D 11.4");
-    if (!g.engine.Init(ad.AdapterLuid, g.runtime, back.Width, back.Height, back.Format, hdr, nr::QueryDisplayHdr(sc, g.dev).whiteNits, log)) return fail(g.engine.LastError());
+    if (!g.engine.Init(ad.AdapterLuid, g.runtime, back.Width, back.Height, back.Format, hdr, log)) return fail(g.engine.LastError());
     ID3D11Device5* dev5 = nullptr; g.dev->QueryInterface(IID_PPV_ARGS(&dev5));
     if (!dev5 || FAILED(dev5->CreateFence(0, D3D11_FENCE_FLAG_SHARED, IID_PPV_ARGS(&g.copied11)))) { SafeRelease(dev5); return fail("the shared fence could not be made"); }
     dev5->Release();
@@ -146,7 +149,7 @@ void WaitUntil(const LARGE_INTEGER& due) {
 
 } // namespace
 
-bool BeforeRealPresent(IDXGISwapChain* sc, UINT sync, UINT flags, const LogFn& log) {
+bool BeforeRealPresent(IDXGISwapChain* sc, UINT sync, UINT flags, uint32_t encoding, float whiteNits, const LogFn& log) {
     std::lock_guard<std::mutex> lock(g_mutex);
     LARGE_INTEGER arrived; QueryPerformanceCounter(&arrived);
     ID3D11Texture2D* back = nullptr;
@@ -172,12 +175,12 @@ bool BeforeRealPresent(IDXGISwapChain* sc, UINT sync, UINT flags, const LogFn& l
 
     // the frame between: FSR's (the frame copied over to FgEngine, the frame made copied back), or the blend
     bool byFsr = false;
-    if (EnsureEngine(sc, bd, log)) {
+    if (EnsureEngine(bd, log)) {
         LARGE_INTEGER f0; QueryPerformanceCounter(&f0);
         g.ctx->CopyResource(g.in11, back);
         g.ctx4->Signal(g.copied11, ++g.copiedValue);
         g.ctx->Flush();   // the copy and the signal on the GPU's way before the engine waits for them
-        byFsr = g.engine.Generate(g.in12, g.copied12, g.copiedValue, g.out12, static_cast<float>(g.intervalMs), g.resetNext);
+        byFsr = g.engine.Generate(g.in12, g.copied12, g.copiedValue, g.out12, static_cast<float>(g.intervalMs), g.resetNext, encoding, whiteNits);
         g.resetNext = false;
         if (byFsr) {
             g.ctx->CopyResource(back, g.out11);
@@ -204,14 +207,30 @@ bool BeforeRealPresent(IDXGISwapChain* sc, UINT sync, UINT flags, const LogFn& l
     }
     back->Release();
 
+    // The frame between goes out `leadMs` after the real frame arrived, the real frame half a frame after that: without the lead, a frame
+    // between that took 8 ms to make at 30 frames a second went out 8 ms late and the real one on time, 9 and 25 ms apart (uneven, judder).
+    LARGE_INTEGER made; QueryPerformanceCounter(&made);
+    const double work = Ms(arrived, made);
+    g.leadMs = std::min(std::max(work, 0.97 * g.leadMs + 0.03 * work), std::max(0.0, 0.5 * g.intervalMs - 1.0));
+    LARGE_INTEGER f; QueryPerformanceFrequency(&f);
+    auto after = [&](double ms) { LARGE_INTEGER t; t.QuadPart = arrived.QuadPart + static_cast<LONGLONG>(ms * f.QuadPart / 1000.0); return t; };
+    WaitUntil(after(g.leadMs));
     LARGE_INTEGER t0; QueryPerformanceCounter(&t0);
     PresentHook::PresentOriginal(sc, sync, flags);   // the frame between goes out now...
     LARGE_INTEGER t1; QueryPerformanceCounter(&t1);
     ++g.stats.generated; g.stats.generatedMs = 0.9 * g.stats.generatedMs + 0.1 * Ms(t0, t1);
     // ...and the real frame half a frame later, back in the swap chain's next back buffer
-    LARGE_INTEGER due; due.QuadPart = arrived.QuadPart;
-    { LARGE_INTEGER f; QueryPerformanceFrequency(&f); due.QuadPart += static_cast<LONGLONG>(g.intervalMs * 0.5 * f.QuadPart / 1000.0); }
-    WaitUntil(due);
+    WaitUntil(after(g.leadMs + 0.5 * g.intervalMs));
+    if (log && Ms(g.saidAt, t1) >= 10000.0) {   // what it did, now and then
+        if (g.saidAt.QuadPart) {
+            char m[256];
+            snprintf(m, sizeof m, "frame generation: %llu real frames %.1f ms apart, %llu made between (%llu by FSR 3.1, %.1f ms each; out %.1f ms after the real frame arrives; its present %.2f ms)",
+                     static_cast<unsigned long long>(g.stats.real - g.said.real), g.intervalMs, static_cast<unsigned long long>(g.stats.generated - g.said.generated),
+                     static_cast<unsigned long long>(g.stats.byFsr - g.said.byFsr), g.stats.fsrMs, g.leadMs, g.stats.generatedMs);
+            log(m);
+        }
+        g.saidAt = t1; g.said = g.stats;
+    }
     ID3D11Texture2D* next = nullptr;
     if (SUCCEEDED(sc->GetBuffer(0, IID_PPV_ARGS(&next))) && next) { g.ctx->CopyResource(next, g.now); next->Release(); }
     std::swap(g.before, g.now); std::swap(g.beforeSrv, g.nowSrv);
@@ -220,7 +239,7 @@ bool BeforeRealPresent(IDXGISwapChain* sc, UINT sync, UINT flags, const LogFn& l
 }
 
 void SetRuntime(const std::wstring& dll) { std::lock_guard<std::mutex> lock(g_mutex); g.runtime = dll; }
-void Reset() { std::lock_guard<std::mutex> lock(g_mutex); g.haveBefore = false; g.lastReal = {}; g.intervalMs = 0; g.resetNext = true; }
+void Reset() { std::lock_guard<std::mutex> lock(g_mutex); g.haveBefore = false; g.lastReal = {}; g.intervalMs = 0; g.leadMs = 0; g.resetNext = true; }
 void Shutdown() { std::lock_guard<std::mutex> lock(g_mutex); ReleaseAll(); if (g.timer) { CloseHandle(g.timer); g.timer = nullptr; } }
 Stats GetStats() { std::lock_guard<std::mutex> lock(g_mutex); return g.stats; }
 

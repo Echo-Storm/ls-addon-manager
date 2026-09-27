@@ -671,7 +671,10 @@ void OnPresent(IDXGISwapChain* sc, UINT sync, UINT flags) {
         if (kFsrScaler && frameGen && sc == g_fgChain.load(std::memory_order_acquire)) {   // Lossless Scaling's output swap chain only (not the manager's window)
             static const bool runtimeSet = (nr::framegen::SetRuntime(g_addonDir + L"\\fsr\\amd_fidelityfx_dx12.dll"), true);   // the shipped FSR 3.1 (FSR 4's build has no frame generation)
             (void)runtimeSet;
-            nr::framegen::BeforeRealPresent(sc, sync, flags, [](const char* m) { Log("%s", m); });
+            float white = 80.0f; uint32_t encoding = 0;
+            { ID3D11Texture2D* back = nullptr;   // what its frames hold (scRGB or HDR10 on an HDR display), for measuring their motion in their SDR view
+              if (SUCCEEDED(sc->GetBuffer(0, IID_PPV_ARGS(&back))) && back) { D3D11_TEXTURE2D_DESC d; back->GetDesc(&d); back->Release(); encoding = static_cast<uint32_t>(FrameEncodingOf(d.Format, sc, &white)); } }
+            nr::framegen::BeforeRealPresent(sc, sync, flags, encoding, white, [](const char* m) { Log("%s", m); });
         }
         return;
     }   // the upscaler: its picture over NIS's (Handoff::AtPresent); no Enable of its own

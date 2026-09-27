@@ -8,7 +8,7 @@ frames that changed most (with the motion the after run measured, when it printe
 import re
 import sys
 
-LINE = re.compile(r"frame\s+(\d+)\s+(\w+)\s+([\d.]+) dB .*?blend\s+([\d.]+) dB(?:\s+motion\s+(\d+) px)?")
+LINE = re.compile(r"frame\s+(\d+)\s+(\w+)\s+([\d.]+) dB .*?blend\s+([\d.]+) dB(?:.*?motion\s+(\d+) px)?")
 
 
 def read(path):
