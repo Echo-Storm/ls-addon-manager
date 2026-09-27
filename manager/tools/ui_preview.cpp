@@ -109,19 +109,21 @@ int main(int argc, char** argv) {
     // EAM_PREVIEW_CLEAN=1 draws the tidy scene used for the README screenshots: no toast, only the first addon on, no error chips.
     char* cleanEnv = nullptr; size_t cleanLen = 0; _dupenv_s(&cleanEnv, &cleanLen, "EAM_PREVIEW_CLEAN");
     const bool clean = cleanEnv != nullptr; free(cleanEnv);
-    // the three plugins as a real install has them, with their own icon.svg files from the repository (tools\..\addons\DLSS5NR01)
+    // the four plugins as a real install has them, with their own icon.svg files from the repository (tools\..\addons\DLSS5NR01)
     std::filesystem::path root;
     { wchar_t exe[MAX_PATH]; GetModuleFileNameW(nullptr, exe, MAX_PATH); root = std::filesystem::path(exe).parent_path().parent_path().parent_path().parent_path(); }
     const std::filesystem::path plugins = root / "addons" / "DLSS5NR01";
-    AddonInfo a, b, c;
+    AddonInfo a, b, c, d;
     a.id = "DLSS5NR01"; a.manifest.name = "DLSS 5 Neural Rendering"; a.manifest.version = EAM_VERSION_STRING; a.manifest.author = "Echo-Storm"; a.hModule = (HMODULE)1; a.enabled = true;
     b.id = "DLSS4DLAA"; b.manifest.name = "DLSS Upscaler"; b.manifest.version = EAM_VERSION_STRING; b.manifest.author = "Echo-Storm"; b.enabled = false;
     c.id = "FSR3UPSC"; c.manifest.name = "FSR Upscaler"; c.manifest.version = EAM_VERSION_STRING; c.manifest.author = "Echo-Storm"; c.hModule = (HMODULE)1; c.enabled = true;
-    a.security = b.security = c.security = SecurityVerdict::Trusted;   // as a real install of our own addons shows them
+    d.id = "XESSUPSC"; d.manifest.name = "XeSS Upscaler"; d.manifest.version = EAM_VERSION_STRING; d.manifest.author = "Echo-Storm"; d.enabled = false;
+    a.security = b.security = c.security = d.security = SecurityVerdict::Trusted;   // as a real install of our own addons shows them
     if (!clean) { b.enabled = true; b.faulted = true; }   // the other scene shows the ERROR state
     ReadSvgIcon(plugins / "icon.svg", a.iconSvg, a.iconSvgView);
     ReadSvgIcon(plugins / "products" / "DLSS4DLAA" / "icon.svg", b.iconSvg, b.iconSvgView);
     ReadSvgIcon(plugins / "products" / "FSR3UPSC" / "icon.svg", c.iconSvg, c.iconSvgView);
+    ReadSvgIcon(plugins / "products" / "XESSUPSC" / "icon.svg", d.iconSvg, d.iconSvgView);
     // the runtimes, as the repository's addon.json files list them, read from the install in D:\Utilities\Lossless Scaling (as the real
     // list reads them: version, signature, SHA-256). EAM_PREVIEW_FSR=<file>: that file as the FSR runtime (only read, never loaded)
     const std::wstring lsDir = L"D:\\Utilities\\Lossless Scaling";
@@ -129,15 +131,20 @@ int main(int argc, char** argv) {
     { AddonManifest m; if (!clean && ReadManifest(plugins / "addon.json", m)) a.manifest.runtimes = m.runtimes; }
     { AddonManifest m; if (ReadManifest(plugins / "products" / "DLSS4DLAA" / "addon.json", m)) b.manifest.runtimes = m.runtimes; }
     { AddonManifest m; if (ReadManifest(plugins / "products" / "FSR3UPSC" / "addon.json", m)) c.manifest.runtimes = m.runtimes; }
+    { AddonManifest m; if (ReadManifest(plugins / "products" / "XESSUPSC" / "addon.json", m)) d.manifest.runtimes = m.runtimes; }
     a.dllPath = lsDir + L"\\addons\\DLSS5NR01\\DLSS5NR01.dll";
     b.dllPath = lsDir + L"\\addons\\DLSS4DLAA\\DLSS4DLAA.dll";
     c.dllPath = lsDir + L"\\addons\\FSR3UPSC\\FSR3UPSC.dll";
+    // XeSS: from the install when it is there, else from this build (its runtime sits in the build's xess folder)
+    d.dllPath = lsDir + L"\\addons\\XESSUPSC\\XESSUPSC.dll";
+    if (GetFileAttributesW((lsDir + L"\\addons\\XESSUPSC\\xess\\libxess.dll").c_str()) == INVALID_FILE_ATTRIBUTES)
+        d.dllPath = (plugins / "build" / "Release" / "XESSUPSC.dll").wstring();
     {
         char* v = nullptr; size_t n = 0; _dupenv_s(&v, &n, "EAM_PREVIEW_FSR");
         if (v && *v && !c.manifest.runtimes.empty()) c.manifest.runtimes[0].file = v;
         free(v);
     }
-    const std::vector<AddonInfo> runtimeAddons = { a, b, c };
+    const std::vector<AddonInfo> runtimeAddons = { a, b, c, d };
     for (int i = 0; i < 100; ++i) {   // the files are read on a thread of their own: wait for them, so the picture shows what they are
         const std::vector<RuntimeFile> rows = RuntimeFiles(runtimeAddons, lsDir);
         bool all = std::all_of(rows.begin(), rows.end(), [](const RuntimeFile& r) { return r.read || !r.exists; });
@@ -149,7 +156,7 @@ int main(int argc, char** argv) {
     float model = 0.5f, sharpen = 0.0f, vib = 1.2f, blend = 0.72f, gamma = 1.0f; int passes = 1, grain = 2; bool sw = true, sw2 = false; int sel = 0;
     const float dModel = 0.35f, dSharpen = 0.0f, dVib = 0.0f, dBlend = 1.0f, dGamma = 1.0f; const int dPasses = 1, dGrain = 1;
     if (!clean) widgets::ToastShow("Installed 'Cool Addon' (switched off). Turn it on with its switch.", widgets::ToastType::Success, 1000.0f);
-    std::string status = window::StatusCounts(3, 2);
+    std::string status = window::StatusCounts(4, 2);
 
     // live data for the cards and the Performance tab: 20 s of a game near 60 fps with a few hitches, a model at ~6.6 ms, a GPU at its cap
     {
@@ -196,7 +203,7 @@ int main(int argc, char** argv) {
         }
         free(v);
         // "DLSS5NR01/_enabled=0": Neural Rendering switched off in the manager, its card and the status bar with it
-        if (host.cfg["DLSS5NR01/_enabled"] == "0") { a.enabled = false; a.hModule = nullptr; status = window::StatusCounts(3, 1); }
+        if (host.cfg["DLSS5NR01/_enabled"] == "0") { a.enabled = false; a.hModule = nullptr; status = window::StatusCounts(4, 1); }
     }
     for (int i = 3; i < argc; ++i) {
         HMODULE h = LoadLibraryA(argv[i]);
@@ -222,7 +229,7 @@ int main(int argc, char** argv) {
         rest = bar == std::string::npos ? std::string() : rest.substr(bar + 1);
     }
     auto addonsTab = [&](int selected) {
-        AddonInfo* list[3] = { &a, &b, &c };
+        AddonInfo* list[4] = { &a, &b, &c, &d };
         AddonInfo& chosen = *list[selected];
         Shell("Addons", status, [&] {
             ImGui::Dummy(ImVec2(0, 5));
@@ -237,9 +244,9 @@ int main(int argc, char** argv) {
             ImGui::Dummy(ImVec2(0, S(6)));
             ImGui::PushStyleColor(ImGuiCol_Separator, eam::ui::theme::V(eam::ui::theme::kBorder)); ImGui::Separator(); ImGui::PopStyleColor();
             ImGui::Dummy(ImVec2(0, S(4)));
-            for (int i = 0; i < 3; ++i) { widgets::AddonCard(*list[i], i, i == selected); ImGui::Dummy(ImVec2(0, S(1))); }
+            for (int i = 0; i < 4; ++i) { widgets::AddonCard(*list[i], i, i == selected); ImGui::Dummy(ImVec2(0, S(1))); }
             {   // as tab_addons.cpp: the runtimes at the bottom of the list
-                std::vector<RuntimeFile> rows = RuntimeFiles({ a, b, c }, lsDir);   // the addons as the scene has them now (on or off)
+                std::vector<RuntimeFile> rows = RuntimeFiles({ a, b, c, d }, lsDir);   // the addons as the scene has them now (on or off)
                 for (RuntimeFile& r : rows) r.loaded = r.addonOn && r.exists && r.addonId == "DLSS5NR01";   // the preview loads none: one running, one waiting, one off
                 // EAM_PREVIEW_RUNTIME_MENU=<line>: that line's + menu shown open
                 char* mv = nullptr; size_t mn = 0; _dupenv_s(&mv, &mn, "EAM_PREVIEW_RUNTIME_MENU");

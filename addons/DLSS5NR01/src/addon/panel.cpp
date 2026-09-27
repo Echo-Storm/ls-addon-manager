@@ -134,7 +134,7 @@ void DrawPanel() {
         else ImGui::TextColored(eam::ui::theme::V(eam::ui::theme::kDanger), "AMD's FSR runtime is missing: the addon's fsr folder should hold amd_fidelityfx_dx12.dll. Reinstall the addon.");
         Note("Works on any graphics card with DirectX 12 (AMD, NVIDIA or Intel). In Lossless Scaling choose NIS as the Scaling Type (FSR takes the place of that pass), "
              "and let the game run in a window smaller than your screen, for example 2560x1440 on a 4K screen; at the screen's own size it anti-aliases instead. "
-             "Frame generation can be on or off. Only one of the FSR and DLSS Upscalers works at a time.");
+             "Frame generation can be on or off. Only one of the upscalers (DLSS, FSR, XeSS) works at a time.");
     }
     else {   // ---- DLAA's requirements: an NVIDIA RTX card, and NVIDIA's runtime, which ships in the addon's dlss folder
         Block("Requirements");
@@ -233,7 +233,7 @@ void DrawPanel() {
         if (ImGui::Checkbox(label.c_str(), &c.enabled)) { changed = true; if (c.enabled) { ClaimFrames(); SwitchOn(); } else ReleaseFrames(); }
         Tip(kScalerAddon
                 ? "Master switch. Off = Lossless Scaling's NIS runs as usual and the upscaler stops.\nTo compare while playing, use the Before / after hotkey instead: it keeps the upscaler running.\n"
-                  "Only one of the DLSS and FSR Upscalers works at a time (switching one on in the addon list switches the other off); either works beside DLSS 5 Neural Rendering."
+                  "Only one of the upscalers (DLSS, FSR, XeSS) works at a time (switching one on in the addon list switches the others off); any of them works beside DLSS 5 Neural Rendering."
                 : "Master switch. Off = Lossless Scaling runs untouched and the model stops.\nTo compare before and after while playing, use the Before / after hotkey instead: it keeps the model running.");
     }
     if (!kScalerAddon) ImGui::SameLine();
