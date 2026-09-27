@@ -455,16 +455,17 @@ int main(int argc, char** argv) {
         };
         bool nisNoFlow = false, nisMove = false;   // nisnoflow=1: frame generation off, so no capture or flow passes, only NIS; nismove=1: the picture slides
         for (int i = 4; i < argc; ++i) { if (!strcmp(argv[i], "nisnoflow=1")) nisNoFlow = true; if (!strcmp(argv[i], "nismove=1")) nisMove = true; }
-        const int kFrames = 150;
-        int nisGap = 12; for (int i = 4; i < argc; ++i) if (!strncmp(argv[i], "nisgap=", 7)) nisGap = std::clamp(atoi(argv[i] + 7), 0, 24);
-        // nisswitch=<key>=<value>: that setting changes halfway (as the manager's Runtimes list changes "fsrRuntime" while the game runs)
+        // nisswitch=<key>=<value>: that setting changes at frame 75, and the run goes on for 325 frames more, so a runtime that starts
+        // again cold (DLSS: two seconds or more) still has passes to replace (as the manager's Runtimes list changes "fsrRuntime" while the game runs)
         std::string switchKey, switchValue;
         for (int i = 4; i < argc; ++i) if (!strncmp(argv[i], "nisswitch=", 10)) {
             const char* kv = argv[i] + 10; const char* eq = strchr(kv, '=');
             if (eq) { switchKey.assign(kv, eq - kv); switchValue = eq + 1; }
         }
+        const int kFrames = switchKey.empty() ? 150 : 400, kSwitchAt = 75;
+        int nisGap = 12; for (int i = 4; i < argc; ++i) if (!strncmp(argv[i], "nisgap=", 7)) nisGap = std::clamp(atoi(argv[i] + 7), 0, 24);
         for (int fr = 0; fr < kFrames; ++fr) {
-            if (fr == kFrames / 2 && !switchKey.empty()) { host.cfg[switchKey] = switchValue; printf("[hosttest] frame %d: %s = %s\n", fr, switchKey.c_str(), switchValue.c_str()); }
+            if (fr == kSwitchAt && !switchKey.empty()) { host.cfg[switchKey] = switchValue; printf("[hosttest] frame %d: %s = %s\n", fr, switchKey.c_str(), switchValue.c_str()); }
             if (nisMove) FillMoving(dc, nisIn, NW, NH, fr);
             if (nisLine) fillLine(fr);
             if (nisNoFlow) { nisPass(); std::this_thread::sleep_for(std::chrono::milliseconds(16)); if (fr % 30 == 0) frame("nis"); else emptyFrame(); continue; }
