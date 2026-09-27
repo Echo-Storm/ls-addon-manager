@@ -133,7 +133,7 @@ void Recorder::DropStaging() {
     SafeRelease(m_ctx); SafeRelease(m_dev);
 }
 
-void Recorder::Offer(ID3D11DeviceContext* ctx, ID3D11Texture2D* frame, uint32_t source) {
+void Recorder::Offer(ID3D11DeviceContext* ctx, ID3D11Texture2D* frame, uint32_t source, uint32_t content) {
     if (!ctx || !frame) return;
     const bool on = m_on.load();
     if (!on && !m_dev) return;   // off, and nothing to give back
@@ -149,13 +149,13 @@ void Recorder::Offer(ID3D11DeviceContext* ctx, ID3D11Texture2D* frame, uint32_t 
         return;
     }
     ID3D11Device* dev = nullptr; frame->GetDevice(&dev);
-    if (d.Width != m_w || d.Height != m_h || d.Format != m_fmt || source != m_source || dev != m_dev || ctx != m_ctx) {
+    if (d.Width != m_w || d.Height != m_h || d.Format != m_fmt || source != m_source || content != m_content || dev != m_dev || ctx != m_ctx) {
         Collect(true); DropStaging();
         m_dev = dev; m_dev->AddRef(); m_ctx = ctx; m_ctx->AddRef();
         {
             std::lock_guard<std::mutex> lock(m_keepMutex);
             m_kept.clear(); m_keptBytes = 0; ++m_keptGeneration;
-            m_w = d.Width; m_h = d.Height; m_fmt = d.Format; m_viewFmt = view; m_bpp = bpp; m_source = source;
+            m_w = d.Width; m_h = d.Height; m_fmt = d.Format; m_viewFmt = view; m_bpp = bpp; m_source = source; m_content = content;
         }
         Log("recorder: %ux%u, format %d (%u bytes a pixel), %s", m_w, m_h, (int)view, bpp,
             source == lsrec::kCaptured ? "the captured frames" : source == lsrec::kPresented ? "the presented frames" : "NIS's input");
@@ -196,7 +196,7 @@ bool Recorder::Save(const std::wstring& folder, const std::string& game) {
     {
         std::lock_guard<std::mutex> lock(m_keepMutex);
         frames.assign(m_kept.begin(), m_kept.end());
-        header.width = m_w; header.height = m_h; header.format = m_viewFmt; header.bytesPerPixel = m_bpp; header.source = m_source;
+        header.width = m_w; header.height = m_h; header.format = m_viewFmt; header.bytesPerPixel = m_bpp; header.source = m_source; header.content = m_content;
     }
     if (frames.empty()) {
         m_saving = false;

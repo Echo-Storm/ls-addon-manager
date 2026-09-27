@@ -179,13 +179,13 @@ void FollowRuntimeChoice();   // further down, with the upscalers
 
 // A frame for the recorder (under g_frameMutex, on the render thread): its settings follow the panel's, and for the tests it saves by itself
 // once recordSaveAfter frames are held.
-void Record(ID3D11DeviceContext* ctx, ID3D11Texture2D* frame, uint32_t source) {
+void Record(ID3D11DeviceContext* ctx, ID3D11Texture2D* frame, uint32_t source, uint32_t content = 0) {
     static const bool logSet = (g_recorder.SetLog([](const char* m) { Log("%s", m); }), true);
     (void)logSet;
     bool on; float seconds; int budget, saveAfter;
     { std::lock_guard<std::mutex> lock(g_settingsMutex); on = g_config.recordOn; seconds = g_config.recordSeconds; budget = g_config.recordBudgetMb; saveAfter = g_config.recordSaveAfter; }
     g_recorder.Configure(on, seconds, static_cast<uint32_t>(budget));
-    g_recorder.Offer(ctx, frame, source);
+    g_recorder.Offer(ctx, frame, source, content);
     static bool savedForTest = false;
     if (saveAfter > 0 && !savedForTest && g_recorder.GetStatus().frames >= static_cast<uint32_t>(saveAfter)) { savedForTest = true; SaveRecording(); }
 }
@@ -1004,7 +1004,8 @@ bool ScalerPass(ID3D11DeviceContext* ctx, uint32_t x, uint32_t y, uint32_t z) {
                                           static_cast<ScalerLink::Handoff>(handoff), gpuWait);
                 t_ownWork = false;
                 g_passStep = "the recorder";
-                if (ID3D11Texture2D* grabbed = g_link.TakeGrabbed()) Record(ctx, grabbed, lsrec::kNisInput);
+                if (ID3D11Texture2D* grabbed = g_link.TakeGrabbed())   // (for HDR frames, their SDR view: said so in the file)
+                    Record(ctx, grabbed, lsrec::kNisInput, g_link.Encoding() ? lsrec::kSdrView : lsrec::kOwnEncoding);
                 g_passStep = "after Upscale";   // the frame as DLSS or FSR got it
                 if (flow) flow->Release();
                 if (replaced) ++g_upscaled;

@@ -18,6 +18,7 @@ namespace nr::lsrec {
 void Compress(const uint8_t* data, uint32_t unitsPerRow, uint32_t rows, uint32_t pitch, std::vector<uint8_t>& out);
 bool Decompress(const uint8_t* data, size_t bytes, uint8_t* out, size_t units);
 
+enum Content : uint32_t { kOwnEncoding = 0, kSdrView = 1 };   // (older files have 0 there)
 enum Source : uint32_t { kCaptured = 1, kPresented = 2, kNisInput = 3 };   // LSFG's captured frame, the presented frame, NIS's input
 enum Codec : uint32_t { kRaw = 0, kQoi = 1 };
 
@@ -32,7 +33,8 @@ struct FileHeader {
     uint32_t frameCount = 0;
     uint32_t source = 0;          // Source
     int64_t qpcFrequency = 0;     // the frames' times are QueryPerformanceCounter ticks
-    uint32_t reserved[4] = {};
+    uint32_t content = 0;         // Content: 0 the format's own encoding; 1 an HDR frame's SDR view (0..1, sRGB-encoded) in a half-float texture
+    uint32_t reserved[3] = {};
     char game[64] = {};           // the program in focus, lower case (may be empty)
 };
 struct FrameHeader {

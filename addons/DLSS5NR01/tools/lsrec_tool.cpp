@@ -5,6 +5,7 @@
 #include "addon/lsrec.h"
 #include "addon/screenshot.h"
 #include <windows.h>
+#include <DirectXPackedVector.h>
 #include <algorithm>
 #include <cmath>
 #include <cstdio>
@@ -67,7 +68,17 @@ static int Export(int argc, char** argv) {
     for (size_t i = first; i < r.Count() && written < count; i += every) {
         if (!r.Read(i, px)) { printf("frame %zu could not be read\n", i); return 3; }
         for (uint32_t y = 0; y < h.height; ++y)
-            if (!nr::screenshot::ToBgra8(static_cast<DXGI_FORMAT>(h.format), px.data() + static_cast<size_t>(y) * h.width * h.bytesPerPixel, h.width, bgra.data() + static_cast<size_t>(y) * h.width * 4)) {
+            if (h.content == kSdrView && h.bytesPerPixel == 8) {   // half floats already 0..1 and sRGB-encoded: taken as they are
+                const uint16_t* in = reinterpret_cast<const uint16_t*>(px.data() + static_cast<size_t>(y) * h.width * 8);
+                uint8_t* out = bgra.data() + static_cast<size_t>(y) * h.width * 4;
+                for (uint32_t x = 0; x < h.width; ++x) {
+                    for (int c = 0; c < 3; ++c) {
+                        const float v = DirectX::PackedVector::XMConvertHalfToFloat(in[x * 4 + c]);
+                        out[x * 4 + (2 - c)] = static_cast<uint8_t>(std::clamp(v, 0.0f, 1.0f) * 255.0f + 0.5f);   // RGBA -> BGRA
+                    }
+                    out[x * 4 + 3] = 255;
+                }
+            } else if (!nr::screenshot::ToBgra8(static_cast<DXGI_FORMAT>(h.format), px.data() + static_cast<size_t>(y) * h.width * h.bytesPerPixel, h.width, bgra.data() + static_cast<size_t>(y) * h.width * 4)) {
                 printf("format %u cannot be converted to a picture\n", h.format); return 3;
             }
         wchar_t name[32]; swprintf(name, 32, L"\\frame_%05zu.bmp", i);
