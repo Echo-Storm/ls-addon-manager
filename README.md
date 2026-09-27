@@ -12,7 +12,7 @@ unofficial project, not affiliated with the Lossless Scaling developers: read th
 
 [![build](https://github.com/Echo-Storm/ls-addon-manager/actions/workflows/build.yml/badge.svg)](https://github.com/Echo-Storm/ls-addon-manager/actions/workflows/build.yml)
 
-Status: **0.9.7**, getting ready for 1.0 (the [roadmap](ROADMAP.md) says what is left). You need Lossless Scaling 3.2.2.0 and Windows 10 or 11, x64.
+Status: **0.9.8**, getting ready for 1.0 (the [roadmap](ROADMAP.md) says what is left). You need Lossless Scaling 3.2.2.0 and Windows 10 or 11, x64.
 
 > [!TIP]
 > **New in 0.9.5:** **FSR 4 on any graphics card** (the OptiScaler team's build, one click in the FSR Upscaler), a **Runtimes** list that shows every DLSS and FSR

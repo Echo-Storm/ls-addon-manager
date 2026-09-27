@@ -1,32 +1,36 @@
 # Changelog
 
-## Unreleased
+## 0.9.8 (2026-09-26)
 
+HDR games in the DLSS and FSR Upscalers, before / after pictures, and addons that can no longer freeze Lossless Scaling: NVIDIA's and AMD's
+code now runs on threads of their own. Tried in Silent Hill f (Unreal Engine 5, HDR), World of Warcraft and Metro 2033 Redux.
+
+- **HDR games in the DLSS and FSR Upscalers.** They took 8-bit frames only, so with an HDR game NIS kept running. Now 10-bit (HDR10)
+  and 16-bit float (scRGB) frames are upscaled in their SDR view, as Neural Rendering does it since 0.9.5, and the picture goes back into
+  the frame's own encoding, so highlights keep their brightness. The picture controls, sharpening and edge smoothing work the same. HDR is
+  read from the display Lossless Scaling's window is on (not the card's first HDR display), and a *Frame encoding* setting under
+  Upscaling overrides the automatic choice. In Silent Hill f at 2560x1440 to 4K: DLSS about 1.5 ms a frame, FSR 4 about 5 ms.
+- **A stuck runtime can no longer freeze Lossless Scaling.** The upscalers and Neural Rendering now call NVIDIA's and AMD's code from a
+  thread of the engine's own; Lossless Scaling's render thread only hands frames over. FSR 4.1.1b once stopped for good on its first HDR
+  frame and froze the picture; now NIS (or the untouched picture) carries on, the panel says when a runtime is getting ready, and after 20
+  seconds it says the runtime stopped responding. The engines' threads run at high priority, so a busy game cannot delay them.
 - **Before / after pictures in the upscalers.** Ctrl+Shift+F11 (or the button under *Compare and hotkeys*) saves two PNGs of the same
   moment to Pictures\Lossless Scaling: the upscaled picture and Lossless Scaling's NIS (one frame of NIS shows while it is taken). Windows'
   own screenshots show the game's window, not Lossless Scaling's picture. HDR games are saved in their SDR view, highlights rolled off.
-- **The updater cleans up after itself.** Each update left its download (about 110 MB) in the temporary folder. Downloads of versions
-  already installed, and of other versions than the one being downloaded, are now removed (at a download's start and once a day).
-- **Neural Rendering on its own thread too.** NVIDIA's model is now called from a thread of the engine's own; Lossless Scaling's render
-  thread only hands frames over, so a model that stops responding can no longer freeze it. After 20 seconds the panel says so, and
-  Lossless Scaling runs untouched. This also separates the model from Lossless Scaling's frame pacing, a step towards frame generation.
-- **A stuck runtime can no longer freeze Lossless Scaling.** The DLSS and FSR Upscalers now run NVIDIA's and AMD's code on a thread of
-  their own; Lossless Scaling's render thread only hands frames over. FSR 4.1.1b stopped for good on its first HDR frame and froze the
-  picture; now NIS carries on, and after 20 seconds the panel says the runtime stopped responding and to choose another in the Runtimes list.
-- **HDR games in the DLSS and FSR Upscalers.** They took 8-bit frames only, so with an HDR game NIS kept running. Now 10-bit (HDR10)
-  and 16-bit float (scRGB) frames are upscaled in their SDR view, as Neural Rendering does it since 0.9.5, and the picture goes back into
-  the frame's own encoding, so highlights keep their brightness. The picture controls, sharpening and edge smoothing work the same. A
-  Frame encoding setting under Upscaling overrides the automatic choice.
-- **The DLSS Upscaler says why it isn't replacing NIS.** When Lossless Scaling runs on a card that isn't NVIDIA's (another GPU, or
-  the integrated one), DLSS cannot start. The panel used to say only "DLSS is not running yet", which looked like it ran and did
-  nothing. It now names the card and says what to do: set Lossless Scaling's Preferred GPU to the NVIDIA card, or use the FSR
-  Upscaler. It also speaks up when DLSS is ready but cannot connect to Lossless Scaling's device, or has not replaced a frame yet.
-- **Both upscalers: a window scaled into part of the screen in a layout they cannot follow** is now said as such. It used to read
-  "Choose NIS as the Scaling Type", although NIS was chosen.
-- **Upscalers: a frame format they cannot take** is now said in the panel (it used to stay silent while NIS ran).
+- **Saying why nothing happens.** The DLSS Upscaler names the card when Lossless Scaling runs on one that is not NVIDIA's, and says to set
+  Lossless Scaling's Preferred GPU or use the FSR Upscaler (it used to say only "not running yet"). Neural Rendering does the same for the card
+  frame generation runs on. The upscalers also say when a window layout cannot be followed (it used to read "Choose NIS", although NIS was
+  chosen), when a frame format cannot be taken, when they cannot connect to Lossless Scaling's device, or have not replaced a frame yet.
+  Neural Rendering's "unsupported frame format" names the format.
 - **The upscalers have one switch, the manager's.** Their own Enable box is gone: two switches for one thing confused people, and an
   unticked box left the upscaler off while the manager showed it on. An old "off" saved by that box is ignored.
-- **Neural Rendering: "unsupported frame format"** now names the format, and a frame copy that could not be set up says that instead.
+- **Fewer repeated pictures.** "Wait on the GPU rather than repeat a picture" works with the engine's own thread (in Silent Hill f: no
+  picture shown twice in 17,000 frames), and Neural Rendering no longer leaves out a frame that comes while the one before is being handed over.
+- **The updater cleans up after itself.** Each update left its download (about 110 MB) in the temporary folder. Downloads of versions
+  already installed, and of other versions than the one being downloaded, are now removed (at a download's start and once a day).
+- **Recordings** of an upscaler in an HDR game say that their frames are the SDR view, and `nr_lsrec` exports them correctly.
+- **Docs:** an upscalers section in the FAQ (including why the difference is smaller than in a game with DLSS built in), troubleshooting
+  for the new messages, and the guides brought up to date.
 
 ## 0.9.7 (2026-09-26)
 
