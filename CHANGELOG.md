@@ -1,5 +1,18 @@
 # Changelog
 
+## 0.9.9 (2026-09-26)
+
+A fix for HDR games in the DLSS and FSR Upscalers, and faster tests.
+
+- **HDR highlights keep their brightness in the upscalers.** In 0.9.8 the upscalers took HDR frames, but bright highlights (a sun, a lamp,
+  a 1000-nit sky) came out at a fraction of their brightness, about 170 nits. HDR frames are upscaled in an SDR view that rolls
+  highlights off towards white, and that roll-off was so steep that DLSS's or FSR's smallest change near white undid a highlight.
+  It is now logarithmic: in the test a 1000-nit highlight comes back at about 950 nits with DLSS and 885 with FSR (it was 170).
+  Neural Rendering's HDR picture is unchanged: its change still fades out above the SDR white as before.
+- **Tests:** the Neural Rendering and upscaler scenarios run about four times faster (the full set in about 5 minutes, it was 20), and
+  everyday runs only the scenarios for the code that changed. A runtime switch in the DLSS Upscaler is tested with enough frames after
+  it (DLSS starts again cold in about two seconds).
+
 ## 0.9.8 (2026-09-26)
 
 HDR games in the DLSS and FSR Upscalers, before / after pictures, and addons that can no longer freeze Lossless Scaling: NVIDIA's and AMD's
