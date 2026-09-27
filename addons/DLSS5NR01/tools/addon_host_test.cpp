@@ -291,7 +291,8 @@ int main(int argc, char** argv) {
     if (deviceFlags) printf("[hosttest] device created with flags 0x%x\n", deviceFlags);
     ID3D11Multithread* mt = nullptr; dc->QueryInterface(IID_PPV_ARGS(&mt)); mt->SetMultithreadProtected(TRUE); mt->Release();   // like LS/WGC
     host.dev = dev; host.ctx = dc; host.PublishEvent(EAM_EVENT_D3D11_DEVICE_READY, nullptr, 0);
-    for (int i = 0; i < 40; ++i) { frame("engine loading"); std::this_thread::sleep_for(std::chrono::milliseconds(250)); }
+    // a few panel frames before the first pass (the engine starts at the first dispatch, so waiting longer here only slows the run)
+    for (int i = 0; i < 4; ++i) { frame("engine loading"); std::this_thread::sleep_for(std::chrono::milliseconds(50)); }
 
     // a real (small, visible) window + flip swap chain: the addon hooks Present and composes into its back buffer
     const UINT W = 1920, H = 1080, FW = 480, FH = 270;

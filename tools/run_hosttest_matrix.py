@@ -61,24 +61,29 @@ class Result:
 
 def run_host(nr_dir, snippet, keys, out_dir, tag):
     exe = os.path.join(nr_dir, 'nr_hosttest.exe')
-    # addon=<dll> picks the addon of the pair to load (DLSS 5 Neural Rendering by default); every other key goes to the host
-    dll = next((k[6:] for k in keys if k.startswith('addon=')), 'DLSS5NR01.dll')
-    args = [exe, dll, '-', snippet] + [k for k in keys if not k.startswith('addon=')]
-    for stale in ('present_gen.bmp', 'present_real.bmp'):
-        p = os.path.join(nr_dir, stale)
-        if os.path.exists(p):
-            os.remove(p)
+    # addon=<dll> picks the addon of the pair to load (DLSS 5 Neural Rendering by default); every other key goes to the host.
+    # The DLLs are given by full path and the host runs in a folder of the scenario's own (it writes its frames there), so scenarios can run side by side.
+    dll = os.path.join(nr_dir, next((k[6:] for k in keys if k.startswith('addon=')), 'DLSS5NR01.dll'))
+    keys = ['second=' + os.path.join(nr_dir, k[7:]) if k.startswith('second=') else k for k in keys if not k.startswith('addon=')]
+    args = [exe, dll, '-', snippet] + keys
+    work = os.path.join(out_dir, 'run_' + tag)
+    shutil.rmtree(work, ignore_errors=True)
+    os.makedirs(work)
     t0 = time.time()
-    proc = subprocess.run(args, cwd=nr_dir, capture_output=True, text=True, timeout=240)
-    text = proc.stdout + proc.stderr
+    try:
+        proc = subprocess.run(args, cwd=work, capture_output=True, text=True, errors='replace', timeout=240)
+        rc, text = proc.returncode, proc.stdout + proc.stderr
+    except subprocess.TimeoutExpired as e:
+        out = e.stdout.decode('utf-8', 'replace') if isinstance(e.stdout, bytes) else (e.stdout or '')
+        rc, text = -1, out + '\nTIMED OUT after 240 s'
     with open(os.path.join(out_dir, tag + '.log'), 'w', encoding='utf-8') as f:
         f.write(text)
-    bmp = os.path.join(nr_dir, 'present_gen.bmp')
+    bmp = os.path.join(work, 'present_gen.bmp')
     frame = None
     if os.path.exists(bmp):
         shutil.copyfile(bmp, os.path.join(out_dir, tag + '.bmp'))
         frame = load_bmp(bmp)
-    return proc.returncode, text, frame, time.time() - t0
+    return rc, text, frame, time.time() - t0
 
 
 def basic(res, rc, text):
@@ -543,7 +548,62 @@ SCENARIOS = [
 # The everyday set (--quick): the frame reaching the model with its own motion, the older timing, an exit with no AddonShutdown, the DLSS 4
 # Upscaler in place of NIS, and the two addons loaded together. The
 # rest (looks, HUD, grain, smoothing, the self-test, the upscaler with preset M, the panel shot) run with no option, before a release.
-QUICK = {'base', 'present_mode', 'present_wait', 'hdr_scrgb', 'flow_previous', 'exit_abrupt', 'scaler', 'fsr_scaler', 'pair'}
+QUICK = {'base', 'present_mode', 'hdr_scrgb', 'flow_previous', 'exit_abrupt', 'scaler', 'fsr_scaler', 'pair'}
+
+
+# Retired (2026-09-26): kept working, but left out of every set; --only <name> or --retired runs them. Each one repeats another scenario's check,
+# covers a finished feature nobody changes, or is not a test at all. Bring one back by taking it out of here.
+RETIRED = {
+    'present_wait':       'the same check as present_mode with one option more',
+    'grain_inside_hud':   'grain and HUD protection, each has its own scenario',
+    'smooth_passes3':     'smoothing with more passes; smooth covers the feature',
+    'ghost_off':          'the ghosting guard: finished, not changed since',
+    'ghost_on':           'the ghosting guard: finished, not changed since (needs ghost_off)',
+    'scaler_m':           'the DLSS Upscaler with preset M: the same checks as scaler',
+    'fsr_edges_1x':       'numbers only, no check of its own',
+    'scaler_tone_nr_on':  'tone left to Neural Rendering: a corner of scaler_tone',
+    'dlaa_4k_move':       'a cost measurement, not a pass / fail check',
+    'ui_shot':            'renders the panel for the README, not a test',
+}
+
+SOLO = {'fsr_runtime_switch', 'dlss_runtime_switch'}   # run alone (see main)
+
+# --changed: each scenario belongs to an area, and an area runs when a file it covers changed since the last commit. A change to what every
+# addon of the pair shares (the addon's entry, settings, the test host, the build) runs everything; a change the list does not know runs QUICK.
+def area_of(name):
+    if name.startswith(('scaler', 'dlaa', 'dlss')): return 'dlss'
+    if name.startswith('fsr'): return 'fsr'
+    if name == 'record_replay': return 'record'
+    if name == 'selftest': return 'selftest'
+    if name in ('pair', 'exit_abrupt', 'ui_shot'): return 'addon'
+    return 'nr'
+
+
+AREA_FILES = {   # regular expressions on the changed paths (forward slashes), under addons/DLSS5NR01/
+    'nr':       r'src/engine/(nr_engine|nr_shaders|dlaa_model)|src/addon/(bridge|compose11|present_hook|frame_tap|tasks)',
+    'dlss':     r'src/engine/(sr_engine|flow_estimator)|src/addon/scaler11',
+    'fsr':      r'src/engine/(sr_engine|flow_estimator)|src/addon/scaler11|external/ffx',
+    'record':   r'src/addon/(recorder|lsrec)|tools/lsrec_tool',
+    'selftest': r'src/selftest/|src/addon/requirements',
+    'addon':    r'src/addon/(panel|hud_editor|screenshot)',
+}
+EVERYTHING = r'src/addon/(addon|settings|state|runtime|log|product|hdr)\.|src/engine/hdr_hlsl|src/forwarder/|CMakeLists|tools/addon_host_test|^tools/run_hosttest_matrix'
+
+
+def changed_scenarios():
+    """The scenario names the files changed since the last commit call for (None: all of them)."""
+    root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+    git = lambda *a: subprocess.run(['git', '-C', root] + list(a), capture_output=True, text=True).stdout.split()
+    changed = [p for p in git('diff', '--name-only', 'HEAD') + git('ls-files', '--others', '--exclude-standard') if not p.endswith('.md')]
+    nr = [p[len('addons/DLSS5NR01/'):] if p.startswith('addons/DLSS5NR01/') else p for p in changed
+          if p.startswith(('addons/DLSS5NR01/', 'tools/run_hosttest_matrix', 'manager/sdk/'))]
+    if any(re.search(EVERYTHING, p) or p.startswith('manager/sdk/') for p in nr):
+        return None
+    areas = {a for a, rx in AREA_FILES.items() if any(re.search(rx, p) for p in nr)}
+    names = {n for n, _, _ in SCENARIOS if area_of(n) in areas}
+    if any(not any(re.search(rx, p) for rx in AREA_FILES.values()) for p in nr):
+        names |= QUICK
+    return names
 
 
 def selftest_exe_checks(nr_dir, snippet):
@@ -609,6 +669,10 @@ def main():
     ap.add_argument('--out', default=os.path.join(os.environ.get('TEMP', '.'), 'hosttest_matrix'))
     ap.add_argument('--only', default='')
     ap.add_argument('--list', action='store_true')
+    ap.add_argument('--jobs', type=int, default=3, help='scenarios run side by side (1: one after another)')
+    ap.add_argument('--changed', action='store_true', help='only the scenarios for the files changed since the last commit')
+    ap.add_argument('--retired', action='store_true', help='also the retired scenarios (RETIRED)')
+    ap.add_argument('--verbose', action='store_true', help='every check, not only the failing ones')
     ap.add_argument('--quick', action='store_true', help='only the everyday set: ' + ', '.join(sorted(QUICK)))
     a = ap.parse_args()
     if a.list:
@@ -616,37 +680,67 @@ def main():
             print(n, ' '.join(k))
         return 0
     os.makedirs(a.out, exist_ok=True)
-    only = set(x for x in a.only.split(',') if x) | (QUICK if a.quick else set())
+    named = set(x for x in a.only.split(',') if x)
+    only = named | (QUICK if a.quick else set())
+    if a.changed:
+        picked = changed_scenarios()
+        if picked is not None and not picked:
+            print('no model scenario covers what changed'); return 0
+        only |= picked or set()
     ctx = {'pat': pattern(), 'nr': a.nr, 'snippet': a.snippet, 'out': a.out}
-    failed = 0
+    t0 = time.time()
+    todo = []
     for name, keys, checker in SCENARIOS:
         if only and name not in only and name != 'base':
+            continue
+        if name in RETIRED and name not in named and not a.retired:
             continue
         keys = [k.replace('@OUT@', a.out.replace('\\', '/')) for k in keys]
         if any('@FSR4@' in k for k in keys):   # tools\fetch_fsr4.ps1 puts it there
             fsr4 = os.path.join(os.path.dirname(os.path.abspath(__file__)), '..', 'addons', 'DLSS5NR01', 'external', 'fsr4', 'amd_fidelityfx_dx12.dll')
             if not os.path.exists(fsr4):
-                print('== %s  skipped: run tools\\fetch_fsr4.ps1 first' % name); continue
+                print('  skip  %s: run tools\\fetch_fsr4.ps1 first' % name); continue
             keys = [k.replace('@FSR4@', os.path.abspath(fsr4).replace('\\', '/')) for k in keys]
         if any('@DLSSCOPY@' in k for k in keys):   # the shipped DLSS runtime, copied to a folder of its own (a second file to switch to)
             src = os.path.join(a.nr, 'dlss', 'nvngx_dlss.dll')
             copy_dir = os.path.join(a.out, 'dlss_copy'); os.makedirs(copy_dir, exist_ok=True)
             shutil.copyfile(src, os.path.join(copy_dir, 'nvngx_dlss.dll'))
             keys = [k.replace('@DLSSCOPY@', os.path.join(copy_dir, 'nvngx_dlss.dll').replace('\\', '/')) for k in keys]
-        rc, text, frame, secs = run_host(a.nr, a.snippet, keys, a.out, name)
+        todo.append((name, keys, checker))
+
+    # The hosts run side by side (--jobs at a time); the checks then run in the list's order, since some compare with an earlier scenario (base, ghost_off...).
+    from concurrent.futures import ThreadPoolExecutor
+    # SOLO scenarios restart an engine mid-run against a deadline, so they run alone, after the rest.
+    run = lambda t: run_host(a.nr, a.snippet, t[1], a.out, t[0])
+    with ThreadPoolExecutor(max_workers=max(1, a.jobs)) as pool:
+        done = dict(zip([t[0] for t in todo if t[0] not in SOLO], pool.map(run, [t for t in todo if t[0] not in SOLO])))
+    for t in todo:
+        if t[0] in SOLO: done[t[0]] = run(t)
+    runs = [done[t[0]] for t in todo]
+    failed = 0
+    for (name, keys, checker), (rc, text, frame, secs) in zip(todo, runs):
         res = Result()
         ctx['keys'] = keys
         basic(res, rc, text)
         if frame is None and name != 'ui_shot':
             res.check('present_gen.bmp written', False)
         elif frame is not None:
-            checker(ctx, res, text, frame)
-        print('== %s  (%.0f s)  %s' % (name, secs, ' '.join(keys)))
-        for ln in res.lines:
-            print('  ' + ln)
+            try:
+                checker(ctx, res, text, frame)
+            except KeyError as e:   # it compares with a scenario that did not run
+                res.check('needs %s to run first (add it to --only)' % e, False)
+        if a.verbose or not res.ok:
+            print('== %s  (%.0f s)  %s' % (name, secs, ' '.join(keys)))
+            for ln in res.lines:
+                if a.verbose or ln.startswith('FAIL'):
+                    print('  ' + ln)
+            if not res.ok:
+                print('  (log: %s)' % os.path.join(a.out, name + '.log'))
         failed += 0 if res.ok else 1
-    if not only:
+    print('%d scenario(s) in %.0f s, %d at a time' % (len(todo), time.time() - t0, a.jobs))
+    if not only or 'selftest' in only:
         failed += selftest_exe_checks(a.nr, a.snippet)
+    if not only or 'ui_shot' in only:
         failed += panel_sections_closed_check()
     print('\n%s' % ('ALL SCENARIOS PASSED' if not failed else '%d SCENARIO(S) FAILED' % failed))
     print('logs and frames in', a.out)

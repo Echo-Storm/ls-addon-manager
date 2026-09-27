@@ -15,7 +15,7 @@
 #   gui        eam_guitest: the manager window, three times (defaults, a saved placement, interface size 150 %)
 #   installer  the Setup program's core and its file bundle, on fake Lossless Scaling folders
 #   setupexe   the Setup exe end to end (silent install, repair, uninstall, the wizard window)
-#   nr         Neural Rendering's requirements check and frame tap, and the quick set of its model scenarios (needs the NVIDIA SDK configured and
+#   nr         Neural Rendering's requirements check and frame tap, and the model scenarios for the files changed (needs the NVIDIA SDK configured and
 #              LS_DIR pointing at a Lossless Scaling folder with nvngx_dlssnr.dll); -All runs every scenario
 param([string[]]$Only = @(), [switch]$All, [switch]$List)
 $root = Split-Path $PSScriptRoot -Parent   # the repository folder
@@ -109,8 +109,8 @@ foreach ($n in $chosen) {
     if ($s.Matrix) {
         if (-not $env:LS_DIR) { Write-Host '(model scenarios skipped: set LS_DIR to a Lossless Scaling folder with nvngx_dlssnr.dll)' }
         else {
-            $matrixArgs = @("$root\tools\run_hosttest_matrix.py") + $(if ($All) { @() } else { @('--quick') })
-            $runs += [pscustomobject]@{ Name = ('Neural Rendering model scenarios ({0})' -f $(if ($All) { 'all' } else { 'quick set' })); Exe = 'python'; Args = $matrixArgs; Serial = $false; Filter = '^\s*FAIL\b|SCENARIOS? FAILED|rror' }
+            $matrixArgs = @("$root\tools\run_hosttest_matrix.py") + $(if ($All) { @() } else { @('--changed') })
+            $runs += [pscustomobject]@{ Name = ('Neural Rendering model scenarios ({0})' -f $(if ($All) { 'all' } else { 'for what changed' })); Exe = 'python'; Args = $matrixArgs; Serial = $false; Filter = '^\s*FAIL\b|SCENARIOS? FAILED|rror' }
         }
     }
 }
