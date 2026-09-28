@@ -12,6 +12,7 @@ item is done (move it to the changelog) or when a new one comes up. Dates are wh
 - `run_hosttest_matrix.py --only scaler_bgra` fails ("NIS KEPT": the DLSS engine starts in about 9.5 s and the test ends before a frame
   is upscaled); also fails on the code before 2026-09-28's changes, so it predates them. `scaler_not_nvidia` shows NIS KEPT too. The
   baseline (`base`) fails when run alone with `--only` (known: baseline checks need their scenarios in the list).
+- **One recorder for all addons** (owner, 2026-09-28): each addon has its own "Keep the last few seconds" setting, so the owner had it on in the FSR Upscaler while running Neural Rendering with the DLSS Upscaler, and nothing was saved. The save key now says which addon's recorder is off; the fix is one shared setting (or the manager's own).
 - The corner square: the output swap chain is only learned while the upscaled picture is shown, so after a restart that begins on
   "original", the first toggle shows no square.
 - Neural Rendering's changes in 0.9.13 (temporal smoothing clamp, NGX user count) were never tried live before release; the NGX count

@@ -1306,6 +1306,13 @@ std::wstring RecordFolder() {
 void SaveRecording() {
     std::string game;
     { std::lock_guard<std::mutex> lock(g_textMutex); game = g_focusExe; }
+    bool on; { std::lock_guard<std::mutex> lock(g_settingsMutex); on = g_config.recordOn; }
+    if (!on) {   // each addon has its own recorder: say which one is off, not "nothing recorded" (the owner had it on in another addon)
+        const std::string name = kScalerAddon ? std::string(kUpscalerName) + " Upscaler" : std::string("Neural Rendering");
+        Log("recorder: nothing saved: the recorder is off in %s (tick \"Keep the last few seconds ready to save\" in its panel; each addon has its own)", name.c_str());
+        if (g_host) g_host->SetStatus(kAddonId, ("Nothing saved: the recorder is off in " + name + " (each addon has its own)").c_str(), 2);
+        return;
+    }
     if (!g_recorder.Save(RecordFolder(), game)) Log("recorder: nothing saved (%s)", g_recorder.GetStatus().saving ? "a save is running" : "nothing recorded yet");
 }
 
