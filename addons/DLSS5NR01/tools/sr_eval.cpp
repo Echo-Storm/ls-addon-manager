@@ -139,8 +139,8 @@ int main(int argc, char** argv) {
 
     struct Score { int frame; double up, plain, upCoarse, plainCoarse; std::vector<uint8_t> truth, picture, stretched; };
     std::vector<Score> scores;
-    std::vector<uint8_t> px, frame, shrunk, picture, stretched;
-    double sumUp = 0, sumPlain = 0, sumUpC = 0, sumPlainC = 0; int n = 0;
+    std::vector<uint8_t> px, frame, shrunk, picture, stretched, framePrev, picturePrev, stretchedPrev;
+    double sumUp = 0, sumPlain = 0, sumUpC = 0, sumPlainC = 0, sumUpT = 0, sumPlainT = 0; int n = 0;
     for (int i = 0; i < count; ++i) {
         if (!rec.Read(first + i, px) || !ToRgba8(h, px, frame)) { printf("frame %d could not be read\n", first + i); return 3; }
         ResizeArea(frame, W, H, shrunk, w, hh);
@@ -178,8 +178,10 @@ int main(int argc, char** argv) {
         Score s; s.frame = first + i;
         s.up = Psnr(picture, frame, nullptr); s.plain = Psnr(stretched, frame, nullptr);
         s.upCoarse = PsnrCoarse(picture, frame, W); s.plainCoarse = PsnrCoarse(stretched, frame, W);
-        printf("  frame %4d  upscaled %5.2f dB (coarse %5.2f)   stretched %5.2f dB (coarse %5.2f)\n", s.frame, s.up, s.upCoarse, s.plain, s.plainCoarse);
-        if (i >= 8) { sumUp += s.up; sumPlain += s.plain; sumUpC += s.upCoarse; sumPlainC += s.plainCoarse; ++n; }   // (after the history has built)
+        const double upT = i ? PsnrTemporal(picture, picturePrev, frame, framePrev) : 99.0, plainT = i ? PsnrTemporal(stretched, stretchedPrev, frame, framePrev) : 99.0;
+        printf("  frame %4d  upscaled %5.2f dB (coarse %5.2f, steady %5.2f)   stretched %5.2f dB (coarse %5.2f, steady %5.2f)\n", s.frame, s.up, s.upCoarse, upT, s.plain, s.plainCoarse, plainT);
+        if (i >= 8) { sumUp += s.up; sumPlain += s.plain; sumUpC += s.upCoarse; sumPlainC += s.plainCoarse; sumUpT += upT; sumPlainT += plainT; ++n; }   // (after the history has built)
+        framePrev = frame; picturePrev = picture; stretchedPrev = stretched;
         if (show > 0) { s.truth = frame; s.picture = picture; s.stretched = stretched; }
         scores.push_back(std::move(s));
         if (show > 0 && scores.size() > 64) {   // keep the pictures of the worst only
@@ -187,7 +189,8 @@ int main(int argc, char** argv) {
             worst->truth.clear(); worst->truth.shrink_to_fit(); worst->picture.clear(); worst->picture.shrink_to_fit(); worst->stretched.clear(); worst->stretched.shrink_to_fit();
         }
     }
-    if (n) printf("average over %d frames (after the first 8): upscaled %.2f dB (coarse %.2f), stretched %.2f dB (coarse %.2f)\n", n, sumUp / n, sumUpC / n, sumPlain / n, sumPlainC / n);
+    // steady: the frame-to-frame change against the truth's own change (shimmer, crawling edges and flicker cost; softness alone does not)
+    if (n) printf("average over %d frames (after the first 8): upscaled %.2f dB (coarse %.2f, steady %.2f), stretched %.2f dB (coarse %.2f, steady %.2f)\n", n, sumUp / n, sumUpC / n, sumUpT / n, sumPlain / n, sumPlainC / n, sumPlainT / n);
     // the frames where the upscaler did worst against a plain stretch (its history hurt most)
     std::vector<const Score*> order; for (const Score& s : scores) if (!s.truth.empty() && s.frame - first >= 8) order.push_back(&s);
     std::sort(order.begin(), order.end(), [](const Score* a, const Score* b) { return a->up - a->plain < b->up - b->plain; });

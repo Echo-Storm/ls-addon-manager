@@ -76,6 +76,17 @@ inline double PsnrCoarse(const std::vector<uint8_t>& a, const std::vector<uint8_
     return mse <= 1e-12 ? 99.0 : 10.0 * std::log10(255.0 * 255.0 / mse);
 }
 
+// Steadiness (shimmer): how far the picture's change since the frame before strays from the true change (dB; higher is steadier).
+// A picture that flickers where the truth holds still, or crawls along edges, costs; a picture that changes as the truth does costs
+// nothing even if it is soft. a, aPrev: this and the frame before's picture; b, bPrev: the same frames' truth. Luma (Rec. 709) only.
+inline double PsnrTemporal(const std::vector<uint8_t>& a, const std::vector<uint8_t>& aPrev, const std::vector<uint8_t>& b, const std::vector<uint8_t>& bPrev) {
+    auto luma = [](const std::vector<uint8_t>& p, size_t i) { return 0.2126 * p[i] + 0.7152 * p[i + 1] + 0.0722 * p[i + 2]; };
+    double se = 0; size_t n = 0;
+    for (size_t i = 0; i < a.size(); i += 4) { const double d = (luma(a, i) - luma(aPrev, i)) - (luma(b, i) - luma(bPrev, i)); se += d * d; ++n; }
+    const double mse = n ? se / n : 0;
+    return mse <= 1e-12 ? 99.0 : 10.0 * std::log10(255.0 * 255.0 / mse);
+}
+
 inline bool WriteBmp(const std::wstring& path, const std::vector<const std::vector<uint8_t>*>& tiles, uint32_t w, uint32_t h) {
     const uint32_t W = w * static_cast<uint32_t>(tiles.size()), rowBytes = W * 3, pad = (4 - rowBytes % 4) % 4;
     FILE* f = _wfopen(path.c_str(), L"wb"); if (!f) return false;
