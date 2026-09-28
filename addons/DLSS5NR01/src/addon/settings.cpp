@@ -161,7 +161,7 @@ Loaded LoadSettings(IHost* host, const char* id) {
 
     c.enabled = flag("enabled", true);
     c.model = std::clamp(integer("model", 0), 0, 1);
-    c.dlaaPreset = static_cast<unsigned>(std::clamp(integer("dlaaPreset", 0), 0, 15));
+    c.dlaaPreset = static_cast<unsigned>(std::clamp(integer("dlaaPreset", 16), 0, 16));
     c.scalerHandoff = std::clamp(integer("scalerHandoff", 0), 0, 3);
     c.motionSource = std::clamp(integer("motionSource", 0), 0, 2);
     c.scalerGpuWait = flag("scalerGpuWait", true);
@@ -215,7 +215,7 @@ Loaded LoadSettings(IHost* host, const char* id) {
         p.shadows = std::clamp(shadows, -1.0f, 1.0f); p.highlights = std::clamp(highlights, -1.0f, 1.0f);
         p.saturation = std::clamp(saturation, 0.0f, 2.0f); p.vibrance = std::clamp(vibrance, 0.0f, 1.0f);
         p.sharpen = std::clamp(sharpen, 0.0f, 1.0f); p.stability = std::clamp(stability, 0.0f, 1.0f); p.edges = std::clamp(edges, 0.0f, 1.0f);
-        p.preset = std::min(preset, 15u); p.motion = std::clamp(motion, 0, 2);
+        p.preset = std::min(preset, 16u); p.motion = std::clamp(motion, 0, 2);
         c.scalerGames.push_back({ exe, p });
     }
     for (const std::string& exe : SplitList(text("gameList"))) {

@@ -28,6 +28,7 @@ class SrEngine {
 public:
     using LogFn = std::function<void(const char*)>;
     enum class Backend { Dlss, Fsr, Xess };
+    static constexpr unsigned kPresetAuto = 16;   // the DLSS model chosen by the sizes: E at 1:1 (DLAA), L when upscaling
     ~SrEngine() { if (m_worker.joinable()) m_worker.detach(); }   // (at the process's exit without a Shutdown: never std::terminate)
     // On the card with this LUID; the runtime is looked for in runtimeDir (NVIDIA's nvngx_dlss.dll, or AMD's amd_fidelityfx_dx12.dll).
     // Touches no device but its own: may run on any thread.

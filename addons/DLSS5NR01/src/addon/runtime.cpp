@@ -772,7 +772,7 @@ void StartEngine(LUID card) {
             { std::lock_guard<std::mutex> lock(g_frameMutex); g_bridge.Shutdown(); if (g_engine.IsReady() || g_engine.IsFailed()) g_engine.Shutdown(); }
             SetStatus("engine: loading model...");
             { std::lock_guard<std::mutex> lock(g_settingsMutex);
-              g_engine.SetModel(g_config.model == 1 ? NrEngine::Model::Dlaa : NrEngine::Model::NeuralRendering, g_config.dlaaPreset); }
+              g_engine.SetModel(g_config.model == 1 ? NrEngine::Model::Dlaa : NrEngine::Model::NeuralRendering, g_config.dlaaPreset == SrEngine::kPresetAuto ? 5u : g_config.dlaaPreset); }   // (its DLSS runs at 1:1: auto is E)
             const bool ok = g_engine.Init(card, g_addonDir + L"\\" NR_FORWARDER_FILENAME, ModelPath(), g_addonDir, g_lsDir, [](const char* m) { Log("%s", m); });
             g_engineCard = card; g_engineCardKnown = true;
             if (!ok) {

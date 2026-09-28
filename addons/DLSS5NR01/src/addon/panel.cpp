@@ -1,6 +1,7 @@
 // The addon's settings panel, drawn by the manager in its window (the window's thread). It works on a copy of the settings and hands the copy
 // back (Commit) when something changed. The sections start closed; the person opens what they need.
 #include "addon/framegen11.h"
+#include "engine/sr_engine.h"
 #include "addon/state.h"
 #include "addon/present_hook.h"
 #include "addon/screenshot.h"
@@ -276,13 +277,13 @@ void DrawPanel() {
         // one line each: the letter, the generation, what it does best here (nr_sreval, Silent Hill f shrunk 1.5x, 2026-09-27: L the steadiest
         // in slow motion and close to the best in fast turns; E the best in fast turns; M the weakest here and the heaviest. World of Warcraft at
         // 1:1, 2026-09-28: L pulses on a 4-frame cycle, seen as flicker while moving; E does not, and the owner confirmed it live)
-        static const char* const presets[] = { "K: DLSS 4, NVIDIA's default", "L: DLSS 4, recommended when upscaling", "J: DLSS 4, a little less trailing than K",
-                                               "M: DLSS 4.5, sharpest in games, the heaviest", "E: DLSS 3 (CNN), recommended at 1:1 (DLAA)" };
-        static const unsigned kPresetOf[] = { 0u, 12u, 10u, 13u, 5u };
+        static const char* const presets[] = { "Auto (recommended): E at 1:1, L when upscaling", "K: DLSS 4, NVIDIA's default", "L: DLSS 4, the steadiest when upscaling",
+                                               "J: DLSS 4, a little less trailing than K", "M: DLSS 4.5, sharpest in games, the heaviest", "E: DLSS 3 (CNN), the steadiest at 1:1 (DLAA)" };
+        static const unsigned kPresetOf[] = { SrEngine::kPresetAuto, 0u, 12u, 10u, 13u, 5u };
         int preset = 0;
-        for (int i = 0; i < 5; ++i) if (kPresetOf[i] == c.dlaaPreset) preset = i;
-        if (ImGui::Combo("DLSS model", &preset, presets, 5)) { c.dlaaPreset = kPresetOf[preset]; changed = true; modelChanged = true; }
-        Tip("Which DLSS model runs. Recommended: E at 1:1 (DLAA: the game at the screen's size), L when upscaling. At 1:1, L pulses every fourth "
+        for (int i = 0; i < 6; ++i) if (kPresetOf[i] == c.dlaaPreset) preset = i;
+        if (ImGui::Combo("DLSS model", &preset, presets, 6)) { c.dlaaPreset = kPresetOf[preset]; changed = true; modelChanged = true; }
+        Tip("Which DLSS model runs. Recommended: Auto, which picks E at 1:1 (DLAA: the game at the screen's size) and L when upscaling. At 1:1, L pulses every fourth "
             "frame, which shows as flicker while you move (measured in World of Warcraft); E does not. When upscaling, L is the only one that does not "
             "drift from the picture while the camera pans slowly, and nearly the best in fast turns. K is NVIDIA's default. J is K's sibling: a little less "
             "trailing, a little more flicker. M is DLSS 4.5's model: sharper in games that give it camera jitter, and about three times K's cost; here "

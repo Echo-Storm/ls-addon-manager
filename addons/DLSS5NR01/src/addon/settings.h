@@ -16,7 +16,7 @@ struct IHost;
 namespace nr {
 
 // The upscalers' picture settings as kept for one game (Config::scalerGames).
-struct ScalerProfile { float sharpen = 0.5f, stability = 0.0f, edges = 0.0f; unsigned preset = 0; int motion = 0; float brightness = 0.0f, contrast = 1.0f, gamma = 1.0f;
+struct ScalerProfile { float sharpen = 0.5f, stability = 0.0f, edges = 0.0f; unsigned preset = 16; int motion = 0; float brightness = 0.0f, contrast = 1.0f, gamma = 1.0f;
                        float shadows = 0.0f, highlights = 0.0f, saturation = 1.0f, vibrance = 0.0f; };
 ScalerProfile ProfileOf(const struct Config& c);
 void ApplyProfile(struct Config& c, const ScalerProfile& p);
@@ -26,7 +26,7 @@ void KeepForGame(struct Config& c, const std::string& exe);
 struct Config {
     bool enabled = true;
     int model = 0;                       // 0 DLSS 5 Neural Rendering (the person's model file), 1 DLAA (NVIDIA's DLSS runtime, shipped)
-    unsigned dlaaPreset = 0;             // the DLSS model (preset): 0 NVIDIA's default (K), 10 J, 12 L (recommended), 13 M (DLSS 4.5), 5 E (CNN)
+    unsigned dlaaPreset = 16;            // the DLSS model (preset): 16 auto (E at 1:1, L upscaling; SrEngine::kPresetAuto), 0 NVIDIA's default (K), 10 J, 12 L, 13 M (DLSS 4.5), 5 E (CNN)
     int motionSource = 0;                // the DLSS Upscaler's motion: 0 measured from the frames, 1 frame generation's flow, 2 none
     // The upscalers: when no newer picture is finished, Lossless Scaling's queue waits on the GPU for the next one rather than show the same
     // picture again (ScalerLink::Upscale). A CPU wait tried before made repeats more frequent on a busy GPU and is gone (2026-09-25).

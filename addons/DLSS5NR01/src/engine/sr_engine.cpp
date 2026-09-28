@@ -890,6 +890,7 @@ bool SrEngine::Run(ID3D12Resource* in, uint32_t inW, uint32_t inH, DXGI_FORMAT i
         m_ngxLost = false;
         if (++m_ngxRestarts > 3 || !RestartNgx()) { Fail("DLSS lost its feature and NGX could not start again"); return skip(); }
     }
+    if (preset == kPresetAuto) preset = inW == outW && inH == outH ? 5u : 12u;   // E at 1:1 (L pulses every fourth frame there), L when upscaling
     const bool fresh =!HasFeature() || inW != m_inW || inH != m_inH || outW != m_outW || outH != m_outH || (dlss && preset != m_preset) || hdr != m_hdr;
     if (!EnsureFeature(inW, inH, outW, outH, preset, hdr)) return skip();
     if (hdr && !EnsureViewInput(inW, inH)) { Fail("the HDR frame's SDR view could not be made"); return skip(); }
