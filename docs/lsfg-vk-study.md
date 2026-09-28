@@ -97,3 +97,19 @@ the old scores. On the Silent Hill f recording (a turn, frames 60-99, and its st
 
 Neutral to slightly better: this recording has no lighting changes, which is what the zero-mean cost is for. Default left at 100 until
 a recording with light changes (World of Warcraft spell effects, a flash, a fade) shows a gain. Next: step 2, the gradient channel.
+
+### Step 2 tried (2026-09-27): the edges in the block cost
+
+`FlowEstimator::SetGradWeight` (`gradweight=N`, percent, in `nr_sreval` and `nr_fgeval`): each pixel's step to its neighbours, this
+frame's against the frame before's, blended into the block cost; taken from the pixels the cost already reads (the checkerboard search
+uses steps of two), so no new textures and no extra reads. 0 (the default) gives exactly the old cost.
+
+Upscaler (DLSS L, turn, 40 frames): gradweight 0 / 30 / 60 / 60 with meanweight 0: 32.82 / 32.84 / 32.85 / 32.85 dB (coarse 43.18 /
+43.25 / 43.24 / 43.27, steady 30.11 / 30.13 / 30.13 / 30.14): a hair better, within noise.
+The motion itself (`nr_fgeval mvcheck=1`, frames 50-109, the frame before moved half way by the vectors against the frame between):
+gradweight/meanweight 0/100 19.84 dB, 60/100 19.83, 60/0 19.79, 100/0 19.75: **slightly worse**.
+So on this fast turn the matching cost is not the weak spot; what limits the estimate there is more likely the search's reach and the
+parts that come into view (occlusion). Next candidates: LSFG-style confidence (step 3), and a wider search at the coarsest levels.
+
+In the addon: "Motion by shape (test)" in the upscalers' panel (setting `motionShapes`, off by default) sets meanweight 0 and gradweight
+30, for trying live where the light changes (World of Warcraft).

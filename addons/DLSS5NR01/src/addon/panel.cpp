@@ -428,6 +428,12 @@ void DrawPanel() {
                 "little detail there, and in a fast turn it trailed: leaves and edges with soft doubled outlines. Off: as before. Flip it while you turn "
                 "the camera to compare.");
         }
+        {
+            if (ImGui::Checkbox("Motion by shape (test)", &c.motionShapes)) changed = true;
+            Tip("A test, off by default. The motion the upscaler is given is found by matching small patches of the frame before to this one. Off: by "
+                "their brightness, as before. On: by their shape and edges, with the brightness itself counting little, so a flash, a spell effect, a "
+                "fade or a shadow passing over should mislead it less. Flip it where the light changes while you move, and tell us which looks steadier.");
+        }
         { const float off = 0.0f; changed |= eam::ui::SliderFloat("Edge smoothing", &c.scalerEdges, 0.0f, 1.0f, c.scalerEdges <= 0.001f ? "off" : "%.2f", 0, &off); }
         Tip("Anti-aliasing along the edges of the upscaled picture: for games without anti-aliasing of their own (stair steps on roofs, fences and "
             "wires). It finds where the brightness steps, which way the edge runs and how far, and blends across it by the part of a pixel the true "

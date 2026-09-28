@@ -90,6 +90,7 @@ public:
     // frame's width); the vectors' scale as the upscaler is told it (1: as measured); no distrust mask for the upscaler.
     void SetStrayCap(float pixels) { m_estimator.SetStrayCap(pixels); }
     void SetMeanWeight(float weight) { m_estimator.SetMeanWeight(weight); }
+    void SetGradWeight(float weight) { m_estimator.SetGradWeight(weight); }
     void SetFastMotion(float pixels) { m_fastMotion.store(pixels); }
     void SetMotionScale(float s) { m_motionScale = s; }
     void SetNoMask(bool none) { m_noMask = none; }

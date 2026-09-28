@@ -15,7 +15,7 @@ template <class T> void SafeRelease(T*& p) { if (p) { p->Release(); p = nullptr;
 const char* const kCommonHlsl = R"(
 RWByteAddressBuffer uStats : register(u7);
 SamplerState sLinear : register(s0);
-cbuffer C : register(b0) { uint2 size; uint2 grid; uint2 coarse; uint radius; uint flags; float lambda; float bias; float stability; float strayCap; float fastMotion; float meanWeight; uint pad1; uint pad2; };
+cbuffer C : register(b0) { uint2 size; uint2 grid; uint2 coarse; uint radius; uint flags; float lambda; float bias; float stability; float strayCap; float fastMotion; float meanWeight; float gradWeight; uint pad2; };
 )";
 
 // the frame's brightness at its own size (and the statistics cleared for this frame). An HDR frame (radius: its encoding, lambda: the SDR
@@ -92,7 +92,16 @@ float Sad(int2 v) {   // all 64 pixels of the 8x8 (the final answer and its frac
     const float shift = meanWeight < 1.0 ? cMean - mean : 0.0;
     float s = 0;
     [unroll] for (int k = 0; k < 64; ++k) s += abs(cw[k] - p[k] - shift);
-    return s * (1.0 / 64.0) + (meanWeight < 1.0 ? meanWeight * abs(shift) : 0.0);
+    s = s * (1.0 / 64.0) + (meanWeight < 1.0 ? meanWeight * abs(shift) : 0.0);
+    if (gradWeight > 0.0) {   // the edges: each pixel's step to its right and lower neighbour, this frame's against the frame before's
+        float g = 0;
+        [unroll] for (int k = 0; k < 64; ++k) {
+            if ((k & 7) < 7) g += abs((cw[k + 1] - cw[k]) - (p[k + 1] - p[k]));
+            if (k < 56) g += abs((cw[k + 8] - cw[k]) - (p[k + 8] - p[k]));
+        }
+        s = lerp(s, g * (1.0 / 112.0), gradWeight);
+    }
+    return s;
 }
 float SadHalf(int2 v) {   // half of them, as a checkerboard (the search: half the reads, with no stripe the pattern could hide in)
     const int2 last = int2(size) - 1;
@@ -102,7 +111,17 @@ float SadHalf(int2 v) {   // half of them, as a checkerboard (the search: half t
     const float shift = meanWeight < 1.0 ? cMeanHalf - mean : 0.0;
     float s = 0;
     [unroll] for (int k = 0; k < 32; ++k) { const int j = k >> 2, i = (k & 3) * 2 + (j & 1); s += abs(cw[j * 8 + i] - p[k] - shift); }
-    return s * (1.0 / 32.0) + (meanWeight < 1.0 ? meanWeight * abs(shift) : 0.0);
+    s = s * (1.0 / 32.0) + (meanWeight < 1.0 ? meanWeight * abs(shift) : 0.0);
+    if (gradWeight > 0.0) {   // the edges, from the checkerboard's own pixels: the step two to the right and two down
+        float g = 0;
+        [unroll] for (int k = 0; k < 32; ++k) {
+            const int j = k >> 2, i = (k & 3) * 2 + (j & 1), c = j * 8 + i;
+            if ((k & 3) < 3) g += abs((cw[c + 2] - cw[c]) - (p[k + 1] - p[k]));
+            if (j < 6) g += abs((cw[c + 16] - cw[c]) - (p[k + 8] - p[k]));
+        }
+        s = lerp(s, g * (1.0 / 48.0), gradWeight);
+    }
+    return s;
 }
 [numthreads(8, 8, 1)]
 void main(uint3 id : SV_DispatchThreadID) {
@@ -279,7 +298,7 @@ void main(uint3 id : SV_DispatchThreadID, uint index : SV_GroupIndex) {
 }
 )";
 
-struct Constants { uint32_t w, h, gw, gh, cw, ch, radius, flags; float lambda, bias, stability, strayCap, fastMotion, meanWeight; uint32_t pad[2]; };
+struct Constants { uint32_t w, h, gw, gh, cw, ch, radius, flags; float lambda, bias, stability, strayCap, fastMotion, meanWeight, gradWeight; uint32_t pad[1]; };
 constexpr float kLambda = 0.003f;   // match cost per pixel of straying from the coarser size's guess
 constexpr float kBias = 0.004f;     // a pixel's extra cost for another block's vector (or none) over its own
 
@@ -482,7 +501,7 @@ void FlowEstimator::Record(ID3D12GraphicsCommandList* list, int slot, ID3D12Reso
             ID3D12Resource* const srv[4] = { m_luma[cur][k], m_luma[prev][k], coarser ? m_grid[k + 1] : nullptr, coarser ? nullptr : m_global };
             const DXGI_FORMAT fmt[4] = { R16, R16, RG16, coarser ? NONE : DXGI_FORMAT_R32_FLOAT };
             Constants c{ m_lw[k], m_lh[k], m_gw[k], m_gh[k], coarser ? m_gw[k + 1] : static_cast<uint32_t>(kGlobalRadius), coarser ? m_gh[k + 1] : 0u, coarser ? 2u : 4u,
-                         (coarser ? 1u : 4u) | (k == 1 ? 2u : 0u), kLambda, kBias, 0.0f, m_strayCap, 0.0f, m_meanWeight };
+                         (coarser ? 1u : 4u) | (k == 1 ? 2u : 0u), kLambda, kBias, 0.0f, m_strayCap, 0.0f, m_meanWeight, m_gradWeight };
             run(Search, srv, fmt, m_grid[k], RG16, c, m_gw[k], m_gh[k], true);
         }
         stamp(2);
