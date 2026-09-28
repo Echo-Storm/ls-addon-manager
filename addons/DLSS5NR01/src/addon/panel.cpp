@@ -273,15 +273,20 @@ void DrawPanel() {
                          "(bottom left). Switching takes a moment while the game runs.");
     }
     if (dlaa && !kAnyCardScaler) {
-        int preset = c.dlaaPreset == 13 ? 1 : c.dlaaPreset == 5 ? 2 : 0;
-        const char* presets[] = { "NVIDIA's default (K, DLSS 4)", "M (DLSS 4.5, second-generation transformer)", "E (DLSS 3, the older CNN model)" };
-        static const unsigned kPresetOf[] = { 0u, 13u, 5u };
-        if (ImGui::Combo("DLSS model", &preset, presets, 3)) { c.dlaaPreset = kPresetOf[preset]; changed = true; modelChanged = true; }
-        Tip("Which DLSS model runs. K is NVIDIA's default for DLAA. M is DLSS 4.5's newer model: sharper and steadier in motion in games, and much heavier "
-            "(about three times K's time). E is DLSS 3's CNN model: lighter, and it keeps a still picture crisp where K and M can soften it here (users "
-            "report it: Lossless Scaling's frames have no camera jitter, which those models expect). Compare them with the Before / after hotkey. "
-            "Changing it restarts the engine.\n"
-            "Lossless Scaling gives DLAA no camera jitter and no depth, so it smooths and steadies edges and shimmer but cannot add detail beyond the frame's own, as it does in a game that supports DLSS.");
+        // one line each: the letter, the generation, what it does best here (nr_sreval, Silent Hill f shrunk 1.5x, 2026-09-27: L the steadiest
+        // in slow motion and close to the best in fast turns; E the best in fast turns; M the weakest here and the heaviest)
+        static const char* const presets[] = { "K: DLSS 4, NVIDIA's default", "L: DLSS 4, recommended (the steadiest here)", "J: DLSS 4, a little less trailing than K",
+                                               "M: DLSS 4.5, sharpest in games, the heaviest", "E: DLSS 3 (CNN), the lightest, crisp when still" };
+        static const unsigned kPresetOf[] = { 0u, 12u, 10u, 13u, 5u };
+        int preset = 0;
+        for (int i = 0; i < 5; ++i) if (kPresetOf[i] == c.dlaaPreset) preset = i;
+        if (ImGui::Combo("DLSS model", &preset, presets, 5)) { c.dlaaPreset = kPresetOf[preset]; changed = true; modelChanged = true; }
+        Tip("Which DLSS model runs. Recommended: L. Measured on a recorded game shrunk and upscaled back, it is the only one that does not drift from "
+            "the picture while the camera pans slowly, and nearly the best in fast turns. K is NVIDIA's default. J is K's sibling: a little less "
+            "trailing, a little more flicker. M is DLSS 4.5's model: sharper in games that give it camera jitter, and about three times K's cost; here "
+            "it did worst. E is DLSS 3's CNN model: the lightest, the best in fast turns, and it keeps a still picture crisp. Compare them with the "
+            "Before / after hotkey. Changing it restarts the engine.\n"
+            "Lossless Scaling gives DLSS no camera jitter and no depth, so it smooths and steadies edges and shimmer but cannot add detail beyond the frame's own, as it does in a game that supports DLSS.");
     }
 
     Block("Settings");

@@ -26,7 +26,7 @@ void KeepForGame(struct Config& c, const std::string& exe);
 struct Config {
     bool enabled = true;
     int model = 0;                       // 0 DLSS 5 Neural Rendering (the person's model file), 1 DLAA (NVIDIA's DLSS runtime, shipped)
-    unsigned dlaaPreset = 0;             // DLAA's DLSS preset: 0 NVIDIA's default (K), 13 = M (DLSS 4.5)
+    unsigned dlaaPreset = 0;             // the DLSS model (preset): 0 NVIDIA's default (K), 10 J, 12 L (recommended), 13 M (DLSS 4.5), 5 E (CNN)
     int motionSource = 0;                // the DLSS Upscaler's motion: 0 measured from the frames, 1 frame generation's flow, 2 none
     // The upscalers: when no newer picture is finished, Lossless Scaling's queue waits on the GPU for the next one rather than show the same
     // picture again (ScalerLink::Upscale). A CPU wait tried before made repeats more frequent on a busy GPU and is gone (2026-09-25).
