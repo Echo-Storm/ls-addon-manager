@@ -34,6 +34,7 @@ struct Config {
     bool frameGen = false;   // the FSR Upscaler's frame generation of our own (a prototype, framegen11.h)
     bool frameGenGuard = true;           // ...its guard against pasted background (FgEngine::Generate)
     bool scalerFastMotion = true;       // the upscalers lean on the frame in fast motion (SrEngine::SetFastMotion; off: never, as before 0.9.13)
+    float scalerLeanFrom = 0.0f;        // the motion the lean starts from, in % of the frame's width a frame (0: automatic, 0.1 at 1:1 and 0.05 upscaling)
     bool motionShapes = false;          // a test: the motion matched by shape and edges, not brightness (SrEngine::SetMeanWeight / SetGradWeight)
     float scalerStability = 0.0f;        // the upscalers: less shimmer, more trailing (SrEngine::SetStability)
     float scalerEdges = 0.0f;            // the upscalers: edge smoothing of the upscaled picture (SrEngine::SetEdgeSmoothing)

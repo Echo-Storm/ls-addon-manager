@@ -430,6 +430,12 @@ void DrawPanel() {
                 "the new frame instead of the frames before. The game gives the upscaler no sub-pixel camera shifts, so its memory of earlier frames adds "
                 "little detail there, and in a fast turn it trailed: leaves and edges with soft doubled outlines. Off: as before. Flip it while you turn "
                 "the camera to compare.");
+            if (c.scalerFastMotion) {
+                if (ImGui::SliderFloat("Lean from", &c.scalerLeanFrom, 0.0f, 0.5f, c.scalerLeanFrom <= 0.0f ? "automatic" : "%.2f %% of the width a frame")) changed = true;
+                Tip("How much motion the lean starts from (fully at twice it). Automatic (0): 0.1 % of the frame's width a frame at 1:1 (about 4 px at 4K), "
+                    "0.05 % when upscaling. Lower: less trailing and smearing while you move, but at 1:1 the game's own jagged edges show more in motion. "
+                    "Higher: more of the upscaler's smoothing in motion, and more trailing. Move it while you walk and turn.");
+            }
         }
         {
             if (ImGui::Checkbox("Motion by shape (test)", &c.motionShapes)) changed = true;

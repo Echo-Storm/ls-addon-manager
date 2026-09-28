@@ -93,6 +93,7 @@ public:
     void SetMeanWeight(float weight) { m_estimator.SetMeanWeight(weight); }
     void SetGradWeight(float weight) { m_estimator.SetGradWeight(weight); }
     void SetFastMotion(float pixels) { m_fastMotion.store(pixels); }
+    void SetFastMotionShare(float share) { m_fastShare.store(share); }   // where SetFastMotion is automatic (-1): from this share of the width (0: the default)
     void SetMotionScale(float s) { m_motionScale = s; }
     void SetNoMask(bool none) { m_noMask = none; }
     double AfterMs() const { return m_afterMs; }   // the passes after the upscaler (edges, sharpening), on the GPU, smoothed
@@ -144,7 +145,7 @@ private:
     uint64_t m_slotDone[kSlots] = {}; int m_nextSlot = 0;
     ID3D12QueryHeap* m_timestamps = nullptr; ID3D12Resource* m_timestampReadback = nullptr; uint64_t m_timestampFreq = 1;
     double m_gpuMs = 0, m_motionMs = 0;
-    FlowEstimator m_estimator; bool m_estimatedLast = false; uint64_t m_estimates = 0; float m_motionScale = 1.0f; bool m_noMask = false; std::atomic<float> m_fastMotion{ -1.0f };
+    FlowEstimator m_estimator; bool m_estimatedLast = false; uint64_t m_estimates = 0; float m_motionScale = 1.0f; bool m_noMask = false; std::atomic<float> m_fastMotion{ -1.0f }, m_fastShare{ 0.0f };
     std::atomic<float> m_stability{ 0.0f }, m_edges{ 0.0f };
     static const int kDescriptors = 12;   // per slot: flow, motion, sharpen in/out, edges in/out, view in/out, lean in (3) / out
     ID3D12PipelineState* m_edgesPso = nullptr;

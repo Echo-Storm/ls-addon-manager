@@ -1059,11 +1059,11 @@ bool ScalerPass(ID3D11DeviceContext* ctx, uint32_t x, uint32_t y, uint32_t z) {
                 !PresentHook::Install(dev, OnPresent, [](const char* m) { Log("%s", m); }))
                 Log("%s upscaler: could not hook Present; the picture cannot go over NIS's there", kUpscalerName);
             if (g_linkDevice == dev && g_compare.load() != 2) {   // "original only" lets NIS run, for comparing
-                NrParams p; unsigned preset; int handoff, motion; bool gpuWait, steadyFast, shapes; float stability, edges;
+                NrParams p; unsigned preset; int handoff, motion; bool gpuWait, steadyFast, shapes; float stability, edges, leanFrom;
                 { std::lock_guard<std::mutex> settings(g_settingsMutex); p = g_config.p; preset = g_config.dlaaPreset; handoff = g_config.scalerHandoff; motion = g_config.motionSource;
-                  gpuWait = g_config.scalerGpuWait; stability = g_config.scalerStability; edges = g_config.scalerEdges; steadyFast = g_config.scalerFastMotion; shapes = g_config.motionShapes; }
+                  gpuWait = g_config.scalerGpuWait; stability = g_config.scalerStability; edges = g_config.scalerEdges; steadyFast = g_config.scalerFastMotion; shapes = g_config.motionShapes; leanFrom = g_config.scalerLeanFrom; }
                 g_sr.SetStability(stability); g_sr.SetEdgeSmoothing(edges);
-                g_sr.SetFastMotion(steadyFast ? -1.0f : 0.0f);   // in fast motion lean on the frame (its own threshold), or never
+                g_sr.SetFastMotion(steadyFast ? -1.0f : 0.0f); g_sr.SetFastMotionShare(leanFrom * 0.01f);   // in fast motion lean on the frame (from the chosen share, or its own), or never
                 g_sr.SetMeanWeight(shapes ? 0.0f : 1.0f); g_sr.SetGradWeight(shapes ? 0.3f : 0.0f);   // the motion matched by shape and edges (a test), or by brightness
                 ScalerLink::Picture picture;   // at the defaults while Neural Rendering is on (its own Picture controls act on the shown picture)
                 if (!NeuralRenderingOnNow()) {
