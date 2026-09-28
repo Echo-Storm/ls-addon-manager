@@ -41,7 +41,11 @@ struct SrEngine::XessState { HMODULE module = nullptr; bool initialised = false;
 
 namespace {
 
-constexpr float kFastMotionShare = 0.005f;   // the motion (a share of the frame's width, a frame) from which the upscaler leans on the frame
+constexpr float kFastMotionShare = 0.005f;   // the motion (a share of the frame's width, a frame) from which the upscaler leans on the frame: at 1:1 (DLAA)
+// When upscaling, from much less: without the game's jitter the history adds no detail in motion, only trailing. nr_sreval (DLSS L, 1.5x),
+// 2026-09-28: from 0.5 % to 0.05 % of the width, Silent Hill f turn coarse 43.18 -> 47.02 dB (a plain stretch 43.94), its slow start
+// 47.02 -> 48.42, World of Warcraft walking 42.13 -> 43.18 (at 1:1 the score cannot tell, the frame itself being the reference: kept)
+constexpr float kFastMotionShareUpscaling = 0.0005f;
 
 constexpr unsigned long long kAppId = 0x24480452ull;   // the upscaler's NGX application id (Neural Rendering's is ...451)
 constexpr DWORD kSlotWaitMs = 500, kIdleWaitMs = 5000;
@@ -994,7 +998,7 @@ bool SrEngine::Run(ID3D12Resource* in, uint32_t inW, uint32_t inH, DXGI_FORMAT i
         // In fast motion the upscaler leans on this frame (the distrust mask rises from 0.5 % of the frame's width a frame, fully at twice it):
         // Lossless Scaling's frames come without the jitter a game gives its upscaler, so history adds little there, and in a fast turn it trailed
         // (nr_sreval, Silent Hill f, a turn shrunk 1.5x: FSR 3.1 39.4 -> 41.8 dB at a quarter of the size, the leaves' doubled edges gone).
-        { const float fast = m_fastMotion.load(); m_estimator.SetFastMotion(fast >= 0.0f ? fast : kFastMotionShare * static_cast<float>(inW)); }
+        { const float fast = m_fastMotion.load(); m_estimator.SetFastMotion(fast >= 0.0f ? fast : (inW == outW && inH == outH ? kFastMotionShare : kFastMotionShareUpscaling) * static_cast<float>(inW)); }
         Transition(m_distrust, D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE, D3D12_RESOURCE_STATE_UNORDERED_ACCESS);
         m_estimator.Record(m_list, slot, hdr ? m_view : in, hdr ? DXGI_FORMAT_R16G16B16A16_FLOAT : inFormat == DXGI_FORMAT_UNKNOWN ? DXGI_FORMAT_R8G8B8A8_UNORM : inFormat,
                            m_motion, m_distrust, stability);

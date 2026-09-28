@@ -196,3 +196,21 @@ The owner saw flicker while moving with the DLSS Upscaler at 1:1 (DLAA) in World
   on the Silent Hill f recording, is in slow pans).
 
 `nr_sreval` prints `vs before` per frame now (the frame against the one before; 99: a repeat).
+
+## The upscalers in steady motion: lean from much less when upscaling (2026-09-28)
+
+On the owner's World of Warcraft clip upscaled 1.5x (walking, about 7-8 px a frame at 1440p), every upscaler lost to a plain stretch
+(coarse: DLSS L 42.13, FSR 40.67, XeSS 43.53, stretch 44.24): too slow for the lean (from 0.5 % of the width, about 13 px) and fast
+enough for the history to trail. Our vectors are good there (`nr_fgeval mvcheck=1`: half way 31-32 dB against 22.7 still), yet DLSS
+scores the same with them as without. On the Silent Hill f turn with the lean off, DLSS with our vectors as they are scores *below* no
+vectors (coarse 32.78 against 34.32) and below deliberately wrong ones (flipped 37.30, half 36.69, double 37.37): with vectors it
+believes, it keeps its history, and without the game's jitter that history only trails; wrong vectors make it drop the history. So the
+vectors are handed over right; the history itself is what hurts in motion here.
+
+Hence, when upscaling (not at 1:1), the lean starts at 0.05 % of the width a frame (about 1.3 px at 2560), fully at twice that
+(`kFastMotionShareUpscaling`). Silent Hill f turn, 1.5x, before -> after (upscaled / coarse / steady):
+DLSS L 32.82 / 43.18 / 30.11 -> 34.02 / 47.17 / 31.13; FSR 33.44 / 45.47 / 30.59 -> 34.10 / 47.84 / 31.20;
+XeSS 33.61 / 46.42 / 30.72 -> 34.07 / 47.82 / 31.18 (a plain stretch 32.68 / 43.94 / 29.78). Its slow start (DLSS L): coarse 47.02 -> 48.42.
+World of Warcraft (DLSS L): 32.36 / 42.13 / 32.16 -> 32.74 / 43.14 / 32.91 (stretch 32.49 / 44.24 / 32.39).
+At 1:1 (DLAA) the threshold stays at 0.5 %: there the reference is the game's own aliased frame, so leaning always scores better
+while it gives the aliasing back; the owner is happy with E at 1:1 as it is.
