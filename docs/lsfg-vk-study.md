@@ -66,3 +66,19 @@ The names are the shader names; what each stage does is **our reading**, not sta
 2. A confidence output per level, used by the lean pass in the upscalers and by the guard in frame generation.
 3. A flow-scale setting for our estimator, measured for speed and quality at 4K.
 4. Only then, a synthesis pass of our own to compare against FSR 3.1's.
+
+## Feature matching for our estimator: the concrete plan (2026-09-27)
+
+Today `flow_estimator.cpp` scores a candidate vector by the plain sum of absolute luma differences over an 8x8 block (the block cost),
+on a single-channel R16F pyramid. LSFG matches several feature channels per pixel. Steps, cheapest first, each scored with
+`nr_sreval` (sharpness, coarse, and the new steadiness score) and `nr_fgeval` on the same turn and pan clips before the next:
+
+1. **Zero-mean block cost**: subtract each block's mean luma (this frame's and the candidate's) before differencing. No new textures,
+   a few instructions. Robust to lighting changes, fades, flashes and the gamma drift of the HDR-to-SDR conversion, where plain luma
+   pulls vectors toward whatever happens to have the same brightness.
+2. **A gradient channel**: store (luma, gradient magnitude) as RG16F in the pyramid and add a weighted gradient term to the block cost.
+   Edges then dominate the match, flat texture (sky, water, fog) does not, which is where fast turns lose the estimate.
+3. **A confidence output per level** (LSFG's beta has this role): the ratio of the best block cost to the second best. It could
+   replace the distrust heuristic in the lean pass and feed the guard in frame generation.
+
+The upscalers gain from 1 and 2 as well: their "Steady in fast motion" distrust mask and lean pass come from this estimator.
