@@ -19,7 +19,7 @@
 #include <windows.h>
 #include <shlobj.h>
 #pragma comment(lib, "version.lib")
-#include <d3d11.h>
+#include <d3d11_1.h>
 #include <dxgi.h>
 #include <algorithm>
 #include <cstdio>
@@ -218,6 +218,7 @@ nr::FrameEncoding FrameEncodingOf(DXGI_FORMAT format, IDXGISwapChain* chain, flo
 }
 void FollowFrameGeneration(bool allowed);
 void ScalerPresentGuarded(IDXGISwapChain* sc);
+void ScalerMarkerGuarded(IDXGISwapChain* sc);
 
 // The engine runs on the card Lossless Scaling's frames come from. Lossless Scaling makes devices on every card and may run a pass on more than
 // one for a moment, so it moves only after frames have kept coming from another card for a while.
@@ -667,6 +668,7 @@ void OnPresent(IDXGISwapChain* sc, UINT sync, UINT flags) {
     if (g_off || g_engineStarting || !sc) return;
     if (kScalerAddon) {
         ScalerPresentGuarded(sc);
+        ScalerMarkerGuarded(sc);   // the corner square after a hotkey
         bool frameGen; { std::lock_guard<std::mutex> lock(g_settingsMutex); frameGen = g_config.frameGen; }
         if (kFrameGen && frameGen && sc == g_fgChain.load(std::memory_order_acquire)) {   // Lossless Scaling's output swap chain only (not the manager's window)
             static const bool runtimeSet = (nr::framegen::SetRuntime(g_addonDir + L"\\fsr\\amd_fidelityfx_dx12.dll"), true);   // the shipped FSR 3.1 (FSR 4's build has no frame generation)
@@ -1055,9 +1057,10 @@ bool ScalerPass(ID3D11DeviceContext* ctx, uint32_t x, uint32_t y, uint32_t z) {
             }
             int handoffMode; { std::lock_guard<std::mutex> settings(g_settingsMutex); handoffMode = g_config.scalerHandoff; }
             bool frameGenOn; { std::lock_guard<std::mutex> settings(g_settingsMutex); frameGenOn = kFrameGen && g_config.frameGen; }
-            if ((handoffMode == static_cast<int>(ScalerLink::Handoff::AtPresent) || frameGenOn) && !PresentHook::Installed() &&
-                !PresentHook::Install(dev, OnPresent, [](const char* m) { Log("%s", m); }))
-                Log("%s upscaler: could not hook Present; the picture cannot go over NIS's there", kUpscalerName);
+            // Present is hooked in every mode: the hotkeys' corner square is drawn there (and, at Present, the picture goes over NIS's)
+            if (!PresentHook::Installed() && !PresentHook::Install(dev, OnPresent, [](const char* m) { Log("%s", m); }))
+                Log("%s upscaler: could not hook Present; no corner square after a hotkey%s", kUpscalerName,
+                    handoffMode == static_cast<int>(ScalerLink::Handoff::AtPresent) || frameGenOn ? ", and the picture cannot go over NIS's there" : "");
             if (g_linkDevice == dev && g_compare.load() != 2) {   // "original only" lets NIS run, for comparing
                 NrParams p; unsigned preset; int handoff, motion; bool gpuWait, steadyFast, shapes; float stability, edges, leanFrom;
                 { std::lock_guard<std::mutex> settings(g_settingsMutex); p = g_config.p; preset = g_config.dlaaPreset; handoff = g_config.scalerHandoff; motion = g_config.motionSource;
@@ -1178,6 +1181,34 @@ void ScalerPresent(IDXGISwapChain* sc) {
 }
 void ScalerPresentGuarded(IDXGISwapChain* sc) {   // no objects here: __try cannot unwind them
     __try { ScalerPresent(sc); } __except (ScalerFault(GetExceptionCode()) ? EXCEPTION_EXECUTE_HANDLER : EXCEPTION_CONTINUE_SEARCH) {}
+}
+// The corner square after a hotkey (the same as Neural Rendering's compose pass draws: green the upscaled picture, red the original, amber
+// the split), drawn into Lossless Scaling's back buffer at Present, so the Before / after hotkey says which is which in every mode.
+void ScalerMarker(IDXGISwapChain* sc) {
+    const uint32_t marker = GetTickCount64() < g_markerUntil ? g_marker.load() : 0u;
+    if (!marker || sc != g_fgChain.load(std::memory_order_acquire)) return;   // Lossless Scaling's output only (not the manager's window)
+    static const float kColours[5][4] = { { 0.10f, 0.85f, 0.20f, 1.0f }, { 0.90f, 0.15f, 0.15f, 1.0f }, { 0.95f, 0.70f, 0.10f, 1.0f },
+                                          { 0.15f, 0.45f, 0.95f, 1.0f }, { 0.65f, 0.30f, 0.90f, 1.0f } };
+    ID3D11Texture2D* back = nullptr;
+    if (FAILED(sc->GetBuffer(0, IID_PPV_ARGS(&back))) || !back) return;
+    ID3D11Device* dev = nullptr; back->GetDevice(&dev);
+    ID3D11DeviceContext* ctx = nullptr; if (dev) dev->GetImmediateContext(&ctx);
+    ID3D11DeviceContext1* ctx1 = nullptr; if (ctx) ctx->QueryInterface(IID_PPV_ARGS(&ctx1));
+    ID3D11RenderTargetView* rtv = nullptr;
+    if (ctx1 && SUCCEEDED(dev->CreateRenderTargetView(back, nullptr, &rtv))) {
+        D3D11_TEXTURE2D_DESC d{}; back->GetDesc(&d);
+        const LONG side = static_cast<LONG>(std::max(12u, d.Width / 150u));
+        const D3D11_RECT r{ 0, 0, side, side };
+        ctx1->ClearView(rtv, kColours[std::min(marker, 5u) - 1], &r, 1);
+        rtv->Release();
+    }
+    if (ctx1) ctx1->Release();
+    if (ctx) ctx->Release();
+    if (dev) dev->Release();
+    back->Release();
+}
+void ScalerMarkerGuarded(IDXGISwapChain* sc) {   // no objects here: __try cannot unwind them
+    __try { ScalerMarker(sc); } __except (ScalerFault(GetExceptionCode()) ? EXCEPTION_EXECUTE_HANDLER : EXCEPTION_CONTINUE_SEARCH) {}
 }
 } // namespace
 
