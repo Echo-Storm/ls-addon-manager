@@ -416,11 +416,12 @@ void DrawPanel() {
                    "you look at a fence or a power line. The game's own anti-aliasing (MSAA) is still what draws thin lines in the first place.",
                    U, kFsrScaler ? ", and FSR keeps more of its history and reacts less to small changes of shading" : "");
           Tip(tip); }
-        if (kFsrScaler || kXessScaler) {
+        {
             if (ImGui::Checkbox("Steady in fast motion", &c.scalerFastMotion)) changed = true;
-            Tip("On (the default): where the picture moves fast (a quick camera turn), the upscaler leans on the new frame instead of the frames before. "
-                "The game gives the upscaler no sub-pixel camera shifts, so its memory of earlier frames adds little detail there, and in a fast turn it "
-                "trailed: leaves and edges with soft doubled outlines. Off: as before. Flip it while you turn the camera to compare.");
+            Tip("On (the default): where the picture moves fast (a quick camera turn) or the motion cannot be followed, the upscaler's picture leans on "
+                "the new frame instead of the frames before. The game gives the upscaler no sub-pixel camera shifts, so its memory of earlier frames adds "
+                "little detail there, and in a fast turn it trailed: leaves and edges with soft doubled outlines. Off: as before. Flip it while you turn "
+                "the camera to compare.");
         }
         { const float off = 0.0f; changed |= eam::ui::SliderFloat("Edge smoothing", &c.scalerEdges, 0.0f, 1.0f, c.scalerEdges <= 0.001f ? "off" : "%.2f", 0, &off); }
         Tip("Anti-aliasing along the edges of the upscaled picture: for games without anti-aliasing of their own (stair steps on roofs, fences and "

@@ -93,6 +93,40 @@ void main(uint3 id : SV_DispatchThreadID) {
 )";
 struct SharpenConstants { uint32_t w, h; float amount, gain; uint32_t hdr; };
 
+// The lean, after every upscaler: without the sub-pixel jitter a game gives it, an upscaler's history trails in a fast turn, and DLSS's
+// transformer models (presets J, K, M: DLSS 4) take no mask to lean on the current frame (its bias-current-colour mask changes nothing). So
+// the upscaler's picture is blended toward this frame upscaled plainly (Catmull-Rom), by the distrust mask (where the motion cannot be
+// trusted, or is fast). nr_sreval, Silent Hill f, a 30-frame turn shrunk 1.5x, at a quarter of the size (a plain stretch 43.3 dB): DLSS
+// 36.8 -> 44.2, FSR 3.1 41.7 -> 45.6 (on top of its own reactive mask), XeSS 40.2 -> 46.2; a slow pan unchanged.
+const char* kLeanHlsl = R"(
+Texture2D<float4> tUp : register(t0);
+Texture2D<float4> tIn : register(t1);
+Texture2D<float> tDistrust : register(t2);
+RWTexture2D<float4> uOut : register(u0);
+SamplerState sLinear : register(s0);
+cbuffer C : register(b0) { uint2 size; uint2 inSize; float strength; };
+float4 CatmullRom(float2 uv) {   // 16 loads, the input's size
+    const float2 pos = uv * float2(inSize) - 0.5, base = floor(pos), f = pos - base;
+    const float2 w0 = f * (-0.5 + f * (1.0 - 0.5 * f)), w1 = 1.0 + f * f * (-2.5 + 1.5 * f), w2 = f * (0.5 + f * (2.0 - 1.5 * f)), w3 = f * f * (-0.5 + 0.5 * f);
+    const float wx[4] = { w0.x, w1.x, w2.x, w3.x }, wy[4] = { w0.y, w1.y, w2.y, w3.y };
+    const int2 last = int2(inSize) - 1;
+    float4 sum = 0;
+    [unroll] for (int j = 0; j < 4; ++j) [unroll] for (int i = 0; i < 4; ++i) sum += tIn.Load(int3(clamp(int2(base) + int2(i - 1, j - 1), int2(0, 0), last), 0)) * (wx[i] * wy[j]);
+    return sum;
+}
+[numthreads(8, 8, 1)]
+void main(uint3 id : SV_DispatchThreadID) {
+    if (id.x >= size.x || id.y >= size.y) return;
+    const float2 uv = (float2(id.xy) + 0.5) / float2(size);
+    const float4 up = tUp[id.xy];
+    const float d = saturate(tDistrust.SampleLevel(sLinear, uv, 0) * strength);
+    if (d <= 0.001) { uOut[id.xy] = up; return; }
+    const float4 plain = CatmullRom(uv);
+    uOut[id.xy] = float4(lerp(up.rgb, max(plain.rgb, 0.0), d), up.a);   // (Catmull-Rom can overshoot below 0)
+}
+)";
+struct LeanConstants { uint32_t w, h, inW, inH; float strength; };
+
 // Edge smoothing of the upscaler's picture, for games without anti-aliasing of their own. Where the brightness steps sharply (an edge drawn
 // without anti-aliasing: stair steps), it finds which way the edge runs and how far along it each way the step continues, which says where
 // on the stair this pixel sits; then it blends the pixel with its neighbour across the edge by the fraction of a pixel the true edge would
@@ -295,6 +329,7 @@ bool SrEngine::Init(const LUID& card, const std::wstring& dataPath, const std::w
     };
     if (!build(kMotionHlsl, "sr_motion", &m_motionPso) || !build(kSharpenHlsl, "sr_sharpen", &m_sharpenPso) || !build(kEdgesHlsl, "sr_edges", &m_edgesPso) ||
         !build(kViewHlsl, "sr_view", &m_viewPso)) return false;
+    if (!InitLean()) Log("%s upscaler: the lean pass could not start; DLSS runs without it", Name());
     static_assert(FlowEstimator::kSlots == kSlots, "the estimator reads its statistics back per engine slot");
     if (!m_estimator.Init(m_dev, [this](const char* m) { Log("%s", m); })) Log("%s upscaler: the motion estimator could not start; motion comes from frame generation only", Name());
     m_estimator.SetTimestampFrequency(m_timestampFreq);
@@ -417,6 +452,7 @@ bool SrEngine::Shutdown() {
     if (m_dev && m_backend == Backend::Dlss) NVSDK_NGX_D3D12_Shutdown1(m_dev);
     m_estimator.Shutdown(); m_estimatedLast = false; m_estimates = 0;
     SafeRelease(m_motion); SafeRelease(m_distrust); SafeRelease(m_depth); SafeRelease(m_depthUpload);
+    SafeRelease(m_leanPso); SafeRelease(m_leanRoot); SafeRelease(m_leaned); m_leanedW = m_leanedH = 0;
     SafeRelease(m_motionPso); SafeRelease(m_sharpenPso); SafeRelease(m_edgesPso); SafeRelease(m_viewPso); SafeRelease(m_view); m_viewW = m_viewH = 0; SafeRelease(m_smoothed); m_smoothedW = m_smoothedH = 0; SafeRelease(m_unsharpened); m_unsharpenedW = m_unsharpenedH = 0; SafeRelease(m_rootSig); SafeRelease(m_heap);
     SafeRelease(m_timestamps); SafeRelease(m_timestampReadback);
     SafeRelease(m_list); for (auto*& a : m_alloc) SafeRelease(a);
@@ -597,6 +633,43 @@ bool SrEngine::EnsureInputs(uint32_t w, uint32_t h) {
     D3D12_TEXTURE_COPY_LOCATION from{}; from.pResource = m_depthUpload; from.Type = D3D12_TEXTURE_COPY_TYPE_PLACED_FOOTPRINT; from.PlacedFootprint = layout;
     m_list->CopyTextureRegion(&to, 0, 0, 0, &from, nullptr);
     Transition(m_depth, D3D12_RESOURCE_STATE_COPY_DEST, D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE);
+    return true;
+}
+
+bool SrEngine::InitLean() {   // its own root signature: three pictures in, one out, five constants, a linear sampler
+    D3D12_DESCRIPTOR_RANGE srv{}; srv.RangeType = D3D12_DESCRIPTOR_RANGE_TYPE_SRV; srv.NumDescriptors = 3;
+    D3D12_DESCRIPTOR_RANGE uav{}; uav.RangeType = D3D12_DESCRIPTOR_RANGE_TYPE_UAV; uav.NumDescriptors = 1;
+    D3D12_ROOT_PARAMETER params[3]{};
+    params[0].ParameterType = D3D12_ROOT_PARAMETER_TYPE_DESCRIPTOR_TABLE; params[0].DescriptorTable = { 1, &srv };
+    params[1].ParameterType = D3D12_ROOT_PARAMETER_TYPE_DESCRIPTOR_TABLE; params[1].DescriptorTable = { 1, &uav };
+    params[2].ParameterType = D3D12_ROOT_PARAMETER_TYPE_32BIT_CONSTANTS; params[2].Constants.Num32BitValues = sizeof(LeanConstants) / 4;
+    for (auto& p : params) p.ShaderVisibility = D3D12_SHADER_VISIBILITY_ALL;
+    D3D12_STATIC_SAMPLER_DESC sampler{}; sampler.Filter = D3D12_FILTER_MIN_MAG_LINEAR_MIP_POINT; sampler.ShaderVisibility = D3D12_SHADER_VISIBILITY_ALL;
+    sampler.AddressU = sampler.AddressV = sampler.AddressW = D3D12_TEXTURE_ADDRESS_MODE_CLAMP;
+    const D3D12_ROOT_SIGNATURE_DESC rootDesc{ 3, params, 1, &sampler, D3D12_ROOT_SIGNATURE_FLAG_NONE };
+    ID3DBlob* blob = nullptr; ID3DBlob* error = nullptr;
+    const bool rootOk = SUCCEEDED(D3D12SerializeRootSignature(&rootDesc, D3D_ROOT_SIGNATURE_VERSION_1, &blob, &error)) &&
+                        SUCCEEDED(m_dev->CreateRootSignature(0, blob->GetBufferPointer(), blob->GetBufferSize(), IID_PPV_ARGS(&m_leanRoot)));
+    SafeRelease(blob); SafeRelease(error);
+    if (!rootOk) return false;
+    ID3DBlob* code = nullptr; ID3DBlob* err = nullptr;
+    if (FAILED(D3DCompile(kLeanHlsl, strlen(kLeanHlsl), "sr_lean", nullptr, nullptr, "main", "cs_5_0", D3DCOMPILE_OPTIMIZATION_LEVEL3, 0, &code, &err))) {
+        Log("sr_lean: %s", err ? static_cast<const char*>(err->GetBufferPointer()) : "?"); SafeRelease(err); return false;
+    }
+    D3D12_COMPUTE_PIPELINE_STATE_DESC pso{}; pso.pRootSignature = m_leanRoot; pso.CS = { code->GetBufferPointer(), code->GetBufferSize() };
+    const HRESULT hr = m_dev->CreateComputePipelineState(&pso, IID_PPV_ARGS(&m_leanPso)); SafeRelease(code);
+    return SUCCEEDED(hr);
+}
+
+// The leaned picture, when edge smoothing or sharpening follows (output size and format), left in UNORDERED_ACCESS between runs.
+bool SrEngine::EnsureLeanTarget(uint32_t w, uint32_t h, DXGI_FORMAT fmt) {
+    if (m_leaned && m_leanedW == w && m_leanedH == h && m_leanedFmt == fmt) return true;
+    if (m_leaned) { WaitIdle(); SafeRelease(m_leaned); }
+    D3D12_HEAP_PROPERTIES heap{}; heap.Type = D3D12_HEAP_TYPE_DEFAULT;
+    D3D12_RESOURCE_DESC d{}; d.Dimension = D3D12_RESOURCE_DIMENSION_TEXTURE2D; d.Width = w; d.Height = h; d.DepthOrArraySize = 1; d.MipLevels = 1; d.SampleDesc.Count = 1;
+    d.Format = fmt; d.Flags = D3D12_RESOURCE_FLAG_ALLOW_UNORDERED_ACCESS;
+    if (FAILED(m_dev->CreateCommittedResource(&heap, D3D12_HEAP_FLAG_NONE, &d, D3D12_RESOURCE_STATE_UNORDERED_ACCESS, nullptr, IID_PPV_ARGS(&m_leaned)))) return false;
+    m_leanedW = w; m_leanedH = h; m_leanedFmt = fmt;
     return true;
 }
 
@@ -799,7 +872,6 @@ bool SrEngine::Run(ID3D12Resource* in, uint32_t inW, uint32_t inH, DXGI_FORMAT i
     // edge smoothing of the upscaler's picture: from m_unsharpened into the output, or into m_smoothed when sharpening follows
     const float edges = m_edges.load();
     const bool smoothing = edges > 0.001f && EnsureSharpenTarget(outW, outH, outFormat) && (!sharpening || EnsureSmoothTarget(outW, outH, outFormat));
-    ID3D12Resource* const upscaled = (sharpening || smoothing) ? m_unsharpened : out;   // where the upscaler writes
     LARGE_INTEGER qpcNow, qpcFreq; QueryPerformanceCounter(&qpcNow); QueryPerformanceFrequency(&qpcFreq);
     const float frameMs = m_lastRunQpc ? std::clamp(static_cast<float>((qpcNow.QuadPart - m_lastRunQpc) * 1000.0 / qpcFreq.QuadPart), 1.0f, 100.0f) : 16.7f;
     m_lastRunQpc = qpcNow.QuadPart;
@@ -809,6 +881,11 @@ bool SrEngine::Run(ID3D12Resource* in, uint32_t inW, uint32_t inH, DXGI_FORMAT i
     if (estimating && m_estimator.NeedsResize(inW, inH)) { WaitIdle(); estimating = m_estimator.Ensure(inW, inH); }
     if (estimating && !m_estimatedLast) m_estimator.Forget();   // its frame before is not the one before this
     m_estimatedLast = estimating;
+    // the lean (every upscaler): its picture into m_unsharpened, the leaned one into the output, or into m_leaned when edges or sharpening follow
+    const bool leaning = estimating && !m_noMask && m_fastMotion.load() != 0.0f && m_leanPso && EnsureSharpenTarget(outW, outH, outFormat) &&
+                         (!(sharpening || smoothing) || EnsureLeanTarget(outW, outH, outFormat));
+    ID3D12Resource* const upscaled = (sharpening || smoothing || leaning) ? m_unsharpened : out;   // where the upscaler writes
+    ID3D12Resource* const post = leaning ? m_leaned : m_unsharpened;                               // what edges and sharpening read
     const int slot = TakeSlot();
     if (slot < 0) return skip();
     ReadTime(slot);
@@ -827,7 +904,7 @@ bool SrEngine::Run(ID3D12Resource* in, uint32_t inW, uint32_t inH, DXGI_FORMAT i
         D3D12_CPU_DESCRIPTOR_HANDLE cpuIn = cpu; cpuIn.ptr += 4 * m_descriptorSize;
         D3D12_SHADER_RESOURCE_VIEW_DESC si{}; si.Format = outFormat; si.ViewDimension = D3D12_SRV_DIMENSION_TEXTURE2D;
         si.Shader4ComponentMapping = D3D12_DEFAULT_SHADER_4_COMPONENT_MAPPING; si.Texture2D.MipLevels = 1;
-        m_dev->CreateShaderResourceView(m_unsharpened, &si, cpuIn);
+        m_dev->CreateShaderResourceView(post, &si, cpuIn);
         D3D12_CPU_DESCRIPTOR_HANDLE cpuOut = cpu; cpuOut.ptr += 5 * m_descriptorSize;
         D3D12_UNORDERED_ACCESS_VIEW_DESC uo{}; uo.Format = outFormat; uo.ViewDimension = D3D12_UAV_DIMENSION_TEXTURE2D;
         m_dev->CreateUnorderedAccessView(sharpening ? m_smoothed : out, nullptr, &uo, cpuOut);
@@ -836,10 +913,20 @@ bool SrEngine::Run(ID3D12Resource* in, uint32_t inW, uint32_t inH, DXGI_FORMAT i
         D3D12_CPU_DESCRIPTOR_HANDLE cpuIn = cpu; cpuIn.ptr += 2 * m_descriptorSize;
         D3D12_SHADER_RESOURCE_VIEW_DESC si{}; si.Format = outFormat; si.ViewDimension = D3D12_SRV_DIMENSION_TEXTURE2D;
         si.Shader4ComponentMapping = D3D12_DEFAULT_SHADER_4_COMPONENT_MAPPING; si.Texture2D.MipLevels = 1;
-        m_dev->CreateShaderResourceView(smoothing ? m_smoothed : m_unsharpened, &si, cpuIn);
+        m_dev->CreateShaderResourceView(smoothing ? m_smoothed : post, &si, cpuIn);
         D3D12_CPU_DESCRIPTOR_HANDLE cpuOut = cpu; cpuOut.ptr += 3 * m_descriptorSize;
         D3D12_UNORDERED_ACCESS_VIEW_DESC uo{}; uo.Format = outFormat; uo.ViewDimension = D3D12_UAV_DIMENSION_TEXTURE2D;
         m_dev->CreateUnorderedAccessView(out, nullptr, &uo, cpuOut);
+    }
+    if (leaning) {   // the lean pass: DLSS's picture, the frame, the distrust mask in; the output (or m_leaned) out
+        D3D12_SHADER_RESOURCE_VIEW_DESC si{}; si.ViewDimension = D3D12_SRV_DIMENSION_TEXTURE2D; si.Shader4ComponentMapping = D3D12_DEFAULT_SHADER_4_COMPONENT_MAPPING; si.Texture2D.MipLevels = 1;
+        D3D12_CPU_DESCRIPTOR_HANDLE h = cpu; h.ptr += 8 * m_descriptorSize;
+        si.Format = outFormat; m_dev->CreateShaderResourceView(m_unsharpened, &si, h); h.ptr += m_descriptorSize;
+        si.Format = inFormat == DXGI_FORMAT_UNKNOWN ? (hdr ? DXGI_FORMAT_R16G16B16A16_FLOAT : DXGI_FORMAT_R8G8B8A8_UNORM) : inFormat;
+        m_dev->CreateShaderResourceView(color, &si, h); h.ptr += m_descriptorSize;
+        si.Format = DXGI_FORMAT_R8_UNORM; m_dev->CreateShaderResourceView(m_distrust, &si, h); h.ptr += m_descriptorSize;
+        D3D12_UNORDERED_ACCESS_VIEW_DESC uo{}; uo.Format = outFormat; uo.ViewDimension = D3D12_UAV_DIMENSION_TEXTURE2D;
+        m_dev->CreateUnorderedAccessView((sharpening || smoothing) ? m_leaned : out, nullptr, &uo, h);
     }
     if (hdr) {   // the view pass: the frame (light) in, its SDR view out
         D3D12_CPU_DESCRIPTOR_HANDLE cpuIn = cpu; cpuIn.ptr += 6 * m_descriptorSize;
@@ -952,9 +1039,25 @@ bool SrEngine::Run(ID3D12Resource* in, uint32_t inW, uint32_t inH, DXGI_FORMAT i
     }
 
     m_list->EndQuery(m_timestamps, D3D12_QUERY_TYPE_TIMESTAMP, slot * 4 + 2);
-    // 3. edge smoothing, from the upscaler's picture (the upscaler leaves its own heap and root signature bound)
-    if (smoothing) {
+    // 2b. the lean: the upscaler's picture toward this frame upscaled plainly, where the distrust mask says (the upscaler leaves its own heap bound)
+    if (leaning) {
         Transition(m_unsharpened, D3D12_RESOURCE_STATE_UNORDERED_ACCESS, D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE);
+        m_list->SetDescriptorHeaps(1, heaps);
+        m_list->SetComputeRootSignature(m_leanRoot);
+        m_list->SetPipelineState(m_leanPso);
+        D3D12_GPU_DESCRIPTOR_HANDLE gpuIn = gpu; gpuIn.ptr += 8 * m_descriptorSize;
+        D3D12_GPU_DESCRIPTOR_HANDLE gpuOut = gpu; gpuOut.ptr += 11 * m_descriptorSize;
+        m_list->SetComputeRootDescriptorTable(0, gpuIn);
+        m_list->SetComputeRootDescriptorTable(1, gpuOut);
+        const LeanConstants lc{ outW, outH, inW, inH, 1.0f };
+        m_list->SetComputeRoot32BitConstants(2, sizeof(LeanConstants) / 4, &lc, 0);
+        m_list->Dispatch((outW + 7) / 8, (outH + 7) / 8, 1);
+        Transition(m_unsharpened, D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE, D3D12_RESOURCE_STATE_UNORDERED_ACCESS);
+        if (sharpening || smoothing) { D3D12_RESOURCE_BARRIER b{}; b.Type = D3D12_RESOURCE_BARRIER_TYPE_UAV; b.UAV.pResource = m_leaned; m_list->ResourceBarrier(1, &b); }
+    }
+    // 3. edge smoothing, from the upscaler's (or the lean's) picture (the upscaler leaves its own heap and root signature bound)
+    if (smoothing) {
+        Transition(post, D3D12_RESOURCE_STATE_UNORDERED_ACCESS, D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE);
         m_list->SetDescriptorHeaps(1, heaps);
         m_list->SetComputeRootSignature(m_rootSig);
         m_list->SetPipelineState(m_edgesPso);
@@ -965,11 +1068,11 @@ bool SrEngine::Run(ID3D12Resource* in, uint32_t inW, uint32_t inH, DXGI_FORMAT i
         const EdgeConstants ec{ outW, outH, std::clamp(edges, 0.0f, 1.0f), hdr ? 1u : 0u };
         m_list->SetComputeRoot32BitConstants(2, 4, &ec, 0);
         m_list->Dispatch((outW + 7) / 8, (outH + 7) / 8, 1);
-        Transition(m_unsharpened, D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE, D3D12_RESOURCE_STATE_UNORDERED_ACCESS);
+        Transition(post, D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE, D3D12_RESOURCE_STATE_UNORDERED_ACCESS);
     }
     // 4. sharpening, into the shared output
     if (sharpening) {
-        ID3D12Resource* const source = smoothing ? m_smoothed : m_unsharpened;
+        ID3D12Resource* const source = smoothing ? m_smoothed : post;
         Transition(source, D3D12_RESOURCE_STATE_UNORDERED_ACCESS, D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE);
         m_list->SetDescriptorHeaps(1, heaps);
         m_list->SetComputeRootSignature(m_rootSig);

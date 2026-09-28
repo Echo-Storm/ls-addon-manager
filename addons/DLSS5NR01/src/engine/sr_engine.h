@@ -143,8 +143,13 @@ private:
     double m_gpuMs = 0, m_motionMs = 0;
     FlowEstimator m_estimator; bool m_estimatedLast = false; uint64_t m_estimates = 0; float m_motionScale = 1.0f; bool m_noMask = false; std::atomic<float> m_fastMotion{ -1.0f };
     std::atomic<float> m_stability{ 0.0f }, m_edges{ 0.0f };
-    static const int kDescriptors = 8;   // per slot: flow, motion, sharpen in/out, edges in/out, view in/out
+    static const int kDescriptors = 12;   // per slot: flow, motion, sharpen in/out, edges in/out, view in/out, lean in (3) / out
     ID3D12PipelineState* m_edgesPso = nullptr;
+    // the lean (every upscaler; DLSS takes no mask of its own): its picture blended toward this frame, upscaled plainly, by the distrust mask
+    ID3D12RootSignature* m_leanRoot = nullptr; ID3D12PipelineState* m_leanPso = nullptr;
+    ID3D12Resource* m_leaned = nullptr; uint32_t m_leanedW = 0, m_leanedH = 0; DXGI_FORMAT m_leanedFmt = DXGI_FORMAT_UNKNOWN;
+    bool EnsureLeanTarget(uint32_t w, uint32_t h, DXGI_FORMAT fmt);
+    bool InitLean();
     ID3D12Resource* m_smoothed = nullptr; uint32_t m_smoothedW = 0, m_smoothedH = 0; DXGI_FORMAT m_smoothedFmt = DXGI_FORMAT_UNKNOWN;
     double m_afterMs = 0;
     bool EnsureSmoothTarget(uint32_t w, uint32_t h, DXGI_FORMAT fmt);

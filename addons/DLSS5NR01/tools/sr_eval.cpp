@@ -159,7 +159,7 @@ int main(int argc, char** argv) {
         submit();
         queue->Signal(copied, static_cast<uint64_t>(i) + 1);
         // the engine's run, on this thread (live, the engine's own thread runs it): the motion measured from the frames, no sharpening
-        eng.Run(inE, w, hh, DXGI_FORMAT_R8G8B8A8_UNORM, outE, W, H, DXGI_FORMAT_R8G8B8A8_UNORM, nullptr, 0, 0, 0.0f, 1.0f, !noMotion, 0, 0.0f, i == 0, false,
+        eng.Run(inE, w, hh, DXGI_FORMAT_R8G8B8A8_UNORM, outE, W, H, DXGI_FORMAT_R8G8B8A8_UNORM, nullptr, 0, 0, 0.0f, 1.0f, !noMotion, static_cast<unsigned>(Arg(argc, argv, "preset", 0)), 0.0f, i == 0, false,
                 copiedE, static_cast<uint64_t>(i) + 1, doneE, static_cast<uint64_t>(i) + 1);
         queue->Wait(done, static_cast<uint64_t>(i) + 1);
         alloc->Reset(); list->Reset(alloc, nullptr);
