@@ -5,7 +5,7 @@ item is done (move it to the changelog) or when a new one comes up. Dates are wh
 
 ## Released
 
-- 0.9.14 (2026-09-28, v0.9.14 at ae232c0): see the changelog. To confirm live: the corner square in the upscaler addons.
+- 0.9.14 (2026-09-28, v0.9.14 at ae232c0): see the changelog. Confirmed live: the corner square in the upscaler addons; NR smoothing at 0.6 helps.
 
 ## Bug sweep (planned Tuesday 2026-09-29 morning)
 
@@ -20,6 +20,7 @@ item is done (move it to the changelog) or when a new one comes up. Dates are wh
 ## Neural Rendering
 
 - **Flickers "like crazy" while moving: the weakest link now** (owner, 2026-09-28). First try: smoothing keeps its history where the frame matches along the motion, on by default at 0.6 (saved settings keep 0). Not confirmed as the cause. If it does not help: record with NR on, build `nr_nreval` (the change's stability frame to frame), check the compose's one-frame-old result moved by its motion (a.offset) and the half-size model input.
+- Live with smoothing 0.6 (2026-09-28): "doing quite well", a weird flicker left on landscapes. The NR recorder was off (its own "Keep the last few seconds" box, off by default), so nothing was saved: next time a screen video plus an NR recording.
 - Earlier: the owner wants it improved (look and cost).
 - Cost: in World of Warcraft at 4K the model takes about 8.5 ms a frame at half size (1912x1080), over the automatic budget (5 ms), and
   the automatic size is already at its floor (0.50): "auto: model resolution 0.50 -> 0.50". Frames over 20 ms: 54-82 %.
