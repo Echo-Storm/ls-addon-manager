@@ -1,15 +1,17 @@
 # Sets OBS Studio up for recording what the addons show, for finding flicker and trailing: a profile and a scene collection named
 # "LS Addon Tests" beside the owner's own (theirs are not touched), then optionally starts OBS on them with its replay buffer running.
 #   * the whole display (Display Capture, not Game Capture: that would take the game's window without Lossless Scaling's picture),
-#     at the display's own size and 60 fps;
+#     at the display's own size and refresh rate (read from OBS's log: start OBS once on a new display first);
 #   * NVIDIA NVENC AV1 at CQP 16 (close to lossless: compression must not hide flicker or make its own), MKV (a crash keeps the file);
+#     an HDR display (PQ in OBS's log) is recorded in HDR: 10-bit P010, Rec.2100 PQ (SDR capture of an HDR screen comes out blown out);
 #   * a replay buffer of the last 30 s, saved with Ctrl+Shift+F1: the addons' own save-recording key, so one press keeps both, the same moment;
 #   * files in %USERPROFILE%\Videos\Lossless Scaling\OBS, beside the addons' recordings (not a OneDrive Videos folder).
 # Refuses while OBS runs (it would overwrite the files on exit). Rerunning rewrites only the "LS Addon Tests" files.
-#   powershell -File tools\setup_obs_for_tests.ps1 [-Launch] [-Width 3840] [-Height 2160] [-Fps 60] [-Cqp 16] [-ReplaySeconds 30] [-SaveKey F1]
+#   powershell -File tools\setup_obs_for_tests.ps1 [-Launch] [-Width N] [-Height N] [-Fps N] [-Sdr] [-Cqp 16] [-ReplaySeconds 30] [-SaveKey F1]
+#   (Width, Height, Fps: 0 or left out = the display's own, from OBS's log; -Sdr records SDR even on an HDR display)
 param(
     [switch]$Launch,
-    [int]$Width = 3840, [int]$Height = 2160, [int]$Fps = 60,
+    [int]$Width = 0, [int]$Height = 0, [int]$Fps = 0, [switch]$Sdr,
     [int]$Cqp = 16, [int]$ReplaySeconds = 30, [string]$SaveKey = 'F1'
 )
 $ErrorActionPreference = 'Stop'
@@ -27,6 +29,23 @@ $displayId = ''
 $log = Get-ChildItem (Join-Path $cfg 'logs') -Filter *.txt -ErrorAction SilentlyContinue | Sort-Object LastWriteTime -Descending | Select-Object -First 1
 if ($log) { $m = Select-String -Path $log.FullName -Pattern '^\S+:\s+id=(\\\\\?\\DISPLAY\S+)' | Select-Object -First 1; if ($m) { $displayId = $m.Matches[0].Groups[1].Value } }
 if (-not $displayId) { Write-Host 'No display found in OBS''s log (start OBS once first): pick it in the Display source''s properties.' }
+# its size, refresh rate and whether Windows runs it in HDR (the first display's lines before its id: OBS lists the id last)
+$hdr = $false
+if ($log) {
+    $lines = Get-Content $log.FullName
+    $at = ($lines | Select-String -Pattern '^\S+:\s+id=\\\\\?\\DISPLAY' | Select-Object -First 1).LineNumber
+    if ($at) {
+        # up from the id line (LineNumber counts from 1, so $at - 2 is the line above it) to the block's own "output N:" header
+        for ($i = $at - 2; $i -ge 0 -and $lines[$i] -notmatch 'output \d+:'; --$i) {
+            $l = $lines[$i]
+            if ($l -match 'size=\{(\d+), (\d+)\}') { if (-not $Width) { $Width = [int]$Matches[1] }; if (-not $Height) { $Height = [int]$Matches[2] } }
+            elseif ($l -match 'refresh=(\d+)') { if (-not $Fps) { $Fps = [int]$Matches[1] } }
+            elseif ($l -match 'space=\S*G2084') { $hdr = -not $Sdr }
+        }
+    }
+}
+if (-not $Width) { $Width = 3840 }; if (-not $Height) { $Height = 2160 }; if (-not $Fps) { $Fps = 60 }
+$colorFormat = if ($hdr) { 'P010' } else { 'NV12' }; $colorSpace = if ($hdr) { '2100PQ' } else { '709' }
 if ($true) {
     $videos = Join-Path $env:USERPROFILE 'Videos\Lossless Scaling\OBS'   # as the addons' recorder: not a OneDrive Videos folder (it would sync gigabytes)
     New-Item -ItemType Directory -Force $videos | Out-Null
@@ -61,12 +80,14 @@ BaseCX=$Width
 BaseCY=$Height
 OutputCX=$Width
 OutputCY=$Height
-FPSType=0
-FPSCommon=$Fps
+FPSType=1
+FPSInt=$Fps
 ScaleType=bicubic
-ColorFormat=NV12
-ColorSpace=709
-ColorRange=Full
+ColorFormat=$colorFormat
+ColorSpace=$colorSpace
+ColorRange=$(if ($hdr) { 'Partial' } else { 'Full' })
+SdrWhiteLevel=300
+HdrNominalPeakLevel=1000
 
 [Audio]
 SampleRate=48000
@@ -102,7 +123,7 @@ ReplayBuffer=$hotkey
 "@
     [IO.File]::WriteAllText((Join-Path $cfg "basic\scenes\$name.json"), $collection, $utf8)
     Write-Host "OBS set up: profile and scene collection '$name' (the owner's own are untouched)."
-    Write-Host "  ${Width}x$Height at $Fps fps, NVENC AV1 CQP $Cqp, MKV, replay buffer $ReplaySeconds s saved with Ctrl+Shift+$SaveKey, into $videos"
+    Write-Host "  ${Width}x$Height at $Fps fps, $(if ($hdr) { 'HDR (10-bit, Rec.2100 PQ)' } else { 'SDR' }), NVENC AV1 CQP $Cqp, MKV, replay buffer $ReplaySeconds s saved with Ctrl+Shift+$SaveKey, into $videos"
 }
 if ($Launch) {
     if (Get-Process obs64 -ErrorAction SilentlyContinue) { Write-Host 'OBS is already running.'; return }
