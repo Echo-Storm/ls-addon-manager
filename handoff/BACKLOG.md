@@ -5,6 +5,7 @@ item is done (move it to the changelog) or when a new one comes up. Dates are wh
 
 ## Released
 
+- 0.9.15 (2026-09-28, v0.9.15 at 6d896fe): the HDR neon fix (issue #3, likely #1). Issues #1, #2, #3 answered on GitHub, left open for the reporters to confirm.
 - 0.9.14 (2026-09-28, v0.9.14 at ae232c0): see the changelog. Confirmed live: the corner square in the upscaler addons; NR smoothing at 0.6 helps.
 
 ## Bug sweep (planned Tuesday 2026-09-29 morning)
