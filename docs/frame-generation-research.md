@@ -175,3 +175,8 @@ Depth from the game itself (ReShade's Generic Depth add-on, and forks such as Pa
 games) stays an optional extra at most: official ReShade switches depth off when a game uses the network, which rules out online games such
 as World of Warcraft, and injection carries anti-cheat risk. References: Marty's depth guide (guides.martysmods.com/reshade/depth),
 github.com/AldogPlays/PatchedReShade, github.com/Hacktank/ReshadeSansDepthBufferLock.
+
+## How LSFG 3.1 works (lsfg-vk study)
+
+See [lsfg-vk-study.md](lsfg-vk-study.md): LSFG's pass graph as lsfg-vk runs it (features at 7 levels, coarse-to-fine motion, refinement
+at the three finest levels, its own synthesis pass), what we lack, and the licence line (read and learn; copy nothing).
