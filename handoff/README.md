@@ -14,6 +14,7 @@ session used (in `scripts/`), and the rules. The project's general tools are in 
   - Run `tools\run_addon_tests.ps1 -All` (with `LS_DIR` set) when there is room.
   - **New matrix scenarios not yet run:** `scaler_hdr_scrgb`, `scaler_hdr_pq`, `fsr_hdr_scrgb`, `scaler_not_nvidia`.
 - **Next:** 1.0 soon. Frame generation of our own comes later; the engines' own threads (below) are its groundwork.
+- **Backlog:** everything not done yet is in [BACKLOG.md](BACKLOG.md); keep it current.
 
 ## What changed in 0.9.8, and where
 

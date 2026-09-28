@@ -1,0 +1,57 @@
+# Backlog
+
+Everything worth doing that is not done yet, so nothing is lost between sessions. Newest context first within each group. Update it when an
+item is done (move it to the changelog) or when a new one comes up. Dates are when the item was noted.
+
+## Next release (0.9.14), committed locally, not released
+
+- DLSS model "Auto" (the new default): E at 1:1 (DLAA), L when upscaling. L pulsed every fourth frame at 1:1: the flicker while moving
+  in World of Warcraft; E confirmed live by the owner (2026-09-28).
+- The upscalers lean on the frame from about 1 px of motion when upscaling (was about 13), from 0.1 % of the width at 1:1 (was 0.5 %);
+  "Lean from" slider to set it by eye. Owner: all three upscalers "worked and look better" (2026-09-28).
+- The Before / after hotkey's corner square in the upscaler addons too (drawn at Present). To confirm live.
+- "Motion by shape (test)" checkbox (zero-mean + edge block cost), off by default; neutral offline, "definitely not worse" live.
+- `nr_sreval`: steadiness score, "vs before" per frame, meanweight / gradweight.
+- Changelog entry for 0.9.14 still to write (from the commits after v0.9.13 at e5c6139).
+
+## Bug sweep (planned Tuesday 2026-09-29 morning)
+
+- `run_hosttest_matrix.py --only scaler_bgra` fails ("NIS KEPT": the DLSS engine starts in about 9.5 s and the test ends before a frame
+  is upscaled); also fails on the code before 2026-09-28's changes, so it predates them. `scaler_not_nvidia` shows NIS KEPT too. The
+  baseline (`base`) fails when run alone with `--only` (known: baseline checks need their scenarios in the list).
+- The corner square: the output swap chain is only learned while the upscaled picture is shown, so after a restart that begins on
+  "original", the first toggle shows no square.
+- Neural Rendering's changes in 0.9.13 (temporal smoothing clamp, NGX user count) were never tried live before release; the NGX count
+  was seen working live on 2026-09-28 ("NGX left running (another addon still uses it)").
+
+## Neural Rendering
+
+- The owner wants it improved (2026-09-28; what bothers them most still to be said: look, cost, or both).
+- Cost: in World of Warcraft at 4K the model takes about 8.5 ms a frame at half size (1912x1080), over the automatic budget (5 ms), and
+  the automatic size is already at its floor (0.50): "auto: model resolution 0.50 -> 0.50". Frames over 20 ms: 54-82 %.
+- Ideas: a lower floor for the automatic size (0.4 / 0.33) with the compose's upsampling of the change; run the model every other frame
+  and carry its change along the motion (the compose already moves a result by its motion vectors); a quality score for NR offline (an
+  `nr_nreval` like `nr_sreval`: the change's stability from frame to frame on a recording).
+
+## Upscalers
+
+- World of Warcraft upscaled 1.5x: DLSS still 1.1 dB under a plain stretch on the coarse score (43.14 vs 44.24) in walking motion.
+- FSR's slow-pan drift (about 45.6 against 49.8 on the Silent Hill f pan); a settings sweep with `nr_sreval`.
+- A steadiness score that needs no reference picture, for judging 1:1 (DLAA) offline: at 1:1 the reference is the game's own aliased
+  frame, so leaning always scores better.
+- Per-backend lean thresholds (one value for all three today).
+- Profiles per game (check what exists first) and an A/B split preset in the panel for newcomers.
+
+## Motion estimate / frame generation (frame generation stays out of releases: NR_FRAMEGEN=OFF)
+
+- The estimate is not limited by the pyramid's reach nor the block cost (docs/lsfg-vk-study.md). Next: occlusion handling (what comes
+  into view), a confidence per level (LSFG's beta), a synthesis pass of our own to compare with FSR 3.1's.
+- Adaptive frame generation (the owner uses LSFG's meanwhile): a scheduler over one generator; framegen11.cpp already computes the times.
+- Drawing more frames than the refresh rate / the 60 Hz TV limit (owner, 2026-09-27).
+- Depth from motion; ReShade depth only as an optional extra (not for online games).
+
+## Research to come back to
+
+- lsfg-vk (CC BY-NC-ND: study only): the owner wants to discuss what "using code" means, including loading Lossless Scaling's shaders
+  from the user's own install at run time (docs/lsfg-vk-study.md).
+- The DLSS 5 on Radeon mod (closed, no redistribution): only if an all-in-one or optimised build appears, or new techniques.
