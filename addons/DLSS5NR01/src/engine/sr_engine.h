@@ -165,6 +165,9 @@ private:
     FfxState* m_ffx = nullptr;
     XessState* m_xess = nullptr;
     int64_t m_lastRunQpc = 0;   // FSR wants the time between frames
+    // NGX's start-up, kept to start it again when its feature is lost under it (another NGX user in the process shut down: RestartNgx)
+    std::wstring m_ngxDataPath, m_ngxRuntimeDir; int m_ngxRestarts = 0; bool m_ngxLost = false, m_ngxJoined = false;
+    bool RestartNgx();
     void* m_params = nullptr;   // NVSDK_NGX_Parameter*
     void* m_feature = nullptr;  // NVSDK_NGX_Handle*
     uint32_t m_inW = 0, m_inH = 0, m_outW = 0, m_outH = 0; unsigned m_preset = ~0u; bool m_hdr = false;

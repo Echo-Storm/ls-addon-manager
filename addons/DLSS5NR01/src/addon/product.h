@@ -49,6 +49,12 @@ inline constexpr const char* kUpscalerName = "DLSS";
 
 // The upscalers' runtime: the folder it ships in next to the addon, its file, the Runtimes list's setting and folder
 inline constexpr bool kAnyCardScaler = kFsrScaler || kXessScaler;   // runs on any card, not only NVIDIA's
+// Frame generation of our own (framegen11.h, a prototype): only in a build made with it (CMake NR_FRAMEGEN=ON), never in a release until it
+// is ready; without it the panel does not show it and a saved "on" is ignored.
+#ifndef NR_FRAMEGEN
+#define NR_FRAMEGEN 0
+#endif
+inline constexpr bool kFrameGen = kFsrScaler && NR_FRAMEGEN != 0;
 inline constexpr const wchar_t* kRuntimeFolderW = kXessScaler ? L"xess" : kFsrScaler ? L"fsr" : L"dlss";
 inline constexpr const wchar_t* kRuntimeFileW = kXessScaler ? L"libxess.dll" : kFsrScaler ? L"amd_fidelityfx_dx12.dll" : L"nvngx_dlss.dll";
 inline constexpr const char* kRuntimeKey = kXessScaler ? "xessRuntime" : kFsrScaler ? "fsrRuntime" : "dlssRuntime";

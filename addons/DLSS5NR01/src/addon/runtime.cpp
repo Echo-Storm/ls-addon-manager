@@ -668,7 +668,7 @@ void OnPresent(IDXGISwapChain* sc, UINT sync, UINT flags) {
     if (kScalerAddon) {
         ScalerPresentGuarded(sc);
         bool frameGen; { std::lock_guard<std::mutex> lock(g_settingsMutex); frameGen = g_config.frameGen; }
-        if (kFsrScaler && frameGen && sc == g_fgChain.load(std::memory_order_acquire)) {   // Lossless Scaling's output swap chain only (not the manager's window)
+        if (kFrameGen && frameGen && sc == g_fgChain.load(std::memory_order_acquire)) {   // Lossless Scaling's output swap chain only (not the manager's window)
             static const bool runtimeSet = (nr::framegen::SetRuntime(g_addonDir + L"\\fsr\\amd_fidelityfx_dx12.dll"), true);   // the shipped FSR 3.1 (FSR 4's build has no frame generation)
             (void)runtimeSet;
             float white = 80.0f; uint32_t encoding = 0;
@@ -1054,7 +1054,7 @@ bool ScalerPass(ID3D11DeviceContext* ctx, uint32_t x, uint32_t y, uint32_t z) {
                 g_linkTries = 0;
             }
             int handoffMode; { std::lock_guard<std::mutex> settings(g_settingsMutex); handoffMode = g_config.scalerHandoff; }
-            bool frameGenOn; { std::lock_guard<std::mutex> settings(g_settingsMutex); frameGenOn = kFsrScaler && g_config.frameGen; }
+            bool frameGenOn; { std::lock_guard<std::mutex> settings(g_settingsMutex); frameGenOn = kFrameGen && g_config.frameGen; }
             if ((handoffMode == static_cast<int>(ScalerLink::Handoff::AtPresent) || frameGenOn) && !PresentHook::Installed() &&
                 !PresentHook::Install(dev, OnPresent, [](const char* m) { Log("%s", m); }))
                 Log("%s upscaler: could not hook Present; the picture cannot go over NIS's there", kUpscalerName);
@@ -1103,7 +1103,7 @@ bool ScalerPass(ID3D11DeviceContext* ctx, uint32_t x, uint32_t y, uint32_t z) {
                 t_ownWork = false;
                 g_passStep = "the recorder";
                 if (ID3D11Texture2D* grabbed = g_link.TakeGrabbed()) {   // (HDR frames go to the upscaler as light: said so in the file)
-                    bool shown; { std::lock_guard<std::mutex> settings(g_settingsMutex); shown = kFsrScaler && g_config.frameGen && g_config.recordShown; }
+                    bool shown; { std::lock_guard<std::mutex> settings(g_settingsMutex); shown = kFrameGen && g_config.frameGen && g_config.recordShown; }
                     if (!shown) Record(ctx, grabbed, lsrec::kNisInput, g_link.Encoding() ? lsrec::kLight : lsrec::kOwnEncoding);   // (else the presents are recorded)
                 }
                 g_passStep = "after Upscale";   // the frame as DLSS or FSR got it

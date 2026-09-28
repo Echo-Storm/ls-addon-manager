@@ -1,4 +1,5 @@
 #include "engine/sr_engine.h"
+#include "engine/ngx_users.h"
 #include "engine/hdr_hlsl.h"
 #include <d3dcompiler.h>
 #include <algorithm>
@@ -382,6 +383,7 @@ bool SrEngine::Init(const LUID& card, const std::wstring& dataPath, const std::w
     }
 
     // NGX, with NVIDIA's runtime from the addon's dlss folder
+    m_ngxDataPath = dataPath; m_ngxRuntimeDir = runtimeDir; m_ngxRestarts = 0; m_ngxLost = false;
     const wchar_t* paths[] = { runtimeDir.c_str() };
     NVSDK_NGX_FeatureCommonInfo info{}; info.PathListInfo.Path = paths; info.PathListInfo.Length = 1;
     g_ngxLog = [this](const char* m) { Log("%s", m); };
@@ -392,6 +394,7 @@ bool SrEngine::Init(const LUID& card, const std::wstring& dataPath, const std::w
         Log("DLSS upscaler: NVIDIA's runtime is not at %ls (error %lu); NGX will look for one elsewhere", runtime.c_str(), GetLastError());
     NVSDK_NGX_Result r = NVSDK_NGX_D3D12_Init(kAppId, dataPath.c_str(), m_dev, &info);
     if (NVSDK_NGX_FAILED(r)) { Fail("NGX Init: %s", ResultName(r)); return false; }
+    nr::ngxusers::Joined(); m_ngxJoined = true;
     NVSDK_NGX_Parameter* p = nullptr;
     if (NVSDK_NGX_FAILED(NVSDK_NGX_D3D12_AllocateParameters(&p)) || !p) { Fail("NGX parameters"); return false; }
     m_params = p;
@@ -449,7 +452,7 @@ bool SrEngine::Shutdown() {
     g_ngxLog = nullptr;
     if (m_feature) { NVSDK_NGX_D3D12_ReleaseFeature(static_cast<NVSDK_NGX_Handle*>(m_feature)); m_feature = nullptr; }
     if (m_params) { NVSDK_NGX_D3D12_DestroyParameters(static_cast<NVSDK_NGX_Parameter*>(m_params)); m_params = nullptr; }
-    if (m_dev && m_backend == Backend::Dlss) NVSDK_NGX_D3D12_Shutdown1(m_dev);
+    if (m_ngxJoined) { m_ngxJoined = false; if (nr::ngxusers::Leaving() && m_dev) NVSDK_NGX_D3D12_Shutdown1(m_dev); else Log("DLSS upscaler: NGX left running (another addon still uses it)"); }
     m_estimator.Shutdown(); m_estimatedLast = false; m_estimates = 0;
     SafeRelease(m_motion); SafeRelease(m_distrust); SafeRelease(m_depth); SafeRelease(m_depthUpload);
     SafeRelease(m_leanPso); SafeRelease(m_leanRoot); SafeRelease(m_leaned); m_leanedW = m_leanedH = 0;
@@ -708,6 +711,27 @@ bool SrEngine::EnsureViewInput(uint32_t w, uint32_t h) {
     return true;
 }
 
+// NGX again on this device, after its feature was lost under it. NGX is shared by everything in Lossless Scaling's process: when another
+// user of it shuts down (the Neural Rendering addon, switched off while the DLSS Upscaler ran, 2026-09-27), this engine's feature was gone
+// at its next evaluate ("FeatureNotFound") and the upscaler switched itself off. Now it starts NGX again and makes the feature anew.
+bool SrEngine::RestartNgx() {
+    WaitIdle();
+    if (m_feature) { NVSDK_NGX_D3D12_ReleaseFeature(static_cast<NVSDK_NGX_Handle*>(m_feature)); m_feature = nullptr; }
+    if (m_params) { NVSDK_NGX_D3D12_DestroyParameters(static_cast<NVSDK_NGX_Parameter*>(m_params)); m_params = nullptr; }
+    if (nr::ngxusers::Users() <= 1) NVSDK_NGX_D3D12_Shutdown1(m_dev);   // (not while another of our engines uses NGX)
+    const wchar_t* paths[] = { m_ngxRuntimeDir.c_str() };
+    NVSDK_NGX_FeatureCommonInfo info{}; info.PathListInfo.Path = paths; info.PathListInfo.Length = 1;
+    info.LoggingInfo.LoggingCallback = NgxMessage; info.LoggingInfo.MinimumLoggingLevel = NVSDK_NGX_LOGGING_LEVEL_ON; info.LoggingInfo.DisableOtherLoggingSinks = false;
+    const NVSDK_NGX_Result r = NVSDK_NGX_D3D12_Init(kAppId, m_ngxDataPath.c_str(), m_dev, &info);
+    if (NVSDK_NGX_FAILED(r)) { Log("DLSS upscaler: NGX did not start again: %s", ResultName(r)); return false; }
+    NVSDK_NGX_Parameter* p = nullptr;
+    if (NVSDK_NGX_FAILED(NVSDK_NGX_D3D12_AllocateParameters(&p)) || !p) { Log("DLSS upscaler: NGX gave no parameters after starting again"); return false; }
+    m_params = p;
+    m_inW = m_inH = m_outW = m_outH = 0;   // the feature is made anew at the next run
+    Log("DLSS upscaler: NGX started again on its device (its feature had been lost: another NGX user in the process shut down?)");
+    return true;
+}
+
 bool SrEngine::EnsureFeature(uint32_t inW, uint32_t inH, uint32_t outW, uint32_t outH, unsigned preset, bool hdr) {
     if (m_backend != Backend::Dlss) preset = 0;   // only DLSS has models to choose
     if (HasFeature() && inW == m_inW && inH == m_inH && outW == m_outW && outH == m_outH && preset == m_preset && hdr == m_hdr) return true;
@@ -862,7 +886,11 @@ bool SrEngine::Run(ID3D12Resource* in, uint32_t inW, uint32_t inH, DXGI_FORMAT i
     // A frame that cannot run is still marked done, on this queue after the frames before it, so "done" only ever moves forward.
     const auto skip = [&] { if (m_queue && done) m_queue->Signal(done, doneValue); return false; };
     const bool fsr = m_backend == Backend::Fsr, dlss = m_backend == Backend::Dlss;
-    const bool fresh = !HasFeature() || inW != m_inW || inH != m_inH || outW != m_outW || outH != m_outH || (dlss && preset != m_preset) || hdr != m_hdr;
+    if (dlss && m_ngxLost) {   // its feature was lost at the last evaluate: NGX again (at most three times, then the upscaler stops)
+        m_ngxLost = false;
+        if (++m_ngxRestarts > 3 || !RestartNgx()) { Fail("DLSS lost its feature and NGX could not start again"); return skip(); }
+    }
+    const bool fresh =!HasFeature() || inW != m_inW || inH != m_inH || outW != m_outW || outH != m_outH || (dlss && preset != m_preset) || hdr != m_hdr;
     if (!EnsureFeature(inW, inH, outW, outH, preset, hdr)) return skip();
     if (hdr && !EnsureViewInput(inW, inH)) { Fail("the HDR frame's SDR view could not be made"); return skip(); }
     ID3D12Resource* const color = in;   // what the upscaler reads (HDR: light)
@@ -1035,7 +1063,13 @@ bool SrEngine::Run(ID3D12Resource* in, uint32_t inW, uint32_t inH, DXGI_FORMAT i
     p->Set(NVSDK_NGX_Parameter_DLSS_Render_Subrect_Dimensions_Width, inW);
     p->Set(NVSDK_NGX_Parameter_DLSS_Render_Subrect_Dimensions_Height, inH);
     const NVSDK_NGX_Result r = NVSDK_NGX_D3D12_EvaluateFeature_C(m_list, static_cast<NVSDK_NGX_Handle*>(m_feature), p, nullptr);
-    if (NVSDK_NGX_FAILED(r)) { evaluated = false; snprintf(evalError, sizeof evalError, "EvaluateFeature(DLSS): %s", ResultName(r)); }
+    if (r == NVSDK_NGX_Result_FAIL_FeatureNotFound || r == NVSDK_NGX_Result_FAIL_NotInitialized) {
+        // the feature (or NGX itself) went away under us: another NGX user in the process shut down. This frame is left out; the next
+        // run starts NGX again (RestartNgx) instead of switching the upscaler off.
+        m_ngxLost = true;
+        Log("DLSS upscaler: EvaluateFeature: %s; NGX starts again at the next frame", ResultName(r));
+    } else if (NVSDK_NGX_FAILED(r)) { evaluated = false; snprintf(evalError, sizeof evalError, "EvaluateFeature(DLSS): %s", ResultName(r)); }
+    else m_ngxRestarts = 0;
     }
 
     m_list->EndQuery(m_timestamps, D3D12_QUERY_TYPE_TIMESTAMP, slot * 4 + 2);
@@ -1104,6 +1138,7 @@ bool SrEngine::Run(ID3D12Resource* in, uint32_t inW, uint32_t inH, DXGI_FORMAT i
     m_queue->Signal(done, doneValue);
     m_queue->Signal(m_fence, ++m_fenceValue);
     m_slotDone[slot] = m_fenceValue;
+    if (m_ngxLost) return false;   // (NIS's picture this frame; NGX starts again at the next)
     if (!evaluated) { Fail("%s", evalError); return false; }
     ++m_runs;
     if (estimating && (++m_estimates == 60 || m_estimates % 1200 == 0)) {   // what the estimate found (a check that it follows the picture)

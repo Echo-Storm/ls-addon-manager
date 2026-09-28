@@ -1,4 +1,5 @@
 #include "engine/nr_engine.h"
+#include "engine/ngx_users.h"
 #include <chrono>
 #include "engine/nr_shaders.h"
 #include "engine/dlaa_model.h"
@@ -108,7 +109,11 @@ bool NrEngine::Shutdown() {
     ReleaseScratch();
     m_estimator.Shutdown(); m_estimatedLast = false; m_estimates = 0;
     dlaa::Shutdown();
-    if (m_caps) { NVSDK_NGX_D3D12_Shutdown1(m_dev); m_caps = nullptr; }
+    if (m_caps) { NVSDK_NGX_D3D12_DestroyParameters(static_cast<NVSDK_NGX_Parameter*>(m_caps)); m_caps = nullptr; }
+    if (m_ngxJoined) {   // NGX shut down only by the last of our engines to use it (ngx_users.h): the DLSS Upscaler may still run
+        m_ngxJoined = false;
+        if (nr::ngxusers::Leaving()) NVSDK_NGX_D3D12_Shutdown1(m_dev); else Log("NrEngine: NGX left running (another addon still uses it)");
+    }
     if (m_forwarder) { FreeLibrary(m_forwarder); m_forwarder = nullptr; }
     for (ID3D12PipelineState** p : { &m_psoShrink, &m_psoMotion, &m_psoDelta, &m_psoDeltaSmooth }) SafeRelease(*p);
     SafeRelease(m_rootSig); SafeRelease(m_heap); SafeRelease(m_timestamps); SafeRelease(m_timestampReadback); SafeRelease(m_list);
@@ -169,6 +174,7 @@ bool NrEngine::StartNgx() {
     info.LoggingInfo.DisableOtherLoggingSinks = false;
     NVSDK_NGX_Result r = NVSDK_NGX_D3D12_Init(kAppId, m_dataPath.c_str(), m_dev, &info, NVSDK_NGX_Version_API);
     if (NVSDK_NGX_FAILED(r)) { Fail("NGX core Init: %s", NgxResultName(r)); return false; }
+    nr::ngxusers::Joined(); m_ngxJoined = true;
     NVSDK_NGX_Parameter* caps = nullptr;
     r = NVSDK_NGX_D3D12_GetCapabilityParameters(&caps);
     if (NVSDK_NGX_FAILED(r) || !caps) { Fail("GetCapabilityParameters: %s", NgxResultName(r)); return false; }

@@ -76,6 +76,11 @@ endif()
 
 nr_addon(FSR3UPSC)
 target_compile_definitions(FSR3UPSC PRIVATE NR_PRODUCT_FSR)
+# frame generation of our own, a prototype: never in a release until it is ready (-DNR_FRAMEGEN=ON for a test build)
+option(NR_FRAMEGEN "Frame generation of our own in the FSR Upscaler (a prototype)" OFF)
+if(NR_FRAMEGEN)
+    target_compile_definitions(FSR3UPSC PRIVATE NR_FRAMEGEN=1)
+endif()
 # AMD's FidelityFX runtime (FSR 3.1), in an fsr folder next to the built addon (as in the release): tools/fetch_ffx_sdk.ps1 fetches it
 set(FFX_DLL ${CMAKE_SOURCE_DIR}/external/ffx/bin/amd_fidelityfx_dx12.dll)
 if(EXISTS ${FFX_DLL})

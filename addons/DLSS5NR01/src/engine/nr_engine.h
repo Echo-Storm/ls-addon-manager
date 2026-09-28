@@ -221,7 +221,7 @@ private:
     ID3D12QueryHeap* m_timestamps = nullptr; ID3D12Resource* m_timestampReadback = nullptr; uint64_t m_timestampFreq = 1;
 
     // the model, through the forwarder
-    void* m_caps = nullptr;
+    void* m_caps = nullptr; bool m_ngxJoined = false;   // (ngx_users.h)
     HMODULE m_forwarder = nullptr;
     PFN_nrfwd_probe m_probe = nullptr; PFN_nrfwd_init m_init = nullptr; PFN_nrfwd_set_float_slot m_setFloatSlot = nullptr;
     PFN_nrfwd_probe_float m_probeFloat = nullptr; PFN_nrfwd_get_float m_getFloat = nullptr; PFN_nrfwd_create m_create = nullptr;

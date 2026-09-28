@@ -479,7 +479,7 @@ void DrawPanel() {
                 }
             }
         }
-        if (kFsrScaler) {   // a prototype, off by default
+        if (kFrameGen) {   // a prototype: only in a build made with it (product.h)
             if (ImGui::Checkbox("Frame generation of our own (prototype)", &c.frameGen)) changed = true;
             Tip("Doubles the frame rate with a frame made between each two real ones, shown in Lossless Scaling's own window. Turn Lossless Scaling's frame "
                 "generation OFF first (both at once would double twice). A prototype: the frame between is made by AMD's FSR 3.1 frame generation with the "
@@ -714,7 +714,7 @@ void DrawPanel() {
         Tip("Off (the default) costs nothing. On: every frame is copied off the graphics card and compressed on a few background threads, which "
             "takes some processor time and the memory below. Nothing waits for it: a frame that comes while all the copies are busy is left out.");
         if (!c.recordOn) ImGui::BeginDisabled();
-        if (kFsrScaler) {
+        if (kFrameGen) {
             if (ImGui::Checkbox("Record what is shown (with frame generation of our own)", &c.recordShown)) changed = true;
             Tip("With frame generation of our own on: the frames as they go to the screen, the frames made between and the real ones (after the upscaler, "
                 "at the screen's size), each marked which it is, instead of the frame going to the upscaler. For showing what frame generation and the "

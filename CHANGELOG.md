@@ -21,11 +21,11 @@ The upscalers steady in fast camera turns.
 - **Neural Rendering's Temporal smoothing no longer trails** in a fast turn: the last frame's change is held within the range of this
   frame's own around each pixel (as temporal anti-aliasing does), and the smoothing fades out in fast motion. (Off by default.)
 - **HDR:** the frame's light is clamped at 0 before the upscalers (an HDR10 colour outside Rec.709 came out negative).
-- **Frame generation of our own (the FSR Upscaler; a prototype, off by default)** from its first live tests: FSR 3.1 frame generation is
+- **Frame generation of our own (the FSR Upscaler; a prototype, not in this release: only in a test build, CMake NR_FRAMEGEN=ON)** from its first live tests: FSR 3.1 frame generation is
   dispatched directly (its own swap chain paced itself and, with our pacing, halved the real frame rate, 30 -> 18); the frame between and
   the real one go out evenly spaced; HDR frames are measured in their SDR view; a guard takes back what FSR pastes over a character in a
   turn ("Keep the character clean in turns"); what it did is logged every 10 s.
-- **The recorder** can keep what is shown ("Record what is shown", with frame generation of our own): the frames at the screen's size,
+- **The recorder** can keep what is shown ("Record what is shown", with frame generation of our own, in a test build): the frames at the screen's size,
   the frames made between and the real ones, each marked (`nr_lsrec export` names them).
 - **Tools:** `nr_sreval` scores an upscaler offline on a recording (the addon's own engine: DLSS, FSR or XeSS, any setting); `nr_fgeval`
   gains the live gap, a score around the character, FSR's debug views, direct dispatch and the addon's own frame generation engine.
