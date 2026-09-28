@@ -181,7 +181,8 @@ int main(int argc, char** argv) {
         s.up = Psnr(picture, frame, nullptr); s.plain = Psnr(stretched, frame, nullptr);
         s.upCoarse = PsnrCoarse(picture, frame, W); s.plainCoarse = PsnrCoarse(stretched, frame, W);
         const double upT = i ? PsnrTemporal(picture, picturePrev, frame, framePrev) : 99.0, plainT = i ? PsnrTemporal(stretched, stretchedPrev, frame, framePrev) : 99.0;
-        printf("  frame %4d  upscaled %5.2f dB (coarse %5.2f, steady %5.2f)   stretched %5.2f dB (coarse %5.2f, steady %5.2f)\n", s.frame, s.up, s.upCoarse, upT, s.plain, s.plainCoarse, plainT);
+        const double same = i ? Psnr(frame, framePrev, nullptr) : 0.0;   // the frame against the one before (99: a repeat)
+        printf("  frame %4d  upscaled %5.2f dB (coarse %5.2f, steady %5.2f)   stretched %5.2f dB (coarse %5.2f, steady %5.2f)   vs before %5.2f\n", s.frame, s.up, s.upCoarse, upT, s.plain, s.plainCoarse, plainT, same);
         if (i >= 8) { sumUp += s.up; sumPlain += s.plain; sumUpC += s.upCoarse; sumPlainC += s.plainCoarse; sumUpT += upT; sumPlainT += plainT; ++n; }   // (after the history has built)
         framePrev = frame; picturePrev = picture; stretchedPrev = stretched;
         if (show > 0) { s.truth = frame; s.picture = picture; s.stretched = stretched; }

@@ -180,3 +180,19 @@ github.com/AldogPlays/PatchedReShade, github.com/Hacktank/ReshadeSansDepthBuffer
 
 See [lsfg-vk-study.md](lsfg-vk-study.md): LSFG's pass graph as lsfg-vk runs it (features at 7 levels, coarse-to-fine motion, refinement
 at the three finest levels, its own synthesis pass), what we lack, and the licence line (read and learn; copy nothing).
+
+## The flicker while moving in World of Warcraft (2026-09-28): DLSS preset L pulses every 4 frames
+
+The owner saw flicker while moving with the DLSS Upscaler at 1:1 (DLAA) in World of Warcraft and recorded 17 clips (wowb_2026-09-27_23-54-*.lsrec,
+3840x2160, 36 fps: the frames the upscaler is given). Replayed with `nr_sreval shrink=100` (1:1, as played), clip 23-54-43, frames 40-79:
+
+- The game's frames change evenly from one to the next (`vs before` about 23.7 dB every frame): no repeats, no rhythm of their own.
+- DLSS preset L: steadiness 36.3 dB on average, with an exact 4-frame cycle (best at frames 51, 55, 59 ... 79; about +-0.5 dB, 9 times a
+  second at 36 fps). With the motion estimate off (`motion=none`) the cycle stays and grows (+-0.8 dB); with the lean pass off (`fast=0`)
+  it stays. So it is inside model L: we give DLSS no jitter (0, 0).
+- FSR and XeSS: no cycle. DLSS K 32.5, J 32.6: no cycle, far less steady. **DLSS E 35.4: no cycle**, and the closest to the game's
+  picture (37.55 dB against L's 36.73), the lightest too.
+- Next: the owner tries E live where it flickered. If it is gone, recommend E at 1:1 (DLAA) and keep L for upscaling (its lead there,
+  on the Silent Hill f recording, is in slow pans).
+
+`nr_sreval` prints `vs before` per frame now (the frame against the one before; 99: a repeat).
