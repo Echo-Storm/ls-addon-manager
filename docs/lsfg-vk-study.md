@@ -113,3 +113,11 @@ parts that come into view (occlusion). Next candidates: LSFG-style confidence (s
 
 In the addon: "Motion by shape (test)" in the upscalers' panel (setting `motionShapes`, off by default) sets meanweight 0 and gradweight
 30, for trying live where the light changes (World of Warcraft).
+
+### Where the estimate is limited (2026-09-28)
+
+`nr_fgeval mvcheck=1` on the Silent Hill f turn (frames 60-83): the picture moves about 100 px every two frames; the frame before, moved
+half way by our vectors, scores about 25 dB against the frame between, where the frame before as it is scores about 21.5. Letting each
+pixel look further (reach 8 -> 24 px) changes nothing (25.02 -> 24.96, 25.92 -> 26.02). So neither the pyramid's reach nor the block cost
+(steps 1 and 2) limits it: what is left is what comes into view and motion blur, and in such fast turns the upscalers lean on the frame
+anyway. The estimate's next gains are for frame generation (occlusion handling, a synthesis of our own), not for the upscalers.
