@@ -3,16 +3,9 @@
 Everything worth doing that is not done yet, so nothing is lost between sessions. Newest context first within each group. Update it when an
 item is done (move it to the changelog) or when a new one comes up. Dates are when the item was noted.
 
-## Next release (0.9.14), committed locally, not released
+## Released
 
-- DLSS model "Auto" (the new default): E at 1:1 (DLAA), L when upscaling. L pulsed every fourth frame at 1:1: the flicker while moving
-  in World of Warcraft; E confirmed live by the owner (2026-09-28).
-- The upscalers lean on the frame from about 1 px of motion when upscaling (was about 13), from 0.1 % of the width at 1:1 (was 0.5 %);
-  "Lean from" slider to set it by eye. Owner: all three upscalers "worked and look better" (2026-09-28).
-- The Before / after hotkey's corner square in the upscaler addons too (drawn at Present). To confirm live.
-- "Motion by shape (test)" checkbox (zero-mean + edge block cost), off by default; neutral offline, "definitely not worse" live.
-- `nr_sreval`: steadiness score, "vs before" per frame, meanweight / gradweight.
-- Changelog entry for 0.9.14 still to write (from the commits after v0.9.13 at e5c6139).
+- 0.9.14 (2026-09-28, v0.9.14 at ae232c0): see the changelog. To confirm live: the corner square in the upscaler addons.
 
 ## Bug sweep (planned Tuesday 2026-09-29 morning)
 
