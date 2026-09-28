@@ -57,7 +57,9 @@ void CSDelta(uint3 id : SV_DispatchThreadID) {
 
 // The delta with smoothing: the new delta is blended with the last one, read where this pixel's content was a frame ago (the motion vectors
 // point current -> previous), and written both to the shared delta and to the history for the next run. flags 2: the history is usable (not
-// right after a reset or a new feature).
+// right after a reset or a new feature). Against trailing (a fast camera turn, motion the estimate got wrong): the last delta is first held
+// within the range of this frame's own deltas around the pixel (3x3), as temporal anti-aliasing holds its history, and the smoothing fades
+// out in fast motion (flowScale: from that many pixels a frame, gone at twice it; 0: never), as the upscalers lean on the frame there.
 static const char* kNrSmoothHlsl = R"HLSL(
 SamplerState sLinear : register(s0);
 Texture2D<float4>   tHistory : register(t0);   // the last smoothed delta
@@ -77,8 +79,19 @@ void CSDeltaSmooth(uint3 id : SV_DispatchThreadID) {
     if (id.x >= outSize.x || id.y >= outSize.y) return;
     float3 delta = tModel[id.xy].rgb - tProxy[id.xy].rgb;
     if (flags & 2u) {
-        const float2 before = (float2(id.xy) + 0.5 + tMotion[id.xy].xy) / float2(outSize);
-        delta = lerp(delta, tHistory.SampleLevel(sLinear, before, 0).rgb, saturate(smoothAmount));
+        const float2 mv = tMotion[id.xy].xy;
+        const float2 before = (float2(id.xy) + 0.5 + mv) / float2(outSize);
+        float3 lo = delta, hi = delta;
+        const int2 last = int2(outSize) - 1;
+        [unroll] for (int k = 0; k < 9; ++k) {
+            if (k == 4) continue;
+            const int2 q = clamp(int2(id.xy) + int2(k % 3 - 1, k / 3 - 1), int2(0, 0), last);
+            const float3 d = tModel[q].rgb - tProxy[q].rgb;
+            lo = min(lo, d); hi = max(hi, d);
+        }
+        const float3 history = clamp(tHistory.SampleLevel(sLinear, before, 0).rgb, lo, hi);
+        const float fast = flowScale > 0.0 ? saturate((length(mv) - flowScale) / flowScale) : 0.0;
+        delta = lerp(delta, history, saturate(smoothAmount) * (1.0 - fast));
     }
     uOut[id.xy] = float4(delta, 0);
     uHistory[id.xy] = float4(delta, 0);

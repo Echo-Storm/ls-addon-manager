@@ -753,6 +753,7 @@ bool NrEngine::Run(ID3D12Resource* sharedIn, ID3D12Resource* sharedDelta, ID3D12
     if (smooth) {
         c.flags = historyUsable ? 2u : 0u;
         c.smoothAmount = std::clamp(m_params.deltaSmooth, 0.0f, 0.95f);
+        c.flowScale = 0.005f * static_cast<float>(m_ww);   // fast motion (working-size pixels a frame): the smoothing fades out (see CSDeltaSmooth)
         Transition(historyOut, D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE, D3D12_RESOURCE_STATE_UNORDERED_ACCESS);
         dispatch(m_psoDeltaSmooth, kDeltaPass, c);
         Transition(historyOut, D3D12_RESOURCE_STATE_UNORDERED_ACCESS, D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE);
