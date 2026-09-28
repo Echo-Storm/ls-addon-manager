@@ -1,5 +1,38 @@
 # Changelog
 
+## 0.9.13 (2026-09-27)
+
+The upscalers steady in fast camera turns.
+
+- **Steady in fast motion (all three upscalers).** Lossless Scaling's frames carry none of the sub-pixel camera jitter a game gives its
+  upscaler, so in a fast turn the upscaler's history adds little and trails: leaves and edges with soft doubled outlines. Now, where the
+  picture moves fast (from 0.5 % of its width a frame) or its motion cannot be followed, a pass after the upscaler blends its picture toward
+  this frame upscaled plainly. DLSS needed it most: its DLSS 4 models ignore the mask a game would give it for this. Measured offline on a
+  recorded Silent Hill f turn, shrunk 1.5x and upscaled back (at a quarter of the size, where trailing shows; a plain stretch 43.3 dB):
+  DLSS 36.8 -> 44.2, FSR 41.7 -> 45.6, XeSS 40.2 -> 46.2; all three now beat the plain stretch in the turn, and a slow pan is unchanged.
+  On by default; "Steady in fast motion" in each upscaler's panel turns it off to compare. XeSS also gets the motion's distrust mask now
+  (as its responsive mask), as FSR and DLSS always did.
+- **The DLSS model list**, one line each: K (NVIDIA's default), **L (recommended)**, J, M (DLSS 4.5) and E (DLSS 3's CNN). On the same
+  recording L is the only one that does not drift from the picture in a slow pan, and close to the best in fast turns; E is the best in
+  fast turns and the lightest; M the weakest here and the heaviest.
+- **The motion estimate on a character in a fast turn.** A character the camera follows (dark, faintly textured) was held to the guess of
+  the background sweeping past and took random vectors; the pull toward the guess is now capped, so it finds its own. For the upscalers,
+  Neural Rendering and frame generation alike.
+- **Neural Rendering's Temporal smoothing no longer trails** in a fast turn: the last frame's change is held within the range of this
+  frame's own around each pixel (as temporal anti-aliasing does), and the smoothing fades out in fast motion. (Off by default.)
+- **HDR:** the frame's light is clamped at 0 before the upscalers (an HDR10 colour outside Rec.709 came out negative).
+- **Frame generation of our own (the FSR Upscaler; a prototype, off by default)** from its first live tests: FSR 3.1 frame generation is
+  dispatched directly (its own swap chain paced itself and, with our pacing, halved the real frame rate, 30 -> 18); the frame between and
+  the real one go out evenly spaced; HDR frames are measured in their SDR view; a guard takes back what FSR pastes over a character in a
+  turn ("Keep the character clean in turns"); what it did is logged every 10 s.
+- **The recorder** can keep what is shown ("Record what is shown", with frame generation of our own): the frames at the screen's size,
+  the frames made between and the real ones, each marked (`nr_lsrec export` names them).
+- **Tools:** `nr_sreval` scores an upscaler offline on a recording (the addon's own engine: DLSS, FSR or XeSS, any setting); `nr_fgeval`
+  gains the live gap, a score around the character, FSR's debug views, direct dispatch and the addon's own frame generation engine.
+  Findings in `docs/frame-generation-research.md`.
+- **Tests:** targeted runs of the upscaler and Neural Rendering scenarios (moving pictures on all three upscalers, sharpening, edges, HDR,
+  smoothing), and offline measurements with `nr_sreval` and `nr_fgeval`.
+
 ## 0.9.12 (2026-09-27)
 
 A third upscaler, Intel XeSS, and a release half the size.
