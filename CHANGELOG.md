@@ -21,6 +21,9 @@ The upscalers steady in fast camera turns.
 - **Neural Rendering's Temporal smoothing no longer trails** in a fast turn: the last frame's change is held within the range of this
   frame's own around each pixel (as temporal anti-aliasing does), and the smoothing fades out in fast motion. (Off by default.)
 - **HDR:** the frame's light is clamped at 0 before the upscalers (an HDR10 colour outside Rec.709 came out negative).
+- **DLSS Upscaler and Neural Rendering together:** switching Neural Rendering off while the DLSS Upscaler ran shut NVIDIA's NGX down under
+  it ("FeatureNotFound" in the log) and the upscaler switched itself off. NGX now shuts down only when the last of our addons using it
+  does, and the DLSS Upscaler starts NGX again if its feature is lost anyway.
 - **Frame generation of our own (the FSR Upscaler; a prototype, not in this release: only in a test build, CMake NR_FRAMEGEN=ON)** from its first live tests: FSR 3.1 frame generation is
   dispatched directly (its own swap chain paced itself and, with our pacing, halved the real frame rate, 30 -> 18); the frame between and
   the real one go out evenly spaced; HDR frames are measured in their SDR view; a guard takes back what FSR pastes over a character in a
@@ -31,7 +34,10 @@ The upscalers steady in fast camera turns.
   gains the live gap, a score around the character, FSR's debug views, direct dispatch and the addon's own frame generation engine.
   Findings in `docs/frame-generation-research.md`.
 - **Tests:** targeted runs of the upscaler and Neural Rendering scenarios (moving pictures on all three upscalers, sharpening, edges, HDR,
-  smoothing), and offline measurements with `nr_sreval` and `nr_fgeval`.
+  smoothing), and offline measurements with `nr_sreval` (now with a steadiness score: shimmer and flicker from frame to frame) and
+  `nr_fgeval`. Live: the DLSS Upscaler in World of Warcraft (the owner: happy with it). Not yet tried live: Neural Rendering's changes and
+  the NGX fix above.
+- **Known:** some flickering while moving with the DLSS Upscaler in World of Warcraft (noted, to look into).
 
 ## 0.9.12 (2026-09-27)
 
