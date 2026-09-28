@@ -192,7 +192,12 @@ void CSCompose(uint3 id : SV_DispatchThreadID) {
             // In light, not in the SDR view's values: from 0.8 to 1.35 times the SDR white (what 0.90 to 0.99 were on the curve until 0.9.8).
             const float3 light = Expand(SrgbToLinear(saturate(fs)));
             const float keep = 1.0 - smoothstep(0.8, 1.35, max(light.r, max(light.g, light.b)));
-            result = frame.rgb + (FromSdr(lerp(fs, c, keep), encoding, white) - FromSdr(fs, encoding, white));
+            // And the change never lifts a channel above 1.35 times the SDR white (unless the frame was brighter there already): the
+            // logarithmic top of the curve (since 0.9.9) turns a step from 0.7 to 0.95 in the SDR view into about 1900 nits in light,
+            // so a colour the model brightened in one channel came back as neon orange or cyan (issue #3; 0.9.8's curve gave about 90).
+            const float3 cap = max(light, 1.35);
+            const float3 changed = LightToSdr(min(SdrToLight(lerp(fs, c, keep)), cap));
+            result = frame.rgb + (FromSdr(changed, encoding, white) - FromSdr(fs, encoding, white));
         }
     }
     uOut[id.xy] = float4(result, frame.a);
