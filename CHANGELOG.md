@@ -1,5 +1,39 @@
 # Changelog
 
+## 0.9.14 (2026-09-28)
+
+The upscalers in motion: a very big improvement. Less trailing and smearing while you walk and turn, no flicker at 1:1, and all three
+upscalers now beat a plain stretch in a fast turn, for 3-4 ms a frame at 4K.
+
+- **The upscalers lean on the new frame from much less motion.** Lossless Scaling gives an upscaler none of the sub-pixel camera jitter
+  a game gives it, so in motion its memory of earlier frames adds no detail, only trailing. Measured offline, it trusted our motion
+  vectors and kept that memory: with them it did worse than with none. So the upscaled picture now leans on the new frame from about
+  1 px of motion a frame when upscaling (was about 13 px) and from 0.1 % of the width at 1:1 (was 0.5 %). A recorded Silent Hill f turn,
+  upscaled 1.5x (upscaled / coarse, where trailing shows / steadiness, in dB; a plain stretch 32.68 / 43.94 / 29.78):
+  - DLSS 32.82 / 43.18 / 30.11 -> **34.02 / 47.17 / 31.13**
+  - FSR 33.44 / 45.47 / 30.59 -> **34.10 / 47.84 / 31.20**
+  - XeSS 33.61 / 46.42 / 30.72 -> **34.07 / 47.82 / 31.18**
+
+  World of Warcraft walking, 1:1 with DLSS: coarse 45.70 -> 47.82. The owner's verdict, live in World of Warcraft: all three "worked and
+  look better". New "Lean from" slider under "Steady in fast motion" to set it by eye (automatic by default).
+- **No more flicker while moving at 1:1 with DLSS.** Model L pulses on a four-frame cycle when DLSS runs at the screen's size (found
+  offline on recordings: about 9 times a second at 36 fps); E does not. The DLSS model list has a new default, **Auto**: E at 1:1 (DLAA),
+  L when upscaling. A model chosen before is kept (pick Auto once to switch).
+- **Cost, live at 4K 1:1 in World of Warcraft** (RTX 4070 Ti SUPER, GPU time a frame, the motion estimate's share in brackets): DLSS
+  4.20 ms (1.64), FSR 3.3-3.7 ms (1.1-1.5), XeSS 2.7-2.8 ms (0.7).
+- **Before / after hotkey:** the upscaler addons now show the corner square too (green the upscaled picture, red the original, amber
+  the split), as Neural Rendering does.
+- **Neural Rendering:** Temporal smoothing works against the model's flicker in motion now: it keeps its history where the frame itself
+  still matches along the motion, and holds back only where something new came into view. On by default (0.6) for new settings; a saved
+  "off" is kept, so move the slider to try it. Still the weakest part in motion: more to come.
+- **Motion by shape (test):** a checkbox in the upscalers' panel (off by default) matching the motion by shape and edges rather than
+  brightness, for scenes where the light changes.
+- **Tools:** `nr_sreval` scores steadiness (shimmer from frame to frame) and prints each frame's change from the one before; the motion
+  estimate's block cost can be varied (`meanweight`, `gradweight`). Findings in `docs/frame-generation-research.md` and
+  `docs/lsfg-vk-study.md` (how Lossless Scaling's frame generation is built, studied from lsfg-vk).
+- **Known:** Neural Rendering still flickers in motion; open items in `handoff/BACKLOG.md`. Frame generation of our own is not in this
+  release.
+
 ## 0.9.13 (2026-09-27)
 
 The upscalers steady in fast camera turns.
