@@ -568,7 +568,7 @@ void DrawPanel() {
         Tip("How many times the model reworks each frame; every pass takes the previous result as its input. 1 = normal. 2 to 4 make the effect stronger (and can start to look over-processed, so compare with the Before / after hotkey).\nEach extra pass costs roughly another model run: watch the model time and the 'keeps up with' line below. If the model cannot keep up it skips frames, and the last result is carried forward.");
         }
         changed |= SL("Temporal smoothing", &c.p.deltaSmooth, 0.0f, 0.9f, c.p.deltaSmooth <= 0.001f ? "off" : "%.2f");
-        Tip("Blends the model's change for this frame with its change for the previous one, moved along with the picture by Lossless Scaling's motion data. It calms shimmer and crawling in fine detail (distant roads, fences, foliage) at the price of a little softness or ghosting when the camera moves fast. 0 = off; try 0.3 first. Costs almost nothing.");
+        Tip("Blends the model's change for this frame with its change for the previous one, moved along with the picture by Lossless Scaling's motion data. It calms shimmer and crawling in fine detail (distant roads, fences, foliage) at the price of a little softness or ghosting when the camera moves fast. 0 = off; 0.4 is the default (the pick in World of Warcraft). Costs almost nothing.");
         changed |= ImGui::Checkbox("Give Lossless Scaling GPU priority", &c.lsFirst);
         Tip("Raises Lossless Scaling's own graphics work above the model's on the shared card, so frame generation and presenting are not delayed while the model runs. Recommended.");
         changed |= SL("Blend amount", &c.p.composeIntensity, 0.0f, 2.0f);
