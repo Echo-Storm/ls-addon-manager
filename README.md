@@ -14,11 +14,12 @@ Around them, the manager installs and switches addons, shows the machine's load 
 updates itself. It is free, MIT-licensed and unofficial: not affiliated with the Lossless Scaling developers. Read the [disclaimer](DISCLAIMER.md) before installing.
 
 [![build](https://github.com/Echo-Storm/ls-addon-manager/actions/workflows/build.yml/badge.svg)](https://github.com/Echo-Storm/ls-addon-manager/actions/workflows/build.yml)
-&nbsp; **0.9.12**, on the way to 1.0 ([roadmap](ROADMAP.md)) &nbsp;·&nbsp; Lossless Scaling 3.2.2.0 &nbsp;·&nbsp; Windows 10 or 11, x64
+&nbsp; **0.9.15**, on the way to 1.0 ([roadmap](ROADMAP.md)) &nbsp;·&nbsp; Lossless Scaling 3.2.2.0 &nbsp;·&nbsp; Windows 10 or 11, x64
 
 > [!TIP]
-> **New in 0.9.12:** the **XeSS Upscaler** (Intel XeSS on any card with Shader Model 6.4), and a release half the size.
-> **0.9.10:** the upscalers run HDR games in DLSS's and FSR's own HDR mode, so highlights come out as bright as the game made them.
+> **New in 0.9.15:** Neural Rendering in HDR without the neon orange and cyan in bright areas.
+> **0.9.14:** the upscalers in motion, a very big improvement: much less trailing and smearing while you walk and turn, no flicker at the
+> screen's own size with DLSS (the new **Auto** model), and all three now beat a plain stretch in a fast turn, for 3-4 ms a frame at 4K.
 > Everything else is in the [changelog](CHANGELOG.md).
 
 <p align="center"><img src="docs/images/shf-original.jpg" alt="Silent Hill f through Lossless Scaling, the original picture" width="100%"></p>
@@ -103,7 +104,7 @@ Lossless Scaling wait.
 - **Compare while you play:** before / after, a split view, and before / after pictures (see [Hotkeys](#hotkeys)).
 - **Auto quality** keeps the model within a time budget; a **compatibility test** tries the model on your card before you play.
 
-About 5 ms a frame on an RTX 4070 Ti SUPER with a 1912x1080 model input. [The addon's README](addons/DLSS5NR01/README.md) has the details.
+About 5 to 9 ms a frame on an RTX 4070 Ti SUPER with a 1912x1080 model input (8.5 ms at 4K in World of Warcraft). [The addon's README](addons/DLSS5NR01/README.md) has the details.
 
 <p align="center"><img src="docs/images/hud-editor.png" alt="HUD areas drawn on a snapshot of World of Warcraft: Forever" width="100%"></p>
 
@@ -120,28 +121,30 @@ the motion between them, for a steadier, more detailed picture. The game needs n
 | | DLSS | FSR | XeSS |
 |---|---|---|---|
 | Runs on | NVIDIA RTX | any DirectX 12 card | any card with Shader Model 6.4 (Intel Arc, NVIDIA, AMD) |
-| Versions | model K (DLSS 4, default), M (DLSS 4.5) or E (DLSS 3) | FSR 3.1.4 (AMD's, signed) or FSR 4.1.1b (the OptiScaler team's build, on any card) | XeSS 2.0.2 (Intel's, signed) |
+| Versions | **Auto** (the default: model E at the screen's own size, L when upscaling), or K, L, J (DLSS 4), M (DLSS 4.5), E (DLSS 3) | FSR 3.1.4 (AMD's, signed) or FSR 4.1.1b (the OptiScaler team's build, on any card) | XeSS 2.0.2 (Intel's, signed) |
 | Good at | smoothing edges | FSR 3: low cost, crisp text; FSR 4: motion | on Intel Arc it runs on the card's matrix units |
 | Sharpening | ours | AMD's RCAS, ours above it | ours |
 
-**Which one?** On an NVIDIA RTX card, try DLSS and FSR 4. On any other card, FSR, and XeSS on Intel Arc. XeSS is new in 0.9.12 and not yet tried in a game.
+**Which one?** On an NVIDIA RTX card, try DLSS and FSR 4. On any other card, FSR, and XeSS on Intel Arc. All three are tried in World of Warcraft.
 
 What all three do:
 - **Every presented frame**, real and generated, with frame generation on or off.
 - **HDR games** (scRGB and HDR10) in the upscaler's own HDR mode, highlights kept; *Frame encoding* overrides the automatic choice.
 - **4:3 and other window shapes**, upscaled into the part of the screen Lossless Scaling uses, borders left alone.
+- **Steady in fast motion:** Lossless Scaling gives an upscaler none of the camera jitter a game gives it, so in motion its memory of
+  earlier frames only trails; where the picture moves, ours leans on the new frame (**Lean from** sets from how much motion).
 - **Stability** (less shimmer on wires and leaves), **edge smoothing** for games without anti-aliasing, and **sharpening** well past the upscaler's own.
 - **Colour and tone** (vibrance, saturation, shadows, highlights, brightness, contrast, gamma), applied before upscaling, so they cost nothing.
 - **Settings per game**, which come back when the game takes focus.
 - **Before / after** against NIS while you play, and a line of live numbers.
 
-What they cost on an RTX 4070 Ti SUPER, everything included:
+What they cost on an RTX 4070 Ti SUPER, everything included (the 1:1 row: 0.9.14, live in World of Warcraft, the motion estimate included):
 
-| | DLSS (model K) | FSR 3.1 | XeSS |
+| | DLSS | FSR 3.1 | XeSS |
 |---|---|---|---|
 | 1920x1080 -> 3840x2160 | | about 1.5 ms | not measured yet |
 | 2560x1440 -> 3840x2160 | about 2.4 ms | about 1.85 ms | not measured yet |
-| 3840x2160 at 1:1 (anti-aliasing) | about 3.2 ms | about 2.2 ms | not measured yet |
+| 3840x2160 at 1:1 (anti-aliasing) | about 4.2 ms (model E) | about 3.3-3.7 ms | about 2.7-2.8 ms |
 
 FSR 4 costs more than FSR 3.1; the panel's status line shows what it takes on your card. If the game has its own anti-aliasing (MSAA), switch it on: it
 draws what no upscaler can put back. The [upscalers' guide](addons/DLSS5NR01/docs/upscalers.md) covers every setting.
@@ -200,7 +203,7 @@ clashes in your game, change it in the addon's *Compare and hotkeys* section.
 | Ctrl+Shift+F2 / F3 | Sharpening down / up | every addon |
 | Ctrl+Shift+F4 | Before / after pictures: two PNGs of the same moment, with and without the addon | every addon |
 | Ctrl+Shift+F10 | The next saved look | Neural Rendering |
-| Ctrl+Shift+F1 | Save the recording (the last few seconds, with *Recording* on) | every addon |
+| Ctrl+Shift+F1 | Save the recording (the last few seconds, with *Recording* on in that addon: each addon has its own) | every addon |
 | Home | ReShade input passthrough on and off | the manager |
 
 ## Updates
@@ -228,8 +231,9 @@ That check, and a download you ask for, are the only times the manager goes onli
 | FSR 4 looks wrong, costs too much or does not start | Set *FSR version* back to **FSR 3.1.4** in the FSR Upscaler's panel. A chosen file that goes missing falls back to the shipped one by itself. |
 | An addon says its runtime "stopped responding" | Lossless Scaling carries on without the addon. Choose another runtime with **+** in the Runtimes list, restart Lossless Scaling, and send us the addon's log. |
 | An HDR game looks washed out, too dark or too bright | Set **Frame encoding** (the bottom of the Upscaling section) to HDR or SDR by hand, and tell us which it needed. |
+| Neural Rendering turns bright areas neon orange or cyan in HDR | Fixed in 0.9.15: update. |
 | Windowed mode does nothing | Restart Lossless Scaling after switching it on: its virtual display must exist before Lossless Scaling starts. |
-| Something looks wrong in a game | Turn on *Recording* in the addon's panel, make it happen, press **Ctrl+Shift+F1**, and attach the `.lsrec` file (in `Videos\Lossless Scaling`) to your report. |
+| Something looks wrong in a game | Turn on *Recording* in the panel of the addon that shows it (each addon has its own), make it happen, press **Ctrl+Shift+F1**, and attach the `.lsrec` file (in `Videos\Lossless Scaling`) to your report. |
 | Anything else | See the [questions and answers](docs/faq.md). To report a bug, make a **diagnostics file** on the Settings tab. To undo everything, run Setup and choose **Uninstall**. |
 
 <details>

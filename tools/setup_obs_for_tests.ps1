@@ -3,7 +3,7 @@
 #   * the whole display (Display Capture, not Game Capture: that would take the game's window without Lossless Scaling's picture),
 #     at the display's own size and 60 fps;
 #   * NVIDIA NVENC AV1 at CQP 16 (close to lossless: compression must not hide flicker or make its own), MKV (a crash keeps the file);
-#   * a replay buffer of the last 30 s, saved with F1: the addons' own save-recording key, so one press keeps both, the same moment;
+#   * a replay buffer of the last 30 s, saved with Ctrl+Shift+F1: the addons' own save-recording key, so one press keeps both, the same moment;
 #   * files in %USERPROFILE%\Videos\Lossless Scaling\OBS, beside the addons' recordings (not a OneDrive Videos folder).
 # Refuses while OBS runs (it would overwrite the files on exit). Rerunning rewrites only the "LS Addon Tests" files.
 #   powershell -File tools\setup_obs_for_tests.ps1 [-Launch] [-Width 3840] [-Height 2160] [-Fps 60] [-Cqp 16] [-ReplaySeconds 30] [-SaveKey F1]
@@ -33,7 +33,7 @@ if ($true) {
     $profileDir = Join-Path $cfg "basic\profiles\$name"
     New-Item -ItemType Directory -Force $profileDir | Out-Null
     $esc = $videos.Replace('\', '\\')
-    $hotkey = '{"ReplayBuffer.Save":[{"key":"OBS_KEY_' + $SaveKey + '"}]}'
+    $hotkey = '{"ReplayBuffer.Save":[{"key":"OBS_KEY_' + $SaveKey + '","control":true,"shift":true}]}'   # Ctrl+Shift+<key>, as the addons' save key
     $ini = @"
 [General]
 Name=$name
@@ -102,10 +102,10 @@ ReplayBuffer=$hotkey
 "@
     [IO.File]::WriteAllText((Join-Path $cfg "basic\scenes\$name.json"), $collection, $utf8)
     Write-Host "OBS set up: profile and scene collection '$name' (the owner's own are untouched)."
-    Write-Host "  ${Width}x$Height at $Fps fps, NVENC AV1 CQP $Cqp, MKV, replay buffer $ReplaySeconds s saved with $SaveKey, into $videos"
+    Write-Host "  ${Width}x$Height at $Fps fps, NVENC AV1 CQP $Cqp, MKV, replay buffer $ReplaySeconds s saved with Ctrl+Shift+$SaveKey, into $videos"
 }
 if ($Launch) {
     if (Get-Process obs64 -ErrorAction SilentlyContinue) { Write-Host 'OBS is already running.'; return }
     Start-Process -FilePath $obs -WorkingDirectory (Split-Path $obs) -ArgumentList @('--profile', "`"$name`"", '--collection', "`"$name`"", '--startreplaybuffer', '--minimize-to-tray', '--disable-shutdown-check')
-    Write-Host "OBS started on '$name' with the replay buffer running (in the tray). $SaveKey saves the last $ReplaySeconds s."
+    Write-Host "OBS started on '$name' with the replay buffer running (in the tray). Ctrl+Shift+$SaveKey saves the last $ReplaySeconds s."
 }

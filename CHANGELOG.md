@@ -1,5 +1,21 @@
 # Changelog
 
+## 0.9.15 (2026-09-28)
+
+A fix for Neural Rendering in HDR.
+
+- **No more neon orange and cyan with Neural Rendering in HDR** (issue #3, and likely #1's "too bright"). Since 0.9.9 the curve that
+  takes an HDR frame into Neural Rendering's view and back rolls highlights off logarithmically (so the upscalers keep them); its
+  inverse is steep near the top, so where the model brightened a colour in one channel, that channel alone came back at over a thousand
+  nits: fluorescent orange or cyan in bright areas, reflections and highlights. The model's change now never lifts a channel above 1.35
+  times the SDR white, unless the game's own pixel was brighter there already (close to how 0.9.8 behaved). Windows Auto HDR, scRGB and
+  HDR10 alike. Tested: the HDR host tests (scRGB and HDR10).
+- **Neural Rendering's temporal smoothing** defaults to 0.4 (0.6 in 0.9.14 was too much; a saved value is kept).
+- **The save-recording key** says when the recorder is off in the addon that answered, and where to switch it on: each addon has its
+  own recorder (it said "nothing recorded yet").
+- **Tools:** `tools/setup_obs_for_tests.ps1` sets OBS Studio up for recording what the addons show (the whole display, NVENC AV1 near
+  lossless, a replay buffer saved with the addons' own save key).
+
 ## 0.9.14 (2026-09-28)
 
 The upscalers in motion: a very big improvement. Less trailing and smearing while you walk and turn, no flicker at 1:1, and all three
