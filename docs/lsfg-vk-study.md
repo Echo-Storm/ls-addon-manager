@@ -82,3 +82,18 @@ on a single-channel R16F pyramid. LSFG matches several feature channels per pixe
    replace the distrust heuristic in the lean pass and feed the guard in frame generation.
 
 The upscalers gain from 1 and 2 as well: their "Steady in fast motion" distrust mask and lean pass come from this estimator.
+
+### Step 1 tried (2026-09-27): the zero-mean block cost
+
+`FlowEstimator::SetMeanWeight` (and `meanweight=N`, percent, in `nr_sreval` and `nr_fgeval`): below 100 the blocks' shape is compared
+with their average brightness taken out, and the brightness difference counts only that share. At 100 (the default) it gives exactly
+the old scores. On the Silent Hill f recording (a turn, frames 60-99, and its start, 0-39; 40 frames, shrunk 1.5x):
+
+| | upscaled | coarse | steady |
+|---|---|---|---|
+| DLSS L, turn, 100 / 25 / 0 | 32.82 / 32.84 / 32.86 | 43.18 / 43.29 / 43.33 | 30.11 / 30.12 / 30.14 |
+| FSR, turn, 100 / 0 | 33.44 / 33.44 | 45.47 / 45.46 | 30.59 / 30.59 |
+| FSR, start, 100 / 0 | 34.45 / 34.44 | 47.64 / 47.55 | 31.58 / 31.57 |
+
+Neutral to slightly better: this recording has no lighting changes, which is what the zero-mean cost is for. Default left at 100 until
+a recording with light changes (World of Warcraft spell effects, a flash, a fade) shows a gain. Next: step 2, the gradient channel.

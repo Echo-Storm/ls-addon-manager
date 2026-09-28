@@ -631,6 +631,7 @@ int main(int argc, char** argv) {
     FlowEstimator est;
     if (!est.Init(g.dev, [](const char* m) { printf("  %s\n", m); }) || !est.Ensure(W, H)) { printf("the motion estimate could not start\n"); return 4; }
     if (const int cap = Arg(argc, argv, "straycap", -1); cap >= 0) est.SetStrayCap(cap == 0 ? 1e9f : static_cast<float>(cap));   // straycap=N (0: uncapped, as before)
+    if (const int mw = Arg(argc, argv, "meanweight", -1); mw >= 0) est.SetMeanWeight(mw / 100.0f);   // meanweight=N: percent (100: the plain difference)
 
     // textures: the kept frame (read by the estimate and the generator), the motion vectors and the distrust mask, a flat depth
     ID3D12Resource* cur = g.Texture(W, H, DXGI_FORMAT_R8G8B8A8_UNORM, false, D3D12_RESOURCE_STATE_COPY_DEST);

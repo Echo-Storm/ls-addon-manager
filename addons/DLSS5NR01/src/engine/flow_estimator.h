@@ -56,6 +56,8 @@ public:
     // From how fast (pixels a frame, the frame's own) the distrust mask rises, fully at twice that: the upscaler leans on the current frame in
     // fast motion. 0: off.
     void SetFastMotion(float pixels) { m_fastMotion = pixels; }
+    // how much the blocks' difference in average brightness counts in a match (1: all of it, the plain difference; below: the shape counts more)
+    void SetMeanWeight(float weight) { m_meanWeight = weight; }
     void SetTimestampFrequency(uint64_t f) { m_timestampFreq = f; }
     // The GPU time of each stage (the pyramid, the search, the median, every pixel), averaged since the last call; false without any.
     bool TakeStageTimes(double ms[4]);
@@ -91,7 +93,7 @@ private:
     ID3D12QueryHeap* m_stamps = nullptr; ID3D12Resource* m_stampReadback = nullptr; uint64_t m_timestampFreq = 0;
     bool m_stampsPending[kSlots] = {};
     double m_stageSum[4] = {}; uint64_t m_stageCount = 0;
-    int m_current = 0; bool m_havePrevious = false; float m_strayCap = 2.0f; float m_fastMotion = 0.0f;
+    int m_current = 0; bool m_havePrevious = false; float m_strayCap = 2.0f; float m_fastMotion = 0.0f; float m_meanWeight = 1.0f;
     // running totals for TakeAverages
     double m_sumCost = 0, m_sumX = 0, m_sumY = 0, m_sumLength = 0, m_blocks = 0, m_sumDistrust = 0, m_pixels = 0; uint64_t m_frames = 0;
     double m_lastLength = 0;   // the average vector length of the frame read last (LastLength)

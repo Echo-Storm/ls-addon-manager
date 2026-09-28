@@ -15,7 +15,7 @@ template <class T> void SafeRelease(T*& p) { if (p) { p->Release(); p = nullptr;
 const char* const kCommonHlsl = R"(
 RWByteAddressBuffer uStats : register(u7);
 SamplerState sLinear : register(s0);
-cbuffer C : register(b0) { uint2 size; uint2 grid; uint2 coarse; uint radius; uint flags; float lambda; float bias; float stability; float strayCap; float fastMotion; uint pad0; uint pad1; uint pad2; };
+cbuffer C : register(b0) { uint2 size; uint2 grid; uint2 coarse; uint radius; uint flags; float lambda; float bias; float stability; float strayCap; float fastMotion; float meanWeight; uint pad1; uint pad2; };
 )";
 
 // the frame's brightness at its own size (and the statistics cleared for this frame). An HDR frame (radius: its encoding, lambda: the SDR
@@ -80,21 +80,29 @@ static int2 origin;
 // surroundings), but never holds a block to a guess that is plainly wrong for it. Uncapped, a character the camera follows in a fast turn (the
 // guess: the background sweeping past, 170 px) paid more for "not moving" than its dark, faint texture could win back, and took random vectors.
 float Stray(float2 d) { return lambda * min(length(d), strayCap); }
+// meanWeight below 1: the block's shape is compared with its average brightness taken out (a light change, a flash, a fade or a shadow
+// passing over no longer pulls the match toward whatever is equally bright), and the brightness difference counts only meanWeight as much.
+// At 1, the plain difference, exactly as before.
+static float cMean, cMeanHalf;   // this block's average: all 64 pixels, and the checkerboard's 32
 float Sad(int2 v) {   // all 64 pixels of the 8x8 (the final answer and its fraction of a pixel)
     const int2 last = int2(size) - 1;
+    float p[64], mean = 0;
+    [unroll] for (int k = 0; k < 64; ++k) { p[k] = tPrev.Load(int3(clamp(origin + int2(k & 7, k >> 3) + v, int2(0, 0), last), 0)); mean += p[k]; }
+    mean *= 1.0 / 64.0;
+    const float shift = meanWeight < 1.0 ? cMean - mean : 0.0;
     float s = 0;
-    [loop] for (int j = 0; j < 8; ++j) {
-        [unroll] for (int i = 0; i < 8; ++i) s += abs(cw[j * 8 + i] - tPrev.Load(int3(clamp(origin + int2(i, j) + v, int2(0, 0), last), 0)));
-    }
-    return s * (1.0 / 64.0);
+    [unroll] for (int k = 0; k < 64; ++k) s += abs(cw[k] - p[k] - shift);
+    return s * (1.0 / 64.0) + (meanWeight < 1.0 ? meanWeight * abs(shift) : 0.0);
 }
 float SadHalf(int2 v) {   // half of them, as a checkerboard (the search: half the reads, with no stripe the pattern could hide in)
     const int2 last = int2(size) - 1;
+    float p[32], mean = 0;
+    [unroll] for (int k = 0; k < 32; ++k) { const int j = k >> 2, i = (k & 3) * 2 + (j & 1); p[k] = tPrev.Load(int3(clamp(origin + int2(i, j) + v, int2(0, 0), last), 0)); mean += p[k]; }
+    mean *= 1.0 / 32.0;
+    const float shift = meanWeight < 1.0 ? cMeanHalf - mean : 0.0;
     float s = 0;
-    [loop] for (int j = 0; j < 8; ++j) {
-        [unroll] for (int i = (j & 1); i < 8; i += 2) s += abs(cw[j * 8 + i] - tPrev.Load(int3(clamp(origin + int2(i, j) + v, int2(0, 0), last), 0)));
-    }
-    return s * (1.0 / 32.0);
+    [unroll] for (int k = 0; k < 32; ++k) { const int j = k >> 2, i = (k & 3) * 2 + (j & 1); s += abs(cw[j * 8 + i] - p[k] - shift); }
+    return s * (1.0 / 32.0) + (meanWeight < 1.0 ? meanWeight * abs(shift) : 0.0);
 }
 [numthreads(8, 8, 1)]
 void main(uint3 id : SV_DispatchThreadID) {
@@ -102,6 +110,9 @@ void main(uint3 id : SV_DispatchThreadID) {
     const int2 last = int2(size) - 1;
     origin = int2(id.xy) * 4 - 2;
     [unroll] for (int j = 0; j < 8; ++j) [unroll] for (int i = 0; i < 8; ++i) cw[j * 8 + i] = tCur.Load(int3(clamp(origin + int2(i, j), int2(0, 0), last), 0));
+    cMean = 0; cMeanHalf = 0;
+    [unroll] for (int k = 0; k < 64; ++k) { cMean += cw[k]; if ((((k >> 3) + k) & 1) == 0) cMeanHalf += cw[k]; }
+    cMean *= 1.0 / 64.0; cMeanHalf *= 1.0 / 32.0;
 
     float2 predicted = float2(0, 0);
     int2 best = int2(0, 0);
@@ -268,7 +279,7 @@ void main(uint3 id : SV_DispatchThreadID, uint index : SV_GroupIndex) {
 }
 )";
 
-struct Constants { uint32_t w, h, gw, gh, cw, ch, radius, flags; float lambda, bias, stability, strayCap, fastMotion; uint32_t pad[3]; };
+struct Constants { uint32_t w, h, gw, gh, cw, ch, radius, flags; float lambda, bias, stability, strayCap, fastMotion, meanWeight; uint32_t pad[2]; };
 constexpr float kLambda = 0.003f;   // match cost per pixel of straying from the coarser size's guess
 constexpr float kBias = 0.004f;     // a pixel's extra cost for another block's vector (or none) over its own
 
@@ -471,7 +482,7 @@ void FlowEstimator::Record(ID3D12GraphicsCommandList* list, int slot, ID3D12Reso
             ID3D12Resource* const srv[4] = { m_luma[cur][k], m_luma[prev][k], coarser ? m_grid[k + 1] : nullptr, coarser ? nullptr : m_global };
             const DXGI_FORMAT fmt[4] = { R16, R16, RG16, coarser ? NONE : DXGI_FORMAT_R32_FLOAT };
             Constants c{ m_lw[k], m_lh[k], m_gw[k], m_gh[k], coarser ? m_gw[k + 1] : static_cast<uint32_t>(kGlobalRadius), coarser ? m_gh[k + 1] : 0u, coarser ? 2u : 4u,
-                         (coarser ? 1u : 4u) | (k == 1 ? 2u : 0u), kLambda, kBias, 0.0f, m_strayCap };
+                         (coarser ? 1u : 4u) | (k == 1 ? 2u : 0u), kLambda, kBias, 0.0f, m_strayCap, 0.0f, m_meanWeight };
             run(Search, srv, fmt, m_grid[k], RG16, c, m_gw[k], m_gh[k], true);
         }
         stamp(2);

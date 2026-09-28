@@ -4,7 +4,7 @@
 // given is wrong (a character a turning camera follows, background just uncovered) that history trails: the pictures show it.
 //
 //   nr_sreval <recording.lsrec> <output folder> [first=N] [count=N] [shrink=150] [backend=fsr|dlss|xess] [show=N]
-//             [straycap=N] [fast=N] [mask=0] [mvscale=N] [motion=none]
+//             [straycap=N] [fast=N] [mask=0] [mvscale=N] [motion=none] [meanweight=100]
 //
 // shrink: the ratio in hundredths (150: 1440p from 960p, as 4K from 1440p). show=N: the N worst frames kept as pictures (the frame | the
 // upscaler's | plainly stretched). The checks: straycap=N, the motion estimate's cap on straying from its coarser guess (0: none); fast=N, the
@@ -69,7 +69,7 @@ void ResizeBilinear(const std::vector<uint8_t>& src, uint32_t sw, uint32_t sh, s
 
 int main(int argc, char** argv) {
     setvbuf(stdout, nullptr, _IONBF, 0);
-    if (argc < 3) { printf("usage: nr_sreval <recording.lsrec> <output folder> [first=N] [count=N] [shrink=150] [backend=fsr|dlss|xess] [show=N] [straycap=N] [fast=N] [mask=0] [mvscale=N] [motion=none]\n"); return 2; }
+    if (argc < 3) { printf("usage: nr_sreval <recording.lsrec> <output folder> [first=N] [count=N] [shrink=150] [backend=fsr|dlss|xess] [show=N] [straycap=N] [fast=N] [mask=0] [mvscale=N] [motion=none] [meanweight=100]\n"); return 2; }
     nr::lsrec::Reader rec; std::string error;
     if (!rec.Open(Wide(argv[1]), &error)) { printf("%s: %s\n", argv[1], error.c_str()); return 2; }
     std::wstring outDir = Wide(argv[2]);
@@ -126,6 +126,7 @@ int main(int argc, char** argv) {
     const std::wstring runtimeDir = exeDir + (backend == SrEngine::Backend::Fsr ? L"\\fsr" : backend == SrEngine::Backend::Xess ? L"\\xess" : L"\\dlss");
     if (!eng.Init(ad.AdapterLuid, exeDir, runtimeDir, [](const char* m) { printf("  %s\n", m); }, backend)) { printf("the upscaler could not start: %s\n", eng.LastError().c_str()); return 4; }
     if (const int cap = Arg(argc, argv, "straycap", -1); cap >= 0) eng.SetStrayCap(cap == 0 ? 1e9f : static_cast<float>(cap));
+    if (const int mw = Arg(argc, argv, "meanweight", -1); mw >= 0) eng.SetMeanWeight(mw / 100.0f);   // meanweight=N: percent (100: the plain difference)
     eng.SetMotionScale(Arg(argc, argv, "mvscale", 100) / 100.0f);
     eng.SetNoMask(Arg(argc, argv, "mask", 1) == 0);
     if (const int fast = Arg(argc, argv, "fast", -1); fast >= 0) eng.SetFastMotion(static_cast<float>(fast));
