@@ -42,7 +42,7 @@ struct NrParams {
     // the model's side
     float workingScale = 0.35f;   // the frame is shrunk by this before the model sees it: the one setting that decides the cost
     uint32_t passes = 1;          // model runs per frame (1..4), each taking the one before's result as its colour
-    float deltaSmooth = 0.0f;     // blend of the previous delta (moved along the motion) into the new one, 0 = off, below 1
+    float deltaSmooth = 0.6f;     // blend of the previous delta (moved along the motion) into the new one, 0 = off, below 1 (on since 0.9.14: the model flickers in motion)
 
     // the compose, on the D3D11 side when a frame is presented (compose11)
     float composeIntensity = 1.0f;// how much of the delta lands

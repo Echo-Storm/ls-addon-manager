@@ -89,11 +89,19 @@ void CSDeltaSmooth(uint3 id : SV_DispatchThreadID) {
             const float3 d = tModel[q].rgb - tProxy[q].rgb;
             lo = min(lo, d); hi = max(hi, d);
         }
-        const float3 history = clamp(tHistory.SampleLevel(sLinear, before, 0).rgb, lo, hi);
+        // Where the frame itself still matches there (its brightness now against the brightness kept with the history, moved along the
+        // motion), the history is the same surface: kept whole, so the model's change stops flickering while the camera moves. Where it
+        // does not (what came into view, motion the estimate got wrong), the history is held in this frame's range and fades in fast
+        // motion, as before (against trailing).
+        const float4 kept = tHistory.SampleLevel(sLinear, before, 0);
+        const float lumaNow = dot(tProxy[id.xy].rgb, float3(0.299, 0.587, 0.114));
+        const bool inside = all(before >= 0.0) && all(before <= 1.0);
+        const float agree = inside ? saturate(1.0 - abs(lumaNow - kept.a) / 0.05) : 0.0;
+        const float3 history = lerp(clamp(kept.rgb, lo, hi), kept.rgb, agree);
         const float fast = flowScale > 0.0 ? saturate((length(mv) - flowScale) / flowScale) : 0.0;
-        delta = lerp(delta, history, saturate(smoothAmount) * (1.0 - fast));
+        delta = lerp(delta, history, saturate(smoothAmount) * lerp(1.0 - fast, 1.0, agree));
     }
     uOut[id.xy] = float4(delta, 0);
-    uHistory[id.xy] = float4(delta, 0);
+    uHistory[id.xy] = float4(delta, dot(tProxy[id.xy].rgb, float3(0.299, 0.587, 0.114)));   // the frame's brightness, for the next run's check
 }
 )HLSL";
