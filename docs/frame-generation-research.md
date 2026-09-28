@@ -127,6 +127,15 @@ measured GPU time (3.4 ms at 1440p, motion estimate included; the same frames as
 now says how long Lossless Scaling's thread is held and how soon it comes back. Still to do: a presenter of our own (the hold for half a frame
 is still on Lossless Scaling's thread; the clean way is replacement back buffers, as FidelityFX's own swap chain does).
 
+## The upscalers in fast turns: the lean pass (2026-09-27, night)
+
+DLSS 4's transformer presets (J, K, M) ignore the bias-current-colour mask entirely (nr_sreval preset=N, mask on and off: identical); the
+old CNN preset E reads it but scores worse with it. So a pass of our own after every upscaler blends its picture toward this frame upscaled
+plainly (Catmull-Rom), by the distrust mask (untrusted motion, and fast motion from 0.5 % of the width a frame). A 30-frame turn shrunk
+1.5x, at a quarter of the size (plain stretch 43.3 dB): DLSS 36.8 -> 44.2, FSR 3.1 41.7 -> 45.6 (on top of its reactive mask), XeSS
+40.2 -> 46.2; full scores all above the stretch too (32.6 / 32.9 / 33.0 against 32.0); a slow pan unchanged. Under "Steady in fast motion".
+Preset J beats K in turns (37.6 against 36.8 before the lean). Open: the slow-pan drift of FSR and DLSS (not XeSS) in foliage.
+
 ## FSR 3.1 frame generation from the inside (AMD's MIT-licensed source, FidelityFX SDK)
 
 - The frame between is built by scattering each pixel of the newer frame half way along its vector; where two land on one pixel, the
