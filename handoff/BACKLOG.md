@@ -26,7 +26,8 @@ item is done (move it to the changelog) or when a new one comes up. Dates are wh
 
 ## Neural Rendering
 
-- The owner wants it improved (2026-09-28; what bothers them most still to be said: look, cost, or both).
+- **Flickers "like crazy" while moving: the weakest link now** (owner, 2026-09-28). First try: smoothing keeps its history where the frame matches along the motion, on by default at 0.6 (saved settings keep 0). Not confirmed as the cause. If it does not help: record with NR on, build `nr_nreval` (the change's stability frame to frame), check the compose's one-frame-old result moved by its motion (a.offset) and the half-size model input.
+- Earlier: the owner wants it improved (look and cost).
 - Cost: in World of Warcraft at 4K the model takes about 8.5 ms a frame at half size (1912x1080), over the automatic budget (5 ms), and
   the automatic size is already at its floor (0.50): "auto: model resolution 0.50 -> 0.50". Frames over 20 ms: 54-82 %.
 - Ideas: a lower floor for the automatic size (0.4 / 0.33) with the compose's upsampling of the change; run the model every other frame
