@@ -224,7 +224,7 @@ That check, and a download you ask for, are the only times the manager goes onli
 | The manager does not appear | It may be hidden: look under the ^ arrow by the clock, or press Ctrl+Shift+F12. If not, a Lossless Scaling update may have put its own `Lossless.dll` back: run Setup and choose **Repair**. |
 | Setup says Lossless Scaling is running | Close it (also from its notification-area icon), then press **Check again**. |
 | Setup does not find your Lossless Scaling folder | Choose **Use a different folder...** and pick the folder that holds `LosslessScaling.exe`. Setup remembers it. |
-| SmartScreen or your antivirus objects to a file | The files are not signed. If your antivirus removes `nr_selftest.exe`, only *Test compatibility* stops working. |
+| SmartScreen or your antivirus objects to a file, or flags the zip as a trojan | The files are not signed, and a new unsigned file that replaces a DLL looks suspicious to a cloud check; it is a false positive. [What to do](docs/antivirus.md): compare the SHA-256 on the release page, build it yourself, or allow it. If your antivirus removes `nr_selftest.exe`, only *Test compatibility* stops working. |
 | Neural Rendering says the model file is missing | It needs your own `nvngx_dlssnr.dll` next to `LosslessScaling.exe`: use **Browse for the model file...**, then **Test compatibility**. |
 | An upscaler is on but the picture looks like NIS | Choose **NIS** as the Scaling Type in Lossless Scaling. The panel's status line says what the upscaler is doing. |
 | The DLSS Upscaler names a card that is not NVIDIA's | Lossless Scaling runs on that card. Set its **Preferred GPU** to your NVIDIA card, or use the FSR or XeSS Upscaler, which run on any card. |
