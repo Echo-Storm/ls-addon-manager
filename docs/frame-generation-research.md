@@ -319,3 +319,25 @@ An upscaler user reported: sharper while moving, softer when standing still. Tha
 (detail as a share of the game's own full-size frame; a plain stretch: 6.7 / 6.4 against the upscaler's 6.76 / 6.75 and the resample's 7.40 / 7.59.)
 So at rest the temporal upscaler is softer than the plain resample it replaces: no jitter, nothing to accumulate. "Sharpness at rest" (setting
 `scalerLeanRest`, `SrEngine::SetLeanRest`, the lean's floor) lets the person choose; default 0 (unchanged).
+
+## An oracle for the motion (2026-09-29): accuracy is not what limits the upscalers
+
+Question: is it the accuracy of our real-time motion that stops DLSS, FSR and XeSS from finding detail in Lossless Scaling's frames, or is there nothing to
+find without the game's camera jitter? `nr_sreval oracle=1` gives them the motion between the recording's own full-size frames (`tools/oracle_flow.h`:
+hierarchical 8x8 block matching, coarse to fine, sub-pixel at the end; the upscaler never sees those frames) instead of our estimate, with no lean.
+Silent Hill f, the start of the clip, 2x from **point-sampled** input (what a game without anti-aliasing renders at a lower size: aliased, so a temporal
+method has something to unfold), upscaled dB against the full-size frame (a plain stretch: 31.29):
+
+| motion given | DLSS (L) | FSR 3.1 | XeSS |
+|---|---|---|---|
+| none | 30.87 | 26.93 | 25.26 |
+| our estimate | 30.83 | | |
+| **oracle** | 31.04 | 29.97 | 30.98 |
+| oracle, sign flipped | 30.98 | 29.17 | 30.58 |
+
+Motion matters a great deal to FSR and XeSS (none: 25 to 27 dB; right: 30 to 31), and our estimate is within 0.2 dB of the oracle for DLSS. But **not one of the
+three gets above a plain stretch of the aliased input, even with (near-)perfect motion**. DLSS barely reads the history at all (the flipped sign changes
+0.06 dB). Conclusion: **the direction "better motion so the temporal upscalers find real detail" is closed** for these engines on Lossless Scaling's frames: they have
+nothing to accumulate (no jitter; the frames sit on the same pixel lattice) or reject what they get. What remains open is detail from somewhere else: a
+neural single-image super-resolution model as the moving/at-rest picture (BACKLOG, "ideas for real detail", 2), or a game that does supply jitter (none through
+Lossless Scaling). What the upscalers do give: anti-aliasing at rest and a steady picture; and, since 0.9.13, no trailing in motion.

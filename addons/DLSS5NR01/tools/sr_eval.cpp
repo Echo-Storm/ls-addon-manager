@@ -26,6 +26,7 @@
 #include "addon/lsrec.h"
 #include "engine/sr_engine.h"
 #include "eval_common.h"
+#include "oracle_flow.h"
 
 using namespace nr::eval;
 
@@ -103,10 +104,10 @@ int main(int argc, char** argv) {
     dev->CreateFence(0, D3D12_FENCE_FLAG_NONE, IID_PPV_ARGS(&fence));
     HANDLE event = CreateEventW(nullptr, FALSE, FALSE, nullptr);
     auto submit = [&] { list->Close(); ID3D12CommandList* l[] = { list }; queue->ExecuteCommandLists(1, l); queue->Signal(fence, ++fv); fence->SetEventOnCompletion(fv, event); WaitForSingleObject(event, INFINITE); };
-    auto texture = [&](uint32_t tw, uint32_t th, bool uav) {
+    auto texture = [&](uint32_t tw, uint32_t th, bool uav, DXGI_FORMAT fmt = DXGI_FORMAT_R8G8B8A8_UNORM) {
         D3D12_HEAP_PROPERTIES heap{}; heap.Type = D3D12_HEAP_TYPE_DEFAULT;
         D3D12_RESOURCE_DESC d{}; d.Dimension = D3D12_RESOURCE_DIMENSION_TEXTURE2D; d.Width = tw; d.Height = th; d.DepthOrArraySize = 1; d.MipLevels = 1; d.SampleDesc.Count = 1;
-        d.Format = DXGI_FORMAT_R8G8B8A8_UNORM; d.Flags = D3D12_RESOURCE_FLAG_ALLOW_SIMULTANEOUS_ACCESS | (uav ? D3D12_RESOURCE_FLAG_ALLOW_UNORDERED_ACCESS : D3D12_RESOURCE_FLAG_NONE);
+        d.Format = fmt; d.Flags = D3D12_RESOURCE_FLAG_ALLOW_SIMULTANEOUS_ACCESS | (uav ? D3D12_RESOURCE_FLAG_ALLOW_UNORDERED_ACCESS : D3D12_RESOURCE_FLAG_NONE);
         ID3D12Resource* r = nullptr; dev->CreateCommittedResource(&heap, D3D12_HEAP_FLAG_SHARED, &d, D3D12_RESOURCE_STATE_COMMON, nullptr, IID_PPV_ARGS(&r)); return r;
     };
     auto buffer = [&](UINT64 size, D3D12_HEAP_TYPE type, D3D12_RESOURCE_STATES state) {
@@ -115,6 +116,11 @@ int main(int argc, char** argv) {
         ID3D12Resource* r = nullptr; dev->CreateCommittedResource(&heap, D3D12_HEAP_FLAG_NONE, &d, state, nullptr, IID_PPV_ARGS(&r)); return r;
     };
     ID3D12Resource* in = texture(w, hh, false); ID3D12Resource* out = texture(W, H, true);
+    // oracle=1: the motion comes from the full-size frames (oracle_flow.h), not from our estimate: the flow the upscaler is given, as a texture
+    const bool oracle = Arg(argc, argv, "oracle", 0) != 0;
+    ID3D12Resource* flowTex = oracle ? texture(w, hh, false, DXGI_FORMAT_R16G16B16A16_FLOAT) : nullptr;
+    D3D12_PLACED_SUBRESOURCE_FOOTPRINT flowFp{}; UINT64 flowTotal = 0;
+    if (oracle) { D3D12_RESOURCE_DESC fd = flowTex->GetDesc(); UINT r2 = 0; UINT64 rb2 = 0; dev->GetCopyableFootprints(&fd, 0, 1, 0, &flowFp, &r2, &rb2, &flowTotal); }
     ID3D12Fence* copied = nullptr; ID3D12Fence* done = nullptr;
     dev->CreateFence(0, D3D12_FENCE_FLAG_SHARED, IID_PPV_ARGS(&copied)); dev->CreateFence(0, D3D12_FENCE_FLAG_SHARED, IID_PPV_ARGS(&done));
     if (!in || !out || !copied || !done) { printf("the shared textures or fences could not be made\n"); return 4; }
@@ -122,6 +128,7 @@ int main(int argc, char** argv) {
     D3D12_PLACED_SUBRESOURCE_FOOTPRINT inFp{}, outFp{}; UINT rows = 0; UINT64 rowBytes = 0, inTotal = 0, outTotal = 0;
     dev->GetCopyableFootprints(&inDesc, 0, 1, 0, &inFp, &rows, &rowBytes, &inTotal); dev->GetCopyableFootprints(&outDesc, 0, 1, 0, &outFp, &rows, &rowBytes, &outTotal);
     ID3D12Resource* upload = buffer(inTotal, D3D12_HEAP_TYPE_UPLOAD, D3D12_RESOURCE_STATE_GENERIC_READ);
+    ID3D12Resource* flowUpload = oracle ? buffer(flowTotal, D3D12_HEAP_TYPE_UPLOAD, D3D12_RESOURCE_STATE_GENERIC_READ) : nullptr;
     ID3D12Resource* readback = buffer(outTotal, D3D12_HEAP_TYPE_READBACK, D3D12_RESOURCE_STATE_COPY_DEST);
 
     // the engine, as the addon starts it (its own device on the same card), given our shared resources
@@ -157,7 +164,8 @@ int main(int argc, char** argv) {
     ID3D12Resource* inE = eng.OpenSharedTexture(hIn); ID3D12Resource* outE = eng.OpenSharedTexture(hOut);
     ID3D12Fence* copiedE = eng.OpenSharedFence(hCopied); ID3D12Fence* doneE = eng.OpenSharedFence(hDone);
     CloseHandle(hIn); CloseHandle(hOut); CloseHandle(hCopied); CloseHandle(hDone);
-    if (!inE || !outE || !copiedE || !doneE) { printf("the engine could not open the shared resources\n"); return 4; }
+    ID3D12Resource* flowE = oracle ? eng.OpenSharedTexture(share(flowTex)) : nullptr;
+    if (!inE || !outE || !copiedE || !doneE || (oracle && !flowE)) { printf("the engine could not open the shared resources\n"); return 4; }
     printf("%ls: %ux%u, %d frames from %d, shrunk to %ux%u and upscaled back by %s\n", Wide(argv[1]).c_str(), W, H, count, first, w, hh, backendName.c_str());
 
     struct Score { int frame; double up, plain, upCoarse, plainCoarse; std::vector<uint8_t> truth, picture, stretched; };
@@ -186,10 +194,27 @@ int main(int argc, char** argv) {
         D3D12_TEXTURE_COPY_LOCATION from{ upload, D3D12_TEXTURE_COPY_TYPE_PLACED_FOOTPRINT }; from.PlacedFootprint = inFp;
         list->CopyTextureRegion(&to, 0, 0, 0, &from, nullptr);
         barrier(in, D3D12_RESOURCE_STATE_COPY_DEST, D3D12_RESOURCE_STATE_COMMON);
+        if (oracle) {   // the motion between this full-size frame and the one before, for the upscaler's input size (zero for the first)
+            std::vector<float> vec;
+            if (i > 0 && !framePrev.empty()) nr::oracle::ToInputVectors(nr::oracle::Estimate(nr::oracle::FromRgba8(frame, W, H), nr::oracle::FromRgba8(framePrev, W, H)), W, H, w, hh, vec);
+            else vec.assign(static_cast<size_t>(w) * hh * 2, 0.0f);
+            const float sign = Arg(argc, argv, "oraclesign", 1) < 0 ? -1.0f : 1.0f;
+            uint8_t* m = nullptr; flowUpload->Map(0, nullptr, reinterpret_cast<void**>(&m));
+            for (uint32_t y = 0; y < hh; ++y) {
+                uint16_t* row = reinterpret_cast<uint16_t*>(m + flowFp.Offset + y * flowFp.Footprint.RowPitch);
+                for (uint32_t x = 0; x < w; ++x) { row[x * 4] = FloatToHalf(sign * vec[(static_cast<size_t>(y) * w + x) * 2]); row[x * 4 + 1] = FloatToHalf(sign * vec[(static_cast<size_t>(y) * w + x) * 2 + 1]); row[x * 4 + 2] = 0; row[x * 4 + 3] = 0; }
+            }
+            flowUpload->Unmap(0, nullptr);
+            barrier(flowTex, D3D12_RESOURCE_STATE_COMMON, D3D12_RESOURCE_STATE_COPY_DEST);
+            D3D12_TEXTURE_COPY_LOCATION fto{ flowTex, D3D12_TEXTURE_COPY_TYPE_SUBRESOURCE_INDEX }; fto.SubresourceIndex = 0;
+            D3D12_TEXTURE_COPY_LOCATION ffrom{ flowUpload, D3D12_TEXTURE_COPY_TYPE_PLACED_FOOTPRINT }; ffrom.PlacedFootprint = flowFp;
+            list->CopyTextureRegion(&fto, 0, 0, 0, &ffrom, nullptr);
+            barrier(flowTex, D3D12_RESOURCE_STATE_COPY_DEST, D3D12_RESOURCE_STATE_COMMON);
+        }
         submit();
         queue->Signal(copied, static_cast<uint64_t>(i) + 1);
         // the engine's run, on this thread (live, the engine's own thread runs it): the motion measured from the frames, no sharpening
-        eng.Run(inE, w, hh, DXGI_FORMAT_R8G8B8A8_UNORM, outE, W, H, DXGI_FORMAT_R8G8B8A8_UNORM, nullptr, 0, 0, 0.0f, 1.0f, !noMotion, static_cast<unsigned>(Arg(argc, argv, "preset", 0)), Arg(argc, argv, "sharpen", 0) / 100.0f, i == 0, false,
+        eng.Run(inE, w, hh, DXGI_FORMAT_R8G8B8A8_UNORM, outE, W, H, DXGI_FORMAT_R8G8B8A8_UNORM, flowE, flowE ? w : 0, flowE ? hh : 0, flowE ? 1.0f : 0.0f, 1.0f, !noMotion && !flowE, static_cast<unsigned>(Arg(argc, argv, "preset", 0)), Arg(argc, argv, "sharpen", 0) / 100.0f, i == 0, false,
                 copiedE, static_cast<uint64_t>(i) + 1, doneE, static_cast<uint64_t>(i) + 1);
         queue->Wait(done, static_cast<uint64_t>(i) + 1);
         alloc->Reset(); list->Reset(alloc, nullptr);

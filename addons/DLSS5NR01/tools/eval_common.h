@@ -113,6 +113,16 @@ inline double Detail(const std::vector<uint8_t>& p, uint32_t W) {
     return n ? sum / n : 0.0;
 }
 
+inline uint16_t FloatToHalf(float f) {   // round to nearest, no denormals: enough for motion vectors
+    uint32_t x; memcpy(&x, &f, 4);
+    const uint32_t sign = (x >> 16) & 0x8000u; int exp = static_cast<int>((x >> 23) & 0xFF) - 127 + 15; uint32_t man = x & 0x7FFFFFu;
+    if (exp <= 0) return static_cast<uint16_t>(sign);
+    if (exp >= 31) return static_cast<uint16_t>(sign | 0x7C00u);
+    uint32_t h = sign | (static_cast<uint32_t>(exp) << 10) | (man >> 13);
+    if (man & 0x1000u) ++h;
+    return static_cast<uint16_t>(h);
+}
+
 inline bool WriteBmp(const std::wstring& path, const std::vector<const std::vector<uint8_t>*>& tiles, uint32_t w, uint32_t h) {
     const uint32_t W = w * static_cast<uint32_t>(tiles.size()), rowBytes = W * 3, pad = (4 - rowBytes % 4) % 4;
     FILE* f = _wfopen(path.c_str(), L"wb"); if (!f) return false;
