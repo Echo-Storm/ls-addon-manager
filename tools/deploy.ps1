@@ -2,7 +2,8 @@
 #   * refuses while the game (WowB.exe, or whatever -Game names) is running: replacing files under a running session is how
 #     sessions get lost;
 #   * refuses while Lossless Scaling itself is running (it holds the DLLs open), unless -StopLS is given AND the game is not running;
-#   * backs the old file up into <LS folder>\backups\ (never deletes) with a timestamp before replacing it.
+#   * backs the old file up into <LS folder>\backups\ (never deletes) with a timestamp before replacing it;
+#   * host: if Lossless.dll is still Lossless Scaling's own, it is renamed Lossless_original.dll first (the manager needs it there).
 #   powershell -File deploy.ps1 -What host|nr|dlaa|fsr|xess|all [-StopLS] [-LsDir '<Lossless Scaling folder>']   (or set the LS_DIR environment variable) [-Game WowB]
 param(
     [Parameter(Mandatory = $true)][ValidateSet('host', 'nr', 'dlaa', 'fsr', 'xess', 'all')][string]$What,
@@ -42,6 +43,22 @@ $names = if ($What -eq 'all') { @('host', 'nr', 'dlaa', 'fsr', 'xess') } else { 
 foreach ($n in $names) {
     $it = $items[$n]
     if (-not (Test-Path $it.Src)) { Write-Host "[$n] not built: $($it.Src)"; continue }
+    if ($n -eq 'host' -and (Test-Path "$LsDir\Lossless.dll")) {
+        # Lossless Scaling's own Lossless.dll must become Lossless_original.dll before ours takes its name (the manager passes everything on to
+        # it, and Lossless Scaling does not start without it). A Lossless.dll that is Lossless Scaling's own (a fresh install, or after it
+        # updated itself over ours) is renamed; the old Lossless_original.dll, if any, goes to the backups.
+        if ((Get-Item "$LsDir\Lossless.dll").VersionInfo.ProductName -eq 'Lossless Scaling') {
+            New-Item -ItemType Directory -Force "$LsDir\backups" | Out-Null
+            if (Test-Path "$LsDir\Lossless_original.dll") { Move-Item "$LsDir\Lossless_original.dll" "$LsDir\backups\Lossless_original-$stamp.dll" }
+            Copy-Item "$LsDir\Lossless.dll" "$LsDir\backups\Lossless-original-$stamp.dll"
+            Move-Item "$LsDir\Lossless.dll" "$LsDir\Lossless_original.dll"
+            Write-Host "[host] Lossless Scaling's own Lossless.dll is now Lossless_original.dll"
+        }
+        elseif (-not (Test-Path "$LsDir\Lossless_original.dll")) {
+            Write-Host "[host] Lossless.dll here is not Lossless Scaling's own and there is no Lossless_original.dll: not deploying (Lossless Scaling would not start). Run Setup and choose Repair."
+            continue
+        }
+    }
     $files = @(@{ Src = $it.Src; Dst = $it.Dst })
     # an extra file goes next to the main one, or (given as @{ Src; Rel }) into a subfolder of it
     foreach ($e in @($it.Extra)) {
