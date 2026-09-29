@@ -54,6 +54,7 @@ has the graphics card to spare for it. A post-process anti-aliasing (FXAA, CMAA)
   leans on the new frame: from about 1 px a frame when upscaling (0.05 % of the frame's width) and from about 4 px at 4K at 1:1 (0.1 %). *Lean from*
   sets it by eye (0: automatic). On a recorded fast turn, upscaled 1.5x, this took DLSS from 43.2 to 47.2 dB (a plain stretch: 43.9),
   measured where trailing shows.
+- **Crisp edges when moving (test)** (off): the picture the upscaler leans on where the camera moves is the frame stretched to the screen; by default with a smooth filter (Catmull-Rom), with this on with AMD's FSR 1 edge-adaptive filter (EASU), which keeps diagonal and thin edges cleaner and crisper. On recordings the two score the same on shimmer and detail (`nr_sreval lean=easu`), and on the host test's sliding picture EASU is closer for FSR (11.7 against 14.2 levels off) and equal for DLSS; the difference is in how edges look, so flip it while you turn the camera.
 - **Motion by shape (test)** (off): the motion is found by matching each small block of the frame before to this one; this matches their
   shape and edges rather than their brightness, for scenes where the light changes (spell effects, flashes, fades). Neutral on the recordings
   tried. Switching it on makes a second version of the search shader, on a thread of its own (it takes several seconds); the plain one runs meanwhile.

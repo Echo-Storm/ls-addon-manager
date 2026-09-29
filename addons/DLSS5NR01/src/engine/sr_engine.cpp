@@ -112,7 +112,7 @@ Texture2D<float4> tIn : register(t1);
 Texture2D<float> tDistrust : register(t2);
 RWTexture2D<float4> uOut : register(u0);
 SamplerState sLinear : register(s0);
-cbuffer C : register(b0) { uint2 size; uint2 inSize; float strength; };
+cbuffer C : register(b0) { uint2 size; uint2 inSize; float strength; uint mode; };   // mode 0: Catmull-Rom, 1: EASU
 float4 CatmullRom(float2 uv) {   // 16 loads, the input's size
     const float2 pos = uv * float2(inSize) - 0.5, base = floor(pos), f = pos - base;
     const float2 w0 = f * (-0.5 + f * (1.0 - 0.5 * f)), w1 = 1.0 + f * f * (-2.5 + 1.5 * f), w2 = f * (0.5 + f * (2.0 - 1.5 * f)), w3 = f * f * (-0.5 + 0.5 * f);
@@ -122,6 +122,83 @@ float4 CatmullRom(float2 uv) {   // 16 loads, the input's size
     [unroll] for (int j = 0; j < 4; ++j) [unroll] for (int i = 0; i < 4; ++i) sum += tIn.Load(int3(clamp(int2(base) + int2(i - 1, j - 1), int2(0, 0), last), 0)) * (wx[i] * wy[j]);
     return sum;
 }
+// Edge-adaptive spatial upscaling: AMD FidelityFX Super Resolution 1's EASU (from the FidelityFX SDK, ffx_fsr1.h, MIT licence, Copyright (C) Advanced
+// Micro Devices, Inc.; NOTICE.md), ported to plain HLSL with direct loads in place of the gathers. A 12-tap kernel (b c / e f g h / i j k l / n o) whose
+// direction and length follow the local luma gradient, so a diagonal edge is not stair-stepped and a soft one is not sharpened, and the result is
+// held between the min and max of the 4 nearest.
+float EasuLuma(float3 c) { return c.b * 0.5 + (c.r * 0.5 + c.g); }
+void EasuSet(inout float2 dir, inout float len, float2 pp, bool biS, bool biT, bool biU, bool biV, float lA, float lB, float lC, float lD, float lE) {
+    float weight = 0.0;
+    if (biS) weight = (1.0 - pp.x) * (1.0 - pp.y);
+    if (biT) weight = pp.x * (1.0 - pp.y);
+    if (biU) weight = (1.0 - pp.x) * pp.y;
+    if (biV) weight = pp.x * pp.y;
+    const float lengthXBase = 1.0 / max(max(abs(lD - lC), abs(lC - lB)), 1e-8);
+    const float directionX = lD - lB;
+    dir.x += directionX * weight;
+    float lengthX = saturate(abs(directionX) * lengthXBase); lengthX *= lengthX;
+    len += lengthX * weight;
+    const float lengthYBase = 1.0 / max(max(abs(lE - lC), abs(lC - lA)), 1e-8);
+    const float directionY = lE - lA;
+    dir.y += directionY * weight;
+    float lengthY = saturate(abs(directionY) * lengthYBase); lengthY *= lengthY;
+    len += lengthY * weight;
+}
+void EasuTap(inout float3 aC, inout float aW, float2 off, float2 dir, float2 len, float lob, float clp, float3 c) {
+    float2 v;
+    v.x = off.x * dir.x + off.y * dir.y;
+    v.y = off.x * (-dir.y) + off.y * dir.x;
+    v *= len;
+    float d2 = min(v.x * v.x + v.y * v.y, clp);
+    float wB = 2.0 / 5.0 * d2 - 1.0, wA = lob * d2 - 1.0;
+    wB *= wB; wA *= wA;
+    wB = 25.0 / 16.0 * wB - (25.0 / 16.0 - 1.0);
+    const float w = wB * wA;
+    aC += c * w; aW += w;
+}
+float4 Easu(float2 uv) {
+    float2 pp = uv * float2(inSize) - 0.5;
+    const float2 fp = floor(pp);
+    pp -= fp;
+    const int2 last = int2(inSize) - 1, f0 = int2(fp);
+    #define T(dx, dy) tIn.Load(int3(clamp(f0 + int2(dx, dy), int2(0, 0), last), 0)).rgb
+    const float3 cb = T(0, -1), cc = T(1, -1), ce = T(-1, 0), cf = T(0, 0), cg = T(1, 0), ch = T(2, 0), ci = T(-1, 1), cj = T(0, 1), ck = T(1, 1), cl = T(2, 1), cn = T(0, 2), co = T(1, 2);
+    #undef T
+    const float bL = EasuLuma(cb), cL = EasuLuma(cc), eL = EasuLuma(ce), fL = EasuLuma(cf), gL = EasuLuma(cg), hL = EasuLuma(ch);
+    const float iL = EasuLuma(ci), jL = EasuLuma(cj), kL = EasuLuma(ck), lL = EasuLuma(cl), nL = EasuLuma(cn), oL = EasuLuma(co);
+    float2 dir = 0; float len = 0;
+    EasuSet(dir, len, pp, true, false, false, false, bL, eL, fL, gL, jL);
+    EasuSet(dir, len, pp, false, true, false, false, cL, fL, gL, hL, kL);
+    EasuSet(dir, len, pp, false, false, true, false, fL, iL, jL, kL, nL);
+    EasuSet(dir, len, pp, false, false, false, true, gL, jL, kL, lL, oL);
+    const float2 dir2 = dir * dir;
+    float dirR = dir2.x + dir2.y;
+    const bool zro = dirR < 1.0 / 32768.0;
+    dirR = rsqrt(max(dirR, 1e-12));
+    dirR = zro ? 1.0 : dirR;
+    dir.x = zro ? 1.0 : dir.x;
+    dir *= dirR;
+    len = len * 0.5; len *= len;
+    const float stretch = (dir.x * dir.x + dir.y * dir.y) / max(max(abs(dir.x), abs(dir.y)), 1e-8);
+    const float2 len2 = float2(1.0 + (stretch - 1.0) * len, 1.0 - 0.5 * len);
+    const float lob = 0.5 + ((1.0 / 4.0 - 0.04) - 0.5) * len;
+    const float clp = 1.0 / lob;
+    const float3 min4 = min(min(cf, cg), min(cj, ck)), max4 = max(max(cf, cg), max(cj, ck));
+    float3 aC = 0; float aW = 0;
+    EasuTap(aC, aW, float2(0.0, -1.0) - pp, dir, len2, lob, clp, cb);
+    EasuTap(aC, aW, float2(1.0, -1.0) - pp, dir, len2, lob, clp, cc);
+    EasuTap(aC, aW, float2(-1.0, 1.0) - pp, dir, len2, lob, clp, ci);
+    EasuTap(aC, aW, float2(0.0, 1.0) - pp, dir, len2, lob, clp, cj);
+    EasuTap(aC, aW, float2(0.0, 0.0) - pp, dir, len2, lob, clp, cf);
+    EasuTap(aC, aW, float2(-1.0, 0.0) - pp, dir, len2, lob, clp, ce);
+    EasuTap(aC, aW, float2(1.0, 1.0) - pp, dir, len2, lob, clp, ck);
+    EasuTap(aC, aW, float2(2.0, 1.0) - pp, dir, len2, lob, clp, cl);
+    EasuTap(aC, aW, float2(2.0, 0.0) - pp, dir, len2, lob, clp, ch);
+    EasuTap(aC, aW, float2(1.0, 0.0) - pp, dir, len2, lob, clp, cg);
+    EasuTap(aC, aW, float2(1.0, 2.0) - pp, dir, len2, lob, clp, co);
+    EasuTap(aC, aW, float2(0.0, 2.0) - pp, dir, len2, lob, clp, cn);
+    return float4(min(max4, max(min4, aC / aW)), 1.0);
+}
 [numthreads(8, 8, 1)]
 void main(uint3 id : SV_DispatchThreadID) {
     if (id.x >= size.x || id.y >= size.y) return;
@@ -129,11 +206,11 @@ void main(uint3 id : SV_DispatchThreadID) {
     const float4 up = tUp[id.xy];
     const float d = saturate(tDistrust.SampleLevel(sLinear, uv, 0) * strength);
     if (d <= 0.001) { uOut[id.xy] = up; return; }
-    const float4 plain = CatmullRom(uv);
+    const float4 plain = mode == 1u ? Easu(uv) : CatmullRom(uv);
     uOut[id.xy] = float4(lerp(up.rgb, max(plain.rgb, 0.0), d), up.a);   // (Catmull-Rom can overshoot below 0)
 }
 )";
-struct LeanConstants { uint32_t w, h, inW, inH; float strength; };
+struct LeanConstants { uint32_t w, h, inW, inH; float strength; uint32_t mode; };
 
 // Edge smoothing of the upscaler's picture, for games without anti-aliasing of their own. Where the brightness steps sharply (an edge drawn
 // without anti-aliasing: stair steps), it finds which way the edge runs and how far along it each way the step continues, which says where
@@ -1096,7 +1173,7 @@ bool SrEngine::Run(ID3D12Resource* in, uint32_t inW, uint32_t inH, DXGI_FORMAT i
         D3D12_GPU_DESCRIPTOR_HANDLE gpuOut = gpu; gpuOut.ptr += 11 * m_descriptorSize;
         m_list->SetComputeRootDescriptorTable(0, gpuIn);
         m_list->SetComputeRootDescriptorTable(1, gpuOut);
-        const LeanConstants lc{ outW, outH, inW, inH, 1.0f };
+        const LeanConstants lc{ outW, outH, inW, inH, 1.0f, m_leanMode.load() };
         m_list->SetComputeRoot32BitConstants(2, sizeof(LeanConstants) / 4, &lc, 0);
         m_list->Dispatch((outW + 7) / 8, (outH + 7) / 8, 1);
         Transition(m_unsharpened, D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE, D3D12_RESOURCE_STATE_UNORDERED_ACCESS);

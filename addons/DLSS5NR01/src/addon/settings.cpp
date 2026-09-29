@@ -168,6 +168,7 @@ Loaded LoadSettings(IHost* host, const char* id) {
     c.frameGen = flag("frameGen", false);
     c.scalerFastMotion = flag("scalerFastMotion", true);
     c.motionShapes = flag("motionShapes", false);
+    c.leanEasu = flag("leanEasu", false);
     c.frameGenGuard = flag("frameGenGuard", true);
     c.scalerStability = std::clamp(static_cast<float>(number("scalerStability", 0.0)), 0.0f, 1.0f);
     c.scalerEdges = std::clamp(static_cast<float>(number("scalerEdges", 0.0)), 0.0f, 1.0f);
@@ -247,7 +248,7 @@ void SaveSettings(IHost* host, const char* id, const Config& c, const std::vecto
     if (kScalerAddon) put("sharpenScale", "1.6");   // the slider's scale this value is on (see LoadSettings)
     put("hud", HudToText(c.p));
 
-    put("model", std::to_string(c.model)); put("dlaaPreset", std::to_string(c.dlaaPreset)); put("scalerHandoff", std::to_string(c.scalerHandoff)); put("motionSource", std::to_string(c.motionSource)); putFlag("scalerGpuWait", c.scalerGpuWait); putFlag("frameGen", c.frameGen); putFlag("scalerFastMotion", c.scalerFastMotion); putFlag("motionShapes", c.motionShapes); putFlag("frameGenGuard", c.frameGenGuard); put("scalerStability", Number(c.scalerStability)); put("scalerEdges", Number(c.scalerEdges)); put("scalerLeanFrom", Number(c.scalerLeanFrom));
+    put("model", std::to_string(c.model)); put("dlaaPreset", std::to_string(c.dlaaPreset)); put("scalerHandoff", std::to_string(c.scalerHandoff)); put("motionSource", std::to_string(c.motionSource)); putFlag("scalerGpuWait", c.scalerGpuWait); putFlag("frameGen", c.frameGen); putFlag("scalerFastMotion", c.scalerFastMotion); putFlag("motionShapes", c.motionShapes); putFlag("leanEasu", c.leanEasu); putFlag("frameGenGuard", c.frameGenGuard); put("scalerStability", Number(c.scalerStability)); put("scalerEdges", Number(c.scalerEdges)); put("scalerLeanFrom", Number(c.scalerLeanFrom));
     putFlag("enabled", c.enabled); putFlag("lsFirst", c.lsFirst); putFlag("freshFlow", c.freshFlow); putFlag("presentMode", c.presentMode); putFlag("presentWait", c.presentWait); putFlag("hotkeys", c.hotkeys);
     put("frameEncoding", std::to_string(c.frameEncoding));
     put("keyAB", std::to_string(c.keyAB)); put("keySplit", std::to_string(c.keySplit)); put("keySharpDn", std::to_string(c.keySharpDn));

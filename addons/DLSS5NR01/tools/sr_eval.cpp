@@ -4,7 +4,7 @@
 // given is wrong (a character a turning camera follows, background just uncovered) that history trails: the pictures show it.
 //
 //   nr_sreval <recording.lsrec> <output folder> [first=N] [count=N] [shrink=150] [backend=fsr|dlss|xess] [show=N]
-//             [straycap=N] [fast=N] [mask=0] [mvscale=N] [motion=none] [meanweight=100] [gradweight=0]
+//             [straycap=N] [fast=N] [mask=0] [mvscale=N] [motion=none] [meanweight=100] [gradweight=0] [sample=point] [sharpen=N] [stability=N] [fastp=N]
 //
 // shrink: the ratio in hundredths (150: 1440p from 960p, as 4K from 1440p). show=N: the N worst frames kept as pictures (the frame | the
 // upscaler's | plainly stretched). The checks: straycap=N, the motion estimate's cap on straying from its coarser guess (0: none); fast=N, the
@@ -71,7 +71,7 @@ void ResizeBilinear(const std::vector<uint8_t>& src, uint32_t sw, uint32_t sh, s
 
 int main(int argc, char** argv) {
     setvbuf(stdout, nullptr, _IONBF, 0);
-    if (argc < 3) { printf("usage: nr_sreval <recording.lsrec> <output folder> [first=N] [count=N] [shrink=150] [backend=fsr|dlss|xess] [show=N] [straycap=N] [fast=N] [mask=0] [mvscale=N] [motion=none] [meanweight=100] [gradweight=0]\n"); return 2; }
+    if (argc < 3) { printf("usage: nr_sreval <recording.lsrec> <output folder> [first=N] [count=N] [shrink=150] [backend=fsr|dlss|xess] [show=N] [straycap=N] [fast=N] [mask=0] [mvscale=N] [motion=none] [meanweight=100] [gradweight=0] [sample=point] [sharpen=N] [stability=N] [fastp=N]\n"); return 2; }
     nr::lsrec::Reader rec; std::string error;
     if (!rec.Open(Wide(argv[1]), &error)) { printf("%s: %s\n", argv[1], error.c_str()); return 2; }
     std::wstring outDir = Wide(argv[2]);
@@ -85,6 +85,7 @@ int main(int argc, char** argv) {
     const std::string backendName = ArgText(argc, argv, "backend").empty() ? "fsr" : ArgText(argc, argv, "backend");
     const SrEngine::Backend backend = backendName == "dlss" ? SrEngine::Backend::Dlss : backendName == "xess" ? SrEngine::Backend::Xess : SrEngine::Backend::Fsr;
     const int show = Arg(argc, argv, "show", 3);
+    const bool pointSampled = ArgText(argc, argv, "sample") == "point";
     const bool noMotion = ArgText(argc, argv, "motion") == "none";   // motion=none: no motion vectors (all zero), to see what ours give
     if (count < 2) { printf("the recording has too few frames\n"); return 2; }
     std::wstring exeDir; { wchar_t exe[MAX_PATH]; GetModuleFileNameW(nullptr, exe, MAX_PATH); exeDir = exe; exeDir = exeDir.substr(0, exeDir.find_last_of(L'\\')); }
@@ -144,6 +145,7 @@ int main(int argc, char** argv) {
     if (const int mw = Arg(argc, argv, "meanweight", -1); mw >= 0) eng.SetMeanWeight(mw / 100.0f);   // meanweight=N: percent (100: the plain difference)
     if (const int gw = Arg(argc, argv, "gradweight", -1); gw >= 0) eng.SetGradWeight(gw / 100.0f);   // gradweight=N: percent the edges count (0: the plain difference)
     if ((Arg(argc, argv, "meanweight", -1) >= 0 || Arg(argc, argv, "gradweight", -1) > 0) && Arg(argc, argv, "nowait", 0) == 0) eng.PrepareShapeCost();   // (the shape cost is a shader variant, made on a thread of its own live)
+    if (ArgText(argc, argv, "lean") == "easu") eng.SetLeanMode(1);   // lean=easu: the lean blends toward FSR 1's EASU of the frame (default: Catmull-Rom)
     if (const int st = Arg(argc, argv, "stability", -1); st >= 0) eng.SetStability(st / 100.0f);   // stability=N: percent (the slider)
     eng.SetMotionScale(Arg(argc, argv, "mvscale", 100) / 100.0f);
     eng.SetNoMask(Arg(argc, argv, "mask", 1) == 0);
@@ -159,12 +161,18 @@ int main(int argc, char** argv) {
 
     struct Score { int frame; double up, plain, upCoarse, plainCoarse; std::vector<uint8_t> truth, picture, stretched; };
     std::vector<Score> scores;
-    std::vector<uint8_t> px, frame, shrunk, picture, stretched, framePrev, picturePrev, stretchedPrev, framePrev2, picturePrev2;
-    double flickOut = 0, flickIn = 0, detailOut = 0, detailIn = 0; int flickN = 0, detailN = 0;
+    std::vector<uint8_t> px, frame, shrunk, picture, stretched, framePrev, picturePrev, stretchedPrev, framePrev2, picturePrev2, stretchedPrev2;
+    double flickOut = 0, flickIn = 0, detailOut = 0, detailIn = 0, flickStretch = 0, detailStretch = 0; int flickN = 0, detailN = 0;
     double sumUp = 0, sumPlain = 0, sumUpC = 0, sumPlainC = 0, sumUpT = 0, sumPlainT = 0; int n = 0;
     for (int i = 0; i < count; ++i) {
         if (!rec.Read(first + i, px) || !ToRgba8(h, px, frame)) { printf("frame %d could not be read\n", first + i); return 3; }
-        ResizeArea(frame, W, H, shrunk, w, hh);
+        if (pointSampled) {   // sample=point: what a game without anti-aliasing renders at a lower size (one sample at each pixel's centre): aliased, so a temporal upscaler has detail to unfold
+            shrunk.assign(static_cast<size_t>(w) * hh * 4, 255);
+            for (uint32_t y = 0; y < hh; ++y) for (uint32_t x = 0; x < w; ++x) {
+                const uint32_t sx = std::min(W - 1, static_cast<uint32_t>((x + 0.5) * W / w)), sy = std::min(H - 1, static_cast<uint32_t>((y + 0.5) * H / hh));
+                memcpy(&shrunk[(static_cast<size_t>(y) * w + x) * 4], &frame[(static_cast<size_t>(sy) * W + sx) * 4], 4);
+            }
+        } else ResizeArea(frame, W, H, shrunk, w, hh);
         { uint8_t* m = nullptr; upload->Map(0, nullptr, reinterpret_cast<void**>(&m));
           for (uint32_t y = 0; y < hh; ++y) memcpy(m + inFp.Offset + y * inFp.Footprint.RowPitch, shrunk.data() + static_cast<size_t>(y) * w * 4, w * 4);
           upload->Unmap(0, nullptr); }
@@ -196,6 +204,8 @@ int main(int argc, char** argv) {
           D3D12_RANGE none{ 0, 0 }; readback->Unmap(0, &none); }
         for (size_t k = 3; k < picture.size(); k += 4) picture[k] = 255;
         ResizeBilinear(shrunk, w, hh, stretched, W, H);
+        if (const int saveFrame = Arg(argc, argv, "saveframe", -1); saveFrame >= 0 && first + i == saveFrame)   // saveframe=N: that frame as it is | upscaled | stretched, as frameN.bmp
+            WriteBmp(outDir + L"\\frame" + std::to_wstring(saveFrame) + L".bmp", { &frame, &picture, &stretched }, W, H);
         Score s; s.frame = first + i;
         s.up = Psnr(picture, frame, nullptr); s.plain = Psnr(stretched, frame, nullptr);
         s.upCoarse = PsnrCoarse(picture, frame, W); s.plainCoarse = PsnrCoarse(stretched, frame, W);
@@ -205,10 +215,10 @@ int main(int argc, char** argv) {
         if (i >= 8) { sumUp += s.up; sumPlain += s.plain; sumUpC += s.upCoarse; sumPlainC += s.plainCoarse; sumUpT += upT; sumPlainT += plainT; ++n; }   // (after the history has built)
         // no-reference: the frame before's flicker (it needs this frame as the one after), and the detail of every picture, against the game's own frames
         if (i >= 2 && !picturePrev2.empty()) {
-            if (i >= 10) { flickOut += Flicker(picturePrev2, picturePrev, picture, W); flickIn += Flicker(framePrev2, framePrev, frame, W); ++flickN; }
+            if (i >= 10) { flickOut += Flicker(picturePrev2, picturePrev, picture, W); flickIn += Flicker(framePrev2, framePrev, frame, W); flickStretch += Flicker(stretchedPrev2, stretchedPrev, stretched, W); ++flickN; }
         }
-        if (i >= 9) { detailOut += Detail(picture, W); detailIn += Detail(frame, W); ++detailN; }
-        framePrev2 = framePrev; picturePrev2 = picturePrev;
+        if (i >= 9) { detailOut += Detail(picture, W); detailIn += Detail(frame, W); detailStretch += Detail(stretched, W); ++detailN; }
+        framePrev2 = framePrev; picturePrev2 = picturePrev; stretchedPrev2 = stretchedPrev;
         framePrev = frame; picturePrev = picture; stretchedPrev = stretched;
         if (show > 0) { s.truth = frame; s.picture = picture; s.stretched = stretched; }
         scores.push_back(std::move(s));
@@ -218,8 +228,9 @@ int main(int argc, char** argv) {
         }
     }
     // steady: the frame-to-frame change against the truth's own change (shimmer, crawling edges and flicker cost; softness alone does not)
-    if (flickN && detailN) printf("no reference (levels of 255 on luma; the picture / the game's own frames): flicker %.3f / %.3f (%.0f %%), detail %.3f / %.3f (%.0f %%)\n",
-                                  flickOut / flickN, flickIn / flickN, 100.0 * flickOut / std::max(1e-9, flickIn), detailOut / detailN, detailIn / detailN, 100.0 * detailOut / std::max(1e-9, detailIn));
+    if (flickN && detailN) printf("no reference (levels of 255 on luma; the picture / the game's own frames): flicker %.3f / %.3f (%.0f %%), detail %.3f / %.3f (%.0f %%); the plain stretch: flicker %.3f, detail %.3f\n",
+                                  flickOut / flickN, flickIn / flickN, 100.0 * flickOut / std::max(1e-9, flickIn), detailOut / detailN, detailIn / detailN, 100.0 * detailOut / std::max(1e-9, detailIn),
+                                  flickStretch / flickN, detailStretch / detailN);
     if (n) printf("average over %d frames (after the first 8): upscaled %.2f dB (coarse %.2f, steady %.2f), stretched %.2f dB (coarse %.2f, steady %.2f)\n", n, sumUp / n, sumUpC / n, sumUpT / n, sumPlain / n, sumPlainC / n, sumPlainT / n);
     // the frames where the upscaler did worst against a plain stretch (its history hurt most)
     std::vector<const Score*> order; for (const Score& s : scores) if (!s.truth.empty() && s.frame - first >= 8) order.push_back(&s);

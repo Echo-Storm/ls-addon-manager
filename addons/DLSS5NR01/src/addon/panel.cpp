@@ -438,6 +438,13 @@ void DrawPanel() {
             }
         }
         {
+            if (ImGui::Checkbox("Crisp edges when moving (test)", &c.leanEasu)) changed = true;
+            Tip("A test, off by default. Where the picture moves, the upscaled picture leans on the new frame, stretched to the screen's size (see Steady in fast "
+                "motion). Off: with a smooth filter (Catmull-Rom). On: with AMD's FSR 1 edge-adaptive filter, which keeps diagonal and thin edges cleaner and "
+                "crisper. On recordings the two score the same on shimmer and detail; the difference is in how the edges look. Flip it while you turn the camera "
+                "and tell us which you prefer.");
+        }
+        {
             if (ImGui::Checkbox("Motion by shape (test)", &c.motionShapes)) changed = true;
             Tip("A test, off by default. The motion the upscaler is given is found by matching small patches of the frame before to this one. Off: by "
                 "their brightness, as before. On: by their shape and edges, with the brightness itself counting little, so a flash, a spell effect, a "
