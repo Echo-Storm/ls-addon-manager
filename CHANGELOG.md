@@ -1,5 +1,22 @@
 # Changelog
 
+## 0.9.18 (2026-09-29)
+
+The recorder is one setting for all the addons.
+
+- **Recording works whichever addon's panel you switch it on in.** Each addon had a recorder of its own, and switching it on in one that was not
+  the one working on the frames (the FSR Upscaler's, with the DLSS Upscaler running) recorded nothing: the save key answered "nothing recorded
+  yet". Now the Recording section is one setting (on or off, seconds, memory, folder), kept in every addon's settings and followed by each running
+  addon within half a second. The save key says so when the recorder is off, and where to switch it on.
+- **Switching on "Motion by shape (test)" cannot stall Lossless Scaling any more** when the engine stops while its extra shader (about 7
+  seconds to compile) is still being made: that compile owns its references and lets go of them when done.
+- **Tools and tests:** `nr_nreval` runs Neural Rendering's model on a recording and scores its flicker (still areas, along the motion with a heat
+  map, the live path with the model's own motion; findings in `docs/frame-generation-research.md`); `nr_sreval` scores shimmer and detail with no
+  reference picture (for 1:1) and takes `sharpen=`: on recorded World of Warcraft at 1:1, sharpening 0.7 gives 2.3 times the game's own detail and
+  37 to 55 % more frame-to-frame shimmer, 0.3 gives 1.5 times with 8 to 17 % more; about 0.1 to 0.15 is neutral. The host test that expected DLSS
+  to follow a sliding picture better than with no motion now checks the motion path does no harm (DLSS cannot benefit without the game's camera
+  jitter; the upscaler leans on the new frame by design).
+
 ## 0.9.17 (2026-09-29)
 
 The upscalers start in about 1 second again.
