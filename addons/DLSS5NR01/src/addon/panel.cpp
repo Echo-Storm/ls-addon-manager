@@ -726,7 +726,7 @@ void DrawPanel() {
             changed = true;
             g_recorder.Configure(c.recordOn, c.recordSeconds, static_cast<uint32_t>(c.recordBudgetMb));   // off: its memory goes now, not at the next frame
         }
-        Tip("Off (the default) costs nothing. On: every frame is copied off the graphics card and compressed on a few background threads, which "
+        Tip("One setting for all the addons: switch it on here or in any other addon's panel. Off (the default) costs nothing. On: every frame is copied off the graphics card and compressed on a few background threads, which "
             "takes some processor time and the memory below. Nothing waits for it: a frame that comes while all the copies are busy is left out.");
         if (!c.recordOn) ImGui::BeginDisabled();
         if (kFrameGen) {

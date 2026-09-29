@@ -206,7 +206,7 @@ clashes in your game, change it in the addon's *Compare and hotkeys* section.
 | Ctrl+Shift+F2 / F3 | Sharpening down / up | every addon |
 | Ctrl+Shift+F4 | Before / after pictures: two PNGs of the same moment, with and without the addon | every addon |
 | Ctrl+Shift+F10 | The next saved look | Neural Rendering |
-| Ctrl+Shift+F1 | Save the recording (the last few seconds, with *Recording* on in that addon: each addon has its own) | every addon |
+| Ctrl+Shift+F1 | Save the recording (the last few seconds, with *Recording* on in any addon: it is one setting) | every addon |
 | Home | ReShade input passthrough on and off | the manager |
 
 ## Updates
@@ -236,7 +236,7 @@ That check, and a download you ask for, are the only times the manager goes onli
 | An HDR game looks washed out, too dark or too bright | Set **Frame encoding** (the bottom of the Upscaling section) to HDR or SDR by hand, and tell us which it needed. |
 | Neural Rendering turns bright areas neon orange or cyan in HDR | Fixed in 0.9.15: update. |
 | Windowed mode does nothing | Restart Lossless Scaling after switching it on: its virtual display must exist before Lossless Scaling starts. |
-| Something looks wrong in a game | Turn on *Recording* in the panel of the addon that shows it (each addon has its own), make it happen, press **Ctrl+Shift+F1**, and attach the `.lsrec` file (in `Videos\Lossless Scaling`) to your report. |
+| Something looks wrong in a game | Turn on *Recording* in any addon's panel (one setting for all), make it happen, press **Ctrl+Shift+F1**, and attach the `.lsrec` file (in `Videos\Lossless Scaling`) to your report. |
 | Anything else | See the [questions and answers](docs/faq.md). To report a bug, make a **diagnostics file** on the Settings tab. To undo everything, run Setup and choose **Uninstall**. |
 
 <details>

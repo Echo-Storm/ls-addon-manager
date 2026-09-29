@@ -183,6 +183,7 @@ void Compose(IDXGISwapChain* sc);
 bool g_composedNow = false;   // the last Compose put the model's result on its frame (the pair's enhanced picture waits for one that did)
 void PresentTap(IDXGISwapChain* sc);
 void FollowRuntimeChoice();   // further down, with the upscalers
+void FollowSharedRecorder();
 
 // A frame for the recorder (under g_frameMutex, on the render thread): its settings follow the panel's, and for the tests it saves by itself
 // once recordSaveAfter frames are held.
@@ -889,6 +890,27 @@ void PublishRuntimeForOthersImpl() {
     if (kScalerAddon && !kFsrScaler && !kXessScaler) nr::ngxpaths::PublishDlssRuntime(ChosenRuntimeDir());
 }
 
+// The recorder's settings are the same in every addon of ours (SaveSettings mirrors them into each addon's config): switching it on in the panel of
+// an addon that is not the one working on the frames must count too (the owner had it on in the FSR Upscaler while running the DLSS Upscaler
+// and nothing was saved). A change made from another addon's panel arrives in this addon's config; taken over here, twice a second.
+void FollowSharedRecorder() {
+    if (!g_host) return;
+    const bool on = std::string(g_host->GetConfig(kAddonId, "recordOn", "0")) == "1";
+    const float seconds = std::clamp(static_cast<float>(atof(g_host->GetConfig(kAddonId, "recordSeconds", "5"))), 1.0f, 60.0f);
+    const int budget = std::clamp(atoi(g_host->GetConfig(kAddonId, "recordBudgetMb", "3072")), 256, 65536);
+    const std::string folder = g_host->GetConfig(kAddonId, "recordFolder", "");
+    // only what the stored value CHANGED to since the last look counts: a change made in this addon's own panel is in g_config a moment before it is
+    // saved, and the stored value still being the old one then must not undo it
+    static bool seenValid = false, seenOn = false; static float seenSeconds = 0; static int seenBudget = 0; static std::string seenFolder;
+    const bool unchanged = seenValid && seenOn == on && std::fabs(seenSeconds - seconds) < 0.01f && seenBudget == budget && seenFolder == folder;
+    seenValid = true; seenOn = on; seenSeconds = seconds; seenBudget = budget; seenFolder = folder;
+    if (unchanged) return;
+    std::lock_guard<std::mutex> lock(g_settingsMutex);
+    if (on == g_config.recordOn && std::fabs(seconds - g_config.recordSeconds) < 0.01f && budget == g_config.recordBudgetMb && folder == g_config.recordFolder) return;
+    Log("recorder: %s in another addon's panel (%.0f s, %d MB): the same here", on ? "switched on" : "settings changed or switched off", seconds, budget);
+    g_config.recordOn = on; g_config.recordSeconds = seconds; g_config.recordBudgetMb = budget; g_config.recordFolder = folder;
+}
+
 // A new choice in the Runtimes list, followed while running (checked twice a second, under g_frameMutex on the render thread). The upscalers
 // stop their engine, and the next pass starts it on the new file; Neural Rendering takes the model file its setting now names and starts again.
 void FollowRuntimeChoice() {
@@ -896,6 +918,7 @@ void FollowRuntimeChoice() {
     const ULONGLONG now = GetTickCount64();
     if (now - checkedAt < 500 || !g_host) return;
     checkedAt = now;
+    FollowSharedRecorder();
     if (!kScalerAddon) { FollowModelChoice(); return; }
     if (g_srStarting || g_srRuntimeDir.empty()) return;   // not started: it starts on the chosen file anyway
     const std::wstring dir = ChosenRuntimeDir();
@@ -1316,10 +1339,9 @@ void SaveRecording() {
     std::string game;
     { std::lock_guard<std::mutex> lock(g_textMutex); game = g_focusExe; }
     bool on; { std::lock_guard<std::mutex> lock(g_settingsMutex); on = g_config.recordOn; }
-    if (!on) {   // each addon has its own recorder: say which one is off, not "nothing recorded" (the owner had it on in another addon)
-        const std::string name = kScalerAddon ? std::string(kUpscalerName) + " Upscaler" : std::string("Neural Rendering");
-        Log("recorder: nothing saved: the recorder is off in %s (tick \"Keep the last few seconds ready to save\" in its panel; each addon has its own)", name.c_str());
-        if (g_host) g_host->SetStatus(kAddonId, ("Nothing saved: the recorder is off in " + name + " (each addon has its own)").c_str(), 2);
+    if (!on) {   // the recorder is off (it is one setting for all our addons since 0.9.18): say so, not "nothing recorded"
+        Log("recorder: nothing saved: the recorder is off (tick \"Keep the last few seconds ready to save\" in the Recording section of any addon: it applies to all of them)");
+        if (g_host) g_host->SetStatus(kAddonId, "Nothing saved: the recorder is off (switch it on under Recording in any addon)", 2);
         return;
     }
     if (!g_recorder.Save(RecordFolder(), game)) Log("recorder: nothing saved (%s)", g_recorder.GetStatus().saving ? "a save is running" : "nothing recorded yet");

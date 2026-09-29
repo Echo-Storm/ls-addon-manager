@@ -255,6 +255,13 @@ void SaveSettings(IHost* host, const char* id, const Config& c, const std::vecto
     put("keyRecord", std::to_string(c.keyRecord)); put("keysVersion", "3");
     putFlag("recordOn", c.recordOn); putFlag("recordShown", c.recordShown); put("recordSeconds", Number(c.recordSeconds)); put("recordBudgetMb", std::to_string(c.recordBudgetMb));
     put("recordFolder", c.recordFolder);
+    // the recorder is one setting for all our addons: the others' configs get it too (each addon follows its own, see FollowSharedRecorder), so it can
+    // be switched on in any panel and the addon that works on the frames records
+    for (const char* other : { "DLSS5NR01", "DLSS4DLAA", "FSR3UPSC", "XESSUPSC" }) {
+        if (std::string(other) == id) continue;
+        host->SetConfig(other, "recordOn", c.recordOn ? "1" : "0"); host->SetConfig(other, "recordSeconds", Number(c.recordSeconds).c_str());
+        host->SetConfig(other, "recordBudgetMb", std::to_string(c.recordBudgetMb).c_str()); host->SetConfig(other, "recordFolder", c.recordFolder.c_str());
+    }
     put("screenshotFolder", c.screenshotFolder);
     putFlag("autoQuality", c.autoQuality); put("autoBudgetMs", Number(c.autoBudgetMs)); put("autoFloor", Number(c.autoFloor));
     putFlag("gameAuto", c.gameAuto);
