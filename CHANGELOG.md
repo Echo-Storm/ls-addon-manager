@@ -1,5 +1,15 @@
 # Changelog
 
+## 0.9.17 (2026-09-29)
+
+The upscalers start in about 1 second again.
+
+- **The upscalers no longer take ~9.5 seconds to start** (0.9.14 to 0.9.16). Each start compiles the motion estimate's shaders, and the search
+  shader had grown to 6.4 seconds of compile time, from the experimental "Motion by shape" matching, which is off by default but was compiled
+  for everybody. Until the engine was ready, Lossless Scaling's own NIS showed instead. The plain search compiles in half a second now (its
+  output is bit for bit what it was), and the "shape" variant is made on a thread of its own, only when "Motion by shape (test)" is
+  switched on, and takes over once it is ready. (The host test `scaler_bgra`, which had been failing for this reason, passes again.)
+
 ## 0.9.16 (2026-09-29)
 
 Fixes for four issues reported on GitHub.

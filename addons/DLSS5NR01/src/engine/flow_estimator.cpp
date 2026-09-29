@@ -1,3 +1,4 @@
+#include <chrono>
 #include "engine/flow_estimator.h"
 #include "engine/hdr_hlsl.h"
 #include <d3dcompiler.h>
@@ -83,6 +84,26 @@ float Stray(float2 d) { return lambda * min(length(d), strayCap); }
 // meanWeight below 1: the block's shape is compared with its average brightness taken out (a light change, a flash, a fade or a shadow
 // passing over no longer pulls the match toward whatever is equally bright), and the brightness difference counts only meanWeight as much.
 // At 1, the plain difference, exactly as before.
+// This costs seconds to compile (the unrolled arrays, several times over), so it is a variant of the shader (SHAPE_COST): the default is the plain
+// difference, compiled in a few milliseconds, and the variant is made in the background only when the "Motion by shape" test is switched on.
+#ifndef SHAPE_COST
+float Sad(int2 v) {   // all 64 pixels of the 8x8 (the final answer and its fraction of a pixel)
+    const int2 last = int2(size) - 1;
+    float s = 0;
+    [loop] for (int j = 0; j < 8; ++j) {
+        [unroll] for (int i = 0; i < 8; ++i) s += abs(cw[j * 8 + i] - tPrev.Load(int3(clamp(origin + int2(i, j) + v, int2(0, 0), last), 0)));
+    }
+    return s * (1.0 / 64.0);
+}
+float SadHalf(int2 v) {   // half of them, as a checkerboard (the search: half the reads, with no stripe the pattern could hide in)
+    const int2 last = int2(size) - 1;
+    float s = 0;
+    [loop] for (int j = 0; j < 8; ++j) {
+        [unroll] for (int i = (j & 1); i < 8; i += 2) s += abs(cw[j * 8 + i] - tPrev.Load(int3(clamp(origin + int2(i, j) + v, int2(0, 0), last), 0)));
+    }
+    return s * (1.0 / 32.0);
+}
+#else
 static float cMean, cMeanHalf;   // this block's average: all 64 pixels, and the checkerboard's 32
 float Sad(int2 v) {   // all 64 pixels of the 8x8 (the final answer and its fraction of a pixel)
     const int2 last = int2(size) - 1;
@@ -123,15 +144,18 @@ float SadHalf(int2 v) {   // half of them, as a checkerboard (the search: half t
     }
     return s;
 }
+#endif
 [numthreads(8, 8, 1)]
 void main(uint3 id : SV_DispatchThreadID) {
     if (id.x >= grid.x || id.y >= grid.y) return;
     const int2 last = int2(size) - 1;
     origin = int2(id.xy) * 4 - 2;
     [unroll] for (int j = 0; j < 8; ++j) [unroll] for (int i = 0; i < 8; ++i) cw[j * 8 + i] = tCur.Load(int3(clamp(origin + int2(i, j), int2(0, 0), last), 0));
+#ifdef SHAPE_COST
     cMean = 0; cMeanHalf = 0;
     [unroll] for (int k = 0; k < 64; ++k) { cMean += cw[k]; if ((((k >> 3) + k) & 1) == 0) cMeanHalf += cw[k]; }
     cMean *= 1.0 / 64.0; cMeanHalf *= 1.0 / 32.0;
+#endif
 
     float2 predicted = float2(0, 0);
     int2 best = int2(0, 0);
@@ -334,9 +358,11 @@ bool FlowEstimator::Init(ID3D12Device* dev, LogFn log) {
     for (int i = 0; i < PsoCount; ++i) {
         const std::string text = std::string(kCommonHlsl) + sources[i];
         ID3DBlob* code = nullptr; ID3DBlob* err = nullptr;
+        const auto compileStart = std::chrono::steady_clock::now();
         if (FAILED(D3DCompile(text.c_str(), text.size(), names[i], nullptr, nullptr, "main", "cs_5_0", D3DCOMPILE_OPTIMIZATION_LEVEL3, 0, &code, &err))) {
             Log("motion estimator: %s: %s", names[i], err ? static_cast<const char*>(err->GetBufferPointer()) : "?"); SafeRelease(err); Shutdown(); return false;
         }
+        Log("motion estimator: %s compiled in %.0f ms", names[i], std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - compileStart).count());
         D3D12_COMPUTE_PIPELINE_STATE_DESC pso{}; pso.pRootSignature = m_root; pso.CS = { code->GetBufferPointer(), code->GetBufferSize() };
         const HRESULT hr = m_dev->CreateComputePipelineState(&pso, IID_PPV_ARGS(&m_pso[i]));
         SafeRelease(code);
@@ -385,7 +411,38 @@ void FlowEstimator::Collect(uint64_t completed) {
         if (m_retired[i].at <= completed) { m_retired[i].texture->Release(); m_retired[i] = m_retired.back(); m_retired.pop_back(); } else ++i;
 }
 
+void FlowEstimator::CompileShape() {   // on any thread: the device makes pipelines on its own
+    const auto start = std::chrono::steady_clock::now();
+    const std::string text = std::string(kCommonHlsl) + kSearchHlsl;
+    const D3D_SHADER_MACRO defines[] = { { "SHAPE_COST", "1" }, { nullptr, nullptr } };
+    ID3DBlob* code = nullptr; ID3DBlob* err = nullptr;
+    if (FAILED(D3DCompile(text.c_str(), text.size(), "flow_search_shape", defines, nullptr, "main", "cs_5_0", D3DCOMPILE_OPTIMIZATION_LEVEL3, 0, &code, &err))) {
+        Log("motion estimator: the shape cost did not compile: %s", err ? static_cast<const char*>(err->GetBufferPointer()) : "?"); SafeRelease(err);
+        m_shapeState = 3; return;
+    }
+    D3D12_COMPUTE_PIPELINE_STATE_DESC pso{}; pso.pRootSignature = m_root; pso.CS = { code->GetBufferPointer(), code->GetBufferSize() };
+    const HRESULT hr = m_dev->CreateComputePipelineState(&pso, IID_PPV_ARGS(&m_psoShape));
+    SafeRelease(code);
+    if (FAILED(hr)) { Log("motion estimator: the shape cost pipeline 0x%08x", static_cast<unsigned>(hr)); m_shapeState = 3; return; }
+    Log("motion estimator: the shape cost compiled in %.0f s", std::chrono::duration<double>(std::chrono::steady_clock::now() - start).count());
+    m_shapeState = 2;
+}
+
+void FlowEstimator::StartShapeCompile() {
+    int expected = 0;
+    if (!m_shapeState.compare_exchange_strong(expected, 1)) return;
+    m_shapeThread = std::thread([this] { CompileShape(); });
+}
+
+void FlowEstimator::PrepareShape() {
+    int expected = 0;
+    if (m_shapeState.compare_exchange_strong(expected, 1)) CompileShape();
+    else if (m_shapeThread.joinable()) m_shapeThread.join();
+}
+
 void FlowEstimator::Shutdown() {
+    if (m_shapeThread.joinable()) m_shapeThread.join();
+    SafeRelease(m_psoShape); m_shapeState = 0;
     Release();
     for (const Retired& r : m_retired) r.texture->Release();   // the caller waited for the GPU
     m_retired.clear();
@@ -468,7 +525,9 @@ void FlowEstimator::Record(ID3D12GraphicsCommandList* list, int slot, ID3D12Reso
                    ID3D12Resource* uav2 = nullptr) {
         const Pass p = MakePass(slot, index, srv, fmt, uav, uavFmt, uav2);
         if (restsReadable) Barrier(list, uav, D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE, D3D12_RESOURCE_STATE_UNORDERED_ACCESS);
-        list->SetPipelineState(m_pso[pso]);
+        ID3D12PipelineState* state = m_pso[pso];
+        if (pso == Search && WantShape()) { if (m_shapeState == 2) state = m_psoShape; else StartShapeCompile(); }   // (the plain search until the variant is ready)
+        list->SetPipelineState(state);
         list->SetComputeRootDescriptorTable(0, p.srvs);
         list->SetComputeRootDescriptorTable(1, p.uav);
         list->SetComputeRoot32BitConstants(3, sizeof(Constants) / 4, &c, 0);

@@ -633,6 +633,7 @@ int main(int argc, char** argv) {
     if (const int cap = Arg(argc, argv, "straycap", -1); cap >= 0) est.SetStrayCap(cap == 0 ? 1e9f : static_cast<float>(cap));   // straycap=N (0: uncapped, as before)
     if (const int mw = Arg(argc, argv, "meanweight", -1); mw >= 0) est.SetMeanWeight(mw / 100.0f);   // meanweight=N: percent (100: the plain difference)
     if (const int gw = Arg(argc, argv, "gradweight", -1); gw >= 0) est.SetGradWeight(gw / 100.0f);   // gradweight=N: percent the edges count (0: the plain difference)
+    if (Arg(argc, argv, "meanweight", -1) >= 0 || Arg(argc, argv, "gradweight", -1) > 0) est.PrepareShape();   // (a shader variant, made on a thread of its own live)
 
     // textures: the kept frame (read by the estimate and the generator), the motion vectors and the distrust mask, a flat depth
     ID3D12Resource* cur = g.Texture(W, H, DXGI_FORMAT_R8G8B8A8_UNORM, false, D3D12_RESOURCE_STATE_COPY_DEST);

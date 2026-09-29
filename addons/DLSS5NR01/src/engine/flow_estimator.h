@@ -17,8 +17,10 @@
 #pragma once
 #include <windows.h>
 #include <d3d12.h>
+#include <atomic>
 #include <cstdint>
 #include <functional>
+#include <thread>
 #include <vector>
 
 class FlowEstimator {
@@ -28,6 +30,11 @@ public:
     bool Init(ID3D12Device* dev, LogFn log);
     void Shutdown();
     bool IsReady() const { return m_pso[0] != nullptr; }
+    ~FlowEstimator() { if (m_shapeThread.joinable()) m_shapeThread.detach(); }   // (never std::terminate at the process's exit)
+    // The "shape" block cost (SetMeanWeight / SetGradWeight) is another compile of the search shader, which takes seconds: made on a thread of its
+    // own the first time it is asked for, used from the frame after it is ready (the plain search runs meanwhile). Tools that want it from the
+    // first frame call PrepareShape().
+    void PrepareShape();
 
     bool NeedsResize(uint32_t w, uint32_t h) const { return w != m_w || h != m_h; }
     // Makes the pyramids and grids for frames of this size. retireAt 0: the GPU is not using the old ones (the caller waited). Otherwise the
@@ -81,6 +88,12 @@ private:
     ID3D12Device* m_dev = nullptr;
     ID3D12RootSignature* m_root = nullptr;
     ID3D12PipelineState* m_pso[PsoCount] = {};
+    ID3D12PipelineState* m_psoShape = nullptr;    // the search with the shape cost (SHAPE_COST)
+    std::atomic<int> m_shapeState{ 0 };           // 0 not asked for, 1 compiling, 2 ready, 3 failed
+    std::thread m_shapeThread;
+    bool WantShape() const { return m_meanWeight < 0.999f || m_gradWeight > 0.001f; }
+    void StartShapeCompile();
+    void CompileShape();
     ID3D12DescriptorHeap* m_heap = nullptr; uint32_t m_descriptorSize = 0;
     uint32_t m_w = 0, m_h = 0; int m_levels = 0;
     uint32_t m_lw[kMaxLevels] = {}, m_lh[kMaxLevels] = {}, m_gw[kMaxLevels] = {}, m_gh[kMaxLevels] = {};

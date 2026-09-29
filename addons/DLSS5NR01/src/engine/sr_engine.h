@@ -92,6 +92,7 @@ public:
     void SetStrayCap(float pixels) { m_estimator.SetStrayCap(pixels); }
     void SetMeanWeight(float weight) { m_estimator.SetMeanWeight(weight); }
     void SetGradWeight(float weight) { m_estimator.SetGradWeight(weight); }
+    void PrepareShapeCost() { m_estimator.PrepareShape(); }   // waits for the shape cost's compile (tools that need it from the first frame)
     void SetFastMotion(float pixels) { m_fastMotion.store(pixels); }
     void SetFastMotionShare(float share) { m_fastShare.store(share); }   // where SetFastMotion is automatic (-1): from this share of the width (0: the default)
     void SetMotionScale(float s) { m_motionScale = s; }
