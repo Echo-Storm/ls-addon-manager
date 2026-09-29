@@ -13,16 +13,14 @@ item is done (move it to the changelog) or when a new one comes up. Dates are wh
 
 ## Released
 
+- 0.9.17 (2026-09-29, v0.9.17 at f813ad1): the upscalers start in ~1 s again (search shader compile 6.4 s -> 0.5 s; the shape cost is a background-compiled variant).
 - 0.9.16 (2026-09-29, v0.9.16 at 4ef0aed): issues #4, #5, #6, #7 (see above).
 - 0.9.15 (2026-09-28, v0.9.15 at 6d896fe): the HDR neon fix (issue #3, likely #1). Issues #1, #2, #3 answered on GitHub, left open for the reporters to confirm.
 - 0.9.14 (2026-09-28, v0.9.14 at ae232c0): see the changelog. Confirmed live: the corner square in the upscaler addons; NR smoothing at 0.6 helps.
 
 ## Bug sweep (planned Tuesday 2026-09-29 morning)
 
-- `run_hosttest_matrix.py --only scaler_bgra` fails ("NIS KEPT": the DLSS engine starts in about 9.5 s and the test ends before a frame
-  is upscaled); also fails on the code before 2026-09-28's changes, so it predates them. `scaler_not_nvidia` shows NIS KEPT too. The
-  baseline (`base`) fails when run alone with `--only` (known: baseline checks need their scenarios in the list).
-- **One recorder for all addons** (owner, 2026-09-28): each addon has its own "Keep the last few seconds" setting, so the owner had it on in the FSR Upscaler while running Neural Rendering with the DLSS Upscaler, and nothing was saved. The save key now says which addon's recorder is off; the fix is one shared setting (or the manager's own).
+- (Fixed 0.9.17) `scaler_bgra` failed because of the 9.5 s engine start; `--only` runs still need the baseline scenarios in the list.
 - The corner square: the output swap chain is only learned while the upscaled picture is shown, so after a restart that begins on
   "original", the first toggle shows no square.
 - Neural Rendering's changes in 0.9.13 (temporal smoothing clamp, NGX user count) were never tried live before release; the NGX count
