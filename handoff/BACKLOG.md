@@ -13,6 +13,7 @@ item is done (move it to the changelog) or when a new one comes up. Dates are wh
 
 ## Released
 
+- 0.9.18 (2026-09-29, v0.9.18 at 8d1af4b): the recorder is one setting for all the addons (mirrored into each addon's config, followed twice a second).
 - 0.9.17 (2026-09-29, v0.9.17 at f813ad1): the upscalers start in ~1 s again (search shader compile 6.4 s -> 0.5 s; the shape cost is a background-compiled variant).
 - 0.9.16 (2026-09-29, v0.9.16 at 4ef0aed): issues #4, #5, #6, #7 (see above).
 - 0.9.15 (2026-09-28, v0.9.15 at 6d896fe): the HDR neon fix (issue #3, likely #1). Issues #1, #2, #3 answered on GitHub, left open for the reporters to confirm.
