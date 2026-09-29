@@ -135,6 +135,12 @@ target_include_directories(nr_sreval PRIVATE ${CMAKE_SOURCE_DIR}/src ${NGX_DIR}/
 target_link_libraries(nr_sreval PRIVATE ${NGX_LIB} d3d12 dxgi d3dcompiler shell32)
 add_dependencies(nr_sreval FSR3UPSC)   # (AMD's runtime, in the build's fsr folder)
 
+# ---- Neural Rendering offline: runs the model on a recording and scores the flicker it adds (needs the user's nvngx_dlssnr.dll) ----
+add_executable(nr_nreval tools/nr_eval.cpp src/addon/lsrec.cpp src/engine/nr_engine.cpp src/engine/dlaa_model.cpp src/engine/flow_estimator.cpp)
+target_include_directories(nr_nreval PRIVATE ${CMAKE_SOURCE_DIR}/src ${NGX_DIR}/include)
+target_link_libraries(nr_nreval PRIVATE ${NGX_LIB} d3d12 dxgi d3dcompiler shell32)
+add_dependencies(nr_nreval nr_forwarder)
+
 # ---- offline test of the frame tap (which pass is the capture, the motion hand-over, presents); a D3D11 device, no model, no SDK at run time ----
 add_executable(nr_taptest tools/tap_test.cpp src/addon/frame_tap.cpp)
 target_include_directories(nr_taptest PRIVATE src)

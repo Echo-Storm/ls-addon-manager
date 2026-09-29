@@ -214,3 +214,29 @@ XeSS 33.61 / 46.42 / 30.72 -> 34.07 / 47.82 / 31.18 (a plain stretch 32.68 / 43.
 World of Warcraft (DLSS L): 32.36 / 42.13 / 32.16 -> 32.74 / 43.14 / 32.91 (stretch 32.49 / 44.24 / 32.39).
 At 1:1 (DLAA) the threshold stays at 0.5 %: there the reference is the game's own aliased frame, so leaning always scores better
 while it gives the aliasing back; the owner is happy with E at 1:1 as it is.
+
+## Neural Rendering's flicker, offline (2026-09-29): `nr_nreval`
+
+`nr_nreval <recording> <folder> [scale=50] [smooth=40] ...` runs the addon's own NrEngine (the user's `nvngx_dlssnr.dll`) on a recording, shared
+textures and fences as the addon drives it, and scores what the model adds from frame to frame:
+- **steady** (dB): the picture's change from the last one against the game's own change (as `nr_sreval`);
+- **still**: over the pixels where the game's frame did not change, the mean change of the model's delta (levels of 255): pure model flicker;
+- **along the motion**: the delta against the previous delta moved along the game's real motion (independent block matching), mean and the worst 5 %
+  of blocks; a heat map of where it sits (`flicker_heat.bmp`);
+- **the live path**: this frame shown with the run before's delta sampled at `uv + motion` (compose11, frame generation off), against the frame's own
+  delta, and against no compensation at all.
+
+World of Warcraft walking (Gooseberry Lowlands, night; 4K frames, the model at 1920x1080, 30 frames), by Temporal smoothing:
+
+| smoothing | steady | still | along the motion | live path (not moved) |
+|---|---|---|---|---|
+| 0 | 41.90 dB | 1.09 | 1.41 | |
+| 0.4 | 42.94 | 0.76 | 0.97 (worst 5 %: 1.75) | 1.19 (2.34) |
+| 0.6 | 43.57 | 0.60 | 0.75 | |
+
+So smoothing does what it is for (cuts the model's own change frame to frame by about a third at 0.4), and the live path's motion compensation is
+as good as an independent block matcher's (1.0 against 0.97 levels in steady walking; worse in the first frames after a start, 1.5 to 2.5).
+The model's change itself is large (up to 70 levels: it recolours the ground and invents gravel texture), and the flicker left is about one level of
+255 on average: small. The owner's "weird landscape flicker" (2026-09-28/29) is **not in this clip**: the recordings were made with the DLSS Upscaler,
+not Neural Rendering, in a night scene. Next: a recording made with Neural Rendering on and its own recorder on (the Save key says which
+addon's recorder is off now), in daylight with foliage and terrain, then `nr_nreval` on it (look at the worst 5 % and the heat map).
