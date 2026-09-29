@@ -47,7 +47,12 @@ item is done (move it to the changelog) or when a new one comes up. Dates are wh
 - The honest state of the upscalers (docs/frame-generation-research.md, "side by side"): without the game's camera jitter a temporal upscaler cannot add detail; in motion the picture is a resample (the lean), at rest it anti-aliases. On WoW walking every step toward a plain resample scores better; the default stays where the owner's eyes put it. A real gain would need a different source of detail (see below).
 - **Ideas for real detail** (the point of a "definitive" tool; each has a test: `nr_sreval sample=point` gives aliased input, where a temporal method has something to unfold, area-averaged input has nothing; on both the plain stretch is the baseline to beat):
   1. (CLOSED 2026-09-29, with data: docs/frame-generation-research.md, "An oracle for the motion") Multi-frame super-resolution from the camera's sub-pixel drift: even with oracle motion (`nr_sreval oracle=1`) DLSS, FSR and XeSS do not beat a plain stretch of aliased 2x input. Motion accuracy is not the limit.
-  2. A small neural single-image super-resolution model (DirectML or an ONNX runtime; licence and size to check), as the moving picture instead of a resample: detail from learning, not from frames.
+  2. (Feasibility looked at 2026-09-29, from public sources only; nothing built or timed here.) Two routes. (a) Shader CNNs in the style of Anime4K (MIT, thin
+     densely connected networks of a few thousand parameters, designed to run at 4K as pixel shaders; but trained for anime, so for photorealistic games a
+     model would have to be trained and its training data licensed) or FSRCNNX. (b) An ONNX Runtime with the DirectML provider (about 12 MB of redistributable
+     NuGet package; DirectML itself is in maintenance mode) running a compact model such as Real-ESRGAN's SRVGGNetCompact: heavier, with real risk of not fitting a
+     frame budget at 4K on top of Lossless Scaling's own work. Either is a project of its own with a training/licensing question first, not an afternoon.
+     A small neural single-image super-resolution model (DirectML or an ONNX runtime; licence and size to check), as the moving picture instead of a resample: detail from learning, not from frames.
   3. Make the temporal upscalers get jitter: not possible (frames arrive rendered), unless a game is run at a slightly different size each frame (no).
 - (Done) A no-reference score for 1:1 (`nr_sreval`: flicker and detail against the game's own frames). (Done) FSR's slow-pan drift: gone with the lean, the three are tied on Silent Hill f.
 - Per-backend lean thresholds (one value for all three today): not needed, the three behave alike.
