@@ -219,6 +219,10 @@ target_link_libraries(eam_uipreview d3d11 dxgi d3dcompiler bcrypt minhook)
 add_executable(eam_installtest EXCLUDE_FROM_ALL tools/install_test.cpp src/addon/addon_install.cpp src/host/metrics.cpp src/host/gpu_stats.cpp src/config/settings_backup.cpp src/diag/diagnostics.cpp)
 target_include_directories(eam_installtest PRIVATE ${CMAKE_CURRENT_SOURCE_DIR})
 
+# The GPU readings side by side, NVML against Windows' counters (the fallback for AMD and Intel): cmake --build . --config Release --target eam_gpuprobe
+add_executable(eam_gpuprobe EXCLUDE_FROM_ALL tools/gpu_probe.cpp src/host/gpu_stats.cpp src/host/metrics.cpp)
+target_include_directories(eam_gpuprobe PRIVATE ${CMAKE_CURRENT_SOURCE_DIR})
+
 # SDK install target (copies headers for addon developers)
 # Offline test of the addon handling (scan, load, init, toggle, remove, install, security), run against a throw-away folder with a small
 # test addon: cmake --build . --config Release --target eam_coretest

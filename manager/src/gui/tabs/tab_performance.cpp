@@ -16,6 +16,12 @@ namespace eam {
 
 namespace {
 
+// The addons that report the game's frame times, and what each calls its cost a frame (Neural Rendering: the model; the upscalers: themselves).
+struct Reporter { const char* id; const char* costKey; const char* costName; };
+constexpr Reporter kReporters[] = {
+    { "DLSS5NR01", "model_ms", "MODEL COST" }, { "DLSS4DLAA", "dlss_ms", "UPSCALER COST" },
+    { "FSR3UPSC", "fsr_ms", "UPSCALER COST" }, { "XESSUPSC", "xess_ms", "UPSCALER COST" },
+};
 constexpr const char* kNr = "DLSS5NR01";
 constexpr double kGraphSeconds = 20.0;   // the length of the graphs
 constexpr double kStatSeconds = 10.0;    // what the tiles average over
@@ -99,9 +105,17 @@ void RenderTabPerformance() {
     GpuStats::Instance().Wanted();
     Metrics& M = Metrics::Instance();
     const double now = M.Now();
-    const Metrics::Series frame = M.Get(kNr, "frame_ms", kGraphSeconds + 1);
-    const Metrics::Series model = M.Get(kNr, "model_ms", kGraphSeconds + 1);
+    // the addon whose frame times are the newest (with several on, the one working on the frames now)
+    const Reporter* rep = &kReporters[0];
+    Metrics::Series frame;
+    for (const Reporter& r : kReporters) {
+        Metrics::Series s = M.Get(r.id, "frame_ms", kGraphSeconds + 1);
+        if (s.samples.empty()) continue;
+        if (frame.samples.empty() || s.samples.back().t > frame.samples.back().t) { frame = std::move(s); rep = &r; }
+    }
+    const Metrics::Series model = M.Get(rep->id, rep->costKey, kGraphSeconds + 1);
     const Metrics::Series keep = M.Get(kNr, "keepup_pct", kGraphSeconds + 1);
+    const bool ownModel = rep == &kReporters[0];   // "keeps up" is Neural Rendering's; an upscaler runs on every frame it is given
     const Metrics::Series util = M.Get("system", "gpu_util", kGraphSeconds + 1);
     const Metrics::Series power = M.Get("system", "gpu_power_w", kGraphSeconds + 1);
     const GpuStats::Snapshot gpu = GpuStats::Instance().Get();
@@ -113,7 +127,7 @@ void RenderTabPerformance() {
 
     if (!haveFrames && !haveGpu) {
         widgets::EmptyState(ImGui::GetContentRegionAvail().x, "No live data yet",
-                            gpu.ok ? "Waiting for the GPU..." : "Start scaling a game with an addon that reports performance (DLSS 5 Neural Rendering does). GPU figures need an NVIDIA GPU.");
+                            gpu.ok ? "Waiting for the GPU..." : "Start scaling a game with one of the addons on (Neural Rendering or an upscaler). It shows the game's frame times and what the addon costs.");
         if (!gpu.ok && !gpu.why.empty()) { ImGui::Dummy(ImVec2(0, S(6))); ImGui::TextDisabled("GPU: %s", gpu.why.c_str()); }
         ImGui::EndChild();
         return;
@@ -135,11 +149,13 @@ void RenderTabPerformance() {
     Tile("t2", tileW, "SLOWEST 5% OF FRAMES", big, sub, U(fs.p95 > 25.0f ? eam::ui::theme::kWarn : eam::ui::theme::kAccent));
     ImGui::SameLine();
     if (!model.samples.empty()) snprintf(big, sizeof big, "%.1f ms", ms.avg); else snprintf(big, sizeof big, "-");
-    snprintf(sub, sizeof sub, !keep.samples.empty() ? "keeps up %.0f%%" : "", ks.avg);
-    Tile("t3", tileW, "MODEL COST", big, sub, U(ks.n && ks.avg < 90.0f ? eam::ui::theme::kWarn : eam::ui::theme::kAccent));
+    snprintf(sub, sizeof sub, ownModel && !keep.samples.empty() ? "keeps up %.0f%%" : "", ks.avg);
+    Tile("t3", tileW, rep->costName, big, sub, U(ownModel && ks.n && ks.avg < 90.0f ? eam::ui::theme::kWarn : eam::ui::theme::kAccent));
     ImGui::SameLine();
     if (haveGpu) snprintf(big, sizeof big, "%u%%", gpu.utilGpu); else snprintf(big, sizeof big, "-");
-    snprintf(sub, sizeof sub, haveGpu ? "%.0f of %.0f W" : "", gpu.powerW, gpu.powerLimitW);
+    if (haveGpu && gpu.hasPower) snprintf(sub, sizeof sub, "%.0f of %.0f W", gpu.powerW, gpu.powerLimitW);
+    else if (haveGpu && gpu.vramTotalMB) snprintf(sub, sizeof sub, "%llu of %llu MB memory", (unsigned long long)gpu.vramUsedMB, (unsigned long long)gpu.vramTotalMB);
+    else sub[0] = 0;
     Tile("t4", tileW, "GPU LOAD", big, sub, U(haveGpu && gpu.utilGpu >= 95 ? eam::ui::theme::kWarn : eam::ui::theme::kAccent));
 
     // ---- frame time graph
@@ -160,7 +176,7 @@ void RenderTabPerformance() {
     ImGui::Dummy(ImVec2(0, S(6)));
     const float half = (ImGui::GetContentRegionAvail().x - gap) * 0.5f;
     ImGui::BeginGroup();
-    eam::ui::SectionLabel("Model cost (ms)");
+    eam::ui::SectionLabel(ownModel ? "Model cost (ms)" : "Upscaler cost (ms)");
     {
         const std::vector<ImVec2> pts = ToPoints(model, now, kGraphSeconds);
         if (pts.size() > 1) eam::ui::LineGraph("model", pts.data(), (int)pts.size(), ImVec2(half, ImGui::GetFontSize() * 5.0f), 0.0f, (std::max)(10.0f, ms.mx * 1.2f), U(eam::ui::theme::kAccent), nullptr, nullptr, 0, 0, 0, "ms");
@@ -184,33 +200,44 @@ void RenderTabPerformance() {
         char t[8][96];
         snprintf(t[7], sizeof t[7], "GPU  %s%s", gpu.name.c_str(), gpu.deviceCount > 1 ? "  (first of several)" : "");
         eam::ui::SectionLabel(t[7]);
-        const bool atCap = gpu.powerLimitW > 0 && gpu.powerW >= gpu.powerLimitW * 0.96;
+        const bool atCap = gpu.hasPower && gpu.powerLimitW > 0 && gpu.powerW >= gpu.powerLimitW * 0.96;
         snprintf(t[0], sizeof t[0], "%u%%", gpu.utilGpu);
         Bar("Load", gpu.utilGpu / 100.0f, t[0], U(gpu.utilGpu >= 95 ? eam::ui::theme::kWarn : eam::ui::theme::kAccent));
-        snprintf(t[1], sizeof t[1], "%.0f / %.0f W", gpu.powerW, gpu.powerLimitW);
-        Bar("Power", gpu.powerLimitW > 0 ? (float)(gpu.powerW / gpu.powerLimitW) : 0.0f, t[1], U(atCap ? eam::ui::theme::kWarn : eam::ui::theme::kAccent));
-        snprintf(t[2], sizeof t[2], "%llu / %llu MB", (unsigned long long)gpu.vramUsedMB, (unsigned long long)gpu.vramTotalMB);
-        Bar("Memory", gpu.vramTotalMB ? (float)gpu.vramUsedMB / (float)gpu.vramTotalMB : 0.0f, t[2], U(eam::ui::theme::kAccent));
-        snprintf(t[3], sizeof t[3], "%u C", gpu.tempC);
-        Bar("Temperature", gpu.tempC / 100.0f, t[3], U(gpu.tempC >= 85 ? eam::ui::theme::kWarn : eam::ui::theme::kAccent));
-        snprintf(t[4], sizeof t[4], "%u MHz core, %u MHz mem", gpu.clockGraphics, gpu.clockMem);
-        ImGui::TextDisabled("Clocks"); ImGui::SameLine(ImGui::GetFontSize() * 6.5f); ImGui::TextUnformatted(t[4]);
-        const std::string th = GpuStats::ThrottleText(gpu.throttle);
-        ImGui::TextDisabled("Limited by"); ImGui::SameLine(ImGui::GetFontSize() * 6.5f);
-        if (th.empty()) ImGui::TextUnformatted("nothing"); else { ImGui::PushStyleColor(ImGuiCol_Text, V(eam::ui::theme::kWarn)); ImGui::TextUnformatted(th.c_str()); ImGui::PopStyleColor(); }
+        if (gpu.hasPower) {
+            snprintf(t[1], sizeof t[1], "%.0f / %.0f W", gpu.powerW, gpu.powerLimitW);
+            Bar("Power", gpu.powerLimitW > 0 ? (float)(gpu.powerW / gpu.powerLimitW) : 0.0f, t[1], U(atCap ? eam::ui::theme::kWarn : eam::ui::theme::kAccent));
+        }
+        if (gpu.vramTotalMB) {
+            snprintf(t[2], sizeof t[2], "%llu / %llu MB", (unsigned long long)gpu.vramUsedMB, (unsigned long long)gpu.vramTotalMB);
+            Bar("Memory", (float)gpu.vramUsedMB / (float)gpu.vramTotalMB, t[2], U(eam::ui::theme::kAccent));
+        }
+        if (gpu.hasTemp) {
+            snprintf(t[3], sizeof t[3], "%u C", gpu.tempC);
+            Bar("Temperature", gpu.tempC / 100.0f, t[3], U(gpu.tempC >= 85 ? eam::ui::theme::kWarn : eam::ui::theme::kAccent));
+        }
+        if (gpu.hasClocks) {
+            snprintf(t[4], sizeof t[4], "%u MHz core, %u MHz mem", gpu.clockGraphics, gpu.clockMem);
+            ImGui::TextDisabled("Clocks"); ImGui::SameLine(ImGui::GetFontSize() * 6.5f); ImGui::TextUnformatted(t[4]);
+        }
+        if (gpu.hasThrottle) {
+            const std::string th = GpuStats::ThrottleText(gpu.throttle);
+            ImGui::TextDisabled("Limited by"); ImGui::SameLine(ImGui::GetFontSize() * 6.5f);
+            if (th.empty()) ImGui::TextUnformatted("nothing"); else { ImGui::PushStyleColor(ImGuiCol_Text, V(eam::ui::theme::kWarn)); ImGui::TextUnformatted(th.c_str()); ImGui::PopStyleColor(); }
+        }
+        if (gpu.viaCounters) ImGui::TextDisabled("Load and memory are Windows' own counters (as in the Task Manager); this card's power, clocks and temperature are not reported.");
     }
 
     // ---- what it says
     ImGui::Dummy(ImVec2(0, S(8)));
     eam::ui::SectionLabel("What this says");
     bool said = false;
-    if (haveGpu && gpu.powerLimitW > 0 && gpu.powerW >= gpu.powerLimitW * 0.96 && gpu.utilGpu >= 90) {
+    if (haveGpu && gpu.hasPower && gpu.powerLimitW > 0 && gpu.powerW >= gpu.powerLimitW * 0.96 && gpu.utilGpu >= 90) {
         char b[220]; snprintf(b, sizeof b, "The GPU is at its power limit (%.0f W) and fully loaded, so it cannot go faster. Lowering the game's render scale or the Model resolution frees headroom.", gpu.powerLimitW);
         Reading(U(eam::ui::theme::kWarn), b); said = true;
-    } else if (haveGpu && (gpu.throttle & 0x60) && gpu.utilGpu >= 80) {
+    } else if (haveGpu && gpu.hasThrottle && (gpu.throttle & 0x60) && gpu.utilGpu >= 80) {
         Reading(U(eam::ui::theme::kWarn), "The GPU is slowing down because of temperature. Check the case airflow and the fan curve."); said = true;
     }
-    if (ks.n && ks.avg < 90.0f) {
+    if (ownModel && ks.n && ks.avg < 90.0f) {
         char b[200]; snprintf(b, sizeof b, "The model runs on only %.0f%% of frames: the enhancement lags behind the picture. Lower Model resolution in the addon's settings.", ks.avg);
         Reading(U(eam::ui::theme::kWarn), b); said = true;
     }
