@@ -145,6 +145,7 @@ int main(int argc, char** argv) {
     if (const int mw = Arg(argc, argv, "meanweight", -1); mw >= 0) eng.SetMeanWeight(mw / 100.0f);   // meanweight=N: percent (100: the plain difference)
     if (const int gw = Arg(argc, argv, "gradweight", -1); gw >= 0) eng.SetGradWeight(gw / 100.0f);   // gradweight=N: percent the edges count (0: the plain difference)
     if ((Arg(argc, argv, "meanweight", -1) >= 0 || Arg(argc, argv, "gradweight", -1) > 0) && Arg(argc, argv, "nowait", 0) == 0) eng.PrepareShapeCost();   // (the shape cost is a shader variant, made on a thread of its own live)
+    if (const int rest = Arg(argc, argv, "restmix", -1); rest >= 0) eng.SetLeanRest(rest / 100.0f);   // restmix=N: percent of the plain resample kept even at rest
     if (ArgText(argc, argv, "lean") == "easu") eng.SetLeanMode(1);   // lean=easu: the lean blends toward FSR 1's EASU of the frame (default: Catmull-Rom)
     if (const int st = Arg(argc, argv, "stability", -1); st >= 0) eng.SetStability(st / 100.0f);   // stability=N: percent (the slider)
     eng.SetMotionScale(Arg(argc, argv, "mvscale", 100) / 100.0f);
@@ -165,7 +166,7 @@ int main(int argc, char** argv) {
     double flickOut = 0, flickIn = 0, detailOut = 0, detailIn = 0, flickStretch = 0, detailStretch = 0; int flickN = 0, detailN = 0;
     double sumUp = 0, sumPlain = 0, sumUpC = 0, sumPlainC = 0, sumUpT = 0, sumPlainT = 0; int n = 0;
     for (int i = 0; i < count; ++i) {
-        if (!rec.Read(first + i, px) || !ToRgba8(h, px, frame)) { printf("frame %d could not be read\n", first + i); return 3; }
+        if (!rec.Read(Arg(argc, argv, "still", 0) != 0 ? first : first + i, px) || !ToRgba8(h, px, frame)) { printf("frame %d could not be read\n", first + i); return 3; }
         if (pointSampled) {   // sample=point: what a game without anti-aliasing renders at a lower size (one sample at each pixel's centre): aliased, so a temporal upscaler has detail to unfold
             shrunk.assign(static_cast<size_t>(w) * hh * 4, 255);
             for (uint32_t y = 0; y < hh; ++y) for (uint32_t x = 0; x < w; ++x) {

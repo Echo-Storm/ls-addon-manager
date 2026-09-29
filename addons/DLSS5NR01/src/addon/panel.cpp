@@ -436,6 +436,11 @@ void DrawPanel() {
                     "0.05 % when upscaling. Lower: less trailing and smearing while you move, but at 1:1 the game's own jagged edges show more in motion. "
                     "Higher: more of the upscaler's smoothing in motion, and more trailing. Move it while you walk and turn.");
             }
+            if (ImGui::SliderFloat("Sharpness at rest", &c.scalerLeanRest, 0.0f, 1.0f, c.scalerLeanRest <= 0.0f ? "off" : "%.2f")) changed = true;
+            Tip("When the picture stands still the upscaler's own picture shows, and it is softer than the game's: with no camera jitter from Lossless Scaling "
+                "it has no extra detail to find, only its smoothing (anti-aliasing) to give. This puts that much of the plain stretched frame (see Steady in fast "
+                "motion) into the picture even at rest: 0 is the upscaler alone, 1 the plain stretch. Raise it if a still scene looks soft; sharpening (above) "
+                "then adds on top. Try 0.3 to 0.5.");
         }
         {
             if (ImGui::Checkbox("Crisp edges when moving (test)", &c.leanEasu)) changed = true;

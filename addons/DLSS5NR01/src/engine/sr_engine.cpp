@@ -112,7 +112,7 @@ Texture2D<float4> tIn : register(t1);
 Texture2D<float> tDistrust : register(t2);
 RWTexture2D<float4> uOut : register(u0);
 SamplerState sLinear : register(s0);
-cbuffer C : register(b0) { uint2 size; uint2 inSize; float strength; uint mode; };   // mode 0: Catmull-Rom, 1: EASU
+cbuffer C : register(b0) { uint2 size; uint2 inSize; float strength; uint mode; float rest; };   // rest: the least the frame is blended in, even at rest   // mode 0: Catmull-Rom, 1: EASU
 float4 CatmullRom(float2 uv) {   // 16 loads, the input's size
     const float2 pos = uv * float2(inSize) - 0.5, base = floor(pos), f = pos - base;
     const float2 w0 = f * (-0.5 + f * (1.0 - 0.5 * f)), w1 = 1.0 + f * f * (-2.5 + 1.5 * f), w2 = f * (0.5 + f * (2.0 - 1.5 * f)), w3 = f * f * (-0.5 + 0.5 * f);
@@ -204,13 +204,13 @@ void main(uint3 id : SV_DispatchThreadID) {
     if (id.x >= size.x || id.y >= size.y) return;
     const float2 uv = (float2(id.xy) + 0.5) / float2(size);
     const float4 up = tUp[id.xy];
-    const float d = saturate(tDistrust.SampleLevel(sLinear, uv, 0) * strength);
+    const float d = max(saturate(tDistrust.SampleLevel(sLinear, uv, 0) * strength), saturate(rest));
     if (d <= 0.001) { uOut[id.xy] = up; return; }
     const float4 plain = mode == 1u ? Easu(uv) : CatmullRom(uv);
     uOut[id.xy] = float4(lerp(up.rgb, max(plain.rgb, 0.0), d), up.a);   // (Catmull-Rom can overshoot below 0)
 }
 )";
-struct LeanConstants { uint32_t w, h, inW, inH; float strength; uint32_t mode; };
+struct LeanConstants { uint32_t w, h, inW, inH; float strength; uint32_t mode; float rest; };
 
 // Edge smoothing of the upscaler's picture, for games without anti-aliasing of their own. Where the brightness steps sharply (an edge drawn
 // without anti-aliasing: stair steps), it finds which way the edge runs and how far along it each way the step continues, which says where
@@ -1000,7 +1000,7 @@ bool SrEngine::Run(ID3D12Resource* in, uint32_t inW, uint32_t inH, DXGI_FORMAT i
     if (estimating && !m_estimatedLast) m_estimator.Forget();   // its frame before is not the one before this
     m_estimatedLast = estimating;
     // the lean (every upscaler): its picture into m_unsharpened, the leaned one into the output, or into m_leaned when edges or sharpening follow
-    const bool leaning = estimating && !m_noMask && m_fastMotion.load() != 0.0f && m_leanPso && EnsureSharpenTarget(outW, outH, outFormat) &&
+    const bool leaning = estimating && !m_noMask && (m_fastMotion.load() != 0.0f || m_leanRest.load() > 0.001f) && m_leanPso && EnsureSharpenTarget(outW, outH, outFormat) &&
                          (!(sharpening || smoothing) || EnsureLeanTarget(outW, outH, outFormat));
     ID3D12Resource* const upscaled = (sharpening || smoothing || leaning) ? m_unsharpened : out;   // where the upscaler writes
     ID3D12Resource* const post = leaning ? m_leaned : m_unsharpened;                               // what edges and sharpening read
@@ -1173,7 +1173,7 @@ bool SrEngine::Run(ID3D12Resource* in, uint32_t inW, uint32_t inH, DXGI_FORMAT i
         D3D12_GPU_DESCRIPTOR_HANDLE gpuOut = gpu; gpuOut.ptr += 11 * m_descriptorSize;
         m_list->SetComputeRootDescriptorTable(0, gpuIn);
         m_list->SetComputeRootDescriptorTable(1, gpuOut);
-        const LeanConstants lc{ outW, outH, inW, inH, 1.0f, m_leanMode.load() };
+        const LeanConstants lc{ outW, outH, inW, inH, m_fastMotion.load() != 0.0f ? 1.0f : 0.0f, m_leanMode.load(), m_leanRest.load() };   // (strength 0: only the floor, when "Steady in fast motion" is off)
         m_list->SetComputeRoot32BitConstants(2, sizeof(LeanConstants) / 4, &lc, 0);
         m_list->Dispatch((outW + 7) / 8, (outH + 7) / 8, 1);
         Transition(m_unsharpened, D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE, D3D12_RESOURCE_STATE_UNORDERED_ACCESS);

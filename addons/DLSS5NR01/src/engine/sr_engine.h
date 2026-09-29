@@ -96,6 +96,9 @@ public:
     void SetFastMotion(float pixels) { m_fastMotion.store(pixels); }
     // What the lean pass blends toward where the picture moves: 0 Catmull-Rom of the frame, 1 FSR 1's edge-adaptive EASU of it.
     void SetLeanMode(uint32_t mode) { m_leanMode.store(mode); }
+    // The least share of the plain resample in the picture, even where nothing moves (0..1): the upscalers' own picture at rest is softer than a resample
+    // (no camera jitter to find detail with), so this trades some of its anti-aliasing for sharpness at rest.
+    void SetLeanRest(float rest) { m_leanRest.store(rest < 0.0f ? 0.0f : rest > 1.0f ? 1.0f : rest); }
     void SetFastMotionShare(float share) { m_fastShare.store(share); }   // where SetFastMotion is automatic (-1): from this share of the width (0: the default)
     void SetMotionScale(float s) { m_motionScale = s; }
     void SetNoMask(bool none) { m_noMask = none; }
@@ -148,7 +151,7 @@ private:
     uint64_t m_slotDone[kSlots] = {}; int m_nextSlot = 0;
     ID3D12QueryHeap* m_timestamps = nullptr; ID3D12Resource* m_timestampReadback = nullptr; uint64_t m_timestampFreq = 1;
     double m_gpuMs = 0, m_motionMs = 0;
-    FlowEstimator m_estimator; bool m_estimatedLast = false; uint64_t m_estimates = 0; float m_motionScale = 1.0f; bool m_noMask = false; std::atomic<float> m_fastMotion{ -1.0f }, m_fastShare{ 0.0f }; std::atomic<uint32_t> m_leanMode{ 0 };
+    FlowEstimator m_estimator; bool m_estimatedLast = false; uint64_t m_estimates = 0; float m_motionScale = 1.0f; bool m_noMask = false; std::atomic<float> m_fastMotion{ -1.0f }, m_fastShare{ 0.0f }; std::atomic<uint32_t> m_leanMode{ 0 }; std::atomic<float> m_leanRest{ 0.0f };
     std::atomic<float> m_stability{ 0.0f }, m_edges{ 0.0f };
     static const int kDescriptors = 12;   // per slot: flow, motion, sharpen in/out, edges in/out, view in/out, lean in (3) / out
     ID3D12PipelineState* m_edgesPso = nullptr;

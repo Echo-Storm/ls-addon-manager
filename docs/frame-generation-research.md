@@ -303,3 +303,19 @@ line of work: without the game's sub-pixel camera jitter a temporal upscaler has
 what does not move, which a fidelity score cannot reward and the eye can. So the default stays where the owner's eyes put it ("look better",
 2026-09-28) and *Lean from* moves it: lower for a picture closer to the game's own frame, higher for more of the upscaler's smoothing. Stability 0 to 0.9 on
 FSR changed nothing on these clips (it is for thin lines).
+
+## Sharpness at rest (2026-09-29, issue #8)
+
+An upscaler user reported: sharper while moving, softer when standing still. That is the lean at work: moving, the picture is a resample of the frame
+(sharper); at rest it is the upscaler's own picture. `nr_sreval still=1` holds one frame for 40 runs (a camera at rest), DLSS Auto at 1.5x:
+
+| | Silent Hill f | World of Warcraft |
+|---|---|---|
+| the upscaler alone | 32.51 dB, detail 73 % | 32.53 dB, detail 58 % |
+| 25 % plain resample kept (`restmix=25`) | 32.90, 74 % | 32.94, 59 % |
+| 50 % | 33.23, 75 % | 33.31, 60 % |
+| 100 % (a plain resample) | 33.56, 80 % | 33.74, 65 % |
+
+(detail as a share of the game's own full-size frame; a plain stretch: 6.7 / 6.4 against the upscaler's 6.76 / 6.75 and the resample's 7.40 / 7.59.)
+So at rest the temporal upscaler is softer than the plain resample it replaces: no jitter, nothing to accumulate. "Sharpness at rest" (setting
+`scalerLeanRest`, `SrEngine::SetLeanRest`, the lean's floor) lets the person choose; default 0 (unchanged).
