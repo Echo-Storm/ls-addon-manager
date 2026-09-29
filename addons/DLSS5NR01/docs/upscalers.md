@@ -42,10 +42,21 @@ has the graphics card to spare for it. A post-process anti-aliasing (FXAA, CMAA)
   a moving picture better (test host: a sliding picture 11.1 levels off the truth against FSR 3.1's 14.2) and costs more. Switching takes
   about a second while the game runs; the panel names the FSR that runs. It is the same choice as the **+** next to FSR in the manager's
   Runtimes list, where other files can be added too.
-- **DLSS model** (DLSS Upscaler only): *NVIDIA's default (K)*, *M (DLSS 4.5)* or *E (DLSS 3's CNN model)*. M is heavier (about twice K's
-  cost) and differs in how it treats fine detail; E is the lightest and keeps a still picture crisper here, where K and M can soften it
-  (Lossless Scaling's frames carry no camera jitter, which those models expect). Compare them in your game. *DLSS version*, at the top of the panel,
+- **DLSS model** (DLSS Upscaler only): **Auto** (the default: E at 1:1, L when upscaling), or *K* (NVIDIA's default), *L*, *J* (DLSS 4), *M* (DLSS 4.5)
+  or *E* (DLSS 3's CNN model). Lossless Scaling's frames carry no camera jitter, which the DLSS 4 models expect, so they behave differently here
+  than in a game. Measured on recordings (`nr_sreval`): **L** is the steadiest when upscaling (the only one that does not drift from the picture in
+  a slow pan) but **pulses on a four-frame cycle at 1:1**, which shows as flicker while you move (seen in World of Warcraft, 2026-09-28); **E**
+  does not, is the lightest, and keeps a still picture crisp, so Auto takes E at 1:1 (DLAA) and L when upscaling. K and J trail a little more; M
+  is heavier (about twice K's cost) and did worst here. Compare them in your game. *DLSS version*, at the top of the panel,
   picks the runtime (the shipped one, or one added with **+** in the Runtimes list).
+- **Steady in fast motion** (on) and **Lean from**: without the game's camera jitter an upscaler's memory of earlier frames adds no detail in
+  motion, only trailing (soft doubled outlines on leaves and edges). Where the picture moves more than a small amount, the upscaled picture
+  leans on the new frame: from about 1 px a frame when upscaling (0.05 % of the frame's width) and from about 4 px at 4K at 1:1 (0.1 %). *Lean from*
+  sets it by eye (0: automatic). On a recorded fast turn, upscaled 1.5x, this took DLSS from 43.2 to 47.2 dB (a plain stretch: 43.9),
+  measured where trailing shows.
+- **Motion by shape (test)** (off): the motion is found by matching each small block of the frame before to this one; this matches their
+  shape and edges rather than their brightness, for scenes where the light changes (spell effects, flashes, fades). Neutral on the recordings
+  tried. Switching it on makes a second version of the search shader, on a thread of its own (it takes several seconds); the plain one runs meanwhile.
 - **Sharpening** (0.3 to start with): DLSS 4 has no sharpening of its own, so the DLSS addon sharpens its picture with the contrast-adaptive
   (CAS) formula; the FSR addon uses AMD's own RCAS. NIS sharpens too (Lossless Scaling's Sharpness), so without it the upscaler can look
   softer next to NIS. 0.2 to 0.6 is the useful range. Ctrl+Shift+F2 / F3 lower and raise it in the game.
