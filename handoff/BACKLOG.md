@@ -40,6 +40,8 @@ item is done (move it to the changelog) or when a new one comes up. Dates are wh
 
 ## Upscalers
 
+- **Sharpening at 1:1 amplifies the game's shimmer** (docs/frame-generation-research.md, last section): the owner's 0.7 gives 2.3x the game's detail and 137-155 % of its shimmer. Ideas: temporal-aware sharpening (less where a pixel flickers without moving), a lower default at 1:1 (0.5 now), tell the owner to try 0.15-0.3. Needs the owner's eyes.
+
 - World of Warcraft upscaled 1.5x: DLSS still 1.1 dB under a plain stretch on the coarse score (43.14 vs 44.24) in walking motion.
 - FSR's slow-pan drift (about 45.6 against 49.8 on the Silent Hill f pan); a settings sweep with `nr_sreval`.
 - A steadiness score that needs no reference picture, for judging 1:1 (DLAA) offline: at 1:1 the reference is the game's own aliased
