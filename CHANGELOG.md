@@ -1,5 +1,22 @@
 # Changelog
 
+## 0.9.19 (2026-09-29)
+
+For the upscalers: sharpness when the picture stands still (issue #8), and a test of crisper edges when it moves.
+
+- **"Sharpness at rest"** (new slider under "Steady in fast motion", off by default). Reported: sharper while moving, softer when standing still.
+  Both are the same thing seen from two sides. Moving, the upscaled picture leans on a resample of the game's frame (sharper); at rest it is the
+  upscaler's own picture, and without the camera jitter a game gives its upscaler it has no extra detail to find, only its smoothing to give.
+  Measured on recordings with the frame held still, DLSS scores 32.5 dB against 33.6 for a plain resample, with 73 % of the game's detail against 80 %
+  (World of Warcraft: 58 % against 65 %). The slider keeps that share of the resample in the picture even where nothing moves (0.25: 32.9 dB,
+  0.5: 33.2, 1: 33.6), trading some of the upscaler's anti-aliasing at rest for sharpness; sharpening adds on top. Try 0.3 to 0.5.
+- **"Crisp edges when moving (test)"** (off by default): the resample the lean uses in motion can be AMD's FSR 1 edge-adaptive filter (EASU, ported to HLSL,
+  in NOTICE.md) instead of Catmull-Rom: cleaner, crisper thin and diagonal edges. Measured shimmer and detail are the same; the difference is in how
+  edges look, so it is there to compare by eye. On the host test's sliding picture it is closer for FSR (11.7 against 14.2 levels off).
+- **Tools:** `nr_sreval` takes `restmix=`, `still=1`, `lean=easu`, `sample=point` (aliased input, as a game without anti-aliasing renders at a lower size),
+  `stability=`, `fastp=`, `saveframe=`, and prints the plain stretch beside its no-reference scores. Findings in `docs/frame-generation-research.md`:
+  the three upscalers side by side, how far the lean should go, and why a temporal upscaler cannot add detail without jitter.
+
 ## 0.9.18 (2026-09-29)
 
 The recorder is one setting for all the addons.

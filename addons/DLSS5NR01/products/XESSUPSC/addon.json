@@ -1,6 +1,6 @@
 {
   "name": "XeSS Upscaler",
-  "version": "0.9.18",
+  "version": "0.9.19",
   "author": "Echo-Storm",
   "description": "Off until you switch it on. Upscales with Intel XeSS Super Resolution in place of Lossless Scaling's NIS scaler, on any graphics card with Shader Model 6.4 (Intel Arc, NVIDIA or AMD), with the motion measured from the frames: choose NIS as the Scaling Type and run the game in a window smaller than the screen (at the screen's own size it anti-aliases). Intel's XeSS runtime is included. Only one of the upscalers works at a time.",
   "min_host_version": "1.2.0",
