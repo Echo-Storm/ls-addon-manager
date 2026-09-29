@@ -1,5 +1,25 @@
 # Changelog
 
+## 0.9.16 (2026-09-29)
+
+Fixes for four issues reported on GitHub.
+
+- **The DLSS Upscaler starts with Neural Rendering on** (issue #7: "FeatureNotFound (nvngx_dlss.dll missing?)" although the file was there,
+  on a 4090). NVIDIA's NGX core is one per process and keeps the search folders of the first addon to start it; Neural Rendering's
+  did not include the DLSS runtime's folder, so with both on and Neural Rendering first, the DLSS Upscaler could not find its runtime. Found by
+  reproducing it offline (the same error, with the runtime folder right there); every addon of ours now passes the same folders, in any
+  order. The compatibility test uses the same list.
+- **The Performance tab and the header work on AMD and Intel cards** (issue #4, RX 9060 XT): GPU load and memory in use now come from
+  Windows' own counters (the ones the Task Manager shows) where NVIDIA's NVML is missing; power, clocks and temperature are not reported
+  there and are left out. The tab also listens to the upscalers now (frame times, their cost), not only to Neural Rendering: it was empty
+  with an upscaler alone, on any card.
+- **Two NVIDIA cards** (issue #6): the compatibility test tests the card Lossless Scaling runs on (the model runs there), not always
+  the first NVIDIA card DXGI lists, and the log says which card it tested. Which card that is depends on Lossless Scaling's Preferred GPU.
+- **Deploying from source** (issue #5, `tools/deploy.ps1`): Lossless Scaling's own `Lossless.dll` is renamed `Lossless_original.dll`
+  before ours takes its name (it was only backed up, and Lossless Scaling would not start). New: [docs/antivirus.md](docs/antivirus.md), what to do when
+  an antivirus flags the download as a trojan (a cloud verdict on a new, unsigned file; Defender's own scan of the release finds nothing).
+- **Tools:** `nr_sreval` can start NGX Neural-Rendering-style first (`ngxfirst=1|2`), `eam_gpuprobe` compares NVML with Windows' counters.
+
 ## 0.9.15 (2026-09-28)
 
 A fix for Neural Rendering in HDR.

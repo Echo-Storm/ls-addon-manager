@@ -14,10 +14,12 @@ Around them, the manager installs and switches addons, shows the machine's load 
 updates itself. It is free, MIT-licensed and unofficial: not affiliated with the Lossless Scaling developers. Read the [disclaimer](DISCLAIMER.md) before installing.
 
 [![build](https://github.com/Echo-Storm/ls-addon-manager/actions/workflows/build.yml/badge.svg)](https://github.com/Echo-Storm/ls-addon-manager/actions/workflows/build.yml)
-&nbsp; **0.9.15**, on the way to 1.0 ([roadmap](ROADMAP.md)) &nbsp;·&nbsp; Lossless Scaling 3.2.2.0 &nbsp;·&nbsp; Windows 10 or 11, x64
+&nbsp; **0.9.16**, on the way to 1.0 ([roadmap](ROADMAP.md)) &nbsp;·&nbsp; Lossless Scaling 3.2.2.0 &nbsp;·&nbsp; Windows 10 or 11, x64
 
 > [!TIP]
-> **New in 0.9.15:** Neural Rendering in HDR without the neon orange and cyan in bright areas.
+> **New in 0.9.16:** the DLSS Upscaler starts with Neural Rendering on; the Performance tab works on AMD and Intel cards; the compatibility test
+> uses the card Lossless Scaling runs on; and [what to do](docs/antivirus.md) when an antivirus flags the download.
+> **0.9.15:** Neural Rendering in HDR without the neon orange and cyan in bright areas.
 > **0.9.14:** the upscalers in motion, a very big improvement: much less trailing and smearing while you walk and turn, no flicker at the
 > screen's own size with DLSS (the new **Auto** model), and all three now beat a plain stretch in a fast turn, for 3-4 ms a frame at 4K.
 > Everything else is in the [changelog](CHANGELOG.md).
