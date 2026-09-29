@@ -19,7 +19,8 @@ static int g_fail = 0;
 static void Check(const char* what, bool ok) { printf("%s  %s\n", ok ? "PASS" : "FAIL", what); if (!ok) g_fail++; }
 static void Touch(const fs::path& p, const char* text = "x") { fs::create_directories(p.parent_path()); std::ofstream(p) << text; }
 
-int main() {
+int main(int argc, char** argv) {
+    for (int i = 1; i < argc; ++i) if (std::string(argv[i]) == "--counters") GpuStats::PreferCounters(true);   // the GPU test through Windows' counters even where NVML works
     setvbuf(stdout, nullptr, _IONBF, 0);
     const fs::path base = fs::temp_directory_path() / ("eam_install_test_" + std::to_string(GetTickCount64()));
     const fs::path addons = base / "addons", src = base / "src";
@@ -141,8 +142,13 @@ int main() {
         if (ok) {
             printf("       GPU: %s, driver %s, load %u%%, %.0f / %.0f W, %u MHz, %u C, VRAM %llu / %llu MB, throttle 0x%llx\n", g.name.c_str(), g.driver.c_str(), g.utilGpu, g.powerW, g.powerLimitW, g.clockGraphics, g.tempC,
                    (unsigned long long)g.vramUsedMB, (unsigned long long)g.vramTotalMB, (unsigned long long)g.throttle);
-            Check("gpu: reads sane values (load 0..100, power below its limit plus a margin, memory used <= total)", g.utilGpu <= 100 && g.powerW >= 0 && g.powerW < g.powerLimitW * 1.3 + 1 && g.vramUsedMB <= g.vramTotalMB && g.vramTotalMB > 0 && !g.name.empty());
-            Check("gpu: the values were also published as metrics", !Metrics::Instance().Get("system", "gpu_power_w", 10.0).samples.empty());
+            // NVML reports everything; Windows' counters (any other card, or a machine with no GPU of note such as a CI runner) only the load and the memory,
+            // and a virtual adapter has no dedicated memory at all: then only what exists is checked
+            Check("gpu: reads sane values (load 0..100, power below its limit plus a margin, memory used <= total)",
+                  g.utilGpu <= 100 && !g.name.empty() && (g.viaCounters || (g.hasPower && g.powerW >= 0 && g.powerW < g.powerLimitW * 1.3 + 1 && g.vramTotalMB > 0)) &&
+                  (g.vramTotalMB == 0 ? g.viaCounters : g.vramUsedMB <= g.vramTotalMB));
+            Check("gpu: the values were also published as metrics", !Metrics::Instance().Get("system", "gpu_util", 10.0).samples.empty() &&
+                  (!g.hasPower || !Metrics::Instance().Get("system", "gpu_power_w", 10.0).samples.empty()));
         } else {
             printf("       GPU stats not available here: %s\n", g.why.c_str());
             Check("gpu: when unavailable it says why", !g.why.empty());
