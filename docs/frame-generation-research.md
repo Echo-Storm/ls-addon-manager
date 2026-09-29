@@ -240,3 +240,17 @@ The model's change itself is large (up to 70 levels: it recolours the ground and
 255 on average: small. The owner's "weird landscape flicker" (2026-09-28/29) is **not in this clip**: the recordings were made with the DLSS Upscaler,
 not Neural Rendering, in a night scene. Next: a recording made with Neural Rendering on and its own recorder on (the Save key says which
 addon's recorder is off now), in daylight with foliage and terrain, then `nr_nreval` on it (look at the worst 5 % and the heat map).
+
+By the model's working size (same clip, smoothing 0.4; the size does not decide the flicker, only the cost and the detail do):
+
+| working size | steady | still | along the motion (worst 5 %) | live path |
+|---|---|---|---|---|
+| 0.25 (960x544) | 44.67 dB | 0.74 | 0.89 (1.65) | 1.11 |
+| 0.35 (1344x760) | 43.50 | 0.75 | 1.02 (2.05) | 1.16 |
+| 0.50 (1920x1080) | 42.84 | 0.76 | 0.97 (1.74) | 1.18 |
+| 0.75 (2880x1624) | 43.02 | 0.63 | 0.89 (1.62) | 1.02 |
+
+Offline GPU times are not comparable to the live ones (the tool runs one frame at a time with long gaps; the GPU idles and clocks down: 26 to 61 ms
+here against about 8.5 ms live at 0.5). Because the flicker does not depend on the size, Auto quality can go lower (its floor is 0.25 in
+`auto_quality.h`; the 4K WoW session sat at its 0.50 with the model at 8.5 ms against a 5 ms budget) without making the model flicker more; what a
+smaller size costs is detail in what the model adds, which this score does not measure.

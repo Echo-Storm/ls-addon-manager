@@ -190,8 +190,7 @@ int main(int argc, char** argv) {
     std::vector<Score> scores;
     std::vector<uint8_t> px, frame, framePrev, pic, picPrev;
     std::vector<float> d, dPrev, mv, mvPrev;
-    std::vector<uint8_t> heat; int heatFrame = -1;
-    double sumSteady = 0, sumStill = 0, sumMoving = 0, sumP95 = 0, sumLag = 0, sumPlain = 0; int n = 0;
+    std::vector<uint8_t> heat; int heatFrame = -1;    double sumSteady = 0, sumStill = 0, sumMoving = 0, sumP95 = 0, sumLag = 0, sumPlain = 0; int n = 0;
     for (int i = 0; i < count; ++i) {
         if (!rec.Read(first + i, px) || !ToRgba8(h, px, frame)) { printf("frame %d could not be read\n", first + i); return 3; }
         { uint8_t* m = nullptr; upload->Map(0, nullptr, reinterpret_cast<void**>(&m));
@@ -297,6 +296,7 @@ int main(int argc, char** argv) {
         framePrev = frame; picPrev = pic; dPrev = d; mvPrev = mv;
     }
     if (n) printf("average over %d frames (after the first 4): steady %.2f dB, delta change where the game is still %.2f levels of 255, along the motion %.2f (the worst 5 %% of blocks: %.2f); the live path %.2f (not moved: %.2f)\n", n, sumSteady / n, sumStill / n, sumMoving / n, sumP95 / n, sumLag / n, sumPlain / n);
+    // (no GPU time here: one frame at a time with long gaps in between, the GPU idles and clocks down, so the times come out 3 to 7 times the live ones)
     if (!heat.empty()) {   // where the flicker sits, frame heatFrame: a block of the frame a pixel, brighter the more the delta changed along the motion (blue: not used)
         const uint32_t lw = W / 4, lh = H / 4, R = 8, B = 8, gx = (lw - 2 * R) / B, gy = (lh - 2 * R) / B, cell = 8;
         std::vector<uint8_t> tile(static_cast<size_t>(gx * cell) * (gy * cell) * 4, 255);
