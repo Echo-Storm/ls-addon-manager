@@ -112,6 +112,7 @@ void Start(IHost* host, ImGuiContext* ctx, void* allocFunc, void* freeFunc, void
     SettleFramesAtStart();
     g_compare = loaded.compareStart; g_splitPos = loaded.splitStart;
     ApplyTapRoles();
+    PublishRuntimeForOthers();
     if (!kScalerAddon) ScanRequirements();   // Neural Rendering's model file, helper and self-test; DLAA's runtime ships with it
     // a switch for the offline test host: run the compatibility test without a click
     if (std::string(host->GetConfig(kAddonId, "selfTestOnStart", "0")) == "1") RunSelfTest();

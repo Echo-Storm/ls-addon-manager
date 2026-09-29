@@ -162,21 +162,26 @@ int main(int argc, char** argv) {
     {
         Metrics& M = Metrics::Instance();
         const double now = M.Now();
+        // EAM_PREVIEW_SCENE=amd: an AMD card with the FSR Upscaler alone (no Neural Rendering, no NVML: only Windows' counters)
+        char* sceneEnv = nullptr; size_t sceneLen = 0; _dupenv_s(&sceneEnv, &sceneLen, "EAM_PREVIEW_SCENE");
+        const bool amd = sceneEnv && std::string(sceneEnv) == "amd";
+        const char* frameOwner = amd ? "FSR3UPSC" : "DLSS5NR01";
         unsigned seed = 12345;
         auto rnd = [&]() { seed = seed * 1664525u + 1013904223u; return (float)(seed >> 8) / (float)(1 << 24); };
         for (double t = now - 20.0; t <= now; t += 1.0 / 60.0) {
             float ms = 16.7f + (rnd() - 0.5f) * 1.6f;
             if (rnd() > 0.985f) ms += 9.0f + rnd() * 14.0f;   // a hitch now and then
-            M.PublishAt("DLSS5NR01", "frame_ms", ms, "ms", t);
+            M.PublishAt(frameOwner, "frame_ms", ms, "ms", t);
         }
         for (double t = now - 20.0; t <= now; t += 0.2) {
-            M.PublishAt("DLSS5NR01", "model_ms", 6.6f + (rnd() - 0.5f) * 0.7f, "ms", t);
-            M.PublishAt("DLSS5NR01", "keepup_pct", 98.0f + rnd() * 2.0f, "%", t);
+            if (amd) M.PublishAt("FSR3UPSC", "fsr_ms", 2.4f + (rnd() - 0.5f) * 0.4f, "ms", t);
+            else { M.PublishAt("DLSS5NR01", "model_ms", 6.6f + (rnd() - 0.5f) * 0.7f, "ms", t);
+                   M.PublishAt("DLSS5NR01", "keepup_pct", 98.0f + rnd() * 2.0f, "%", t); }
         }
         for (double t = now - 20.0; t <= now; t += 0.5) {
             const float u = 90.0f + (rnd() - 0.3f) * 9.0f;
             M.PublishAt("system", "gpu_util", u > 100 ? 100 : u, "%", t);
-            M.PublishAt("system", "gpu_power_w", 281.0f + (rnd() - 0.5f) * 4.0f, "W", t);
+            if (!amd) M.PublishAt("system", "gpu_power_w", 281.0f + (rnd() - 0.5f) * 4.0f, "W", t);
         }
         M.SetStatus("DLSS5NR01", "Running, model 5.2 ms, keeps up 99%", 1);
         M.SetStatus("FSR3UPSC", "FSR 3.1.4 1920x1080 -> 3840x2160, 1.6 ms", 1);
@@ -184,6 +189,9 @@ int main(int argc, char** argv) {
         SystemStats::Instance().InjectForPreview(sys);
         GpuStats::Snapshot g; g.name = "NVIDIA GeForce RTX 4070 Ti SUPER"; g.driver = "616.92"; g.deviceCount = 1; g.utilGpu = 97; g.utilMem = 44;
         g.clockGraphics = 2610; g.clockMem = 10501; g.tempC = 68; g.powerW = 283.4; g.powerLimitW = 285.0; g.vramUsedMB = 13132; g.vramTotalMB = 16376; g.throttle = 0x4;
+        g.hasPower = g.hasClocks = g.hasTemp = g.hasThrottle = true;
+        if (amd) { g.name = "AMD Radeon RX 9060 XT"; g.driver.clear(); g.viaCounters = true; g.hasPower = g.hasClocks = g.hasTemp = g.hasThrottle = false;
+                   g.powerW = g.powerLimitW = 0; g.clockGraphics = g.clockMem = g.tempC = 0; g.throttle = 0; g.utilGpu = 64; g.vramUsedMB = 7200; g.vramTotalMB = 16368; }
         GpuStats::Instance().InjectForPreview(g);
     }
 

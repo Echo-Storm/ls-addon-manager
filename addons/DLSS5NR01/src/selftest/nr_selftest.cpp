@@ -33,6 +33,7 @@
 #include <cmath>
 #include <string>
 #include <vector>
+#include "engine/ngx_paths.h"
 #include "nvsdk_ngx.h"
 #include "forwarder/nr_api.h"
 
@@ -354,10 +355,12 @@ int wmain(int argc, wchar_t** argv) {
 
     // ---- the driver's NGX core
     const unsigned long long appId = 0x24480451ull;
-    const wchar_t* searchPaths[] = { lsDir.c_str(), exeDir.c_str() };
+    // the same list as the engine's (nr::ngxpaths::SearchList: NGX keeps the first Init's paths, so every addon of ours passes the union)
+    const std::vector<std::wstring> searchList = nr::ngxpaths::SearchList({ lsDir, exeDir });
+    const std::vector<const wchar_t*> searchPaths = nr::ngxpaths::AsArray(searchList);
     NVSDK_NGX_FeatureCommonInfo info = {};
-    info.PathListInfo.Path = searchPaths;
-    info.PathListInfo.Length = 2;
+    info.PathListInfo.Path = searchPaths.data();
+    info.PathListInfo.Length = static_cast<unsigned>(searchPaths.size());
     info.LoggingInfo.LoggingCallback = NgxLog;
     info.LoggingInfo.MinimumLoggingLevel = NVSDK_NGX_LOGGING_LEVEL_ON;
     info.LoggingInfo.DisableOtherLoggingSinks = false;

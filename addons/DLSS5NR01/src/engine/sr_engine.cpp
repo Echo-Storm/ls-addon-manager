@@ -1,5 +1,6 @@
 #include "engine/sr_engine.h"
 #include "engine/ngx_users.h"
+#include "engine/ngx_paths.h"
 #include "engine/hdr_hlsl.h"
 #include <d3dcompiler.h>
 #include <algorithm>
@@ -390,8 +391,11 @@ bool SrEngine::Init(const LUID& card, const std::wstring& dataPath, const std::w
 
     // NGX, with NVIDIA's runtime from the addon's dlss folder
     m_ngxDataPath = dataPath; m_ngxRuntimeDir = runtimeDir; m_ngxRestarts = 0; m_ngxLost = false;
-    const wchar_t* paths[] = { runtimeDir.c_str() };
-    NVSDK_NGX_FeatureCommonInfo info{}; info.PathListInfo.Path = paths; info.PathListInfo.Length = 1;
+    // (the search list is the same in every addon of ours: NGX keeps the paths of its first Init in the process, see ngx_paths.h)
+    nr::ngxpaths::PublishDlssRuntime(runtimeDir);
+    const std::vector<std::wstring> searchList = nr::ngxpaths::SearchList({ runtimeDir });
+    const std::vector<const wchar_t*> paths = nr::ngxpaths::AsArray(searchList);
+    NVSDK_NGX_FeatureCommonInfo info{}; info.PathListInfo.Path = paths.data(); info.PathListInfo.Length = static_cast<unsigned>(paths.size());
     g_ngxLog = [this](const char* m) { Log("%s", m); };
     info.LoggingInfo.LoggingCallback = NgxMessage; info.LoggingInfo.MinimumLoggingLevel = NVSDK_NGX_LOGGING_LEVEL_ON;
     info.LoggingInfo.DisableOtherLoggingSinks = false;
@@ -725,8 +729,10 @@ bool SrEngine::RestartNgx() {
     if (m_feature) { NVSDK_NGX_D3D12_ReleaseFeature(static_cast<NVSDK_NGX_Handle*>(m_feature)); m_feature = nullptr; }
     if (m_params) { NVSDK_NGX_D3D12_DestroyParameters(static_cast<NVSDK_NGX_Parameter*>(m_params)); m_params = nullptr; }
     if (nr::ngxusers::Users() <= 1) NVSDK_NGX_D3D12_Shutdown1(m_dev);   // (not while another of our engines uses NGX)
-    const wchar_t* paths[] = { m_ngxRuntimeDir.c_str() };
-    NVSDK_NGX_FeatureCommonInfo info{}; info.PathListInfo.Path = paths; info.PathListInfo.Length = 1;
+    nr::ngxpaths::PublishDlssRuntime(m_ngxRuntimeDir);
+    const std::vector<std::wstring> searchList = nr::ngxpaths::SearchList({ m_ngxRuntimeDir });
+    const std::vector<const wchar_t*> paths = nr::ngxpaths::AsArray(searchList);
+    NVSDK_NGX_FeatureCommonInfo info{}; info.PathListInfo.Path = paths.data(); info.PathListInfo.Length = static_cast<unsigned>(paths.size());
     info.LoggingInfo.LoggingCallback = NgxMessage; info.LoggingInfo.MinimumLoggingLevel = NVSDK_NGX_LOGGING_LEVEL_ON; info.LoggingInfo.DisableOtherLoggingSinks = false;
     const NVSDK_NGX_Result r = NVSDK_NGX_D3D12_Init(kAppId, m_ngxDataPath.c_str(), m_dev, &info);
     if (NVSDK_NGX_FAILED(r)) { Log("DLSS upscaler: NGX did not start again: %s", ResultName(r)); return false; }

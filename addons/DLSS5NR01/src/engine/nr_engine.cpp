@@ -1,5 +1,6 @@
 #include "engine/nr_engine.h"
 #include "engine/ngx_users.h"
+#include "engine/ngx_paths.h"
 #include <chrono>
 #include "engine/nr_shaders.h"
 #include "engine/dlaa_model.h"
@@ -167,9 +168,14 @@ bool NrEngine::CreateQueue(const LUID& luid) {
 bool NrEngine::StartNgx() {
     // DLAA: NVIDIA's runtime ships in the addon's dlss folder, searched only then (NGX loads every runtime it finds on the way)
     const std::wstring dlssDir = m_dataPath + L"\\dlss";
-    const wchar_t* searchPaths[] = { m_lsDir.c_str(), m_dataPath.c_str(), dlssDir.c_str() };
+    // (the same search list in every addon of ours: NGX keeps the paths of the first Init in the process, so the DLSS Upscaler's runtime folder
+    // must be on Neural Rendering's list too, or the DLSS Upscaler does not find nvngx_dlss.dll when this one started first: issue #7)
+    std::vector<std::wstring> first = { m_lsDir, m_dataPath };
+    if (m_model == Model::Dlaa) first.push_back(dlssDir);
+    const std::vector<std::wstring> searchList = nr::ngxpaths::SearchList(first);
+    const std::vector<const wchar_t*> searchPaths = nr::ngxpaths::AsArray(searchList);
     NVSDK_NGX_FeatureCommonInfo info{};
-    info.PathListInfo.Path = searchPaths; info.PathListInfo.Length = m_model == Model::Dlaa ? 3 : 2;
+    info.PathListInfo.Path = searchPaths.data(); info.PathListInfo.Length = static_cast<unsigned>(searchPaths.size());
     info.LoggingInfo.LoggingCallback = OnNgxLog; info.LoggingInfo.MinimumLoggingLevel = NVSDK_NGX_LOGGING_LEVEL_ON;
     info.LoggingInfo.DisableOtherLoggingSinks = false;
     NVSDK_NGX_Result r = NVSDK_NGX_D3D12_Init(kAppId, m_dataPath.c_str(), m_dev, &info, NVSDK_NGX_Version_API);

@@ -21,6 +21,8 @@
 #include <cstdio>
 #include <string>
 #include <vector>
+#include "nvsdk_ngx.h"
+#include "engine/ngx_paths.h"
 #include "addon/lsrec.h"
 #include "engine/sr_engine.h"
 #include "eval_common.h"
@@ -124,6 +126,19 @@ int main(int argc, char** argv) {
     // the engine, as the addon starts it (its own device on the same card), given our shared resources
     SrEngine eng;
     const std::wstring runtimeDir = exeDir + (backend == SrEngine::Backend::Fsr ? L"\\fsr" : backend == SrEngine::Backend::Xess ? L"\\xess" : L"\\dlss");
+    if (const int nrFirst = Arg(argc, argv, "ngxfirst", 0); nrFirst != 0) {
+        // Neural Rendering started first, as it does when both addons are on (issue #7): NVIDIA's NGX core is one per process and keeps the search
+        // paths of its first Init. ngxfirst=2: Neural Rendering's list as it was (Lossless Scaling's folder and its own: the upscaler then fails
+        // with FeatureNotFound); ngxfirst=1: the list as it is now (nr::ngxpaths::SearchList, with the DLSS runtime's folder the DLSS Upscaler
+        // published when it loaded).
+        std::vector<std::wstring> nrList = { exeDir, exeDir };   // (this program sits in the folder the addon's files are in)
+        if (nrFirst == 1) { nr::ngxpaths::PublishDlssRuntime(exeDir + L"\\dlss"); nrList = nr::ngxpaths::SearchList(nrList); }
+        const std::vector<const wchar_t*> nrPaths = nr::ngxpaths::AsArray(nrList);
+        NVSDK_NGX_FeatureCommonInfo nrInfo{}; nrInfo.PathListInfo.Path = nrPaths.data(); nrInfo.PathListInfo.Length = static_cast<unsigned>(nrPaths.size());
+        wchar_t tmpDir[MAX_PATH] = {}; GetTempPathW(MAX_PATH, tmpDir);
+        const NVSDK_NGX_Result nr = NVSDK_NGX_D3D12_Init(0x24480451ull, (std::wstring(tmpDir) + L"DLSS5NR01_sreval").c_str(), dev, &nrInfo, NVSDK_NGX_Version_API);
+        printf("Neural Rendering's NGX init first: %s\n", NVSDK_NGX_FAILED(nr) ? "failed" : "ok");
+    }
     if (!eng.Init(ad.AdapterLuid, exeDir, runtimeDir, [](const char* m) { printf("  %s\n", m); }, backend)) { printf("the upscaler could not start: %s\n", eng.LastError().c_str()); return 4; }
     if (const int cap = Arg(argc, argv, "straycap", -1); cap >= 0) eng.SetStrayCap(cap == 0 ? 1e9f : static_cast<float>(cap));
     if (const int mw = Arg(argc, argv, "meanweight", -1); mw >= 0) eng.SetMeanWeight(mw / 100.0f);   // meanweight=N: percent (100: the plain difference)

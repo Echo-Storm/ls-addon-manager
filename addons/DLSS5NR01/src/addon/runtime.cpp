@@ -16,6 +16,7 @@
 #include "addon/scaler11.h"
 #include "addon/hdr.h"
 #include "engine/sr_engine.h"
+#include "engine/ngx_paths.h"
 #include <windows.h>
 #include <shlobj.h>
 #pragma comment(lib, "version.lib")
@@ -882,6 +883,12 @@ std::wstring ChosenRuntimeDir() {
     return slash == std::wstring::npos ? w : w.substr(0, slash);
 }
 
+// The DLSS Upscaler tells the process where its runtime is as soon as it loads, so that Neural Rendering, if it starts NGX first, puts that
+// folder on NGX's search list too (NGX keeps the first Init's paths: ngx_paths.h, issue #7).
+void PublishRuntimeForOthersImpl() {
+    if (kScalerAddon && !kFsrScaler && !kXessScaler) nr::ngxpaths::PublishDlssRuntime(ChosenRuntimeDir());
+}
+
 // A new choice in the Runtimes list, followed while running (checked twice a second, under g_frameMutex on the render thread). The upscalers
 // stop their engine, and the next pass starts it on the new file; Neural Rendering takes the model file its setting now names and starts again.
 void FollowRuntimeChoice() {
@@ -1211,6 +1218,8 @@ void ScalerMarkerGuarded(IDXGISwapChain* sc) {   // no objects here: __try canno
     __try { ScalerMarker(sc); } __except (ScalerFault(GetExceptionCode()) ? EXCEPTION_EXECUTE_HANDLER : EXCEPTION_CONTINUE_SEARCH) {}
 }
 } // namespace
+
+void PublishRuntimeForOthers() { PublishRuntimeForOthersImpl(); }
 
 ScalerView GetScalerView() {
     ScalerView v;

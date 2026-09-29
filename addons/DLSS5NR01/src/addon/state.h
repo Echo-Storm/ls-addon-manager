@@ -112,6 +112,7 @@ void OnPostPass(uint32_t x, uint32_t y, uint32_t z, void* user);   // its post-d
 void RequestPair();   // the upscalers' before / after pair (the panel's button)
 std::string PassText(const DispatchSig& sig);                    // the views of a pass, for the log and the panel
 void ResetWatchdog();
+void PublishRuntimeForOthers();   // the DLSS Upscaler says where its runtime is (NGX keeps the first Init's search paths)
 
 // tasks.cpp: the jobs that run beside the window (they read files, open a dialog, or start the compatibility test)
 void ScanRequirements();
