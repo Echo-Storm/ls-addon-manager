@@ -143,7 +143,7 @@ int main(int argc, char** argv) {
     if (const int cap = Arg(argc, argv, "straycap", -1); cap >= 0) eng.SetStrayCap(cap == 0 ? 1e9f : static_cast<float>(cap));
     if (const int mw = Arg(argc, argv, "meanweight", -1); mw >= 0) eng.SetMeanWeight(mw / 100.0f);   // meanweight=N: percent (100: the plain difference)
     if (const int gw = Arg(argc, argv, "gradweight", -1); gw >= 0) eng.SetGradWeight(gw / 100.0f);   // gradweight=N: percent the edges count (0: the plain difference)
-    if (Arg(argc, argv, "meanweight", -1) >= 0 || Arg(argc, argv, "gradweight", -1) > 0) eng.PrepareShapeCost();   // (the shape cost is a shader variant, made on a thread of its own live)
+    if ((Arg(argc, argv, "meanweight", -1) >= 0 || Arg(argc, argv, "gradweight", -1) > 0) && Arg(argc, argv, "nowait", 0) == 0) eng.PrepareShapeCost();   // (the shape cost is a shader variant, made on a thread of its own live)
     eng.SetMotionScale(Arg(argc, argv, "mvscale", 100) / 100.0f);
     eng.SetNoMask(Arg(argc, argv, "mask", 1) == 0);
     if (const int fast = Arg(argc, argv, "fast", -1); fast >= 0) eng.SetFastMotion(static_cast<float>(fast));

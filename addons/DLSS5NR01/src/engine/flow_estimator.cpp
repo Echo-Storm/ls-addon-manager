@@ -411,38 +411,54 @@ void FlowEstimator::Collect(uint64_t completed) {
         if (m_retired[i].at <= completed) { m_retired[i].texture->Release(); m_retired[i] = m_retired.back(); m_retired.pop_back(); } else ++i;
 }
 
-void FlowEstimator::CompileShape() {   // on any thread: the device makes pipelines on its own
+namespace {
+// On a thread of its own (see FlowEstimator::ShapeJob): compile the search with the shape cost and make its pipeline.
+void CompileShapeJob(const std::shared_ptr<FlowEstimator::ShapeJob>& job, ID3D12Device* dev, ID3D12RootSignature* root, const std::function<void(const char*)>& log) {
     const auto start = std::chrono::steady_clock::now();
     const std::string text = std::string(kCommonHlsl) + kSearchHlsl;
     const D3D_SHADER_MACRO defines[] = { { "SHAPE_COST", "1" }, { nullptr, nullptr } };
     ID3DBlob* code = nullptr; ID3DBlob* err = nullptr;
+    char line[400];
     if (FAILED(D3DCompile(text.c_str(), text.size(), "flow_search_shape", defines, nullptr, "main", "cs_5_0", D3DCOMPILE_OPTIMIZATION_LEVEL3, 0, &code, &err))) {
-        Log("motion estimator: the shape cost did not compile: %s", err ? static_cast<const char*>(err->GetBufferPointer()) : "?"); SafeRelease(err);
-        m_shapeState = 3; return;
+        snprintf(line, sizeof line, "motion estimator: the shape cost did not compile: %s", err ? static_cast<const char*>(err->GetBufferPointer()) : "?");
+        if (log) log(line);
+        SafeRelease(err); job->state = 3; return;
     }
-    D3D12_COMPUTE_PIPELINE_STATE_DESC pso{}; pso.pRootSignature = m_root; pso.CS = { code->GetBufferPointer(), code->GetBufferSize() };
-    const HRESULT hr = m_dev->CreateComputePipelineState(&pso, IID_PPV_ARGS(&m_psoShape));
+    ID3D12PipelineState* made = nullptr;
+    D3D12_COMPUTE_PIPELINE_STATE_DESC pso{}; pso.pRootSignature = root; pso.CS = { code->GetBufferPointer(), code->GetBufferSize() };
+    const HRESULT hr = dev->CreateComputePipelineState(&pso, IID_PPV_ARGS(&made));
     SafeRelease(code);
-    if (FAILED(hr)) { Log("motion estimator: the shape cost pipeline 0x%08x", static_cast<unsigned>(hr)); m_shapeState = 3; return; }
-    Log("motion estimator: the shape cost compiled in %.0f s", std::chrono::duration<double>(std::chrono::steady_clock::now() - start).count());
-    m_shapeState = 2;
+    if (FAILED(hr)) { snprintf(line, sizeof line, "motion estimator: the shape cost pipeline 0x%08x", static_cast<unsigned>(hr)); if (log) log(line); job->state = 3; return; }
+    std::lock_guard<std::mutex> lock(job->mutex);
+    if (job->cancelled) { made->Release(); return; }   // the estimator was shut down meanwhile
+    job->pso = made; job->state = 2;
+    snprintf(line, sizeof line, "motion estimator: the shape cost compiled in %.0f s", std::chrono::duration<double>(std::chrono::steady_clock::now() - start).count());
+    if (log) log(line);
+}
 }
 
 void FlowEstimator::StartShapeCompile() {
+    if (!m_shape) m_shape = std::make_shared<ShapeJob>();
     int expected = 0;
-    if (!m_shapeState.compare_exchange_strong(expected, 1)) return;
-    m_shapeThread = std::thread([this] { CompileShape(); });
+    if (!m_shape->state.compare_exchange_strong(expected, 1)) return;
+    const std::shared_ptr<ShapeJob> job = m_shape;
+    ID3D12Device* dev = m_dev; ID3D12RootSignature* root = m_root; const LogFn log = m_log;
+    dev->AddRef(); root->AddRef();
+    std::thread([job, dev, root, log] { CompileShapeJob(job, dev, root, log); root->Release(); dev->Release(); }).detach();
 }
 
 void FlowEstimator::PrepareShape() {
-    int expected = 0;
-    if (m_shapeState.compare_exchange_strong(expected, 1)) CompileShape();
-    else if (m_shapeThread.joinable()) m_shapeThread.join();
+    StartShapeCompile();
+    while (m_shape && m_shape->state == 1) Sleep(20);
 }
 
 void FlowEstimator::Shutdown() {
-    if (m_shapeThread.joinable()) m_shapeThread.join();
-    SafeRelease(m_psoShape); m_shapeState = 0;
+    if (m_shape) {   // a compile still running finishes on its own and lets its pipeline go
+        std::lock_guard<std::mutex> lock(m_shape->mutex);
+        m_shape->cancelled = true;
+        SafeRelease(m_shape->pso);
+    }
+    m_shape.reset();
     Release();
     for (const Retired& r : m_retired) r.texture->Release();   // the caller waited for the GPU
     m_retired.clear();
@@ -526,7 +542,7 @@ void FlowEstimator::Record(ID3D12GraphicsCommandList* list, int slot, ID3D12Reso
         const Pass p = MakePass(slot, index, srv, fmt, uav, uavFmt, uav2);
         if (restsReadable) Barrier(list, uav, D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE, D3D12_RESOURCE_STATE_UNORDERED_ACCESS);
         ID3D12PipelineState* state = m_pso[pso];
-        if (pso == Search && WantShape()) { if (m_shapeState == 2) state = m_psoShape; else StartShapeCompile(); }   // (the plain search until the variant is ready)
+        if (pso == Search && WantShape()) { if (m_shape && m_shape->state == 2) state = m_shape->pso; else StartShapeCompile(); }   // (the plain search until the variant is ready)
         list->SetPipelineState(state);
         list->SetComputeRootDescriptorTable(0, p.srvs);
         list->SetComputeRootDescriptorTable(1, p.uav);
