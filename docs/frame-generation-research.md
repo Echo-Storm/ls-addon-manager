@@ -254,3 +254,27 @@ Offline GPU times are not comparable to the live ones (the tool runs one frame a
 here against about 8.5 ms live at 0.5). Because the flicker does not depend on the size, Auto quality can go lower (its floor is 0.25 in
 `auto_quality.h`; the 4K WoW session sat at its 0.50 with the model at 8.5 ms against a 5 ms budget) without making the model flicker more; what a
 smaller size costs is detail in what the model adds, which this score does not measure.
+
+## The upscalers at 1:1 (DLAA) with no reference (2026-09-29): sharpening amplifies the shimmer
+
+At 1:1 the game's own frame is the input and there is no true picture to compare with (the frame is aliased), so `nr_sreval` now also prints two
+no-reference scores (levels of 255 on luma), each against the game's own frames: **flicker** (the middle of three frames from the average of its
+neighbours: shimmer, plus the real motion, which the game's own frames carry equally) and **detail** (the mean step between neighbouring pixels).
+The clips are all in motion, so the game's own flicker is 2 to 13 levels and dominates; the ratio is what counts.
+
+World of Warcraft walking, 1:1, DLSS model E, by the Sharpening slider (the engine scales it by 1.6):
+
+| slider | clip 23-54-01: flicker / detail | clip 23-54-43: flicker / detail |
+|---|---|---|
+| 0 | 90 % / 95 % | 91 % / 86 % |
+| 0.3 | 108 % / 150 % | 117 % / 147 % |
+| 0.7 (the owner's) | 137 % / 229 % | 155 % / 235 % |
+| 1.0 | 160 % / 286 % | 186 % / 302 % |
+
+Without sharpening model E calms the shimmer a little (about 10 %) and keeps 86 to 95 % of the detail: DLAA without the game's jitter can only smooth, not
+add. Sharpening then puts the detail back, and **more than back**: at 0.3 half as much detail again as the game's own picture, at 0.7 more than twice as
+much, with the shimmer of the game's aliasing amplified too (108 to 117 % at 0.3, 137 to 155 % at 0.7). "Neutral" (detail and shimmer both as the game's own) is
+about 0.1 to 0.15. The other backends at slider 0 on clip 23-54-43: model L 94 % / 84 %, K 88 % / 79 %, FSR 92 % / 85 %, XeSS 90 % / 80 % (flicker / detail).
+
+Ideas: sharpening that follows the temporal stability (less where a pixel changes from frame to frame without moving), so it puts the detail back
+without the shimmer; a lower default at 1:1 (0.5 today).

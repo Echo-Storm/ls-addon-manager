@@ -87,6 +87,32 @@ inline double PsnrTemporal(const std::vector<uint8_t>& a, const std::vector<uint
     return mse <= 1e-12 ? 99.0 : 10.0 * std::log10(255.0 * 255.0 / mse);
 }
 
+// No-reference scores, for judging a picture with no true one to compare with (1:1, where the game's own frame is the aliased input):
+//   Flicker: over three frames in a row (the one before, this one, the one after), how far the middle one is from the average of its neighbours,
+//            in levels of 255 on luma; a steady picture, or one that changes evenly, scores 0, shimmer scores what it shimmers;
+//   Detail:  the mean step between neighbouring pixels (right and down), on luma: what fine detail and sharpness are left (a blur lowers it).
+// Both on every second pixel each way (quick). Luma is Rec. 709 of the RGBA8.
+inline double Flicker(const std::vector<uint8_t>& before, const std::vector<uint8_t>& now, const std::vector<uint8_t>& after, uint32_t W) {
+    const uint32_t H = static_cast<uint32_t>(now.size() / 4 / W);
+    auto luma = [&](const std::vector<uint8_t>& p, size_t i) { return 0.2126 * p[i] + 0.7152 * p[i + 1] + 0.0722 * p[i + 2]; };
+    double sum = 0; size_t n = 0;
+    for (uint32_t y = 0; y < H; y += 2) for (uint32_t x = 0; x < W; x += 2) {
+        const size_t i = (static_cast<size_t>(y) * W + x) * 4;
+        sum += std::abs(luma(now, i) - 0.5 * (luma(before, i) + luma(after, i))); ++n;
+    }
+    return n ? sum / n : 0.0;
+}
+inline double Detail(const std::vector<uint8_t>& p, uint32_t W) {
+    const uint32_t H = static_cast<uint32_t>(p.size() / 4 / W);
+    auto luma = [&](size_t i) { return 0.2126 * p[i] + 0.7152 * p[i + 1] + 0.0722 * p[i + 2]; };
+    double sum = 0; size_t n = 0;
+    for (uint32_t y = 0; y + 1 < H; y += 2) for (uint32_t x = 0; x + 1 < W; x += 2) {
+        const size_t i = (static_cast<size_t>(y) * W + x) * 4;
+        sum += std::abs(luma(i) - luma(i + 4)) + std::abs(luma(i) - luma(i + static_cast<size_t>(W) * 4)); ++n;
+    }
+    return n ? sum / n : 0.0;
+}
+
 inline bool WriteBmp(const std::wstring& path, const std::vector<const std::vector<uint8_t>*>& tiles, uint32_t w, uint32_t h) {
     const uint32_t W = w * static_cast<uint32_t>(tiles.size()), rowBytes = W * 3, pad = (4 - rowBytes % 4) % 4;
     FILE* f = _wfopen(path.c_str(), L"wb"); if (!f) return false;

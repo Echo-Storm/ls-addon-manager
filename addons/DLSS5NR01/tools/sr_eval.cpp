@@ -157,7 +157,8 @@ int main(int argc, char** argv) {
 
     struct Score { int frame; double up, plain, upCoarse, plainCoarse; std::vector<uint8_t> truth, picture, stretched; };
     std::vector<Score> scores;
-    std::vector<uint8_t> px, frame, shrunk, picture, stretched, framePrev, picturePrev, stretchedPrev;
+    std::vector<uint8_t> px, frame, shrunk, picture, stretched, framePrev, picturePrev, stretchedPrev, framePrev2, picturePrev2;
+    double flickOut = 0, flickIn = 0, detailOut = 0, detailIn = 0; int flickN = 0, detailN = 0;
     double sumUp = 0, sumPlain = 0, sumUpC = 0, sumPlainC = 0, sumUpT = 0, sumPlainT = 0; int n = 0;
     for (int i = 0; i < count; ++i) {
         if (!rec.Read(first + i, px) || !ToRgba8(h, px, frame)) { printf("frame %d could not be read\n", first + i); return 3; }
@@ -177,7 +178,7 @@ int main(int argc, char** argv) {
         submit();
         queue->Signal(copied, static_cast<uint64_t>(i) + 1);
         // the engine's run, on this thread (live, the engine's own thread runs it): the motion measured from the frames, no sharpening
-        eng.Run(inE, w, hh, DXGI_FORMAT_R8G8B8A8_UNORM, outE, W, H, DXGI_FORMAT_R8G8B8A8_UNORM, nullptr, 0, 0, 0.0f, 1.0f, !noMotion, static_cast<unsigned>(Arg(argc, argv, "preset", 0)), 0.0f, i == 0, false,
+        eng.Run(inE, w, hh, DXGI_FORMAT_R8G8B8A8_UNORM, outE, W, H, DXGI_FORMAT_R8G8B8A8_UNORM, nullptr, 0, 0, 0.0f, 1.0f, !noMotion, static_cast<unsigned>(Arg(argc, argv, "preset", 0)), Arg(argc, argv, "sharpen", 0) / 100.0f, i == 0, false,
                 copiedE, static_cast<uint64_t>(i) + 1, doneE, static_cast<uint64_t>(i) + 1);
         queue->Wait(done, static_cast<uint64_t>(i) + 1);
         alloc->Reset(); list->Reset(alloc, nullptr);
@@ -200,6 +201,12 @@ int main(int argc, char** argv) {
         const double same = i ? Psnr(frame, framePrev, nullptr) : 0.0;   // the frame against the one before (99: a repeat)
         printf("  frame %4d  upscaled %5.2f dB (coarse %5.2f, steady %5.2f)   stretched %5.2f dB (coarse %5.2f, steady %5.2f)   vs before %5.2f\n", s.frame, s.up, s.upCoarse, upT, s.plain, s.plainCoarse, plainT, same);
         if (i >= 8) { sumUp += s.up; sumPlain += s.plain; sumUpC += s.upCoarse; sumPlainC += s.plainCoarse; sumUpT += upT; sumPlainT += plainT; ++n; }   // (after the history has built)
+        // no-reference: the frame before's flicker (it needs this frame as the one after), and the detail of every picture, against the game's own frames
+        if (i >= 2 && !picturePrev2.empty()) {
+            if (i >= 10) { flickOut += Flicker(picturePrev2, picturePrev, picture, W); flickIn += Flicker(framePrev2, framePrev, frame, W); ++flickN; }
+        }
+        if (i >= 9) { detailOut += Detail(picture, W); detailIn += Detail(frame, W); ++detailN; }
+        framePrev2 = framePrev; picturePrev2 = picturePrev;
         framePrev = frame; picturePrev = picture; stretchedPrev = stretched;
         if (show > 0) { s.truth = frame; s.picture = picture; s.stretched = stretched; }
         scores.push_back(std::move(s));
@@ -209,6 +216,8 @@ int main(int argc, char** argv) {
         }
     }
     // steady: the frame-to-frame change against the truth's own change (shimmer, crawling edges and flicker cost; softness alone does not)
+    if (flickN && detailN) printf("no reference (levels of 255 on luma; the picture / the game's own frames): flicker %.3f / %.3f (%.0f %%), detail %.3f / %.3f (%.0f %%)\n",
+                                  flickOut / flickN, flickIn / flickN, 100.0 * flickOut / std::max(1e-9, flickIn), detailOut / detailN, detailIn / detailN, 100.0 * detailOut / std::max(1e-9, detailIn));
     if (n) printf("average over %d frames (after the first 8): upscaled %.2f dB (coarse %.2f, steady %.2f), stretched %.2f dB (coarse %.2f, steady %.2f)\n", n, sumUp / n, sumUpC / n, sumUpT / n, sumPlain / n, sumPlainC / n, sumPlainT / n);
     // the frames where the upscaler did worst against a plain stretch (its history hurt most)
     std::vector<const Score*> order; for (const Score& s : scores) if (!s.truth.empty() && s.frame - first >= 8) order.push_back(&s);
