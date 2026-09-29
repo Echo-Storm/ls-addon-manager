@@ -3,8 +3,17 @@
 Everything worth doing that is not done yet, so nothing is lost between sessions. Newest context first within each group. Update it when an
 item is done (move it to the changelog) or when a new one comes up. Dates are when the item was noted.
 
+## GitHub issues (state 2026-09-29, all answered)
+
+- #7 DLSS Upscaler "FeatureNotFound" with NR on: fixed in 0.9.16 (NGX search paths union, ngx_paths.h). Awaiting the reporter.
+- #4 Performance tab on AMD: fixed in 0.9.16 (Windows counters); awaiting a report from a real Radeon (only tested against NVML here).
+- #6 two NVIDIA GPUs: the compatibility test uses the card LS runs on (0.9.16). Running the model on a different card from LS: not supported (needs cross-adapter copies); the reporter was asked for the second GPU model and logs.
+- #5 antivirus flag (Defender cloud verdict `Trojan:Win32/Tecabans.STV!cl`): docs/antivirus.md written; our scans are clean. **Code signing** is the real fix: options to weigh with the owner: SignPath Foundation (free for open source, needs an application and a CI build), Azure Trusted Signing (about $10 a month; check eligibility), a normal certificate. Also submit the zip at microsoft.com/wdsi/filesubmission (needs the owner's Microsoft account).
+- #1, #2, #3 answered on 2026-09-28 (#3 fixed in 0.9.15). Left open for the reporters.
+
 ## Released
 
+- 0.9.16 (2026-09-29, v0.9.16 at 4ef0aed): issues #4, #5, #6, #7 (see above).
 - 0.9.15 (2026-09-28, v0.9.15 at 6d896fe): the HDR neon fix (issue #3, likely #1). Issues #1, #2, #3 answered on GitHub, left open for the reporters to confirm.
 - 0.9.14 (2026-09-28, v0.9.14 at ae232c0): see the changelog. Confirmed live: the corner square in the upscaler addons; NR smoothing at 0.6 helps.
 
