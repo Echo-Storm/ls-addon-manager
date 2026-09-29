@@ -278,3 +278,28 @@ about 0.1 to 0.15. The other backends at slider 0 on clip 23-54-43: model L 94 %
 
 Ideas: sharpening that follows the temporal stability (less where a pixel changes from frame to frame without moving), so it puts the detail back
 without the shimmer; a lower default at 1:1 (0.5 today).
+
+## The upscalers side by side, and how far the lean should go (2026-09-29)
+
+Defaults, the Auto DLSS model, upscaled 1.5x from recordings (`nr_sreval`; upscaled dB / coarse / steady; a plain stretch in the last column):
+
+| clip | DLSS | FSR 3.1 | XeSS | stretch |
+|---|---|---|---|---|
+| Silent Hill f, slow start | 34.63 / 48.43 / 31.77 | 34.65 / 48.75 / 31.78 | 34.61 / 48.70 / 31.75 | 33.43 / 45.17 / 30.56 |
+| Silent Hill f, fast turn | 34.02 / 47.17 / 31.13 | 34.10 / 47.84 / 31.20 | 34.07 / 47.82 / 31.18 | 32.68 / 43.94 / 29.78 |
+| World of Warcraft, walking | 32.74 / 43.14 / 32.91 | 32.05 / 42.75 / 32.50 | 32.72 / 44.46 / 32.95 | 32.49 / 44.24 / 32.39 |
+
+The three are tied on Silent Hill f (FSR's old slow-pan drift, 45.6 against 49.8, is gone: the lean took it). On World of Warcraft walking DLSS and FSR are
+below a plain stretch on the coarse score. Sweeping where the lean starts (`fastp=`, hundredths of a pixel; the default is 0.64 px at 1280 wide), coarse:
+
+| lean from | DLSS | FSR | XeSS |
+|---|---|---|---|
+| default (0.64 px) | 43.14 | 42.75 | 44.46 |
+| 0.30 px | 43.37 | 43.60 | 44.71 |
+| 0.05 px | 43.85 | 44.68 | 45.03 |
+
+Every step toward "lean wherever anything moves" scores better, up to a plain Catmull-Rom resample of the frame. That is the honest reading of the whole
+line of work: without the game's sub-pixel camera jitter a temporal upscaler has no extra detail to find; what it still does is smooth (anti-alias)
+what does not move, which a fidelity score cannot reward and the eye can. So the default stays where the owner's eyes put it ("look better",
+2026-09-28) and *Lean from* moves it: lower for a picture closer to the game's own frame, higher for more of the upscaler's smoothing. Stability 0 to 0.9 on
+FSR changed nothing on these clips (it is for thin lines).
