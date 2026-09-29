@@ -32,6 +32,7 @@ struct SelfTestResult {
     int code = -1;               // nr_selftest's exit code: 0 passed, 10..20 what went wrong (see nr_selftest.cpp)
     std::string key;             // its short name (MODEL_LOAD, NOT_SUPPORTED, ...), or NOT_FOUND, CRASH, TIMEOUT, UNEXPECTED from here
     std::string text;            // what it says, in words
+    std::string gpu;             // the graphics card it tested (with two NVIDIA cards, the one Lossless Scaling runs on when that is known)
 };
 
 struct Inputs {
@@ -91,7 +92,9 @@ ProcessResult RunProcess(const std::wstring& commandLine, unsigned timeoutMs);
 SelfTestResult ParseSelfTest(const std::string& output, unsigned long exitCode, bool timedOut);
 
 // Runs <addonDir>\nr_selftest.exe on `modelPath` and returns the verdict. Takes seconds: the model is loaded and run once. Call from a worker thread.
-SelfTestResult RunSelfTest(const std::wstring& addonDir, const std::wstring& modelPath, const std::wstring& lsDir, unsigned timeoutMs = 90000);
+// luid: the card to test as "high:low" in hex (empty: the first NVIDIA card). With two NVIDIA cards the model runs on the one Lossless Scaling
+// runs on (the engine follows it), which is not always the first one DXGI lists.
+SelfTestResult RunSelfTest(const std::wstring& addonDir, const std::wstring& modelPath, const std::wstring& lsDir, unsigned timeoutMs = 90000, const std::wstring& luid = std::wstring());
 
 struct PlaceResult {
     bool ok = false;

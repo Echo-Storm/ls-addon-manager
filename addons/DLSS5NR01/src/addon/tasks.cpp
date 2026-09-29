@@ -39,8 +39,11 @@ void ScanGuarded(const std::wstring& model, const std::wstring& addonDir) {   //
 
 void SelfTest() {
     { std::lock_guard<std::mutex> lock(g_mutex); g_selfTest = req::SelfTestState::Running; g_selfTestKey.clear(); g_selfTestText.clear(); }
-    const req::SelfTestResult r = req::RunSelfTest(g_addonDir, ModelPath(), g_lsDir);
-    Log("compatibility test: %s (%s): %s", r.passed ? "passed" : "FAILED", r.key.c_str(), r.text.c_str());
+    std::wstring luid;   // the card Lossless Scaling runs on, once it has been seen: the model runs there, and with two NVIDIA cards that is not always DXGI's first
+    if (g_frameCardKnown) { wchar_t b[40]; swprintf(b, 40, L"%x:%x", static_cast<unsigned>(g_frameCard.HighPart), static_cast<unsigned>(g_frameCard.LowPart)); luid = b; }
+    const req::SelfTestResult r = req::RunSelfTest(g_addonDir, ModelPath(), g_lsDir, 90000, luid);
+    Log("compatibility test on %s%s: %s (%s): %s", r.gpu.empty() ? "?" : r.gpu.c_str(), luid.empty() ? " (the first NVIDIA card: Lossless Scaling has not run yet)" : " (the card Lossless Scaling runs on)",
+        r.passed ? "passed" : "FAILED", r.key.c_str(), r.text.c_str());
     std::lock_guard<std::mutex> lock(g_mutex);
     g_selfTest = r.passed ? req::SelfTestState::Passed : req::SelfTestState::Failed;
     g_selfTestKey = r.key; g_selfTestText = r.text;

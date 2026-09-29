@@ -357,7 +357,7 @@ SelfTestResult ParseSelfTest(const std::string& output, unsigned long exitCode, 
     return r;
 }
 
-SelfTestResult RunSelfTest(const std::wstring& addonDir, const std::wstring& modelPath, const std::wstring& lsDir, unsigned timeoutMs) {
+SelfTestResult RunSelfTest(const std::wstring& addonDir, const std::wstring& modelPath, const std::wstring& lsDir, unsigned timeoutMs, const std::wstring& luid) {
     SelfTestResult r;
     const std::wstring exe = addonDir + L"\\nr_selftest.exe";
     if (GetFileAttributesW(exe.c_str()) == INVALID_FILE_ATTRIBUTES) {
@@ -366,13 +366,20 @@ SelfTestResult RunSelfTest(const std::wstring& addonDir, const std::wstring& mod
         return r;
     }
     DeleteFileW((addonDir + L"\\compatibility_report.txt").c_str());   // a report left by an earlier run must not be taken for this one's (a crashed test writes none)
-    const ProcessResult p = RunProcess(L"\"" + exe + L"\" --model \"" + modelPath + L"\" --lsdir \"" + lsDir + L"\" --report \"" + addonDir + L"\\compatibility_report.txt\"", timeoutMs);
+    const ProcessResult p = RunProcess(L"\"" + exe + L"\" --model \"" + modelPath + L"\" --lsdir \"" + lsDir + L"\" --report \"" + addonDir + L"\\compatibility_report.txt\"" +
+                                       (luid.empty() ? std::wstring() : L" --luid " + luid), timeoutMs);
     if (!p.started) {
         r.key = "UNEXPECTED";
         r.text = "the test program could not be started (error " + std::to_string(p.startError) + ")";
         return r;
     }
-    return ParseSelfTest(p.output, p.exitCode, p.timedOut);
+    r = ParseSelfTest(p.output, p.exitCode, p.timedOut);
+    const size_t at = p.output.find("graphics card: ");   // the test says which card it ran on
+    if (at != std::string::npos) {
+        const size_t end = p.output.find_first_of("\r\n", at);
+        r.gpu = p.output.substr(at + 15, end == std::string::npos ? std::string::npos : end - at - 15);
+    }
+    return r;
 }
 
 namespace {
