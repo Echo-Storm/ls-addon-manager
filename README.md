@@ -118,7 +118,10 @@ About 5 to 9 ms a frame on an RTX 4070 Ti SUPER with a 1912x1080 model input (8.
 <p align="center"><img src="docs/images/upscaler.png" alt="The FSR Upscaler's panel in the manager" width="100%"></p>
 
 Lossless Scaling scales a game window up to the screen one frame at a time. The upscalers put a **temporal upscaler** in its place: it reads several frames and
-the motion between them, for a steadier, more detailed picture. The game needs no support for it: **the addons measure the motion from the frames themselves.**
+the motion between them, for a steadier picture with cleaner, smoother edges. The game needs no support for it: **the addons measure the motion from the frames themselves.**
+What it cannot do is add detail the game did not render: a game gives its own upscaler a tiny camera shift every frame, which is where a temporal upscaler finds extra
+detail, and Lossless Scaling's frames carry none. Measured on recordings (`docs/frame-generation-research.md`): where the picture moves the addons lean on a resample of the
+frame (no trailing), and at rest the upscaler smooths (the **Sharpness at rest** slider trades some of that back for sharpness).
 
 **To use one:** switch it on in the addon list, choose **NIS** as the Scaling Type in Lossless Scaling, and run the game in a window smaller than the screen
 (for example 2560x1440 on a 4K screen). At the screen's own size it anti-aliases instead.
