@@ -1,5 +1,20 @@
 # Changelog
 
+## 0.9.20 (2026-09-29)
+
+A bug sweep: every test suite run in full (the manager, the installer, the window, and all 48 Neural Rendering scenarios), plus a review of what changed since 0.9.12.
+
+- **The DLSS Upscaler's log no longer fills with one line.** "...cannot follow yet, so NIS stays" was written every frame in a setup where a second kind
+  of pass flips it on and off (6,681 identical lines in eight minutes in one user's log, about 13 MB an hour); it is now logged when it changes and at most once
+  in 30 seconds.
+- **The manager's GPU reading** (the header and Performance tab) can no longer be started, or read, from two threads at once (the sampler and the
+  diagnostics button), which the Windows-counters fallback of 0.9.16 made possible.
+- **The shared recorder** hands its setting to the other addons only when it actually changed: an addon holding an old value (from before the upgrade)
+  no longer switches another addon's recorder off by saving an unrelated slider.
+- **CI is green again** (it had failed since 0.9.16 on a test that assumed an NVIDIA card; fixed in fe42024).
+- **Tests:** the checks that still expected DLSS to beat "no motion" on a sliding picture (it cannot without the game's camera jitter) and the log wording of the
+  compatibility test were brought up to date. Nothing in the shipped files changed for those.
+
 ## 0.9.19 (2026-09-29)
 
 For the upscalers: sharpness when the picture stands still (issue #8), and a test of crisper edges when it moves.

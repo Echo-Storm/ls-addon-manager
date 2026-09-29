@@ -14,7 +14,7 @@ Around them, the manager installs and switches addons, shows the machine's load 
 updates itself. It is free, MIT-licensed and unofficial: not affiliated with the Lossless Scaling developers. Read the [disclaimer](DISCLAIMER.md) before installing.
 
 [![build](https://github.com/Echo-Storm/ls-addon-manager/actions/workflows/build.yml/badge.svg)](https://github.com/Echo-Storm/ls-addon-manager/actions/workflows/build.yml)
-&nbsp; **0.9.19**, on the way to 1.0 ([roadmap](ROADMAP.md)) &nbsp;·&nbsp; Lossless Scaling 3.2.2.0 &nbsp;·&nbsp; Windows 10 or 11, x64
+&nbsp; **0.9.20**, on the way to 1.0 ([roadmap](ROADMAP.md)) &nbsp;·&nbsp; Lossless Scaling 3.2.2.0 &nbsp;·&nbsp; Windows 10 or 11, x64
 
 > [!TIP]
 > **New in 0.9.19:** the upscalers get a **Sharpness at rest** slider (still scenes were softer than moving ones) and a test of crisper edges when moving.

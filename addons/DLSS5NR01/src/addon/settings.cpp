@@ -139,6 +139,11 @@ NrParams ProductDefaults() {
     return p;
 }
 
+// The recorder settings this addon last loaded or handed to the others (an addon holding a stale value must not switch the others' recorder off by saving
+// an unrelated slider).
+struct RecorderSeen { bool valid = false, on = false; float seconds = 0; int budget = 0; std::string folder; };
+static RecorderSeen s_recorderSeen;
+
 Loaded LoadSettings(IHost* host, const char* id) {
     auto text = [&](const std::string& key, const char* dflt = "") { return std::string(host ? host->GetConfig(id, key.c_str(), dflt) : dflt); };
     auto number = [&](const char* key, double dflt) { const std::string s = text(key); return s.empty() ? dflt : atof(s.c_str()); };
@@ -201,6 +206,7 @@ Loaded LoadSettings(IHost* host, const char* id) {
     c.recordSeconds = std::clamp(static_cast<float>(number("recordSeconds", 5.0)), 1.0f, 60.0f);
     c.recordBudgetMb = std::clamp(integer("recordBudgetMb", 3072), 256, 65536);
     c.recordFolder = text("recordFolder");
+    s_recorderSeen = { true, c.recordOn, c.recordSeconds, c.recordBudgetMb, c.recordFolder };   // what the other addons are told only when it changes (SaveSettings)
     c.recordSaveAfter = std::max(0, integer("recordSaveAfter", 0));
     c.screenshotFolder = text("screenshotFolder");
     c.autoQuality = flag("autoQuality", false);
@@ -259,8 +265,11 @@ void SaveSettings(IHost* host, const char* id, const Config& c, const std::vecto
     put("recordFolder", c.recordFolder);
     // the recorder is one setting for all our addons: the others' configs get it too (each addon follows its own, see FollowSharedRecorder), so it can
     // be switched on in any panel and the addon that works on the frames records
+    const bool recorderChanged = !s_recorderSeen.valid || s_recorderSeen.on != c.recordOn || std::fabs(s_recorderSeen.seconds - c.recordSeconds) > 0.01f ||
+                                 s_recorderSeen.budget != c.recordBudgetMb || s_recorderSeen.folder != c.recordFolder;
+    s_recorderSeen = { true, c.recordOn, c.recordSeconds, c.recordBudgetMb, c.recordFolder };
     for (const char* other : { "DLSS5NR01", "DLSS4DLAA", "FSR3UPSC", "XESSUPSC" }) {
-        if (std::string(other) == id) continue;
+        if (!recorderChanged || std::string(other) == id) continue;
         host->SetConfig(other, "recordOn", c.recordOn ? "1" : "0"); host->SetConfig(other, "recordSeconds", Number(c.recordSeconds).c_str());
         host->SetConfig(other, "recordBudgetMb", std::to_string(c.recordBudgetMb).c_str()); host->SetConfig(other, "recordFolder", c.recordFolder.c_str());
     }

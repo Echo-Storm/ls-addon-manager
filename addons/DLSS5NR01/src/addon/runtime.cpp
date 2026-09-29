@@ -839,7 +839,13 @@ std::string g_scalerBlocked;   // under g_textMutex: why the upscaler is not rep
 
 void SetScalerBlocked(const std::string& why) {
     std::lock_guard<std::mutex> lock(g_textMutex);
-    if (why != g_scalerBlocked && !why.empty()) Log("%s upscaler: %s", kUpscalerName, why.c_str());
+    // (logged when it changes, and no more than once in 30 s for the same text: with a second kind of pass in the frame the flag flips on and off
+    // every frame, and one user's log grew by 6,700 identical lines in eight minutes)
+    static std::string loggedText; static ULONGLONG loggedAt = 0;
+    if (why != g_scalerBlocked && !why.empty() && (why != loggedText || GetTickCount64() - loggedAt > 30000)) {
+        Log("%s upscaler: %s", kUpscalerName, why.c_str());
+        loggedText = why; loggedAt = GetTickCount64();
+    }
     g_scalerBlocked = why;
 }
 // the game's frame time, from one real frame to the next (frame generation's capture pass), for the log and the Performance tab

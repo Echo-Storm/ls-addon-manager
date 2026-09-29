@@ -57,6 +57,7 @@ private:
     bool InitCounters(std::string* why);
     bool SampleCounters(Snapshot& s);
 
+    std::mutex m_initMutex, m_sampleMutex;
     mutable std::mutex m_mutex;
     Snapshot m_snap;
     std::atomic<bool> m_started{ false }, m_stop{ false };

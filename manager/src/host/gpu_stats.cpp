@@ -144,6 +144,7 @@ bool GpuStats::SampleCounters(Snapshot& s) {
 }
 
 bool GpuStats::Init() {
+    std::lock_guard<std::mutex> initLock(m_initMutex);   // (the sampler thread and the diagnostics button can both be the first to ask)
     if (m_inited) return m_dev != nullptr || m_counters;
     m_inited = true;
     std::string nvmlWhy;
@@ -192,6 +193,7 @@ bool GpuStats::InitNvml(void* libHandle, std::string& why) {
 
 bool GpuStats::SampleOnce() {
     if (!Init()) return false;
+    std::lock_guard<std::mutex> sampleLock(m_sampleMutex);   // (one query, read by one thread at a time)
     Snapshot s;
     { std::lock_guard<std::mutex> lk(m_mutex); s = m_snap; }
     s.ok = true; s.why.clear();
