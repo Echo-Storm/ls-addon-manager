@@ -1,6 +1,10 @@
 # Changelog
 
-## Unreleased
+## 0.9.22 (2026-09-30)
+
+**A major bug fix for HDR, and a steadier Neural Rendering.** With HDR on, sharpening could turn a highlight into a white speck up to 10,000 nits bright; that is fixed in all three upscalers. The same
+release lowers the flicker of Neural Rendering (auto quality no longer ramps, the smoothing trusts its history where the picture is unchanged), sharpens less where the picture moves fast, and the
+FSR Upscaler now sharpens the way the DLSS and XeSS Upscalers do. The HDR fix comes first; the rest is below it.
 
 - **HDR: sharpening could turn a highlight into a 10,000-nit speck.** The HDR view's roll-off is steep at its top (a view of exactly 1.0 is 125 times the SDR white), and the
   sharpening passes and the picture controls (brightness, contrast, gamma, shadows, highlights, saturation) work in that view and put only their change back into the light: a bright pixel
