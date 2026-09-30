@@ -13,6 +13,18 @@ item is done (move it to the changelog) or when a new one comes up. Dates are wh
 - Also 2026-09-30: the repository has one fork (ardesart, created 09-28, no changes of its own).
 - #1, #2, #3 answered on 2026-09-28 (#3 fixed in 0.9.15). Left open for the reporters.
 
+## State 2026-09-30 (for whoever picks this up; everything below is in CHANGELOG.md "Unreleased" unless it says 0.9.2x)
+
+Released today: 0.9.20 (bug sweep), 0.9.21 (Steady sharpening, Sharpness at rest 0.5). Since then, all pushed to main, all tests green (the full suite with the model scenarios: `LS_DIR='D:\Utilities\Lossless Scaling' tools\run_addon_tests.ps1 -All`), none released, several never seen by eye:
+
+- **HDR highlight specks fixed** (sharpening and the picture controls could turn a bright pixel into a 10,000-nit speck; found with the new `nr_sreval hdr=1`; a test is in the NR suite). Significant: worth releasing.
+- **NR**: auto quality goes straight to the fitting resolution, remembers it (`autoScaleLast`) and tightens when the game's frames are slow (the ramp was the owner's "lighting changes"); smoothing trusts the history more where the picture is unchanged, default 0.7.
+- **Upscalers**: "Sharpen less in fast motion" (0.5), Steady sharpening on (0.6) and one fused pass with a motion trust band, FSR sharpens with our pass (RCAS left 73-83 % of the detail), motion estimate shared between generated frames, a 10-bit history.
+- **Owner's live log (2026-09-30)**: WoW at 2562x1442 -> 3840x2160 (x1.5), HDR, frame generation x2; with Neural Rendering on, the game fell from 60 to about 35 fps at a heavy spot (Durotar): the card is saturated, not just the model. The owner's config was changed for testing (backup `addons/config.json.bak-wowtest-20260930`): NR on, auto quality OFF, working scale 0.3, smoothing 0.8.
+- **Not yet seen by eye**: Sharpen less in fast motion, the NR smoothing change, FSR's new sharpening, the fused pass in HDR (the offline HDR checks pass), the auto quality changes.
+- **Open, in order**: (1) NR persistence with hysteresis / fast-slow histories (need a second history channel; measure with `nr_nreval` on the Durotar and character-screen clips in the owner's Videos folder); (2) engine CPU wins (timestamp queries sampled, persistent readback maps, event reuse); (3) HDR for `nr_nreval` (the NR eval still converts to 8 bit); (4) a release once the owner has looked at it; (5) Steady sharpening / movecut defaults are the owner's eyes to confirm.
+- Tools: `nr_sreval` (hdr=1, debug=1|2, bench=N, movecut, steady, flowreuse ...), `nr_nreval` (stable=, lightlog=1), `nr_lsrec make hdr=1`, `tools/sr_default_grid.py`, `tools/sr_option_check.sh` are all in tools/README.md.
+
 ## Released
 
 - 0.9.18 (2026-09-29, v0.9.18 at 8d1af4b): the recorder is one setting for all the addons (mirrored into each addon's config, followed twice a second).
