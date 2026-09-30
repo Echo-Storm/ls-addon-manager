@@ -25,6 +25,16 @@ Released today: 0.9.20 (bug sweep), 0.9.21 (Steady sharpening, Sharpness at rest
 - **Open, in order**: (1) NR persistence with hysteresis / fast-slow histories (need a second history channel; measure with `nr_nreval` on the Durotar and character-screen clips in the owner's Videos folder); (2) engine CPU wins (timestamp queries sampled, persistent readback maps, event reuse); (3) HDR for `nr_nreval` (the NR eval still converts to 8 bit); (4) a release once the owner has looked at it; (5) Steady sharpening / movecut defaults are the owner's eyes to confirm.
 - Tools: `nr_sreval` (hdr=1, debug=1|2, bench=N, movecut, steady, flowreuse ...), `nr_nreval` (stable=, lightlog=1), `nr_lsrec make hdr=1`, `tools/sr_default_grid.py`, `tools/sr_option_check.sh` are all in tools/README.md.
 
+## Player feedback (kept as given; one person each, not measurements)
+
+- **2026-09-30, a player testing Neural Rendering in WoW Forever (the new Skyborne zone), RTX 4090, 4K output, model resolution 50 %:** the most stable window-based DLSS 5 they have seen (they credit the "anti-ghosting"
+  work: the motion-compensated smoothing of the model's change), and steadier than SAOG's Magpie fork, which they had thought the best for multiplayer and window-agnostic use. 35 % would run but loses too much detail
+  (of note for older cards). Wants to try it in GTA VI (the "Extended Look") too, through an HDMI 2.1 capture card for a 60/120 Hz picture.
+  - Their one complaint: **pacing and GPU utilisation get bumpy when the game drops below the frame rate Lossless Scaling is told to expect**; they suspect Lossless Scaling itself, and say adaptive frame generation smooths it.
+    Worth checking against our side: the model runs on a thread of its own and waits for the GPU (see the "GPU start +N ms" in `DLSS5NR01.log`), and the new auto quality tightens its budget when the game's frames slow down (0.9.22), which may help.
+    Needs a log from them (`DLSS5NR01.log`, `DLSS4DLAA.log`) while it is bumpy, and the game frame rate at the time.
+  - Use to keep in mind: a capture-card source (a window showing a capture feed, HDR or not) is a real use case for Neural Rendering, not only games rendered on the same PC.
+
 ## Released
 
 - 0.9.18 (2026-09-29, v0.9.18 at 8d1af4b): the recorder is one setting for all the addons (mirrored into each addon's config, followed twice a second).
