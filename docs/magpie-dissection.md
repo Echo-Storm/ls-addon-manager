@@ -52,6 +52,6 @@ against our 0.2-0.4 ms shader estimate: not a saving. The contract and the reset
 ## Plan (in order)
 
 1. ~~Scene-cut detection and reset reasons~~: measured, not needed (see the table).
-2. **A frame trace**: per-real-frame timeline (tap, submit wait, model start/done, compose, present interval) in a ring buffer, exported as CSV, with `tools/analyze_frame_trace.py`. For the pacing report and for us.
+2. **A frame trace**: per-real-frame timeline (tap, submit wait, model start/done, compose, present interval) in a ring buffer, exported as CSV, with `tools/analyze_frame_trace.py`. For the pacing report and for us. **Built** (`frame_trace.cpp`, `tools/analyze_frame_trace.py`, test `nr_tracetest`).
 3. **A "what is wrong" card** in the panel from the same numbers (GPU saturated, model at its floor, frames slow, plain frames from the A/B toggle): the answer that would have saved a log read today.
 4. Research, each needing the owner's yes before anything is downloaded: a user-supplied NVIDIA Video Effects runtime for single-frame VSR (issue #8); XeSS frame generation live (issue #9); a second card for the model.

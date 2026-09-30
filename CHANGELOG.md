@@ -2,6 +2,11 @@
 
 ## Unreleased
 
+- **A frame trace for pacing problems.** The logs keep averages, which is why "bumpy pacing" could not be looked into. The Neural Rendering and upscaler addons now keep a timeline of the last
+  131 000 events (a real frame arriving, every present, each model run with its GPU start delay, each upscaler pass, auto quality's changes, hotkeys), at a cost of a timestamp and four integers
+  a frame, and write it to `logs\frame-trace-<addon>.csv` at shutdown and whenever a recording is saved (Ctrl+Shift+F1). `tools/analyze_frame_trace.py` reads it: the interval of the
+  presented and the real frames (p50, p95, p99, low 1 %), the longest gaps with what else happened around them, whether the model's runs line up with the gaps, and the upscaler's and auto
+  quality's numbers. Sending that file with the logs is enough to see where a stutter came from. New test `nr_tracetest` (threads, wrap-around, export).
 - **Neural Rendering's compose pass is about 10 % cheaper in HDR.** It is one pass per presented frame (two per real frame with frame generation) and cost 0.94 ms of GPU at 4K in HDR with
   sharpening (0.98 in a live log). The sharpening converted each neighbour's SDR view again for every pixel that reads it, and the way back into the frame's encoding made two round trips
   through the view that are the identity: now each pixel's view is made once per 8x8 tile and the round trips are replaced by direct light conversions. 0.94 -> 0.83 ms (0.59 -> 0.56 without

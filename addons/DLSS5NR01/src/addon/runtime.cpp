@@ -10,6 +10,7 @@
 // Lossless Scaling's queue never waits for the model: the model can be late for a frame, never slow Lossless Scaling down.
 #include "addon/state.h"
 #include "addon/log.h"
+#include "addon/frame_trace.h"
 #include "addon/present_hook.h"
 #include "addon/framegen11.h"
 #include "addon/screenshot.h"
@@ -244,6 +245,7 @@ void AfterHandOver(bool started, float ceiling, const AutoQuality::Settings& aut
 void Tap(ID3D11DeviceContext* ctx, uint32_t x, uint32_t y, uint32_t z) {
     TapDecision d;
     if (!g_tap.Observe(ctx, x, y, z, d) || !g_tapDevice) { ReleaseDecision(d); return; }
+    if (d.isTap) nr::trace::Add(nr::trace::kTap, 0, 0, static_cast<int32_t>(g_tap.Taps()));
     if (g_presentMode) {
         g_presentMode = false; g_bridge.Shutdown(); g_tapsSeen = g_tap.Taps(); g_presentsWithoutTap = 0;
         Log("frame generation is on: the model takes Lossless Scaling's captured frames again (it took %llu presented frames; %llu composes had their "
@@ -295,6 +297,7 @@ void Tap(ID3D11DeviceContext* ctx, uint32_t x, uint32_t y, uint32_t z) {
 // watchdog and the live numbers (under g_frameMutex).
 void AfterHandOver(bool started, float ceiling, const AutoQuality::Settings& autoSettings, float watchdogMs) {
     const NrStats& st = g_engine.Stats();
+    nr::trace::Add(nr::trace::kModel, started ? 1 : 0, started ? static_cast<int32_t>(st.startMs * 100.0) : 0, started ? static_cast<int32_t>(st.nrMs * 100.0) : 0);
     if (started) {
         ++g_runs; g_lastModelMs = st.nrMs; g_lastRunMs = st.totalMs; g_lastRunAtMs = GetTickCount64();
         g_avgModelMs = g_avgModelMs == 0 ? st.nrMs : g_avgModelMs * 0.95 + st.nrMs * 0.05;
@@ -305,12 +308,14 @@ void AfterHandOver(bool started, float ceiling, const AutoQuality::Settings& aut
         { std::lock_guard<std::mutex> lock(g_autoMutex);
         if (g_auto.Update(now, st.nrMs, static_cast<float>(g_bridge.LastIntervalMs()), ceiling, autoSettings) && !g_auto.History().empty() && g_auto.History().back().atMs == now) {
             const AutoQuality::Step& s = g_auto.History().back();
+            nr::trace::Add(nr::trace::kAuto, static_cast<int32_t>(s.to * 100.0f + 0.5f), g_bridge.RunEvery(), static_cast<int32_t>(s.modelMs * 100.0f));
             Log("auto: model resolution %.2f -> %.2f (model %.1f ms, budget %.1f ms%s)", s.from, s.to, s.modelMs, autoSettings.budgetMs * g_auto.Pressure(), g_auto.Pressure() < 0.99f ? ", tightened: the game's frames are slow" : "");
         }
         if (autoSettings.on) stable = g_auto.StableScale(now, 30000);
         const int every = autoSettings.on ? g_auto.RunEvery() : 1;
         if (every != g_bridge.RunEvery()) {
             g_bridge.SetRunEvery(every);
+            nr::trace::Add(nr::trace::kAuto, 0, every, 0);
             Log("auto: the model now runs on %s (the game's frames are %s%s)", every == 1 ? "every frame" : every == 2 ? "every 2nd frame" : "every 3rd frame", every == 1 ? "steady again" : "still slow at the lowest model resolution", "");
         }
         }
@@ -444,6 +449,7 @@ void ReadHotkeys() {
         // otherwise overwrite the upscaler's sharpening with one saved for Neural Rendering)
         const bool applies = !kScalerAddon || i == 0 || i == 2 || i == 3 || i == 5 || i == 6;   // (5, the screenshot key: the before / after pair there)
         if (down && !wasDown[i] && applies) {
+            nr::trace::Add(nr::trace::kHotkey, i);
             if (i == 0) { g_compare = g_compare == 2 ? 0 : 2; ShowMarker(g_compare == 2 ? 2 : 1); Log("hotkey: %s", g_compare == 2 ? "original only" : "enhanced"); }
             else if (i == 1) { g_compare = g_compare == 1 ? 0 : 1; ShowMarker(g_compare == 1 ? 3 : 1); Log("hotkey: %s", g_compare == 1 ? "split view" : "enhanced"); }
             else if (i == 5) { g_pairRequested = true; Log("hotkey: before / after pair"); }   // no corner square: it would be in the picture
@@ -683,6 +689,7 @@ void OnPresent(IDXGISwapChain* sc, UINT sync, UINT flags) {
         }
     }
     if (g_off || g_engineStarting || !sc) return;
+    nr::trace::Add(nr::trace::kPresent, static_cast<int32_t>((reinterpret_cast<uintptr_t>(sc) >> 4) & 0x7fffffff), static_cast<int32_t>(flags), static_cast<int32_t>(sync));
     if (kScalerAddon) {
         ScalerPresentGuarded(sc);
         ScalerMarkerGuarded(sc);   // the corner square after a hotkey
@@ -1158,6 +1165,7 @@ bool ScalerPass(ID3D11DeviceContext* ctx, uint32_t x, uint32_t y, uint32_t z) {
                 replaced = g_link.Upscale(pass, flow, fw, fh, p.flowUnit, fraction, motion == 0, preset, p.sharpen * kScalerSharpenScale, g_resetRequested.exchange(false),
                                           static_cast<ScalerLink::Handoff>(handoff), gpuWait);
                 t_ownWork = false;
+                nr::trace::Add(nr::trace::kUpscale, replaced ? 1 : 0, static_cast<int32_t>(g_sr.GpuMs() * 100.0), static_cast<int32_t>(g_sr.MotionMs() * 100.0));
                 g_passStep = "the recorder";
                 if (ID3D11Texture2D* grabbed = g_link.TakeGrabbed()) {   // (HDR frames go to the upscaler as light: said so in the file)
                     bool shown; { std::lock_guard<std::mutex> settings(g_settingsMutex); shown = kFrameGen && g_config.frameGen && g_config.recordShown; }
@@ -1358,6 +1366,14 @@ std::wstring RecordFolder() {
     return (folder.empty() ? g_lsDir : folder) + L"\\Lossless Scaling";
 }
 
+// The frame trace as a CSV in the logs folder: frame-trace-<addon>.csv, the latest export (tools/analyze_frame_trace.py reads it).
+void ExportFrameTrace(const char* why) {
+    std::string error;
+    const std::wstring path = g_lsDir + L"\\logs\\frame-trace-" + std::wstring(kAddonId, kAddonId + strlen(kAddonId)) + L".csv";
+    if (nr::trace::Export(path, &error)) Log("frame trace: written (%s) to %ls", why, path.c_str());
+    else Log("frame trace: not written (%s)", error.c_str());
+}
+
 void SaveRecording() {
     std::string game;
     { std::lock_guard<std::mutex> lock(g_textMutex); game = g_focusExe; }
@@ -1367,6 +1383,7 @@ void SaveRecording() {
         if (g_host) g_host->SetStatus(kAddonId, "Nothing saved: the recorder is off (switch it on under Recording in any addon)", 2);
         return;
     }
+    ExportFrameTrace("with a saved recording");
     if (!g_recorder.Save(RecordFolder(), game)) Log("recorder: nothing saved (%s)", g_recorder.GetStatus().saving ? "a save is running" : "nothing recorded yet");
 }
 
