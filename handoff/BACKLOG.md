@@ -100,7 +100,7 @@ Released today: 0.9.20 (bug sweep), 0.9.21 (Steady sharpening, Sharpness at rest
 
 ## Research to come back to
 
-- **From the Magpie dissection (docs/magpie-dissection.md, 2026-09-30), in order**: (1) scene-cut detection and reset reasons for DLSS and NR (none today; the histories clear only at start/rebuild); (2) a frame trace (per-frame
+- **From the Magpie dissection (docs/magpie-dissection.md, 2026-09-30), in order**: (1) scene-cut reset: measured, not needed (the lean, DLSS's bias mask and NR's luma check already give a clean first frame after a cut); (2) a frame trace (per-frame
   timeline ring, CSV export, `tools/analyze_frame_trace.py`) for pacing questions such as the player's report; (3) a "what is wrong" card in the panel from the existing numbers; then research needing the owner's yes first:
   a user-supplied NVIDIA Video Effects runtime for single-frame VSR (issue #8), XeSS frame generation live (issue #9), the model on a second graphics card (cross-adapter heaps; nobody does it).
 

@@ -89,6 +89,9 @@ int main(int argc, char** argv) {
     std::wstring outDir = Wide(argv[2]);
     { wchar_t full[MAX_PATH]; if (GetFullPathNameW(outDir.c_str(), MAX_PATH, full, nullptr)) outDir = full; SHCreateDirectoryExW(nullptr, outDir.c_str(), nullptr); }
     const nr::lsrec::FileHeader& h = rec.Header();
+    // splice=<other recording> spliceat=N: from frame N of this run on, the frames come from the other recording (a hard cut between two scenes, to see what the upscaler does with its history)
+    nr::lsrec::Reader rec2; const std::string splicePath = ArgText(argc, argv, "splice"); const int spliceAt = Arg(argc, argv, "spliceat", 1 << 30);
+    if (!splicePath.empty() && (!rec2.Open(Wide(splicePath.c_str()), &error) || rec2.Header().width != h.width || rec2.Header().height != h.height)) { printf("the recording to splice in could not be opened or has another size\n"); return 2; }
     const uint32_t W = h.width, H = h.height;
     const int first = std::max(0, Arg(argc, argv, "first", 0));
     const int count = std::min<int>(Arg(argc, argv, "count", 1 << 30), static_cast<int>(rec.Count()) - first);
@@ -208,7 +211,7 @@ int main(int argc, char** argv) {
     auto tone = [](float v) { v = std::max(v, 0.0f); if (v > 0.75f) v = 0.75f + 0.25f * (1.0f - std::exp(-(v - 0.75f) / 0.25f)); v = v <= 0.0031308f ? v * 12.92f : 1.055f * std::pow(v, 1.0f / 2.4f) - 0.055f; return static_cast<uint8_t>(std::clamp(v, 0.0f, 1.0f) * 255.0f + 0.5f); };
     std::vector<float> frameF, shrunkF; double hdrMeanIn = 0, hdrMeanOut = 0; float hdrMaxIn = 0, hdrMaxOut = 0; uint64_t hdrBad = 0; int hdrN = 0;
     for (int i = 0; i < count; ++i) {
-        if (!rec.Read(Arg(argc, argv, "still", 0) != 0 ? first : first + i, px) || !ToRgba8(h, px, frame)) { printf("frame %d could not be read\n", first + i); return 3; }
+        if (!(i >= spliceAt && !splicePath.empty() ? rec2.Read(std::min<size_t>(rec2.Count() - 1, static_cast<size_t>(first + (i - spliceAt))), px) : rec.Read(Arg(argc, argv, "still", 0) != 0 ? first : first + i, px)) || !ToRgba8(h, px, frame)) { printf("frame %d could not be read\n", first + i); return 3; }
         if (pointSampled) {   // sample=point: what a game without anti-aliasing renders at a lower size (one sample at each pixel's centre): aliased, so a temporal upscaler has detail to unfold
             shrunk.assign(static_cast<size_t>(w) * hh * 4, 255);
             for (uint32_t y = 0; y < hh; ++y) for (uint32_t x = 0; x < w; ++x) {
