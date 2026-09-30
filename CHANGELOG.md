@@ -1,5 +1,11 @@
 # Changelog
 
+## Unreleased
+
+- **Steady sharpening (test), an option in the upscalers' panel** (off by default): the sharpening is worked out from a running average of the picture, followed along
+  the motion, and only that is added to the current frame, so the detail stays and the game's shimmer is not amplified. On recordings at 1:1 it has about 10 points
+  less flicker for the same detail at rest and 1 to 2 in motion (docs/frame-generation-research.md); not yet tried by eye. `nr_sreval steady=N` measures it.
+
 ## 0.9.20 (2026-09-29)
 
 A bug sweep: every test suite run in full (the manager, the installer, the window, and all 48 Neural Rendering scenarios), plus a review of what changed since 0.9.12.

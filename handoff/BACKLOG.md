@@ -41,6 +41,7 @@ item is done (move it to the changelog) or when a new one comes up. Dates are wh
 
 ## Upscalers
 
+- **Built (2026-09-30, Unreleased): "Steady sharpening (test)"** = sharpening from a running average along the motion (docs/frame-generation-research.md, "Steady sharpening"): ~10 points less flicker at equal detail at rest, 1-2 in motion. Owner to try it by eye (Sharpening 0.5-0.7, steady 0.6-0.9); if liked, consider it on by default at 1:1.
 - **Sharpening at 1:1 amplifies the game's shimmer** (docs/frame-generation-research.md, last section): the owner's 0.7 gives 2.3x the game's detail and 137-155 % of its shimmer. Ideas: temporal-aware sharpening (less where a pixel flickers without moving), a lower default at 1:1 (0.5 now), tell the owner to try 0.15-0.3. Needs the owner's eyes.
 
 - **Owner to compare (next release): "Crisp edges when moving (test)"**: FSR 1's EASU instead of Catmull-Rom for the lean (visibly crisper edges on a crop; same shimmer and detail scores). If preferred, make it the default.

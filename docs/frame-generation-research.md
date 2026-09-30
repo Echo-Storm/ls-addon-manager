@@ -341,3 +341,28 @@ three gets above a plain stretch of the aliased input, even with (near-)perfect 
 nothing to accumulate (no jitter; the frames sit on the same pixel lattice) or reject what they get. What remains open is detail from somewhere else: a
 neural single-image super-resolution model as the moving/at-rest picture (BACKLOG, "ideas for real detail", 2), or a game that does supply jitter (none through
 Lossless Scaling). What the upscalers do give: anti-aliasing at rest and a steady picture; and, since 0.9.13, no trailing in motion.
+
+## Steady sharpening: sharpening from a running average (2026-09-30)
+
+The idea from the section above ("sharpening follows the temporal stability"), built as `Steady sharpening (test)` (`SrEngine::SetSteadySharpen`, `nr_sreval steady=N`).
+Two passes replace the plain sharpening: the first keeps a running average of the picture in the SDR view (the previous average fetched along the measured
+motion, clamped to this frame's 3x3 neighbourhood so a wrong motion cannot ghost, blended in by `steady`); the second sharpens that average and adds only
+its sharpening to this frame. The game's shimmer averages out of the average, so it is not amplified.
+
+First try, and why it was dropped: cutting the sharpening where the picture differs from the motion-compensated previous frame (a threshold on the difference)
+scored the same as simply sharpening less (clip 23-54-43: flicker/detail 107 % / 128 % against plain 0.3's 108 % / 127 %); narrower bands moved along the same
+curve by 1 to 3 points. The difference cannot tell shimmer from real edges the block motion misses.
+
+The running average, DLSS model E, 1:1, `sharpen=70` (the owner's), 40 frames of each clip (flicker / detail against the game's own frames):
+
+| clip | plain 0 | plain 0.15 | plain 0.3 | plain 0.7 | steady 0.8, sharpen 0.7 |
+|---|---|---|---|---|---|
+| 23-54-01 (nearly still) | 93 / 86 | 111 / 125 | 114 / 130 | 125 / 151 | **105 / 129** (sharpen 1.0, steady 0.9: 111 / 151) |
+| 23-54-20 | 90 / 85 | 105 / 127 | 107 / 132 | 117 / 156 | 100 / 118 |
+| 23-54-34 | 98 / 92 | 106 / 143 | 107 / 149 | 112 / 178 | 103 / 131 |
+| 23-54-47 | 89 / 83 | 109 / 126 | 112 / 132 | 125 / 159 | 102 / 116 |
+
+At equal detail the running average has about 9 to 14 points less flicker on the nearly still clip and 1 to 2 points less on the three moving ones (read off
+the line between the plain points); it was never worse. The history is fetched with the motion's sign reversed (`steadysign=1` for the other way; clip 23-54-43 at steady 0.5: 112 % / 134 %
+against 107 % / 126 % reversed). Upscaling 1.5x (23-54-01, `shrink=150`): 33.75 dB against 33.71, and the steadiness 47.5 against
+46.9 dB. Cost: two more full-size passes and one copy. Not tried live (the metrics are the game's own frames, not the owner's eyes); off by default.

@@ -99,6 +99,10 @@ public:
     // The least share of the plain resample in the picture, even where nothing moves (0..1): the upscalers' own picture at rest is softer than a resample
     // (no camera jitter to find detail with), so this trades some of its anti-aliasing for sharpness at rest.
     void SetLeanRest(float rest) { m_leanRest.store(rest < 0.0f ? 0.0f : rest > 1.0f ? 1.0f : rest); }
+    // Sharpening that follows the picture's stability (0..0.95: how much of the running average, 0 off): where the upscaled picture changes from one frame to the next without the motion
+    // explaining it (the game's shimmer), the sharpening is reduced by this much, so it puts detail back without amplifying the flicker.
+    void SetSteadySign(float sign) { m_steadySign.store(sign); }   // which way along the motion the previous frame is fetched (evaluation)
+    void SetSteadySharpen(float steady) { m_steadySharp.store(steady < 0.0f ? 0.0f : steady > 0.95f ? 0.95f : steady); }
     void SetFastMotionShare(float share) { m_fastShare.store(share); }   // where SetFastMotion is automatic (-1): from this share of the width (0: the default)
     void SetMotionScale(float s) { m_motionScale = s; }
     void SetNoMask(bool none) { m_noMask = none; }
@@ -153,13 +157,17 @@ private:
     double m_gpuMs = 0, m_motionMs = 0;
     FlowEstimator m_estimator; bool m_estimatedLast = false; uint64_t m_estimates = 0; float m_motionScale = 1.0f; bool m_noMask = false; std::atomic<float> m_fastMotion{ -1.0f }, m_fastShare{ 0.0f }; std::atomic<uint32_t> m_leanMode{ 0 }; std::atomic<float> m_leanRest{ 0.0f };
     std::atomic<float> m_stability{ 0.0f }, m_edges{ 0.0f };
-    static const int kDescriptors = 12;   // per slot: flow, motion, sharpen in/out, edges in/out, view in/out, lean in (3) / out
+    static const int kDescriptors = 20;   // per slot: flow, motion, sharpen in/out, edges in/out, view in/out, lean in (3) / out, steady stabiliser in (3) / out, steady sharpen in (3) / out
     ID3D12PipelineState* m_edgesPso = nullptr;
     // the lean (every upscaler; DLSS takes no mask of its own): its picture blended toward this frame, upscaled plainly, by the distrust mask
     ID3D12RootSignature* m_leanRoot = nullptr; ID3D12PipelineState* m_leanPso = nullptr;
     ID3D12Resource* m_leaned = nullptr; uint32_t m_leanedW = 0, m_leanedH = 0; DXGI_FORMAT m_leanedFmt = DXGI_FORMAT_UNKNOWN;
     bool EnsureLeanTarget(uint32_t w, uint32_t h, DXGI_FORMAT fmt);
     bool InitLean();
+    // steady sharpening: the sharpening pass with the previous frame's input and the motion (on the lean's root signature: three pictures in, one out)
+    ID3D12PipelineState* m_steadyPso = nullptr; ID3D12PipelineState* m_steadyStabPso = nullptr; ID3D12Resource* m_sharpTmp = nullptr; std::atomic<float> m_steadySharp{ 0.0f }; std::atomic<float> m_steadySign{ -1.0f };
+    ID3D12Resource* m_sharpHist = nullptr; uint32_t m_sharpHistW = 0, m_sharpHistH = 0; DXGI_FORMAT m_sharpHistFmt = DXGI_FORMAT_UNKNOWN; bool m_sharpHistValid = false;
+    bool EnsureSharpHist(uint32_t w, uint32_t h, DXGI_FORMAT fmt);
     ID3D12Resource* m_smoothed = nullptr; uint32_t m_smoothedW = 0, m_smoothedH = 0; DXGI_FORMAT m_smoothedFmt = DXGI_FORMAT_UNKNOWN;
     double m_afterMs = 0;
     bool EnsureSmoothTarget(uint32_t w, uint32_t h, DXGI_FORMAT fmt);

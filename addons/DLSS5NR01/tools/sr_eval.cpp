@@ -153,6 +153,8 @@ int main(int argc, char** argv) {
     if (const int gw = Arg(argc, argv, "gradweight", -1); gw >= 0) eng.SetGradWeight(gw / 100.0f);   // gradweight=N: percent the edges count (0: the plain difference)
     if ((Arg(argc, argv, "meanweight", -1) >= 0 || Arg(argc, argv, "gradweight", -1) > 0) && Arg(argc, argv, "nowait", 0) == 0) eng.PrepareShapeCost();   // (the shape cost is a shader variant, made on a thread of its own live)
     if (const int rest = Arg(argc, argv, "restmix", -1); rest >= 0) eng.SetLeanRest(rest / 100.0f);   // restmix=N: percent of the plain resample kept even at rest
+    if (const int steady = Arg(argc, argv, "steady", -1); steady >= 0) eng.SetSteadySharpen(steady / 100.0f);   // steady=N: percent the sharpening is cut where the picture shimmers
+    if (Arg(argc, argv, "steadysign", -1) > 0) eng.SetSteadySign(1.0f);                                       // steadysign=1: fetch the history the other way along the motion (default -1)
     if (ArgText(argc, argv, "lean") == "easu") eng.SetLeanMode(1);   // lean=easu: the lean blends toward FSR 1's EASU of the frame (default: Catmull-Rom)
     if (const int st = Arg(argc, argv, "stability", -1); st >= 0) eng.SetStability(st / 100.0f);   // stability=N: percent (the slider)
     eng.SetMotionScale(Arg(argc, argv, "mvscale", 100) / 100.0f);
