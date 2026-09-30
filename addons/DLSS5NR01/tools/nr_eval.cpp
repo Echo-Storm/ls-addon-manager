@@ -191,6 +191,7 @@ int main(int argc, char** argv) {
     std::vector<uint8_t> px, frame, framePrev, pic, picPrev;
     std::vector<float> d, dPrev, mv, mvPrev;
     std::vector<uint8_t> heat; int heatFrame = -1;    double sumSteady = 0, sumStill = 0, sumMoving = 0, sumP95 = 0, sumLag = 0, sumPlain = 0; int n = 0;
+    std::vector<double> lightShift;   // per frame: the model's mean change of the picture's brightness (levels of 255): lighting pumping
     for (int i = 0; i < count; ++i) {
         if (!rec.Read(first + i, px) || !ToRgba8(h, px, frame)) { printf("frame %d could not be read\n", first + i); return 3; }
         { uint8_t* m = nullptr; upload->Map(0, nullptr, reinterpret_cast<void**>(&m));
@@ -247,6 +248,9 @@ int main(int argc, char** argv) {
             for (int c = 0; c < 3; ++c) pic[o + c] = static_cast<uint8_t>(std::clamp(frame[o + c] / 255.0f + std::clamp(dd[c] * params.composeIntensity, -maxDelta, maxDelta), 0.0f, 1.0f) * 255.0f + 0.5f);
             pic[o + 3] = 255;
         }
+        { double sf = 0, sp = 0; for (size_t k = 0; k + 3 < frame.size(); k += 4) { sf += frame[k] + frame[k + 1] + frame[k + 2]; sp += pic[k] + pic[k + 1] + pic[k + 2]; }
+          lightShift.push_back((sp - sf) / (3.0 * (frame.size() / 4)));
+          if (Arg(argc, argv, "lightlog", 0)) printf("  frame %4d  light shift %.3f levels\n", first + i, lightShift.back()); }
         Score s; s.frame = first + i; s.steady = 99; s.still = 0; s.moving = 0; s.lag = 0; s.plain = 0; double usedShare = 0;
         if (i > 0 && !framePrev.empty()) {
             s.steady = PsnrTemporal(pic, picPrev, frame, framePrev);
@@ -296,6 +300,13 @@ int main(int argc, char** argv) {
         framePrev = frame; picPrev = pic; dPrev = d; mvPrev = mv;
     }
     if (n) printf("average over %d frames (after the first 4): steady %.2f dB, delta change where the game is still %.2f levels of 255, along the motion %.2f (the worst 5 %% of blocks: %.2f); the live path %.2f (not moved: %.2f)\n", n, sumSteady / n, sumStill / n, sumMoving / n, sumP95 / n, sumLag / n, sumPlain / n);
+    if (lightShift.size() > 6) {   // how much the model brightens or darkens the whole picture, and how that moves from frame to frame
+        double mean = 0, var = 0, jump = 0, jumpMax = 0; const size_t from = 4;
+        for (size_t f = from; f < lightShift.size(); ++f) mean += lightShift[f];
+        mean /= double(lightShift.size() - from);
+        for (size_t f = from; f < lightShift.size(); ++f) { var += (lightShift[f] - mean) * (lightShift[f] - mean); if (f > from) { const double dj = std::abs(lightShift[f] - lightShift[f - 1]); jump += dj; jumpMax = std::max(jumpMax, dj); } }
+        printf("lighting: the model changes the picture's mean brightness by %.2f levels of 255 on average (spread %.2f, frame to frame %.3f on average, at most %.2f)\n", mean, std::sqrt(var / double(lightShift.size() - from)), jump / double(lightShift.size() - from - 1), jumpMax);
+    }
     // (no GPU time here: one frame at a time with long gaps in between, the GPU idles and clocks down, so the times come out 3 to 7 times the live ones)
     if (!heat.empty()) {   // where the flicker sits, frame heatFrame: a block of the frame a pixel, brighter the more the delta changed along the motion (blue: not used)
         const uint32_t lw = W / 4, lh = H / 4, R = 8, B = 8, gx = (lw - 2 * R) / B, gy = (lh - 2 * R) / B, cell = 8;
