@@ -2,6 +2,11 @@
 
 ## Unreleased
 
+- **Neural Rendering's auto quality no longer ramps.** In a live log it started at 1.00 and stepped down nine times in 100 s (1.00, 0.90, 0.80 ... 0.25), and each step rebuilds the model with no
+  history: the picture changed look every few seconds, and 2 to 6 % of presented frames had no change applied while it rebuilt (up to 82 % while a 6 GB recording was being saved). Now it
+  (1) goes straight to the resolution where the model's time is expected to fit, from its measured time and area (fixed cost and per-area cost from two measurements), in two changes
+  from 1.0 instead of nine; (2) starts from the resolution it last held for 30 s within budget (`autoScaleLast`, kept once a minute at most); (3) tightens the budget in proportion when
+  the game's own frame time is well over the best it has lately managed (the card is out of room), and does not go back up for a minute; the log says when it did.
 - **With frame generation, every other presented frame keeps the motion estimate of the one before** ("Share motion between generated frames", on by default; it does nothing
   without frame generation). Two frames are shown for each one the game draws and the motion from one to the next is about the same for both steps. The estimate's time
   fell from 0.39 to 0.23 ms a frame on average at 4K with the same scores on the recordings (used here as a harsher test: their steps are whole game frames, not halves).

@@ -274,11 +274,11 @@ void Tap(ID3D11DeviceContext* ctx, uint32_t x, uint32_t y, uint32_t z) {
     }
     { float white; const nr::FrameEncoding e = FrameEncodingOf(frame.Format, g_lsChain, &white); g_engine.SetFrameEncoding(static_cast<uint32_t>(e), white); }
 
-    NrParams p; float watchdogMs; bool lsFirst; AutoQuality::Settings autoSettings;
-    { std::lock_guard<std::mutex> lock(g_settingsMutex); p = g_config.p; watchdogMs = g_config.watchdogMs; lsFirst = g_config.lsFirst;
+    NrParams p; float watchdogMs; bool lsFirst; AutoQuality::Settings autoSettings; float autoSeed;
+    { std::lock_guard<std::mutex> lock(g_settingsMutex); p = g_config.p; watchdogMs = g_config.watchdogMs; lsFirst = g_config.lsFirst; autoSeed = g_config.autoScaleLast;
       autoSettings = { g_config.autoQuality && g_config.model == 0, g_config.autoBudgetMs, g_config.autoFloor }; }   // DLAA works on the whole frame
     const float ceiling = p.workingScale;
-    if (autoSettings.on) { std::lock_guard<std::mutex> lock(g_autoMutex); if (g_auto.Scale() > 0) p.workingScale = std::min(ceiling, g_auto.Scale()); }
+    if (autoSettings.on) { std::lock_guard<std::mutex> lock(g_autoMutex); g_auto.Seed(autoSeed); if (g_auto.Scale() > 0) p.workingScale = std::min(ceiling, g_auto.Scale()); }   // (from the scale it settled at last time, not a ramp down from the person's)
     g_bridge.SetLsGpuPriority(lsFirst ? 7 : 0);
     g_bridge.ShareMotion(false);   // the generated frames are moved with LSFG's flow
     // Lossless Scaling's pass may have the frame bound as an input: the copy needs it unbound, and it is put back after
@@ -300,11 +300,21 @@ void AfterHandOver(bool started, float ceiling, const AutoQuality::Settings& aut
         g_avgModelMs = g_avgModelMs == 0 ? st.nrMs : g_avgModelMs * 0.95 + st.nrMs * 0.05;
         if (g_runs == 1) SetStatus("running");
         // auto quality: the scale it picks here is used from the next frame (changing it rebuilds the model)
-        std::lock_guard<std::mutex> lock(g_autoMutex);
+        float stable = 0;   // the scale it has held for 30 s with the model in budget: kept, so the next session starts there
         const uint64_t now = GetTickCount64();
+        { std::lock_guard<std::mutex> lock(g_autoMutex);
         if (g_auto.Update(now, st.nrMs, static_cast<float>(g_bridge.LastIntervalMs()), ceiling, autoSettings) && !g_auto.History().empty() && g_auto.History().back().atMs == now) {
             const AutoQuality::Step& s = g_auto.History().back();
-            Log("auto: model resolution %.2f -> %.2f (model %.1f ms, budget %.1f ms)", s.from, s.to, s.modelMs, autoSettings.budgetMs);
+            Log("auto: model resolution %.2f -> %.2f (model %.1f ms, budget %.1f ms%s)", s.from, s.to, s.modelMs, autoSettings.budgetMs * g_auto.Pressure(), g_auto.Pressure() < 0.99f ? ", tightened: the game's frames are slow" : "");
+        }
+        if (autoSettings.on) stable = g_auto.StableScale(now, 30000);
+        }
+        static uint64_t lastSavedAt = 0;
+        if (stable > 0 && now - lastSavedAt > 60000) {
+            Config c; std::vector<Look> looks; bool save = false;
+            { std::lock_guard<std::mutex> settings(g_settingsMutex);
+              if (std::fabs(stable - g_config.autoScaleLast) >= 0.02f) { g_config.autoScaleLast = stable; c = g_config; looks = g_looks; save = true; } }
+            if (save) { lastSavedAt = now; SaveSettings(g_host, kAddonId, c, looks); Log("auto: settled at model resolution %.2f, kept for the next start", stable); }
         }
     }
     if (g_engine.IsFailed()) SwitchOff(st.lastError);
@@ -566,13 +576,13 @@ void PresentTap(IDXGISwapChain* sc) {   // under g_frameMutex, on the presenting
         { float white; const nr::FrameEncoding e = FrameEncodingOf(frame.Format, sc, &white); g_engine.SetFrameEncoding(static_cast<uint32_t>(e), white); }
         { char text[96]; snprintf(text, sizeof text, "%ux%u %s at Present (frame generation off)", frame.Width, frame.Height, FormatName(frame.Format));
           std::lock_guard<std::mutex> lock(g_textMutex); g_frameText = text; }
-        NrParams p; float watchdogMs; bool lsFirst; AutoQuality::Settings autoSettings;
-        { std::lock_guard<std::mutex> lock(g_settingsMutex); p = g_config.p; watchdogMs = g_config.watchdogMs; lsFirst = g_config.lsFirst;
+        NrParams p; float watchdogMs; bool lsFirst; AutoQuality::Settings autoSettings; float autoSeed;
+        { std::lock_guard<std::mutex> lock(g_settingsMutex); p = g_config.p; watchdogMs = g_config.watchdogMs; lsFirst = g_config.lsFirst; autoSeed = g_config.autoScaleLast;
           autoSettings = { g_config.autoQuality && g_config.model == 0, g_config.autoBudgetMs, g_config.autoFloor }; }
         const float fit = frame.Width > kPresentWidth ? kPresentWidth / static_cast<float>(frame.Width) : 1.0f;
         const float ceiling = p.workingScale * fit;
         p.workingScale = ceiling;
-        if (autoSettings.on) { std::lock_guard<std::mutex> lock(g_autoMutex); if (g_auto.Scale() > 0) p.workingScale = std::min(ceiling, g_auto.Scale()); }
+        if (autoSettings.on) { std::lock_guard<std::mutex> lock(g_autoMutex); g_auto.Seed(autoSeed); if (g_auto.Scale() > 0) p.workingScale = std::min(ceiling, g_auto.Scale()); }
         g_bridge.SetLsGpuPriority(lsFirst ? 7 : 0);
         g_bridge.ShareMotion(!g_presentWait);
         // the scaling pass may have left the buffer bound as its output: unbound for the copy, and put back

@@ -214,6 +214,7 @@ Loaded LoadSettings(IHost* host, const char* id) {
     c.autoQuality = flag("autoQuality", false);
     c.autoBudgetMs = std::clamp(static_cast<float>(number("autoBudgetMs", 5.0)), 2.0f, 15.0f);
     c.autoFloor = std::clamp(static_cast<float>(number("autoFloor", 0.25)), 0.25f, 1.0f);
+    c.autoScaleLast = std::clamp(static_cast<float>(number("autoScaleLast", 0.0)), 0.0f, 1.0f);
     c.gameAuto = flag("gameAuto", true);
     c.scalerPerGame = flag("scalerPerGame", true);
     for (const std::string& exe : SplitList(text("scalerGameList"))) {
@@ -276,7 +277,7 @@ void SaveSettings(IHost* host, const char* id, const Config& c, const std::vecto
         host->SetConfig(other, "recordBudgetMb", std::to_string(c.recordBudgetMb).c_str()); host->SetConfig(other, "recordFolder", c.recordFolder.c_str());
     }
     put("screenshotFolder", c.screenshotFolder);
-    putFlag("autoQuality", c.autoQuality); put("autoBudgetMs", Number(c.autoBudgetMs)); put("autoFloor", Number(c.autoFloor));
+    putFlag("autoQuality", c.autoQuality); put("autoBudgetMs", Number(c.autoBudgetMs)); put("autoFloor", Number(c.autoFloor)); put("autoScaleLast", Number(c.autoScaleLast));
     putFlag("gameAuto", c.gameAuto);
     putFlag("scalerPerGame", c.scalerPerGame);
     {

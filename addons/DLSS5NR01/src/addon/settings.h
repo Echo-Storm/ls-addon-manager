@@ -63,6 +63,7 @@ struct Config {
     std::string screenshotFolder;        // empty: Pictures\Lossless Scaling
     bool autoQuality = false;            // lower the model resolution when the model runs over its time budget (auto_quality.h)
     float autoBudgetMs = 5.0f, autoFloor = 0.25f;
+    float autoScaleLast = 0.0f;   // the model resolution auto quality settled at last time (0: none yet): where it starts
     bool gameAuto = true;                // switch to a program's look when it takes focus
     std::vector<std::pair<std::string, std::string>> games;   // lower-case exe name, look name
     int tapMode = 0;                     // 0 automatic, 1 by hand

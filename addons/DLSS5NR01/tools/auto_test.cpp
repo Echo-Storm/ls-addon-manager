@@ -80,6 +80,46 @@ int main() {
               a.History().back().from > a.History().back().to && a.History().back().modelMs > 5.0f);
     }
 
+    printf("== few, direct changes (a ramp of nine steps showed as the picture changing look every few seconds)\n");
+    {
+        AutoQuality a; uint64_t now = 0;
+        const AutoQuality::Settings s{ true, 3.0f, 0.25f };
+        const Run r = Simulate(a, now, 120, 1.0f, s, 1.0f);   // 9.3 ms at 1.0, a 3 ms budget: about 0.3 fits
+        snprintf(text, sizeof text, "%d changes, scale %.2f, model %.1f ms", r.changes, a.Scale(), ModelMs(a.Scale(), 1.0f));
+        Check("from 1.0 to a scale that fits in at most three changes", r.changes <= 3 && ModelMs(a.Scale(), 1.0f) <= 3.0f * 1.1f, text);
+        Check("the first change goes straight most of the way (not one small step)", a.History().front().to <= 0.75f, std::to_string(a.History().front().to));
+    }
+    {
+        AutoQuality a; uint64_t now = 0;
+        a.Seed(0.3f);
+        const AutoQuality::Settings s{ true, 3.0f, 0.25f };
+        const Run r = Simulate(a, now, 60, 1.0f, s, 1.0f);
+        snprintf(text, sizeof text, "%d changes, scale %.2f, highest %.2f", r.changes, a.Scale(), r.highest);
+        Check("seeded with the scale it settled at, it starts there (never at the person's 1.0)", r.highest <= 0.3f + 0.001f, text);
+        Check("...and with the model within budget there, it does not change at all", r.changes == 0, text);
+        Check("the seed never exceeds the person's own setting", [] { AutoQuality b; b.Seed(0.9f); uint64_t n = 0; Simulate(b, n, 2, 0.5f, { true, 5.0f, 0.25f }, 1.0f); return b.Scale() <= 0.5f + 0.001f; }());
+    }
+    {
+        AutoQuality a; uint64_t now = 0;
+        const AutoQuality::Settings s{ true, 5.0f, 0.25f };
+        Simulate(a, now, 90, 1.0f, s, 1.0f);
+        Check("a scale held for 30 s with the model in budget is reported as stable", a.StableScale(now, 30000) > 0.0f && std::fabs(a.StableScale(now, 30000) - a.Scale()) < 0.001f, std::to_string(a.StableScale(now, 30000)));
+        Check("...and not before that", a.StableScale(a.History().back().atMs + 1000, 30000) == 0.0f);
+    }
+    {
+        // the game's frames slow down (the card is out of room): the model is asked to take less, then goes back up only after a while
+        AutoQuality a; uint64_t now = 0;
+        const AutoQuality::Settings s{ true, 5.0f, 0.25f };
+        Simulate(a, now, 60, 0.6f, s, 1.0f, 16.7f);                 // settled at 60 fps, model within budget
+        const float before = a.Scale();
+        const Run slow = Simulate(a, now, 40, 0.6f, s, 1.0f, 30.0f);   // frames now take 30 ms: a busy scene
+        snprintf(text, sizeof text, "scale %.2f -> %.2f, %d changes, pressure %.2f", before, a.Scale(), slow.changes, a.Pressure());
+        Check("frame times well over the best it has managed make it lower the model's resolution", a.Scale() < before && a.Pressure() < 0.8f, text);
+        const float low = a.Scale();
+        const Run back = Simulate(a, now, 90, 0.6f, s, 1.0f, 16.7f);
+        Check("...and it stays down for a minute after the frames recover, then may rise", back.lowest >= low - 0.001f, std::to_string(back.lowest));
+    }
+
     printf("\n%s\n", g_failed ? "AUTO QUALITY TEST FAILED" : "AUTO QUALITY TEST PASSED");
     return g_failed ? 1 : 0;
 }
