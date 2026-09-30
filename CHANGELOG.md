@@ -1,5 +1,13 @@
 # Changelog
 
+## Unreleased
+
+- **Neural Rendering backs off further when the game's frames stay slow.** From the owner's log: at the lowest model resolution (the floor, 0.25) the model still took 2 to 6 ms and waited 6 to 22 ms for the
+  card, and while it ran the game's frame time spiked (p95 17.6 ms with Neural Rendering off, 29 to 31 ms with it on, at the same spot at 60 fps): judder, and what a player described as bumpy pacing. Auto
+  quality now also runs the model on every 2nd (then 3rd) real frame when the game's frames are still well over the best they have lately managed even at the floor (the presents keep warping the last
+  result, as they already do while the model is busy), and goes back to every frame after the game has been steady for 10 s (not before 30 s after the last increase). The log says when ("auto: the model now
+  runs on every 2nd frame"). Only with auto quality on. Not yet seen live.
+
 ## 0.9.23 (2026-09-30)
 
 **One more HDR fix, straight after 0.9.22's.** In HDR the Catmull-Rom lean (the picture the upscalers lean on in fast motion and, with Sharpness at rest, at rest) could ring around a small bright

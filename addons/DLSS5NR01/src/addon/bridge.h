@@ -59,6 +59,8 @@ public:
     bool TakeFrameTimeWindow(float& p50, float& p95, float& p99, float& worst, int& n, int& over20, int& over33);
     double CpuMs() const { return m_cpuMs; }                   // CPU time Submit takes on Lossless Scaling's render thread, smoothed
     uint64_t Runs() const { return m_runs; }  uint64_t Skipped() const { return m_skipped; }
+    void SetRunEvery(int n) { m_runEvery = n < 1 ? 1 : n > 4 ? 4 : n; }   // the model runs on every Nth frame (auto quality, when the game's frames are slow even at the lowest resolution)
+    int RunEvery() const { return m_runEvery; }
     uint64_t Doubled() const { return m_doubled; }   // runs queued while the one before was still with the model
     // GPU thread priority of Lossless Scaling's D3D11 device (-7..7). Above 0 its work pre-empts the model's normal-priority queue, so LSFG's
     // pacing is not disturbed by the model sharing the graphics card. Set back to 0 at Shutdown.
@@ -107,7 +109,7 @@ private:
     uint64_t m_doubled = 0;
     int m_newestSlot = -1;                 // the slot that run writes
     uint64_t m_releaseCount = 0;
-    uint64_t m_runs = 0, m_skipped = 0;
+    uint64_t m_runs = 0, m_skipped = 0, m_everyCounter = 0; int m_runEvery = 1;
     uint64_t m_lastFailure = 0;
     int64_t m_prevFrameQpc = 0;
     double m_intervalMs = 0, m_lastIntervalMs = 0, m_cpuMs = 0;

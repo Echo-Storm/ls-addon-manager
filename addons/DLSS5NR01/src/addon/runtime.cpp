@@ -308,6 +308,11 @@ void AfterHandOver(bool started, float ceiling, const AutoQuality::Settings& aut
             Log("auto: model resolution %.2f -> %.2f (model %.1f ms, budget %.1f ms%s)", s.from, s.to, s.modelMs, autoSettings.budgetMs * g_auto.Pressure(), g_auto.Pressure() < 0.99f ? ", tightened: the game's frames are slow" : "");
         }
         if (autoSettings.on) stable = g_auto.StableScale(now, 30000);
+        const int every = autoSettings.on ? g_auto.RunEvery() : 1;
+        if (every != g_bridge.RunEvery()) {
+            g_bridge.SetRunEvery(every);
+            Log("auto: the model now runs on %s (the game's frames are %s%s)", every == 1 ? "every frame" : every == 2 ? "every 2nd frame" : "every 3rd frame", every == 1 ? "steady again" : "still slow at the lowest model resolution", "");
+        }
         }
         static uint64_t lastSavedAt = 0;
         if (stable > 0 && now - lastSavedAt > 60000) {

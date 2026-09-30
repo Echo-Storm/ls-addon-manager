@@ -11,6 +11,9 @@
 //   * it can start from the scale it settled at last time (Seed), so a session does not begin with a ramp down from the person's setting;
 //   * when the game's own frames get slow (the frame time well over the best it has lately managed: the graphics card is out of room for
 //     everything), the budget shrinks in proportion, and it does not go back up for a minute after that.
+//   * at its floor, with the game's frames still slow, the model runs on every 2nd or 3rd frame instead (RunEvery; the presents keep warping the last result, as they
+//     already do while the model is busy): the model's own spikes are the last thing it can take off the card. It goes back to every frame after the game has been calm for
+//     10 s, and not before 30 s after the last increase.
 // Frames slower than 100 ms (a loading screen, a pause) are not judged.
 #pragma once
 #include <cstdint>
@@ -33,6 +36,8 @@ public:
     void Seed(float scale) { if (m_scale <= 0 && scale > 0) m_scale = scale; }
     // The scale, if it has been held for at least holdMs with the model within budget (else 0): worth keeping for the next session.
     float StableScale(uint64_t nowMs, uint64_t holdMs) const { return m_scale > 0 && m_settled && m_lastChange + holdMs <= nowMs ? m_scale : 0.0f; }
+    // Run the model on every Nth frame (1 normally; 2 or 3 at the floor while the game's frames are slow).
+    int RunEvery() const { return m_every; }
     // The share of the budget left by frame pressure (1: none).
     float Pressure() const { return m_pressure; }
     const std::deque<Step>& History() const { return m_history; }
@@ -46,6 +51,7 @@ private:
     float m_frameAvg = 0, m_frameBase = 0, m_pressure = 1.0f;   // the game's frame time: now, and the best it has lately managed
     bool m_settled = false;                                       // the model fits the budget at the current scale
     uint64_t m_overSince = 0, m_underSince = 0, m_lastChange = 0, m_noRaiseUntil = 0;
+    int m_every = 1; uint64_t m_heavySince = 0, m_calmSince = 0, m_everyChangedAt = 0, m_everyHoldUntil = 0;
     std::deque<Step> m_history;  // the newest last, at most 8
 };
 

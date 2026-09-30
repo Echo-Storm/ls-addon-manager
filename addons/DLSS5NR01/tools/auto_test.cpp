@@ -120,6 +120,37 @@ int main() {
         Check("...and it stays down for a minute after the frames recover, then may rise", back.lowest >= low - 0.001f, std::to_string(back.lowest));
     }
 
+    printf("== the model on every Nth frame (at the floor, while the game's frames are slow)\n");
+    {
+        AutoQuality a; uint64_t now = 0;
+        const AutoQuality::Settings s{ true, 1.0f, 0.25f };   // a budget it can never meet, so it sits at the floor
+        Simulate(a, now, 60, 0.6f, s, 1.0f, 16.7f);            // 60 fps: the best the game has managed
+        Check("at 60 fps the model runs on every frame", a.RunEvery() == 1, std::to_string(a.RunEvery()));
+        Simulate(a, now, 12, 0.6f, s, 1.0f, 30.0f);            // the game's frames turn slow
+        snprintf(text, sizeof text, "every %d, scale %.2f, pressure %.2f", a.RunEvery(), a.Scale(), a.Pressure());
+        Check("slow frames at the floor: it moves to every 2nd frame (or 3rd), not further at once", a.RunEvery() >= 2 && a.RunEvery() <= 3 && std::fabs(a.Scale() - 0.25f) < 0.001f, text);
+        Simulate(a, now, 40, 0.6f, s, 1.0f, 36.0f);
+        Check("...and at most every 3rd frame", a.RunEvery() <= 3, std::to_string(a.RunEvery()));
+        const int slowEvery = a.RunEvery();
+        Simulate(a, now, 8, 0.6f, s, 1.0f, 16.7f);             // the frames recover, but not for long
+        Check("a short calm does not bring the model back to every frame (30 s hold after the last increase)", a.RunEvery() == slowEvery, std::to_string(a.RunEvery()));
+        Simulate(a, now, 60, 0.6f, s, 1.0f, 16.7f);            // a minute of steady frames
+        Check("after the frames have been steady for a while it runs on every frame again", a.RunEvery() == 1, std::to_string(a.RunEvery()));
+    }
+    {
+        AutoQuality a; uint64_t now = 0;
+        const AutoQuality::Settings s{ true, 5.0f, 0.25f };    // a budget it can meet by lowering the resolution
+        Simulate(a, now, 60, 0.6f, s, 0.3f, 16.7f);
+        Simulate(a, now, 40, 0.6f, s, 0.3f, 30.0f);            // slow frames, but the scale is above the floor
+        Check("above the floor the resolution is what moves, not how often the model runs", a.RunEvery() == 1 || a.Scale() <= 0.25f + 0.001f, "every " + std::to_string(a.RunEvery()) + ", scale " + std::to_string(a.Scale()));
+    }
+    {
+        AutoQuality a; uint64_t now = 0;
+        const AutoQuality::Settings off{ false, 1.0f, 0.25f };
+        Simulate(a, now, 30, 0.6f, off, 1.0f, 30.0f);
+        Check("auto quality off: the model always runs on every frame", a.RunEvery() == 1);
+    }
+
     printf("\n%s\n", g_failed ? "AUTO QUALITY TEST FAILED" : "AUTO QUALITY TEST PASSED");
     return g_failed ? 1 : 0;
 }

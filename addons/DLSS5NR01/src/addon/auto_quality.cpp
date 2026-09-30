@@ -44,7 +44,7 @@ bool AutoQuality::Update(uint64_t nowMs, float modelMs, float frameIntervalMs, f
         const bool changed = m_scale != ceiling && m_scale > 0 && s.on;
         m_scale = ceiling;
         m_overSince = m_underSince = 0;
-        m_settled = false;
+        m_settled = false; m_every = 1; m_heavySince = m_calmSince = 0;
         if (!s.on) { m_avgMs = 0; return false; }
         return changed;
     }
@@ -62,6 +62,24 @@ bool AutoQuality::Update(uint64_t nowMs, float modelMs, float frameIntervalMs, f
         if (pressed) m_noRaiseUntil = nowMs + kPressureHold;
     }
     const float budget = s.budgetMs * m_pressure;
+
+    // at the floor with the game's frames still slow: the model runs on every 2nd (then 3rd) frame; back to every frame after the game has been calm for a while
+    {
+        const bool atFloor = m_scale <= floor + 0.001f, heavy = m_pressure < 0.8f;
+        if (atFloor && heavy) {
+            m_calmSince = 0;
+            if (!m_heavySince) m_heavySince = nowMs;
+            if (m_every < 3 && nowMs - m_heavySince >= 3000 && nowMs - m_everyChangedAt >= 8000) {
+                ++m_every; m_everyChangedAt = nowMs; m_everyHoldUntil = nowMs + 30000; m_heavySince = nowMs;
+            }
+        } else {
+            m_heavySince = 0;
+            if (m_pressure >= 0.999f) {
+                if (!m_calmSince) m_calmSince = nowMs;
+                if (m_every > 1 && nowMs - m_calmSince >= 10000 && nowMs >= m_everyHoldUntil) { m_every = 1; m_everyChangedAt = nowMs; }
+            } else m_calmSince = 0;
+        }
+    }
 
     if (m_avgMs > budget * 1.1f && m_scale > floor + 0.001f) {
         m_underSince = 0; m_settled = false;

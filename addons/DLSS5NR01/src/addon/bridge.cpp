@@ -202,6 +202,7 @@ bool Bridge::Submit(ID3D11Texture2D* frame, ID3D11Texture2D* flow, uint32_t flow
     LARGE_INTEGER freq; QueryPerformanceFrequency(&freq);
     const int64_t start = Now();
     NoteFrameTime(start, freq.QuadPart);
+    if (m_runEvery > 1 && (m_everyCounter++ % static_cast<uint64_t>(m_runEvery)) != 0) return false;   // (auto quality: the model runs on every Nth frame; the real frame time above is still noted)
     struct CpuTime { Bridge& b; int64_t start, freq; ~CpuTime() { b.m_cpuMs = Smooth(b.m_cpuMs, Ms(Now() - start, freq)); } } cpuTime{ *this, start, freq.QuadPart };
 
     if (!m_engine->Prepare(m_input[0].w, m_input[0].h, m_fmt, params)) return false;
