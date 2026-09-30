@@ -446,6 +446,11 @@ void DrawPanel() {
                 "picture (followed along the motion, and trusted less where it moves fast), and only that is added to the current frame: the detail stays, the "
                 "shimmer is not amplified. On recordings it means about 10 points less flicker for the same detail on a still scene, and no change when upscaling in "
                 "motion. Costs about a millisecond at 4K. 0 is off; the default is 0.6.");
+            if (ImGui::SliderFloat("Sharpen less in fast motion", &c.scalerMoveCut, 0.0f, 1.0f, c.scalerMoveCut <= 0.0f ? "off" : "%.2f")) changed = true;
+            Tip("The eye cannot resolve the extra detail sharpening adds where the picture moves fast, but it does see the shimmer it amplifies. This lowers the sharpening "
+                "smoothly from 1 to 8 pixels of motion a frame, by this much at the fastest; at rest and in slow motion it is untouched. On a recording walking over cracked "
+                "ground at 1:1, 0.5 took the flicker added by sharpening from 113 % to 107 % of the game's own and the detail from 137 % to 127 %, and 1.0 to 102 % and 117 %. "
+                "Works with the passes of Steady sharpening (it needs the motion estimate). 0 is off; the default is 0.5.");
         }
         {
             if (ImGui::Checkbox("Crisp edges when moving (test)", &c.leanEasu)) changed = true;

@@ -2,6 +2,11 @@
 
 ## Unreleased
 
+- **"Sharpen less in fast motion" (0.5 by default) in the upscalers' panel.** The eye cannot resolve the extra detail sharpening adds where the picture moves fast, but it does see
+  the shimmer sharpening amplifies. The sharpening is lowered smoothly from 1 to 8 pixels of motion a frame, by this much at the fastest; at rest and in slow motion it is untouched.
+  On a recording walking over cracked ground at 1:1 (DLSS model E, sharpening 0.45): flicker added over the game's own 113 % -> 107 % at 0.5 (102 % at 1.0), detail kept 137 % -> 127 % (117 %):
+  more detail for the same flicker than simply sharpening less (which would keep about 121 % of it for 107 %). Upscaling 1.5x, scored against the true picture, 0.5 is better than off
+  (Silent Hill f 43.82 dB against 43.01, steadier 41.21 against 40.43), at the same pass cost. Works for DLSS, FSR and XeSS.
 - **Neural Rendering's temporal smoothing trusts its history more where the game's picture is unchanged, and starts at 0.7 (was 0.4).** Where a pixel's brightness matches what was kept
   with its history (the same surface), any change in the model's output is the model's own noise, not new content, so the history weight there goes up to 1 - (1 - setting) / 4 (0.95 at 0.8,
   at most 0.97) while the setting still rules where the frame changed. From the design notes of the Magpie fork (docs/magpie-fork-study.md), measured with `nr_nreval` on your own clips,

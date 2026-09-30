@@ -177,6 +177,7 @@ int main(int argc, char** argv) {
     if (const int steady = Arg(argc, argv, "steady", -1); steady >= 0) eng.SetSteadySharpen(steady / 100.0f);   // steady=N: percent the sharpening is cut where the picture shimmers
     if (const int a = Arg(argc, argv, "steadymv", -1); a >= 0) eng.SetSteadyMotion(a / 10.0f, Arg(argc, argv, "steadymv2", 60) / 10.0f);   // steadymv=A steadymv2=B: tenths of an output pixel of motion
     if (const int reuse = Arg(argc, argv, "flowreuse", 0); reuse > 0) eng.SetFlowReuse(reuse);   // flowreuse=1|2: every other frame keeps the last estimate (2) or refines its blocks per pixel (1)
+    if (const int cut = Arg(argc, argv, "movecut", 0); cut > 0) eng.SetMoveCut(cut / 100.0f);   // movecut=N: percent the sharpening is cut in fast motion
     if (Arg(argc, argv, "fsrown", 1) == 0) eng.SetFsrOwnSharpen(false);   // fsrown=0: FSR's sharpening by AMD's RCAS, not our pass
     if (Arg(argc, argv, "steadysign", -1) > 0) eng.SetSteadySign(1.0f);                                       // steadysign=1: fetch the history the other way along the motion (default -1)
     if (ArgText(argc, argv, "lean") == "easu") eng.SetLeanMode(1);   // lean=easu: the lean blends toward FSR 1's EASU of the frame (default: Catmull-Rom)

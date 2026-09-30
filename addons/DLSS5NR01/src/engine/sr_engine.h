@@ -105,6 +105,8 @@ public:
     void SetFsrOwnSharpen(bool own) { m_fsrOwnSharpen.store(own); }   // FSR's sharpening done by our pass (CAS, with Steady sharpening; the default) instead of AMD's RCAS (softer: 73 to 83 % of the game's detail at 0.5)
     // Every other frame, keep the last motion estimate (2) or only refine its block vectors per pixel (1): for frame generation, which presents two frames for each real one; 0 always estimates in full
     void SetFlowReuse(int mode) { m_flowReuse.store(mode < 0 ? 0 : mode > 2 ? 2 : mode); }
+    // Sharpening is cut by this much (0..1) where the picture moves fast (smoothly from 1 to 8 output pixels a frame): detail the eye cannot resolve there, shimmer it can see
+    void SetMoveCut(float cut) { m_moveCut.store(cut < 0.0f ? 0.0f : cut > 1.0f ? 1.0f : cut); }
     void SetSteadySign(float sign) { m_steadySign.store(sign); }   // which way along the motion the previous frame is fetched (evaluation)
     void SetSteadySharpen(float steady) { m_steadySharp.store(steady < 0.0f ? 0.0f : steady > 0.95f ? 0.95f : steady); }
     void SetFastMotionShare(float share) { m_fastShare.store(share); }   // where SetFastMotion is automatic (-1): from this share of the width (0: the default)
@@ -171,7 +173,7 @@ private:
     bool InitLean();
     // steady sharpening: the sharpening pass with the previous frame's input and the motion (on the lean's root signature: three pictures in, one out)
     ID3D12RootSignature* m_steadyRoot = nullptr; ID3D12PipelineState* m_steadyPso = nullptr;
-    std::atomic<bool> m_fsrOwnSharpen{ true }; std::atomic<int> m_flowReuse{ 0 }; bool m_haveMotion = false; uint32_t m_flowPhase = 0; std::atomic<float> m_steadySharp{ 0.0f }, m_steadySign{ -1.0f }, m_steadyMvA{ 0.5f }, m_steadyMvB{ 3.0f };
+    std::atomic<bool> m_fsrOwnSharpen{ true }; std::atomic<int> m_flowReuse{ 0 }; std::atomic<float> m_moveCut{ 0.0f }; bool m_haveMotion = false; uint32_t m_flowPhase = 0; std::atomic<float> m_steadySharp{ 0.0f }, m_steadySign{ -1.0f }, m_steadyMvA{ 0.5f }, m_steadyMvB{ 3.0f };
     ID3D12Resource* m_sharpHist[2] = {}; int m_sharpHistCur = 0; uint32_t m_sharpHistW = 0, m_sharpHistH = 0; DXGI_FORMAT m_sharpHistFmt = DXGI_FORMAT_UNKNOWN; bool m_sharpHistValid = false;
     bool EnsureSharpHist(uint32_t w, uint32_t h, DXGI_FORMAT fmt);
     ID3D12Resource* m_smoothed = nullptr; uint32_t m_smoothedW = 0, m_smoothedH = 0; DXGI_FORMAT m_smoothedFmt = DXGI_FORMAT_UNKNOWN;

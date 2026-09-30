@@ -114,7 +114,7 @@ Texture2D<float2> tMotion : register(t2);
 RWTexture2D<float4> uOut : register(u0);
 RWTexture2D<float4> uHistOut : register(u1);
 SamplerState sLinear : register(s0);
-cbuffer C : register(b0) { uint2 size; uint2 inSize; float amount; float gain; uint hdr; float steady; float mvScale; uint histOk; float mvA; float mvB; };
+cbuffer C : register(b0) { uint2 size; uint2 inSize; float amount; float gain; uint hdr; float steady; float mvScale; uint histOk; float mvA; float mvB; float moveCut; };
 groupshared float3 gIn[12][12];
 groupshared float3 gStab[10][10];
 float3 View(float3 c) { return hdr != 0u ? LightToSdr(c) : c; }
@@ -160,11 +160,17 @@ void main(uint3 id : SV_DispatchThreadID, uint3 gid : SV_GroupID, uint3 gt : SV_
     const float3 v = gIn[gt.y + 2][gt.x + 2];
     const float3 m = gStab[gt.y + 1][gt.x + 1];
     const float3 s = Sharpen(gStab[gt.y][gt.x + 1], gStab[gt.y + 1][gt.x], m, gStab[gt.y + 1][gt.x + 2], gStab[gt.y + 2][gt.x + 1], saturate(amount));
-    const float3 r = saturate(v + (s - m) * gain);   // this frame, plus the average's sharpening
+    // sharpening is also cut where the picture moves fast: the eye cannot resolve the extra detail there, but it does see the shimmer the sharpening amplifies
+    float cut = 1.0;
+    if (moveCut > 0.0) {
+        const int2 qc = clamp(int2((float2(p) + 0.5) * float2(inSize) / float2(size)), 0, int2(inSize) - 1);
+        cut = 1.0 - moveCut * smoothstep(1.0, 8.0, length(tMotion[qc] * mvScale));
+    }
+    const float3 r = saturate(v + (s - m) * gain * cut);   // this frame, plus the average's sharpening
     uOut[p] = float4(hdr != 0u ? c.rgb + (SdrToLight(r) - SdrToLight(v)) : r, c.a);
 }
 )";
-struct SteadyConstants { uint32_t w, h, inW, inH; float amount, gain; uint32_t hdr; float steady, mvScale; uint32_t histOk; float mvA, mvB; };
+struct SteadyConstants { uint32_t w, h, inW, inH; float amount, gain; uint32_t hdr; float steady, mvScale; uint32_t histOk; float mvA, mvB, moveCut; };
 
 // The lean, after every upscaler: without the sub-pixel jitter a game gives it, an upscaler's history trails in a fast turn, and DLSS's
 // transformer models (presets J, K, M: DLSS 4) take no mask to lean on the current frame (its bias-current-colour mask changes nothing). So
@@ -1128,7 +1134,7 @@ bool SrEngine::Run(ID3D12Resource* in, uint32_t inW, uint32_t inH, DXGI_FORMAT i
     ID3D12Resource* const post = leaning ? m_leaned : m_unsharpened;                               // what edges and sharpening read
     // sharpening that follows the stability: needs the measured motion and the previous frame's picture; a frame without either starts the history again
     const float steadyShare = m_steadySharp.load();
-    const bool steadySharp = sharpening && estimating && steadyShare > 0.001f && m_steadyPso && m_steadyRoot && EnsureSharpHist(outW, outH, outFormat);
+    const bool steadySharp = sharpening && estimating && (steadyShare > 0.001f || m_moveCut.load() > 0.001f) && m_steadyPso && m_steadyRoot && EnsureSharpHist(outW, outH, outFormat);
     const bool histOk = steadySharp && m_sharpHistValid && !reset;
     if (!steadySharp) m_sharpHistValid = false;
     const int slot = TakeSlot();
@@ -1343,7 +1349,7 @@ bool SrEngine::Run(ID3D12Resource* in, uint32_t inW, uint32_t inH, DXGI_FORMAT i
                                      : SharpenConstants{ outW, outH, std::min(sharpen, 1.0f), std::max(sharpen, 1.0f), hdr ? 1u : 0u };
         if (steadySharp) {
             // the motion is in the game's pixels, toward where the pixel was (or the other way: m_steadySign); the picture is outW wide
-            const SteadyConstants st{ outW, outH, inW, inH, sc.amount, sc.gain, sc.hdr, steadyShare, m_steadySign.load() * static_cast<float>(outW) / static_cast<float>(inW), histOk ? 1u : 0u, m_steadyMvA.load(), m_steadyMvB.load() };
+            const SteadyConstants st{ outW, outH, inW, inH, sc.amount, sc.gain, sc.hdr, steadyShare, m_steadySign.load() * static_cast<float>(outW) / static_cast<float>(inW), histOk ? 1u : 0u, m_steadyMvA.load(), m_steadyMvB.load(), m_moveCut.load() };
             m_list->SetComputeRootSignature(m_steadyRoot);
             m_list->SetPipelineState(m_steadyPso);
             D3D12_GPU_DESCRIPTOR_HANDLE g = gpu; g.ptr += 12 * m_descriptorSize;

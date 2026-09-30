@@ -445,3 +445,13 @@ recordings' frames as consecutive steps (whole game frames, so a harsher test th
 Mode 1 loses (a stale block vector misleads the per-pixel step); mode 2 is as good as estimating every frame and 41 % cheaper for the estimate. The whole run's time did not move in the
 back-to-back benchmark (it is limited by the CPU side or the upscaler there), so the gain is the estimate's own 0.16 ms a frame, about 6 % of a presented frame here; live it is
 "motion" in the log ("DLSS 2.47 ms a presented frame (motion 0.66)" before). The panel has "Share motion between generated frames" (on); it acts only when two or more frames are presented per real one.
+
+## Where the upscalers add flicker: the Durotar spot, and sharpening less in motion (2026-09-30)
+
+The owner's recording of Durotar (red cracked ground, walking; 2562x1442 HDR frames as Lossless Scaling captured them, 34 frames a second) at 1:1 (`nr_sreval shrink=100`, model E, flicker and detail
+against the game's own frames): no sharpening keeps 95 % of the flicker and 95 % of the detail; the owner's sharpening 0.45 with Sharpness at rest 0.6 gives **113-115 % and 136-141 %** for DLSS, FSR and
+XeSS alike (113 %, 133 % for XeSS). Steady sharpening adds little here (115 -> 113 %): the ground moves faster than its trust band, and widening the band (1-6, 2-10, 4-20 pixels a frame) only slides
+along the plain curve: a running average cannot help in fast motion. What the eye does not resolve in fast motion is the added detail, so the sharpening is cut there instead
+(`SetMoveCut`, `nr_sreval movecut=N`, smoothly from 1 to 8 output pixels a frame): flicker / detail 113 % / 137 % at 0, 110 / 131 at 0.3, 107 / 127 at 0.5, 105 / 123 at 0.7, 102 / 117 at 1.0. The plain
+curve (sharpening less everywhere) costs about 0.43 flicker points per detail point, so 102 % would cost it 26 detail points (111 %); the cut keeps 117 %. Upscaling 1.5x (upscaled dB / steady dB, wowb 01,
+wowb 20, shf): cut 0 35.35/41.79, 34.37/37.59, 43.01/40.43; cut 0.5 35.39/42.09, 34.40/37.68, 43.82/41.21; cut 1.0 35.36/41.69, 34.34/37.39, 43.18/40.30. The pass time is unchanged (0.71-0.73 ms).
