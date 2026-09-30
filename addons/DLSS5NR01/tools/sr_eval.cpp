@@ -344,6 +344,7 @@ int main(int argc, char** argv) {
     // bench=N: the last frame's picture run N more times back to back, without waiting between them, so the GPU stays busy at full clocks (the timings above
     // are taken with the GPU idling between frames and read several times too high); prints the GPU times the engine measured over those runs
     if (const int bench = Arg(argc, argv, "bench", 0); bench > 0) {
+        FILETIME ct, et, kt0, ut0, kt1, ut1; GetThreadTimes(GetCurrentThread(), &ct, &et, &kt0, &ut0);   // the CPU this thread spends on the runs (not the time it waits)
         for (int j = 1; j <= bench; ++j) {
             const uint64_t v = static_cast<uint64_t>(count) + j;
             queue->Signal(copied, v);
@@ -353,6 +354,9 @@ int main(int argc, char** argv) {
         HANDLE ev = CreateEventW(nullptr, FALSE, FALSE, nullptr);
         done->SetEventOnCompletion(static_cast<uint64_t>(count) + bench, ev); WaitForSingleObject(ev, 60000); CloseHandle(ev);
         Sleep(50);
+        GetThreadTimes(GetCurrentThread(), &ct, &et, &kt1, &ut1);
+        const auto ticks = [](const FILETIME& f) { return (static_cast<uint64_t>(f.dwHighDateTime) << 32) | f.dwLowDateTime; };
+        printf("CPU per run %.3f ms (user %.3f, kernel %.3f); ", (ticks(kt1) - ticks(kt0) + ticks(ut1) - ticks(ut0)) / 1e4 / bench, (ticks(ut1) - ticks(ut0)) / 1e4 / bench, (ticks(kt1) - ticks(kt0)) / 1e4 / bench);
         printf("bench %d runs back to back: ", bench);
     }
     if (hdrMode && hdrN) printf("HDR (fp16 light): non-finite values %llu; mean light in %.4f out %.4f (out / in %.3f); peak light in %.2f out %.2f (out / in %.2f)\n", static_cast<unsigned long long>(hdrBad), hdrMeanIn / hdrN, hdrMeanOut / hdrN, hdrMeanOut / std::max(1e-9, hdrMeanIn), hdrMaxIn, hdrMaxOut, hdrMaxOut / std::max(1e-9f, hdrMaxIn));

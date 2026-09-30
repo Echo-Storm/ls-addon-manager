@@ -84,3 +84,8 @@ of Durotar (red cracked ground), model at working scale 0.3.
 - Still open: persistence with hysteresis (their F) and the fast/slow histories (C); each needs a second history channel.
 - The GPU-based validation of the D3D12 debug layer (`nr_sreval debug=2`) reports an incompatible-layout message on the shared output texture in every pass, including the plain ones: it comes
   from the offline tool's shared texture, not from a pass.
+
+## What the passes cost on the CPU and GPU, measured (2026-09-30)
+
+- **Engine CPU** (`nr_sreval bench=400`, the engine thread, per presented frame): DLSS 0.3 to 0.5 ms, FSR 0.35, XeSS 0.27, whichever of our passes are on (0.16 to 0.35 ms between settings, within the tool's resolution): about 3 % of one core at 120 frames a second. The Neural Rendering tap costs 0.1 to 0.3 ms a real frame and its compose 0.02 ms of CPU. Sampling the timestamp queries or keeping readback buffers mapped would save microseconds: not done.
+- **Neural Rendering compose GPU** (`nr_composebench`, 4K, RTX 4070 Ti SUPER): SDR 0.23 ms (0.29 with sharpening); HDR scRGB 0.59 ms (0.94 with sharpening). Arithmetic-bound by the view conversions (a logarithm and a power a channel each way), and the sharpening converted each of four neighbours again for every pixel. Now 0.56 and 0.83 ms (tile shared, round trips removed); the rest is the copy of the frame, the flow and delta reads and the conversions the result needs.

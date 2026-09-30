@@ -1407,13 +1407,13 @@ bool SrEngine::Run(ID3D12Resource* in, uint32_t inW, uint32_t inH, DXGI_FORMAT i
     if (m_ngxLost) return false;   // (NIS's picture this frame; NGX starts again at the next)
     if (!evaluated) { Fail("%s", evalError); return false; }
     ++m_runs;
+    if ((smoothing || sharpening) && (m_runs == 30 || m_runs % 1200 == 0))   // what the passes after the upscaler cost (after 30 runs, so a short run has it, then every 1200)
+        Log("%s upscaler: after the upscaler %.2f ms (edge smoothing %.2f, sharpening %.2f)", Name(), m_afterMs, smoothing ? edges : 0.0f, sharpen);
     if (estimating && (++m_estimates == 60 || m_estimates % 1200 == 0)) {   // what the estimate found (a check that it follows the picture)
         double x = 0, y = 0, length = 0, cost = 0, distrust = 0; uint64_t frames = 0;
         if (m_estimator.TakeAverages(x, y, length, cost, distrust, frames))
             Log("motion estimator: over %llu frames, average vector (%.2f, %.2f) px, average length %.2f px, match cost %.4f; motion %.2f ms of %.2f ms; "
                 "the upscaler told to lean on the current frame over %.1f%% of the picture", (unsigned long long)frames, x, y, length, cost, m_motionMs, m_gpuMs, distrust * 100.0);
-        if (smoothing || sharpening)
-            Log("%s upscaler: after the upscaler %.2f ms (edge smoothing %.2f, sharpening %.2f)", Name(), m_afterMs, smoothing ? edges : 0.0f, sharpen);
         double stage[4];
         if (m_estimator.TakeStageTimes(stage))
             Log("motion estimator: stages %.3f ms pyramid, %.3f search, %.3f median, %.3f every pixel", stage[0], stage[1], stage[2], stage[3]);

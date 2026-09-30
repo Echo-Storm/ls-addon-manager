@@ -124,11 +124,24 @@ float3 MarkerColour() {
          : marker == 4 ? float3(0.15, 0.45, 0.95) : float3(0.65, 0.30, 0.90);
 }
 
+// HDR with sharpening: the SDR view of every pixel of the group's 10x10 tile (the 8x8 and a pixel around it) is made once and shared: the sharpening reads four neighbours,
+// and each of them used to be converted again by every pixel that reads it (the view is a logarithm and a power per channel).
+groupshared float3 gSdr[10][10];
+
 [numthreads(8, 8, 1)]
-void CSCompose(uint3 id : SV_DispatchThreadID) {
+void CSCompose(uint3 id : SV_DispatchThreadID, uint3 gid : SV_GroupID, uint3 gt : SV_GroupThreadID, uint gi : SV_GroupIndex) {
+    const bool useTile = sharpen > 0.001 && encoding != 0u;   // (the same for every thread: the barrier is reached by all of them)
+    if (useTile) {
+        const int2 last = int2(size) - 1, origin = int2(gid.xy) * 8 - 1;
+        for (uint i = gi; i < 100u; i += 64u) {
+            const int2 t = int2(i % 10u, i / 10u);
+            gSdr[t.y][t.x] = Sdr(tFrame[clamp(origin + t, int2(0, 0), last)].rgb);
+        }
+        GroupMemoryBarrierWithGroupSync();
+    }
     if (id.x >= size.x || id.y >= size.y) return;
     const float4 frame = tFrame[id.xy];
-    const float3 fs = Sdr(frame.rgb);
+    const float3 fs = useTile ? gSdr[gt.y + 1][gt.x + 1] : Sdr(frame.rgb);
     bool replaced = false;   // a debug view or an overlay: written as it is, not as a change to the frame
     const float2 uv = (float2(id.xy) + 0.5) / float2(size);
     const float hudInside = HudInside(uv);
@@ -148,7 +161,9 @@ void CSCompose(uint3 id : SV_DispatchThreadID) {
         const float3 d = clamp(tDelta.SampleLevel(sLinear, uvInD, 0).rgb * ghost * intensity, -maxDelta, maxDelta) * highlightFade;
         c = saturate(fs + d);
         if (plain) {
-            if (sharpen > 0.001) {   // the delta is smooth, so the neighbours take the centre's delta rather than more flow and delta reads
+            if (useTile) {   // the delta is smooth, so the neighbours take the centre's delta rather than more flow and delta reads; their views come from the tile
+                c = Sharpen(saturate(gSdr[gt.y][gt.x + 1] + d), saturate(gSdr[gt.y + 1][gt.x] + d), c, saturate(gSdr[gt.y + 1][gt.x + 2] + d), saturate(gSdr[gt.y + 2][gt.x + 1] + d), saturate(sharpen));
+            } else if (sharpen > 0.001) {   // (an SDR frame: its view is the frame itself)
                 const int2 p = int2(id.xy), last = int2(size) - 1;
                 c = Sharpen(saturate(Sdr(tFrame[clamp(p + int2(0, -1), 0, last)].rgb) + d), saturate(Sdr(tFrame[clamp(p + int2(-1, 0), 0, last)].rgb) + d), c,
                             saturate(Sdr(tFrame[clamp(p + int2(1, 0), 0, last)].rgb) + d), saturate(Sdr(tFrame[clamp(p + int2(0, 1), 0, last)].rgb) + d), saturate(sharpen));
@@ -190,14 +205,16 @@ void CSCompose(uint3 id : SV_DispatchThreadID) {
             // Only the change goes back, so what was not changed (highlights brighter than the SDR view holds, colours outside Rec.709) stays
             // as it was; and the change fades out over the top of the rolled-off range, where a step in the SDR view is a large one in light.
             // In light, not in the SDR view's values: from 0.8 to 1.35 times the SDR white (what 0.90 to 0.99 were on the curve until 0.9.8).
-            const float3 light = Expand(SrgbToLinear(saturate(fs)));
+            // (the frame's light is read from the frame itself: the view's round trip, Expand(SrgbToLinear(fs)), gives the same and costs a power and an exponential a channel)
+            const float3 light = max(ToLight(frame.rgb, encoding, white), 0.0);
             const float keep = 1.0 - smoothstep(0.8, 1.35, max(light.r, max(light.g, light.b)));
             // And the change never lifts a channel above 1.35 times the SDR white (unless the frame was brighter there already): the
             // logarithmic top of the curve (since 0.9.9) turns a step from 0.7 to 0.95 in the SDR view into about 1900 nits in light,
             // so a colour the model brightened in one channel came back as neon orange or cyan (issue #3; 0.9.8's curve gave about 90).
             const float3 cap = max(light, 1.35);
-            const float3 changed = LightToSdr(min(SdrToLight(lerp(fs, c, keep)), cap));
-            result = frame.rgb + (FromSdr(changed, encoding, white) - FromSdr(fs, encoding, white));
+            // the changed light goes straight into the frame's encoding: the detour through the view and back (LightToSdr, then SdrToLight inside FromSdr) is the identity
+            const float3 changedLight = min(SdrToLight(lerp(fs, c, keep)), cap);
+            result = frame.rgb + (FromLight(changedLight, encoding, white) - FromLight(light, encoding, white));
         }
     }
     uOut[id.xy] = float4(result, frame.a);

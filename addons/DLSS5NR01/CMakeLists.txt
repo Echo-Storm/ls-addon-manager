@@ -135,6 +135,11 @@ target_include_directories(nr_sreval PRIVATE ${CMAKE_SOURCE_DIR}/src ${NGX_DIR}/
 target_link_libraries(nr_sreval PRIVATE ${NGX_LIB} d3d12 dxgi d3dcompiler shell32)
 add_dependencies(nr_sreval FSR3UPSC)   # (AMD's runtime, in the build's fsr folder)
 
+# nr_composebench: the GPU time of Neural Rendering's compose pass, run back to back on a made-up 4K frame (tools/compose_bench.cpp)
+add_executable(nr_composebench tools/compose_bench.cpp src/addon/compose11.cpp)
+target_include_directories(nr_composebench PRIVATE ${CMAKE_SOURCE_DIR}/src)
+target_link_libraries(nr_composebench PRIVATE d3d11 dxgi d3dcompiler)
+
 # ---- Neural Rendering offline: runs the model on a recording and scores the flicker it adds (needs the user's nvngx_dlssnr.dll) ----
 add_executable(nr_nreval tools/nr_eval.cpp src/addon/lsrec.cpp src/engine/nr_engine.cpp src/engine/dlaa_model.cpp src/engine/flow_estimator.cpp)
 target_include_directories(nr_nreval PRIVATE ${CMAKE_SOURCE_DIR}/src ${NGX_DIR}/include)

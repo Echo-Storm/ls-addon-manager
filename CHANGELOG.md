@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+- **Neural Rendering's compose pass is about 10 % cheaper in HDR.** It is one pass per presented frame (two per real frame with frame generation) and cost 0.94 ms of GPU at 4K in HDR with
+  sharpening (0.98 in a live log). The sharpening converted each neighbour's SDR view again for every pixel that reads it, and the way back into the frame's encoding made two round trips
+  through the view that are the identity: now each pixel's view is made once per 8x8 tile and the round trips are replaced by direct light conversions. 0.94 -> 0.83 ms (0.59 -> 0.56 without
+  sharpening); the result is the same up to fp16 rounding (one half-float step at most; a mean difference of 0.00003). SDR is unchanged. Measured with the new `nr_composebench`.
 - **Neural Rendering backs off further when the game's frames stay slow.** From the owner's log: at the lowest model resolution (the floor, 0.25) the model still took 2 to 6 ms and waited 6 to 22 ms for the
   card, and while it ran the game's frame time spiked (p95 17.6 ms with Neural Rendering off, 29 to 31 ms with it on, at the same spot at 60 fps): judder, and what a player described as bumpy pacing. Auto
   quality now also runs the model on every 2nd (then 3rd) real frame when the game's frames are still well over the best they have lately managed even at the floor (the presents keep warping the last
