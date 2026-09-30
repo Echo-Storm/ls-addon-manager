@@ -1,6 +1,9 @@
 # Changelog
 
-## Unreleased
+## 0.9.23 (2026-09-30)
+
+**One more HDR fix, straight after 0.9.22's.** In HDR the Catmull-Rom lean (the picture the upscalers lean on in fast motion and, with Sharpness at rest, at rest) could ring around a small bright
+highlight: its negative lobes overshot it by about 25 % in light, which with the sharpening on top read as sparkle. It is now held within its four nearest texels' range, as EASU always was.
 
 - **HDR: the Catmull-Rom lean can no longer ring around a bright glint.** Its negative lobes overshoot a small bright highlight by about 25 % in light (peak 2.39 against an input peak of 1.90 on the
   test clip); in HDR the result is now held within its four nearest texels' range, as EASU's always was (peak 1.90; with all the passes on, 2.80 -> 2.23). SDR frames are untouched.
