@@ -154,6 +154,7 @@ int main(int argc, char** argv) {
     if ((Arg(argc, argv, "meanweight", -1) >= 0 || Arg(argc, argv, "gradweight", -1) > 0) && Arg(argc, argv, "nowait", 0) == 0) eng.PrepareShapeCost();   // (the shape cost is a shader variant, made on a thread of its own live)
     if (const int rest = Arg(argc, argv, "restmix", -1); rest >= 0) eng.SetLeanRest(rest / 100.0f);   // restmix=N: percent of the plain resample kept even at rest
     if (const int steady = Arg(argc, argv, "steady", -1); steady >= 0) eng.SetSteadySharpen(steady / 100.0f);   // steady=N: percent the sharpening is cut where the picture shimmers
+    if (const int a = Arg(argc, argv, "steadymv", -1); a >= 0) eng.SetSteadyMotion(a / 10.0f, Arg(argc, argv, "steadymv2", 60) / 10.0f);   // steadymv=A steadymv2=B: tenths of an output pixel of motion
     if (Arg(argc, argv, "steadysign", -1) > 0) eng.SetSteadySign(1.0f);                                       // steadysign=1: fetch the history the other way along the motion (default -1)
     if (ArgText(argc, argv, "lean") == "easu") eng.SetLeanMode(1);   // lean=easu: the lean blends toward FSR 1's EASU of the frame (default: Catmull-Rom)
     if (const int st = Arg(argc, argv, "stability", -1); st >= 0) eng.SetStability(st / 100.0f);   // stability=N: percent (the slider)
@@ -260,6 +261,7 @@ int main(int argc, char** argv) {
                                   flickOut / flickN, flickIn / flickN, 100.0 * flickOut / std::max(1e-9, flickIn), detailOut / detailN, detailIn / detailN, 100.0 * detailOut / std::max(1e-9, detailIn),
                                   flickStretch / flickN, detailStretch / detailN);
     if (n) printf("average over %d frames (after the first 8): upscaled %.2f dB (coarse %.2f, steady %.2f), stretched %.2f dB (coarse %.2f, steady %.2f)\n", n, sumUp / n, sumUpC / n, sumUpT / n, sumPlain / n, sumPlainC / n, sumPlainT / n);
+    printf("GPU time per frame at the end: everything %.2f ms, after the upscaler (lean excluded: edges and sharpening) %.2f ms\n", eng.GpuMs(), eng.AfterMs());
     // the frames where the upscaler did worst against a plain stretch (its history hurt most)
     std::vector<const Score*> order; for (const Score& s : scores) if (!s.truth.empty() && s.frame - first >= 8) order.push_back(&s);
     std::sort(order.begin(), order.end(), [](const Score* a, const Score* b) { return a->up - a->plain < b->up - b->plain; });

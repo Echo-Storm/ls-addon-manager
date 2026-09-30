@@ -1,5 +1,11 @@
 # Changelog
 
+## Unreleased
+
+- **Steady sharpening trusts its running average less where the picture moves fast** and is now a single pass (cheaper than the two passes and a copy it was in
+  0.9.21). Upscaling 1.5x it now scores within 0.1 dB of no steady sharpening (0.9.21 lost up to 0.96 dB on a moving clip); at 1:1 it keeps its gain on a nearly still scene
+  (docs/frame-generation-research.md).
+
 ## 0.9.21 (2026-09-30)
 
 Sharper upscalers at rest, with the shimmer kept down.

@@ -101,44 +101,22 @@ void main(uint3 id : SV_DispatchThreadID) {
 )";
 struct SharpenConstants { uint32_t w, h; float amount, gain; uint32_t hdr; };
 
-// The same sharpening, made to follow the picture's stability, in two passes. The first keeps a running average of the picture in the SDR view (the
-// previous average fetched where the motion says the pixel was, clamped to this frame's neighbourhood so a wrong motion cannot ghost); the second
-// sharpens that average and adds only its sharpening to this frame. The game's shimmer averages out of the average, so it is not amplified by the
-// sharpening, while the detail that stays stays. nr_sreval at 1:1 (docs/frame-generation-research.md) measures flicker and detail.
-const char* kSteadyStabHlsl = R"(
+// The same sharpening, made to follow the picture's stability, in one pass. It keeps a running average of the picture in the SDR view (the previous
+// average fetched where the motion says the pixel was, clamped to this frame's neighbourhood so a wrong motion cannot ghost, and trusted less the faster
+// the pixel moves), sharpens that average and adds only its sharpening to this frame. The game's shimmer averages out of the average, so it is not amplified
+// by the sharpening, while the detail stays. One 8x8 group loads a 12x12 tile of the picture once, works the average out for the 10x10 around its pixels
+// and sharpens from that, and writes the average for the next frame (the second of two history textures, taken in turns). nr_sreval at 1:1
+// (docs/frame-generation-research.md) measures flicker and detail; scored against the true picture when upscaling.
+const char* kSteadySharpenHlsl = R"(
 Texture2D<float4> tIn : register(t0);
 Texture2D<float4> tHist : register(t1);
 Texture2D<float2> tMotion : register(t2);
 RWTexture2D<float4> uOut : register(u0);
+RWTexture2D<float4> uHistOut : register(u1);
 SamplerState sLinear : register(s0);
-cbuffer C : register(b0) { uint2 size; uint2 inSize; float amount; float gain; uint hdr; float steady; float mvScale; uint histOk; };
-float3 View(float3 c) { return hdr != 0u ? LightToSdr(c) : c; }
-[numthreads(8, 8, 1)]
-void main(uint3 id : SV_DispatchThreadID) {
-    if (id.x >= size.x || id.y >= size.y) return;
-    const int2 p = int2(id.xy), last = int2(size) - 1;
-    const float3 v = View(tIn[p].rgb);
-    float3 stab = v;
-    if (histOk != 0u) {
-        float3 lo = v, hi = v;
-        [unroll] for (int j = -1; j <= 1; ++j) [unroll] for (int i = -1; i <= 1; ++i) {
-            const float3 n = View(tIn[clamp(p + int2(i, j), 0, last)].rgb);
-            lo = min(lo, n); hi = max(hi, n);
-        }
-        const int2 q = clamp(int2((float2(p) + 0.5) * float2(inSize) / float2(size)), 0, int2(inSize) - 1);
-        const float2 mv = tMotion[q] * mvScale;                                  // in output pixels
-        const float3 h = clamp(tHist.SampleLevel(sLinear, (float2(p) + 0.5 + mv) / float2(size), 0).rgb, lo, hi);
-        stab = lerp(v, h, steady);
-    }
-    uOut[p] = float4(stab, 1.0);
-}
-)";
-const char* kSteadySharpenHlsl = R"(
-Texture2D<float4> tIn : register(t0);
-Texture2D<float4> tStab : register(t1);
-Texture2D<float2> tUnused : register(t2);
-RWTexture2D<float4> uOut : register(u0);
-cbuffer C : register(b0) { uint2 size; uint2 inSize; float amount; float gain; uint hdr; float steady; float mvScale; uint histOk; };
+cbuffer C : register(b0) { uint2 size; uint2 inSize; float amount; float gain; uint hdr; float steady; float mvScale; uint histOk; float mvA; float mvB; };
+groupshared float3 gIn[12][12];
+groupshared float3 gStab[10][10];
 float3 View(float3 c) { return hdr != 0u ? LightToSdr(c) : c; }
 float3 Sharpen(float3 n, float3 w, float3 c, float3 e, float3 s, float a) {
     const float3 lo = min(min(min(w, c), min(e, n)), s);
@@ -148,19 +126,42 @@ float3 Sharpen(float3 n, float3 w, float3 c, float3 e, float3 s, float a) {
     return saturate((n * k + w * k + e * k + s * k + c) / (1.0 + 4.0 * k));
 }
 [numthreads(8, 8, 1)]
-void main(uint3 id : SV_DispatchThreadID) {
+void main(uint3 id : SV_DispatchThreadID, uint3 gid : SV_GroupID, uint3 gt : SV_GroupThreadID, uint gi : SV_GroupIndex) {
+    const int2 last = int2(size) - 1, origin = int2(gid.xy) * 8 - 2;
+    for (uint i = gi; i < 144u; i += 64u) {
+        const int2 t = int2(i % 12u, i / 12u);
+        gIn[t.y][t.x] = View(tIn[clamp(origin + t, 0, last)].rgb);
+    }
+    GroupMemoryBarrierWithGroupSync();
+    for (uint j = gi; j < 100u; j += 64u) {
+        const int2 s = int2(j % 10u, j / 10u), pix = origin + 1 + s;
+        const float3 v = gIn[s.y + 1][s.x + 1];
+        float3 stab = v;
+        if (histOk != 0u) {
+            float3 lo = v, hi = v;
+            [unroll] for (int dy = 0; dy < 3; ++dy) [unroll] for (int dx = 0; dx < 3; ++dx) { const float3 n = gIn[s.y + dy][s.x + dx]; lo = min(lo, n); hi = max(hi, n); }
+            const int2 q = clamp(int2((float2(clamp(pix, 0, last)) + 0.5) * float2(inSize) / float2(size)), 0, int2(inSize) - 1);
+            const float2 mv = tMotion[q] * mvScale;                                  // in output pixels
+            const float3 h = clamp(tHist.SampleLevel(sLinear, (float2(pix) + 0.5 + mv) / float2(size), 0).rgb, lo, hi);
+            // the faster the pixel moves, the less the average is trusted (a small error in the motion moves detail the sharpening then adds in the wrong place)
+            const float trust = 1.0 - saturate((length(mv) - mvA) / max(mvB - mvA, 1e-3));
+            stab = lerp(v, h, steady * trust);
+        }
+        gStab[s.y][s.x] = stab;
+        if (s.x >= 1 && s.x <= 8 && s.y >= 1 && s.y <= 8 && all(pix >= 0) && all(pix <= last)) uHistOut[pix] = float4(stab, 1.0);
+    }
+    GroupMemoryBarrierWithGroupSync();
     if (id.x >= size.x || id.y >= size.y) return;
-    const int2 p = int2(id.xy), last = int2(size) - 1;
+    const int2 p = int2(id.xy);
     const float4 c = tIn[p];
-    const float3 v = View(c.rgb);
-    const float3 m = tStab[p].rgb;
-    const float3 s = Sharpen(tStab[clamp(p + int2(0, -1), 0, last)].rgb, tStab[clamp(p + int2(-1, 0), 0, last)].rgb, m,
-                             tStab[clamp(p + int2(1, 0), 0, last)].rgb, tStab[clamp(p + int2(0, 1), 0, last)].rgb, saturate(amount));
+    const float3 v = gIn[gt.y + 2][gt.x + 2];
+    const float3 m = gStab[gt.y + 1][gt.x + 1];
+    const float3 s = Sharpen(gStab[gt.y][gt.x + 1], gStab[gt.y + 1][gt.x], m, gStab[gt.y + 1][gt.x + 2], gStab[gt.y + 2][gt.x + 1], saturate(amount));
     const float3 r = saturate(v + (s - m) * gain);   // this frame, plus the average's sharpening
     uOut[p] = float4(hdr != 0u ? c.rgb + (SdrToLight(r) - SdrToLight(v)) : r, c.a);
 }
 )";
-struct SteadyConstants { uint32_t w, h, inW, inH; float amount, gain; uint32_t hdr; float steady, mvScale; uint32_t histOk; };
+struct SteadyConstants { uint32_t w, h, inW, inH; float amount, gain; uint32_t hdr; float steady, mvScale; uint32_t histOk; float mvA, mvB; };
 
 // The lean, after every upscaler: without the sub-pixel jitter a game gives it, an upscaler's history trails in a fast turn, and DLSS's
 // transformer models (presets J, K, M: DLSS 4) take no mask to lean on the current frame (its bias-current-colour mask changes nothing). So
@@ -604,7 +605,7 @@ bool SrEngine::Shutdown() {
     m_estimator.Shutdown(); m_estimatedLast = false; m_estimates = 0;
     SafeRelease(m_motion); SafeRelease(m_distrust); SafeRelease(m_depth); SafeRelease(m_depthUpload);
     SafeRelease(m_leanPso); SafeRelease(m_leanRoot); SafeRelease(m_leaned); m_leanedW = m_leanedH = 0;
-    SafeRelease(m_steadyPso); SafeRelease(m_steadyStabPso); SafeRelease(m_sharpTmp); SafeRelease(m_sharpHist); m_sharpHistW = m_sharpHistH = 0; m_sharpHistValid = false;
+    SafeRelease(m_steadyPso); SafeRelease(m_steadyRoot); for (auto*& t : m_sharpHist) SafeRelease(t); m_sharpHistW = m_sharpHistH = 0; m_sharpHistValid = false;
     SafeRelease(m_motionPso); SafeRelease(m_sharpenPso); SafeRelease(m_edgesPso); SafeRelease(m_viewPso); SafeRelease(m_view); m_viewW = m_viewH = 0; SafeRelease(m_smoothed); m_smoothedW = m_smoothedH = 0; SafeRelease(m_unsharpened); m_unsharpenedW = m_unsharpenedH = 0; SafeRelease(m_rootSig); SafeRelease(m_heap);
     SafeRelease(m_timestamps); SafeRelease(m_timestampReadback);
     SafeRelease(m_list); for (auto*& a : m_alloc) SafeRelease(a);
@@ -811,16 +812,27 @@ bool SrEngine::InitLean() {   // its own root signature: three pictures in, one 
     D3D12_COMPUTE_PIPELINE_STATE_DESC pso{}; pso.pRootSignature = m_leanRoot; pso.CS = { code->GetBufferPointer(), code->GetBufferSize() };
     const HRESULT hr = m_dev->CreateComputePipelineState(&pso, IID_PPV_ARGS(&m_leanPso)); SafeRelease(code);
     if (FAILED(hr)) return false;
-    // steady sharpening (an option: without it the sharpening pass is the plain one): the stabiliser and the sharpening that follows it
-    for (int which = 0; which < 2; ++which) {
-        const std::string text = std::string(NR_HDR_HLSL) + (which == 0 ? kSteadyStabHlsl : kSteadySharpenHlsl);
-        if (SUCCEEDED(D3DCompile(text.c_str(), text.size(), which == 0 ? "sr_steady_stab" : "sr_steady_sharpen", nullptr, nullptr, "main", "cs_5_0", D3DCOMPILE_OPTIMIZATION_LEVEL3, 0, &code, &err))) {
-            pso.CS = { code->GetBufferPointer(), code->GetBufferSize() };
-            ID3D12PipelineState** target = which == 0 ? &m_steadyStabPso : &m_steadyPso;
-            if (FAILED(m_dev->CreateComputePipelineState(&pso, IID_PPV_ARGS(target)))) *target = nullptr;
+    // steady sharpening (an option: without it the sharpening pass is the plain one): its own root signature, three pictures in and two out
+    {
+        D3D12_DESCRIPTOR_RANGE srv3{}; srv3.RangeType = D3D12_DESCRIPTOR_RANGE_TYPE_SRV; srv3.NumDescriptors = 3;
+        D3D12_DESCRIPTOR_RANGE uav2{}; uav2.RangeType = D3D12_DESCRIPTOR_RANGE_TYPE_UAV; uav2.NumDescriptors = 2;
+        D3D12_ROOT_PARAMETER sp[3]{};
+        sp[0].ParameterType = D3D12_ROOT_PARAMETER_TYPE_DESCRIPTOR_TABLE; sp[0].DescriptorTable = { 1, &srv3 };
+        sp[1].ParameterType = D3D12_ROOT_PARAMETER_TYPE_DESCRIPTOR_TABLE; sp[1].DescriptorTable = { 1, &uav2 };
+        sp[2].ParameterType = D3D12_ROOT_PARAMETER_TYPE_32BIT_CONSTANTS; sp[2].Constants.Num32BitValues = sizeof(SteadyConstants) / 4;
+        for (auto& q : sp) q.ShaderVisibility = D3D12_SHADER_VISIBILITY_ALL;
+        const D3D12_ROOT_SIGNATURE_DESC sd{ 3, sp, 1, &sampler, D3D12_ROOT_SIGNATURE_FLAG_NONE };
+        ID3DBlob* sb = nullptr; ID3DBlob* se = nullptr;
+        const bool ok = SUCCEEDED(D3D12SerializeRootSignature(&sd, D3D_ROOT_SIGNATURE_VERSION_1, &sb, &se)) &&
+                        SUCCEEDED(m_dev->CreateRootSignature(0, sb->GetBufferPointer(), sb->GetBufferSize(), IID_PPV_ARGS(&m_steadyRoot)));
+        SafeRelease(sb); SafeRelease(se);
+        const std::string text = std::string(NR_HDR_HLSL) + kSteadySharpenHlsl;
+        if (ok && SUCCEEDED(D3DCompile(text.c_str(), text.size(), "sr_steady_sharpen", nullptr, nullptr, "main", "cs_5_0", D3DCOMPILE_OPTIMIZATION_LEVEL3, 0, &code, &err))) {
+            D3D12_COMPUTE_PIPELINE_STATE_DESC sdesc{}; sdesc.pRootSignature = m_steadyRoot; sdesc.CS = { code->GetBufferPointer(), code->GetBufferSize() };
+            if (FAILED(m_dev->CreateComputePipelineState(&sdesc, IID_PPV_ARGS(&m_steadyPso)))) m_steadyPso = nullptr;
             SafeRelease(code);
-        } else {
-            Log("sr_steady: %s", err ? static_cast<const char*>(err->GetBufferPointer()) : "?"); SafeRelease(err);
+        } else if (ok) {
+            Log("sr_steady_sharpen: %s", err ? static_cast<const char*>(err->GetBufferPointer()) : "?"); SafeRelease(err);
         }
     }
     return true;
@@ -828,15 +840,15 @@ bool SrEngine::InitLean() {   // its own root signature: three pictures in, one 
 
 // The previous frame's sharpening input (output size and format), at rest readable.
 bool SrEngine::EnsureSharpHist(uint32_t w, uint32_t h, DXGI_FORMAT fmt) {
-    if (m_sharpHist && m_sharpHistW == w && m_sharpHistH == h && m_sharpHistFmt == fmt) return true;
-    if (m_sharpHist) { WaitIdle(); SafeRelease(m_sharpHist); SafeRelease(m_sharpTmp); }
-    m_sharpHistValid = false;
+    if (m_sharpHist[0] && m_sharpHistW == w && m_sharpHistH == h && m_sharpHistFmt == fmt) return true;
+    if (m_sharpHist[0]) { WaitIdle(); for (auto*& t : m_sharpHist) SafeRelease(t); }
+    m_sharpHistValid = false; m_sharpHistCur = 0;
     D3D12_HEAP_PROPERTIES heap{}; heap.Type = D3D12_HEAP_TYPE_DEFAULT;
     D3D12_RESOURCE_DESC d{}; d.Dimension = D3D12_RESOURCE_DIMENSION_TEXTURE2D; d.Width = w; d.Height = h; d.DepthOrArraySize = 1; d.MipLevels = 1; d.SampleDesc.Count = 1;
-    d.Format = fmt;
-    if (FAILED(m_dev->CreateCommittedResource(&heap, D3D12_HEAP_FLAG_NONE, &d, D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE, nullptr, IID_PPV_ARGS(&m_sharpHist)))) return false;
-    d.Flags = D3D12_RESOURCE_FLAG_ALLOW_UNORDERED_ACCESS;   // the running average, written by the first pass and read by the second
-    if (FAILED(m_dev->CreateCommittedResource(&heap, D3D12_HEAP_FLAG_NONE, &d, D3D12_RESOURCE_STATE_UNORDERED_ACCESS, nullptr, IID_PPV_ARGS(&m_sharpTmp)))) { SafeRelease(m_sharpHist); return false; }
+    d.Format = fmt; d.Flags = D3D12_RESOURCE_FLAG_ALLOW_UNORDERED_ACCESS;
+    // taken in turns: the one just written rests readable, the other rests writable
+    if (FAILED(m_dev->CreateCommittedResource(&heap, D3D12_HEAP_FLAG_NONE, &d, D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE, nullptr, IID_PPV_ARGS(&m_sharpHist[0])))) return false;
+    if (FAILED(m_dev->CreateCommittedResource(&heap, D3D12_HEAP_FLAG_NONE, &d, D3D12_RESOURCE_STATE_UNORDERED_ACCESS, nullptr, IID_PPV_ARGS(&m_sharpHist[1])))) { SafeRelease(m_sharpHist[0]); return false; }
     m_sharpHistW = w; m_sharpHistH = h; m_sharpHistFmt = fmt;
     return true;
 }
@@ -1096,7 +1108,7 @@ bool SrEngine::Run(ID3D12Resource* in, uint32_t inW, uint32_t inH, DXGI_FORMAT i
     ID3D12Resource* const post = leaning ? m_leaned : m_unsharpened;                               // what edges and sharpening read
     // sharpening that follows the stability: needs the measured motion and the previous frame's picture; a frame without either starts the history again
     const float steadyShare = m_steadySharp.load();
-    const bool steadySharp = sharpening && estimating && steadyShare > 0.001f && m_steadyPso && m_steadyStabPso && m_leanRoot && EnsureSharpHist(outW, outH, outFormat);
+    const bool steadySharp = sharpening && estimating && steadyShare > 0.001f && m_steadyPso && m_steadyRoot && EnsureSharpHist(outW, outH, outFormat);
     const bool histOk = steadySharp && m_sharpHistValid && !reset;
     if (!steadySharp) m_sharpHistValid = false;
     const int slot = TakeSlot();
@@ -1131,21 +1143,16 @@ bool SrEngine::Run(ID3D12Resource* in, uint32_t inW, uint32_t inH, DXGI_FORMAT i
         D3D12_UNORDERED_ACCESS_VIEW_DESC uo{}; uo.Format = outFormat; uo.ViewDimension = D3D12_UAV_DIMENSION_TEXTURE2D;
         m_dev->CreateUnorderedAccessView(out, nullptr, &uo, cpuOut);
     }
-    if (steadySharp) {   // the stabiliser: the picture, the previous average, the motion in, the new average out; the sharpening: the picture, the average in, the output out
+    if (steadySharp) {   // the steady sharpening: the picture, the previous average, the motion in; the output and the new average out
         D3D12_SHADER_RESOURCE_VIEW_DESC si{}; si.ViewDimension = D3D12_SRV_DIMENSION_TEXTURE2D; si.Shader4ComponentMapping = D3D12_DEFAULT_SHADER_4_COMPONENT_MAPPING; si.Texture2D.MipLevels = 1;
         D3D12_UNORDERED_ACCESS_VIEW_DESC uo{}; uo.Format = outFormat; uo.ViewDimension = D3D12_UAV_DIMENSION_TEXTURE2D;
         si.Format = outFormat;
-        ID3D12Resource* const src = smoothing ? m_smoothed : post;
         D3D12_CPU_DESCRIPTOR_HANDLE h = cpu; h.ptr += 12 * m_descriptorSize;
-        m_dev->CreateShaderResourceView(src, &si, h); h.ptr += m_descriptorSize;
-        m_dev->CreateShaderResourceView(m_sharpHist, &si, h); h.ptr += m_descriptorSize;
+        m_dev->CreateShaderResourceView(smoothing ? m_smoothed : post, &si, h); h.ptr += m_descriptorSize;
+        m_dev->CreateShaderResourceView(m_sharpHist[m_sharpHistCur], &si, h); h.ptr += m_descriptorSize;
         si.Format = DXGI_FORMAT_R16G16_FLOAT; m_dev->CreateShaderResourceView(m_motion, &si, h); h.ptr += m_descriptorSize;
-        m_dev->CreateUnorderedAccessView(m_sharpTmp, nullptr, &uo, h); h.ptr += m_descriptorSize;
-        si.Format = outFormat;
-        m_dev->CreateShaderResourceView(src, &si, h); h.ptr += m_descriptorSize;
-        m_dev->CreateShaderResourceView(m_sharpTmp, &si, h); h.ptr += m_descriptorSize;
-        si.Format = DXGI_FORMAT_R16G16_FLOAT; m_dev->CreateShaderResourceView(m_motion, &si, h); h.ptr += m_descriptorSize;
-        m_dev->CreateUnorderedAccessView(out, nullptr, &uo, h);
+        m_dev->CreateUnorderedAccessView(out, nullptr, &uo, h); h.ptr += m_descriptorSize;
+        m_dev->CreateUnorderedAccessView(m_sharpHist[1 - m_sharpHistCur], nullptr, &uo, h);
     }
     if (leaning) {   // the lean pass: DLSS's picture, the frame, the distrust mask in; the output (or m_leaned) out
         D3D12_SHADER_RESOURCE_VIEW_DESC si{}; si.ViewDimension = D3D12_SRV_DIMENSION_TEXTURE2D; si.Shader4ComponentMapping = D3D12_DEFAULT_SHADER_4_COMPONENT_MAPPING; si.Texture2D.MipLevels = 1;
@@ -1315,28 +1322,19 @@ bool SrEngine::Run(ID3D12Resource* in, uint32_t inW, uint32_t inH, DXGI_FORMAT i
                                      : SharpenConstants{ outW, outH, std::min(sharpen, 1.0f), std::max(sharpen, 1.0f), hdr ? 1u : 0u };
         if (steadySharp) {
             // the motion is in the game's pixels, toward where the pixel was (or the other way: m_steadySign); the picture is outW wide
-            const SteadyConstants st{ outW, outH, inW, inH, sc.amount, sc.gain, sc.hdr, steadyShare, m_steadySign.load() * static_cast<float>(outW) / static_cast<float>(inW), histOk ? 1u : 0u };
-            m_list->SetComputeRootSignature(m_leanRoot);
+            const SteadyConstants st{ outW, outH, inW, inH, sc.amount, sc.gain, sc.hdr, steadyShare, m_steadySign.load() * static_cast<float>(outW) / static_cast<float>(inW), histOk ? 1u : 0u, m_steadyMvA.load(), m_steadyMvB.load() };
+            m_list->SetComputeRootSignature(m_steadyRoot);
+            m_list->SetPipelineState(m_steadyPso);
             D3D12_GPU_DESCRIPTOR_HANDLE g = gpu; g.ptr += 12 * m_descriptorSize;
             D3D12_GPU_DESCRIPTOR_HANDLE gUav = gpu; gUav.ptr += 15 * m_descriptorSize;
-            m_list->SetPipelineState(m_steadyStabPso);   // the running average of the picture
             m_list->SetComputeRootDescriptorTable(0, g);
             m_list->SetComputeRootDescriptorTable(1, gUav);
             m_list->SetComputeRoot32BitConstants(2, sizeof st / 4, &st, 0);
             m_list->Dispatch((outW + 7) / 8, (outH + 7) / 8, 1);
-            Transition(m_sharpTmp, D3D12_RESOURCE_STATE_UNORDERED_ACCESS, D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE);
-            g.ptr += 4 * m_descriptorSize; gUav.ptr += 4 * m_descriptorSize;
-            m_list->SetPipelineState(m_steadyPso);       // this frame plus the average's sharpening
-            m_list->SetComputeRootDescriptorTable(0, g);
-            m_list->SetComputeRootDescriptorTable(1, gUav);
-            m_list->SetComputeRoot32BitConstants(2, sizeof st / 4, &st, 0);
-            m_list->Dispatch((outW + 7) / 8, (outH + 7) / 8, 1);
-            // the average becomes the history
-            Transition(m_sharpHist, D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE, D3D12_RESOURCE_STATE_COPY_DEST);
-            Transition(m_sharpTmp, D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE, D3D12_RESOURCE_STATE_COPY_SOURCE);
-            m_list->CopyResource(m_sharpHist, m_sharpTmp);
-            Transition(m_sharpHist, D3D12_RESOURCE_STATE_COPY_DEST, D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE);
-            Transition(m_sharpTmp, D3D12_RESOURCE_STATE_COPY_SOURCE, D3D12_RESOURCE_STATE_UNORDERED_ACCESS);
+            // the average just written becomes the one read next frame; the one read is written next
+            Transition(m_sharpHist[m_sharpHistCur], D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE, D3D12_RESOURCE_STATE_UNORDERED_ACCESS);
+            Transition(m_sharpHist[1 - m_sharpHistCur], D3D12_RESOURCE_STATE_UNORDERED_ACCESS, D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE);
+            m_sharpHistCur = 1 - m_sharpHistCur;
             Transition(source, D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE, D3D12_RESOURCE_STATE_UNORDERED_ACCESS);
             m_sharpHistValid = true;
         } else {

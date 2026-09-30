@@ -385,3 +385,23 @@ Most Lossless Scaling use is upscaling (about 1.5x), where the recordings give t
 - `tools/sr_option_check.sh 150 10 24 <clips>` (sharpen 0.5, rest 0.5): **EASU** for the lean ("Crisp edges") is worse on the scores, -0.15 dB on the WoW clips and
   -1.75 dB (and 2 dB less steady) on Silent Hill f; it looks crisper, so it stays an opt-in test. **Motion by shape** changes nothing (under 0.03 dB either way):
   off, and not worth its 0.5 s of shader compile.
+
+## Steady sharpening trusts its average less in motion, and is one pass (2026-09-30)
+
+At 1.5x the running average lost up to 0.96 dB against the true picture on the moving Silent Hill f clip (the section above). The average's weight now falls with the
+pixel's motion: full below 0.5 output pixels a frame, gone at 3 (`steadymv=A steadymv2=B`, tenths of a pixel, in `nr_sreval`). Upscaling 1.5x, sharpen 0.5, rest 0.5,
+steady 0.6 (upscaled dB / steady dB), off against on:
+
+| clip | steady 0 | steady 0.6, no band | steady 0.6, band 0.5 to 3 px |
+|---|---|---|---|
+| 23-54-01 | 35.34 / 41.83 | 35.31 / 41.54 | 35.35 / 41.78 |
+| 23-54-20 | 34.44 / 37.83 | 34.26 / 37.19 | 34.37 / 37.59 |
+| shf 17-54-39 | 43.07 / 40.50 | 42.11 / 39.38 | 43.01 / 40.43 |
+
+So with the band the option is within 0.1 dB of off when upscaling. At 1:1 (sharpen 0.7, steady 0.8, flicker / detail against the game's own frames) the band keeps the gain on
+a nearly still scene (23-54-01: plain 120 % / 150 %, no band 102 % / 125 %, band 112 % / 145 %: about 10 points less flicker at equal detail) and gives up the 1 to 2 points
+in motion (23-54-20: plain 117 % / 156 %, band 114 % / 151 %; 23-54-47: 125 % / 159 % against 122 % / 153 %), which is the honest size of the gain there.
+
+It is also one pass now: one 8x8 group loads a 12x12 tile once, works the average out for the 10x10 around its pixels, sharpens from that and writes the average for the next
+frame into the second of two history textures (no temporary picture, no copy). The offline tool's GPU times are noisy (the GPU idles between frames), but the pass after the
+upscaler went from about +3 ms (two passes and a copy) to about +1.8 ms over plain sharpening at 4K 1:1; live times are in the log ("after the upscaler").
