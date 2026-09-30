@@ -110,6 +110,7 @@ public:
     void SetFastMotionShare(float share) { m_fastShare.store(share); }   // where SetFastMotion is automatic (-1): from this share of the width (0: the default)
     void SetMotionScale(float s) { m_motionScale = s; }
     void SetNoMask(bool none) { m_noMask = none; }
+    ID3D12Device* Device() const { return m_dev; }   // (the offline tools: the debug layer's messages)
     double AfterMs() const { return m_afterMs; }   // the passes after the upscaler (edges, sharpening), on the GPU, smoothed
     double GpuMs() const { return m_gpuMs; }   // everything a run does, on the GPU, smoothed
     double MotionMs() const { return m_motionMs; }   // of that, the motion (the estimate, or the flow pass)

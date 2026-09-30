@@ -71,6 +71,17 @@ void ResizeBilinear(const std::vector<uint8_t>& src, uint32_t sw, uint32_t sh, s
 } // namespace
 
 int main(int argc, char** argv) {
+    // debug=1: the D3D12 debug layer (debug=2: with GPU-based validation, slow) and every message it has for the engine's device printed; needs the Graphics Tools feature of Windows
+    const int debugLayer = Arg(argc, argv, "debug", 0);
+    if (debugLayer) {
+        ID3D12Debug* dbg = nullptr;
+        if (SUCCEEDED(D3D12GetDebugInterface(IID_PPV_ARGS(&dbg)))) {
+            dbg->EnableDebugLayer();
+            ID3D12Debug1* dbg1 = nullptr;
+            if (debugLayer > 1 && SUCCEEDED(dbg->QueryInterface(IID_PPV_ARGS(&dbg1)))) { dbg1->SetEnableGPUBasedValidation(TRUE); dbg1->Release(); }
+            dbg->Release();
+        } else printf("the D3D12 debug layer is not installed\n");
+    }
     setvbuf(stdout, nullptr, _IONBF, 0);
     if (argc < 3) { printf("usage: nr_sreval <recording.lsrec> <output folder> [first=N] [count=N] [shrink=150] [backend=fsr|dlss|xess] [show=N] [straycap=N] [fast=N] [mask=0] [mvscale=N] [motion=none] [meanweight=100] [gradweight=0] [sample=point] [sharpen=N] [stability=N] [fastp=N]\n"); return 2; }
     nr::lsrec::Reader rec; std::string error;
@@ -148,6 +159,16 @@ int main(int argc, char** argv) {
         printf("Neural Rendering's NGX init first: %s\n", NVSDK_NGX_FAILED(nr) ? "failed" : "ok");
     }
     if (!eng.Init(ad.AdapterLuid, exeDir, runtimeDir, [](const char* m) { printf("  %s\n", m); }, backend)) { printf("the upscaler could not start: %s\n", eng.LastError().c_str()); return 4; }
+    static int s_debugMessages = 0;
+    if (debugLayer && eng.Device()) {
+        ID3D12InfoQueue1* iq = nullptr; DWORD cookie = 0;
+        if (SUCCEEDED(eng.Device()->QueryInterface(IID_PPV_ARGS(&iq)))) {
+            iq->RegisterMessageCallback([](D3D12_MESSAGE_CATEGORY, D3D12_MESSAGE_SEVERITY sev, D3D12_MESSAGE_ID id, LPCSTR text, void*) {
+                if (sev <= D3D12_MESSAGE_SEVERITY_WARNING) { ++s_debugMessages; printf("  D3D12 %s (%d): %s\n", sev == D3D12_MESSAGE_SEVERITY_ERROR ? "ERROR" : sev == D3D12_MESSAGE_SEVERITY_CORRUPTION ? "CORRUPTION" : "warning", static_cast<int>(id), text); }
+            }, D3D12_MESSAGE_CALLBACK_FLAG_NONE, nullptr, &cookie);
+            printf("the D3D12 debug layer is on for the engine's device\n");
+        }
+    }
     if (const int cap = Arg(argc, argv, "straycap", -1); cap >= 0) eng.SetStrayCap(cap == 0 ? 1e9f : static_cast<float>(cap));
     if (const int mw = Arg(argc, argv, "meanweight", -1); mw >= 0) eng.SetMeanWeight(mw / 100.0f);   // meanweight=N: percent (100: the plain difference)
     if (const int gw = Arg(argc, argv, "gradweight", -1); gw >= 0) eng.SetGradWeight(gw / 100.0f);   // gradweight=N: percent the edges count (0: the plain difference)
@@ -277,6 +298,7 @@ int main(int argc, char** argv) {
         Sleep(50);
         printf("bench %d runs back to back: ", bench);
     }
+    if (debugLayer) printf("D3D12 debug layer: %d messages (errors, corruption, warnings)\n", s_debugMessages);
     printf("GPU time per frame at the end: everything %.2f ms, the motion estimate %.2f ms, after the upscaler (lean, edges, sharpening) %.2f ms\n", eng.GpuMs(), eng.MotionMs(), eng.AfterMs());
     // the frames where the upscaler did worst against a plain stretch (its history hurt most)
     std::vector<const Score*> order; for (const Score& s : scores) if (!s.truth.empty() && s.frame - first >= 8) order.push_back(&s);

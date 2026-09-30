@@ -764,6 +764,7 @@ void SrEngine::ReadTime(int slot) {
 
 bool SrEngine::EnsureInputs(uint32_t w, uint32_t h) {
     if (m_motion && m_inW == w && m_inH == h) return true;
+    m_haveMotion = false;   // the vectors and the mask are new (zero): no estimate to keep
     SafeRelease(m_motion); SafeRelease(m_distrust); SafeRelease(m_depth); SafeRelease(m_depthUpload);
     D3D12_HEAP_PROPERTIES heap{}; heap.Type = D3D12_HEAP_TYPE_DEFAULT;
     D3D12_RESOURCE_DESC d{}; d.Dimension = D3D12_RESOURCE_DIMENSION_TEXTURE2D; d.Width = w; d.Height = h; d.DepthOrArraySize = 1; d.MipLevels = 1; d.SampleDesc.Count = 1;

@@ -30,6 +30,13 @@ item is done (move it to the changelog) or when a new one comes up. Dates are wh
 ## Neural Rendering
 
 - **Flickers "like crazy" while moving: the weakest link now** (owner, 2026-09-28). First try: smoothing keeps its history where the frame matches along the motion, on by default at 0.6 (saved settings keep 0). Not confirmed as the cause. If it does not help: record with NR on, build `nr_nreval` (the change's stability frame to frame), check the compose's one-frame-old result moved by its motion (a.offset) and the half-size model input.
+- **From the Magpie-fork study (docs/magpie-fork-study.md, GPL: ideas only, no code):** measured baseline with `nr_nreval` (WoW clip 23-54-01, frames 20-59, scale 50): the model's change where the
+  game is still 0.89 levels with smoothing 0, 0.64 with the default 0.4. To bring down, in this order: (1) smoothing by real time (`exp(-dt/0.08)`, history dropped after a 250 ms gap), not a fixed
+  weight per run, so it is the same at any frame rate; (2) persistence with hysteresis (amplitude and presence kept apart, appear ~60 ms, leave ~180 ms); (3) fast and slow histories; (4) a low-frequency
+  temporal filter. Each measured on the WoW and Silent Hill f clips before it goes in.
+- **Small engine CPU wins from the same study:** GPU timestamp queries and their readback every frame (engine and estimator) sampled one frame in N or only while the panel is open; readback buffers mapped
+  once; wait events created once. Measure with `nr_sreval bench=N`.
+- NVOF (NVIDIA's hardware optical flow) looked at: 1.0-1.9 ms a 1080p frame on an RTX 4090 at a 4x4 grid against our 0.2-0.4 ms shader estimate: no action (numbers in the study).
 - Owner, 2026-09-30: Neural Rendering in general is too flickery for general use (their opinion); to circle back to after the upscaler work. Steady sharpening's running-average idea (docs/frame-generation-research.md) may carry over to the NR compose.
 - Live with smoothing 0.6 (2026-09-28): "doing quite well", a weird flicker left on landscapes. The NR recorder was off (its own "Keep the last few seconds" box, off by default), so nothing was saved: next time a screen video plus an NR recording.
 - **Tool ready: `nr_nreval`** (docs/frame-generation-research.md, last section). To use it we need a recording made **with Neural Rendering on and its own recorder on**, in daylight with foliage and terrain (the WoW clips so far were made with the DLSS Upscaler at night: the flicker is not in them). Look at the worst 5 % of blocks and the heat map.
