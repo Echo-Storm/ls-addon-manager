@@ -67,6 +67,19 @@ void DrawPanel() {
     }
     else { ImGui::PushStyleColor(ImGuiCol_Text, g_runs ? eam::ui::theme::V(eam::ui::theme::kAccent) : eam::ui::theme::V(eam::ui::theme::kWarn)); ImGui::Text("%s", status.c_str()); ImGui::PopStyleColor(); }
     if (g_engine.IsFailed()) { ImGui::TextColored(eam::ui::theme::V(eam::ui::theme::kDanger), "engine: %s", g_engine.Stats().lastError); ImGui::SameLine(); if (ImGui::SmallButton("Retry engine")) RestartEngine(); Tip("Try to start the DLSS model again on the current graphics card."); }
+    if (!g_off) {   // ---- what stands out in the last few seconds (diagnosis.h), in plain words
+        std::vector<nr::diag::Finding> findings; { std::lock_guard<std::mutex> lk(g_textMutex); findings = g_findings; }
+        if (!findings.empty()) {
+            ImGui::Dummy(ImVec2(0, ImGui::GetFontSize() * 0.25f));
+            ImGui::TextDisabled("What stands out");
+            Tip("Worked out from the last few seconds of this session: how even the game's frames are, what the model waited for, what auto quality did. It updates about every five seconds.");
+            for (const auto& f : findings) {
+                const ImVec4 col = f.level == nr::diag::Level::Problem ? eam::ui::theme::V(eam::ui::theme::kDanger) : (f.level == nr::diag::Level::Note ? eam::ui::theme::V(eam::ui::theme::kWarn) : ImGui::GetStyleColorVec4(ImGuiCol_TextDisabled));
+                ImGui::PushStyleColor(ImGuiCol_Text, col); ImGui::TextWrapped("%s", f.what.c_str()); ImGui::PopStyleColor();
+                ImGui::Indent(ImGui::GetFontSize() * 1.0f); ImGui::PushStyleColor(ImGuiCol_Text, ImGui::GetStyleColorVec4(ImGuiCol_TextDisabled)); ImGui::TextWrapped("%s", f.tryThis.c_str()); ImGui::PopStyleColor(); ImGui::Unindent(ImGui::GetFontSize() * 1.0f);
+            }
+        }
+    }
     if (!kScalerAddon) {   // ---- Requirements: what this needs, what was found, and what to do about anything missing
         const bool have = RequirementsScanned();
         const req::Report rep = Requirements({ g_engine.IsFailed(), g_engine.IsReady(), g_runs > 0, g_engine.Stats().lastError });

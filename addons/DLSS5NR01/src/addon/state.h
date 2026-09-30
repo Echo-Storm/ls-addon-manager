@@ -9,6 +9,7 @@
 #include "addon/bridge.h"
 #include "addon/auto_quality.h"
 #include "addon/compose11.h"
+#include "addon/diagnosis.h"
 #include "addon/frame_tap.h"
 #include "addon/requirements.h"
 #include "addon/product.h"
@@ -62,6 +63,7 @@ extern std::mutex g_autoMutex;
 extern AutoQuality g_auto;
 
 extern std::mutex g_textMutex;
+extern std::vector<nr::diag::Finding> g_findings;   // what the panel's "What is wrong" card shows (diagnosis.h), refreshed with the frame-time window
 extern std::string g_encodingText;   // what the frames hold (hdr.h), for the panel
 extern std::string g_status, g_offReason, g_frameText, g_cardName, g_tappedDeviceText, g_focusExe;
 extern std::string g_scalerGame;   // the upscalers: the game whose settings are in use (under g_settingsMutex; empty until one had focus)

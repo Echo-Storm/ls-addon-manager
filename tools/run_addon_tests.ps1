@@ -53,10 +53,11 @@ $suites = [ordered]@{
                    Build = @('installer', 'setup_core', 'setup_cli', 'pack_payload', 'LSAddonManagerSetup');
                    Script = "$root\installer\tests\setup_exe_test.ps1" }
     nr        = @{ When = '^addons/DLSS5NR01/(src|tools|CMakeLists)|^manager/sdk/|^tools/run_hosttest_matrix';
-                   Build = @('nr', 'nr_reqtest', 'nr_taptest', 'nr_settingstest', 'nr_autotest', 'nr_tracetest', 'nr_rectest', 'nr_lsrec', 'nr_sreval', 'DLSS5NR01', 'DLSS4DLAA', 'FSR3UPSC', 'nr_hosttest', 'nr_selftest');
+                   Build = @('nr', 'nr_reqtest', 'nr_taptest', 'nr_settingstest', 'nr_autotest', 'nr_tracetest', 'nr_diagtest', 'nr_rectest', 'nr_lsrec', 'nr_sreval', 'DLSS5NR01', 'DLSS4DLAA', 'FSR3UPSC', 'nr_hosttest', 'nr_selftest');
                    Runs = @(@('Neural Rendering requirements check', "$nrBuild\Release\nr_reqtest.exe", @()),
                             @('Neural Rendering settings and looks', "$nrBuild\Release\nr_settingstest.exe", @()),
                             @('Neural Rendering auto quality', "$nrBuild\Release\nr_autotest.exe", @()),
+                            @('Neural Rendering "what is wrong" rules', "$nrBuild\Release\nr_diagtest.exe", @()),
                             @('Neural Rendering frame trace (ring and export)', "$nrBuild\Release\nr_tracetest.exe", @()),
                             @('The recorder (codec and file)', "$nrBuild\Release\nr_rectest.exe", @()),
                             @('Neural Rendering frame tap', "$nrBuild\Release\nr_taptest.exe", @()),

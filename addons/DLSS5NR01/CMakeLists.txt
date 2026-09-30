@@ -44,7 +44,7 @@ set(XESS_DIR ${CMAKE_SOURCE_DIR}/external/xess)
 set(NR_ADDON_SOURCES
     src/addon/addon.cpp src/addon/runtime.cpp src/addon/panel.cpp src/addon/tasks.cpp src/addon/settings.cpp src/addon/log.cpp
     src/addon/screenshot.cpp src/addon/screenshot_pixels.cpp src/addon/hud_editor.cpp src/addon/auto_quality.cpp
-    src/addon/bridge.cpp src/addon/frame_tap.cpp src/addon/gpu_timer11.cpp src/addon/frame_trace.cpp
+    src/addon/bridge.cpp src/addon/frame_tap.cpp src/addon/gpu_timer11.cpp src/addon/frame_trace.cpp src/addon/diagnosis.cpp
     src/addon/present_hook.cpp src/addon/compose11.cpp src/addon/requirements.cpp src/addon/scaler11.cpp src/addon/framegen11.cpp src/addon/hdr.cpp src/addon/lsrec.cpp src/addon/recorder.cpp
     src/engine/nr_engine.cpp
     src/engine/dlaa_model.cpp src/engine/sr_engine.cpp src/engine/flow_estimator.cpp src/engine/fg_engine.cpp
@@ -147,6 +147,8 @@ target_link_libraries(nr_nreval PRIVATE ${NGX_LIB} d3d12 dxgi d3dcompiler shell3
 add_dependencies(nr_nreval nr_forwarder)
 
 # ---- offline test of the frame tap (which pass is the capture, the motion hand-over, presents); a D3D11 device, no model, no SDK at run time ----
+add_executable(nr_diagtest tools/diag_test.cpp src/addon/diagnosis.cpp)   # the "what is wrong" rules
+target_include_directories(nr_diagtest PRIVATE src)
 add_executable(nr_tracetest tools/trace_test.cpp src/addon/frame_trace.cpp)   # the frame trace's ring and export
 target_include_directories(nr_tracetest PRIVATE src)
 add_executable(nr_taptest tools/tap_test.cpp src/addon/frame_tap.cpp)

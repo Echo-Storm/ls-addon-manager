@@ -11,6 +11,7 @@
 #include "addon/state.h"
 #include "addon/log.h"
 #include "addon/frame_trace.h"
+#include "addon/diagnosis.h"
 #include "addon/present_hook.h"
 #include "addon/framegen11.h"
 #include "addon/screenshot.h"
@@ -140,6 +141,29 @@ void PublishLive(const NrStats& st) {
     }
 }
 
+// The panel's "What is wrong" card: the findings for the game's frame-time spread over the last window and what the model or the upscaler did meanwhile.
+void UpdateFindings(int frames, float p50, float p95, float p99, const NrStats* st, float upscalerMs = 0, float motionMs = 0) {
+    nr::diag::Snapshot d;
+    d.frames = frames; d.frameP50 = p50; d.frameP95 = p95; d.frameP99 = p99;
+    d.showingPlain = g_compare.load() == 2;
+    bool autoOn; float floor;
+    { std::lock_guard<std::mutex> lock(g_settingsMutex); autoOn = g_config.autoQuality; floor = g_config.autoFloor; }
+    if (st) {
+        static uint64_t runsBefore = 0, skippedBefore = 0;
+        const uint64_t runs = g_bridge.Runs(), skipped = g_bridge.Skipped();
+        const uint64_t newRuns = runs - runsBefore, newSkipped = skipped - skippedBefore;
+        runsBefore = runs; skippedBefore = skipped;
+        d.model = true; d.modelMs = static_cast<float>(g_avgModelMs); d.startMs = static_cast<float>(st->startMs);
+        d.keepUpPct = newRuns + newSkipped ? static_cast<float>(100.0 * newRuns / static_cast<double>(newRuns + newSkipped)) : 100.0f;
+        d.autoOn = autoOn; d.floor = floor;
+        { std::lock_guard<std::mutex> lock(g_autoMutex); d.scale = g_auto.Scale(); d.runEvery = autoOn ? g_auto.RunEvery() : 1; }
+    }
+    if (!st) { d.upscaler = true; d.upscalerMs = upscalerMs; d.motionMs = motionMs; }
+    std::vector<nr::diag::Finding> f = nr::diag::Diagnose(d);
+    std::lock_guard<std::mutex> lock(g_textMutex);
+    g_findings = std::move(f);
+}
+
 void LogProgress(const NrStats& st) {
     // counted in the frames the model was given: Lossless Scaling's captures, or the presented frames with frame generation off (where the
     // capture count stays put, and would log every frame)
@@ -159,6 +183,7 @@ void LogProgress(const NrStats& st) {
             g_host->PublishMetric(kAddonId, "frame_p50_ms", p50, "ms");
             g_host->PublishMetric(kAddonId, "frame_p95_ms", p95, "ms");
             g_host->PublishMetric(kAddonId, "frame_p99_ms", p99, "ms");
+            UpdateFindings(n, p50, p95, p99, &st);
             Log("frame time over the last %d frames: p50 %.1f ms, p95 %.1f, p99 %.1f, worst %.1f | %d frames over 20 ms (%.0f%%), %d over 33 ms | model %.1f ms, GPU start +%.1f ms",
                 n, p50, p95, p99, worst, over20, 100.0 * over20 / n, over33, st.nrMs, st.startMs);
         }
@@ -890,6 +915,7 @@ void NoteRealFrame() {
         double sum = 0; for (float v : t) sum += v;
         Log("game frame time over %zu real frames: average %.1f ms (%.0f fps), p50 %.1f, p95 %.1f, p99 %.1f, worst %.1f | DLSS %.2f ms a presented frame (motion %.2f), %u presented per real frame",
             t.size(), sum / t.size(), 1000.0 * t.size() / sum, at(0.5), at(0.95), at(0.99), t.back(), g_sr.GpuMs(), g_sr.MotionMs(), g_nisPerFrame);
+        UpdateFindings(static_cast<int>(t.size()), at(0.5), at(0.95), at(0.99), nullptr, static_cast<float>(g_sr.GpuMs()), static_cast<float>(g_sr.MotionMs()));
         g_frameTimes.clear();
     }
 }

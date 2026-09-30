@@ -2,6 +2,9 @@
 
 ## Unreleased
 
+- **A "What stands out" card in each addon's panel.** From the numbers the addon already keeps (how even the game's frames were over the last few seconds, what the model waited for, what auto quality
+  is doing, what the upscaler costs) it says in plain words what is wrong and what to try: "the game's frame times are uneven... the graphics card is full", "the model waits 9 ms for the card",
+  "auto quality is running the model on every 2nd frame", "you are looking at the plain picture (the before / after toggle)". It stays empty when nothing stands out. New test `nr_diagtest`.
 - **A frame trace for pacing problems.** The logs keep averages, which is why "bumpy pacing" could not be looked into. The Neural Rendering and upscaler addons now keep a timeline of the last
   131 000 events (a real frame arriving, every present, each model run with its GPU start delay, each upscaler pass, auto quality's changes, hotkeys), at a cost of a timestamp and four integers
   a frame, and write it to `logs\frame-trace-<addon>.csv` at shutdown and whenever a recording is saved (Ctrl+Shift+F1). `tools/analyze_frame_trace.py` reads it: the interval of the
