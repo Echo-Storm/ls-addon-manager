@@ -440,7 +440,7 @@ void DrawPanel() {
             Tip("When the picture stands still the upscaler's own picture shows, and it is softer than the game's: with no camera jitter from Lossless Scaling "
                 "it has no extra detail to find, only its smoothing (anti-aliasing) to give. This puts that much of the plain stretched frame (see Steady in fast "
                 "motion) into the picture even at rest: 0 is the upscaler alone, 1 the plain stretch. Raise it if a still scene looks soft; sharpening (above) "
-                "then adds on top. Try 0.3 to 0.5.");
+                "then adds on top. The default is 0.5; measured against the game's full-size frames it is closer to them and steadier than 0.");
             if (ImGui::SliderFloat("Steady sharpening (test)", &c.scalerSteadySharp, 0.0f, 0.9f, c.scalerSteadySharp <= 0.0f ? "off" : "%.2f")) changed = true;
             Tip("Sharpening amplifies the game's own shimmer as well as its detail. With this on, the sharpening is worked out from a running average of the "
                 "picture (followed along the motion), and only that is added to the current frame: the detail stays, the shimmer is not amplified. Measured on "

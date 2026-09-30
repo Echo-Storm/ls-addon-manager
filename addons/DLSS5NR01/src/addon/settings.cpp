@@ -178,7 +178,7 @@ Loaded LoadSettings(IHost* host, const char* id) {
     c.scalerStability = std::clamp(static_cast<float>(number("scalerStability", 0.0)), 0.0f, 1.0f);
     c.scalerEdges = std::clamp(static_cast<float>(number("scalerEdges", 0.0)), 0.0f, 1.0f);
     c.scalerLeanFrom = std::clamp(static_cast<float>(number("scalerLeanFrom", 0.0)), 0.0f, 1.0f);
-    c.scalerLeanRest = std::clamp(static_cast<float>(number("scalerLeanRest", 0.0)), 0.0f, 1.0f);
+    c.scalerLeanRest = std::clamp(static_cast<float>(number("scalerLeanRest", 0.5)), 0.0f, 1.0f);
     c.scalerSteadySharp = std::clamp(static_cast<float>(number("scalerSteadySharp", 0.0)), 0.0f, 0.9f);
     c.lsFirst = flag("lsFirst", true);
     c.freshFlow = flag("freshFlow", true);

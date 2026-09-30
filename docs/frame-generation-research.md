@@ -366,3 +366,22 @@ At equal detail the running average has about 9 to 14 points less flicker on the
 the line between the plain points); it was never worse. The history is fetched with the motion's sign reversed (`steadysign=1` for the other way; clip 23-54-43 at steady 0.5: 112 % / 134 %
 against 107 % / 126 % reversed). Upscaling 1.5x (23-54-01, `shrink=150`): 33.75 dB against 33.71, and the steadiness 47.5 against
 46.9 dB. Cost: two more full-size passes and one copy. Not tried live (the metrics are the game's own frames, not the owner's eyes); off by default.
+
+## Choosing the defaults for upscaling (2026-09-30)
+
+Most Lossless Scaling use is upscaling (about 1.5x), where the recordings give the true picture to score against. `tools/sr_default_grid.py 150 dlss <3 clips>`
+(WoW 23-54-01 and 23-54-20, Silent Hill f 17-54-39; frames 10 to 33, DLSS Auto model; each cell upscaled dB / steady dB, the mean over the clips):
+
+| Sharpening | Sharpness at rest 0 | 0.3 | 0.6 | (Steady sharpening 0.6 at rest 0.6) |
+|---|---|---|---|---|
+| 0.3 | 36.66 / 39.13 | 37.32 / 39.78 | 37.97 / 40.51 | 37.56 / 39.77 |
+| 0.5 | 36.49 / 38.91 | 37.17 / 39.56 | 37.83 / 40.28 | 37.41 / 39.56 |
+| 0.7 | 36.09 / 38.36 | 36.79 / 39.00 | 37.44 / 39.67 | 37.07 / 39.07 |
+
+- **Sharpness at rest** improves both scores at every step: +1.3 dB and +1.4 dB steady at 0.6 against 0. New default **0.5** (was 0).
+- Sharpening costs the score (sharpening always does against a true frame: 0.5 is 0.14 dB below 0.3 at rest 0.6); it stays at 0.5 (NIS parity, chosen by eye).
+- **Steady sharpening** is neutral to slightly negative when upscaling (-0.3 to -0.4 dB on average, -0.8 on the Silent Hill f clip, which moves); its measured benefit
+  is at 1:1 (previous section). It stays off by default.
+- `tools/sr_option_check.sh 150 10 24 <clips>` (sharpen 0.5, rest 0.5): **EASU** for the lean ("Crisp edges") is worse on the scores, -0.15 dB on the WoW clips and
+  -1.75 dB (and 2 dB less steady) on Silent Hill f; it looks crisper, so it stays an opt-in test. **Motion by shape** changes nothing (under 0.03 dB either way):
+  off, and not worth its 0.5 s of shader compile.

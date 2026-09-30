@@ -34,7 +34,7 @@ struct Config {
     bool frameGen = false;   // the FSR Upscaler's frame generation of our own (a prototype, framegen11.h)
     bool frameGenGuard = true;           // ...its guard against pasted background (FgEngine::Generate)
     bool scalerFastMotion = true;       // the upscalers lean on the frame in fast motion (SrEngine::SetFastMotion; off: never, as before 0.9.13)
-    float scalerLeanRest = 0.0f;        // the least share of the plain resample in the picture even at rest, 0..1 (SrEngine::SetLeanRest)
+    float scalerLeanRest = 0.5f;        // the least share of the plain resample in the picture even at rest, 0..1 (SrEngine::SetLeanRest)
     float scalerSteadySharp = 0.0f;     // sharpening follows the picture's stability: 0..0.9, how much of the running average it sharpens from (SrEngine::SetSteadySharpen; 0 off)
     float scalerLeanFrom = 0.0f;        // the motion the lean starts from, in % of the frame's width a frame (0: automatic, 0.1 at 1:1 and 0.05 upscaling)
     bool leanEasu = false;              // a test: the moving picture (the lean) is FSR 1's edge-adaptive EASU of the frame, not Catmull-Rom (SrEngine::SetLeanMode)
