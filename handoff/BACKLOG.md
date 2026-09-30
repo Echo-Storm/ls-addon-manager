@@ -15,7 +15,7 @@ item is done (move it to the changelog) or when a new one comes up. Dates are wh
 
 ## State 2026-09-30 (for whoever picks this up; everything below is in CHANGELOG.md "Unreleased" unless it says 0.9.2x)
 
-Released today: 0.9.20 (bug sweep), 0.9.21 (Steady sharpening, Sharpness at rest 0.5). Since then, all pushed to main, all tests green (the full suite with the model scenarios: `LS_DIR='D:\Utilities\Lossless Scaling' tools\run_addon_tests.ps1 -All`), none released, several never seen by eye:
+Released today: 0.9.20 (bug sweep), 0.9.21 (Steady sharpening, Sharpness at rest 0.5) and **0.9.22 (a major HDR bug fix, steadier Neural Rendering, Sharpen less in fast motion, FSR sharpening; issues #1 and #3 closed)**; the full suite with the model scenarios was green (`LS_DIR='D:\Utilities\Lossless Scaling' tools\run_addon_tests.ps1 -All`). The items below are in 0.9.22; several have never been seen by eye:
 
 - **HDR highlight specks fixed** (sharpening and the picture controls could turn a bright pixel into a 10,000-nit speck; found with the new `nr_sreval hdr=1`; a test is in the NR suite). Significant: worth releasing.
 - **NR**: auto quality goes straight to the fitting resolution, remembers it (`autoScaleLast`) and tightens when the game's frames are slow (the ramp was the owner's "lighting changes"); smoothing trusts the history more where the picture is unchanged, default 0.7.
@@ -89,6 +89,8 @@ Released today: 0.9.20 (bug sweep), 0.9.21 (Steady sharpening, Sharpness at rest
 - Depth from motion; ReShade depth only as an optional extra (not for online games).
 
 ## Research to come back to
+
+- **Very long term (owner, 2026-09-30): spin this off, the way the Magpie fork is**: a standalone capture-and-scale app rather than an addon inside Lossless Scaling. No plan; keep the engine code (upscaler passes, estimator, NR engine) separable from the host glue. Their code is GPL-3.0: ours would be written from the research (docs/magpie-fork-study.md).
 
 - lsfg-vk (CC BY-NC-ND: study only): the owner wants to discuss what "using code" means, including loading Lossless Scaling's shaders
   from the user's own install at run time (docs/lsfg-vk-study.md).
