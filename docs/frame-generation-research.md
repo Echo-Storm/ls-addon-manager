@@ -420,3 +420,11 @@ Upscaling 1.5x, sharpen 0.5, rest 0.5, three clips (WoW 23-54-01, 23-54-20, Sile
 
 No-reference detail against the game's own frames (wowb 01 | shf): FSR with RCAS at 0.5 keeps 73 % | 83 % of the game's detail (1.0: 78 % | 84 %); with our pass 0.2: 96 % | 105 %,
 0.3: 98 % | 107 %, 0.5: 101 % | 112 %. So RCAS at the default is much softer than DLSS and XeSS at the same slider; FSR now uses our pass (`fsrown=0` in `nr_sreval` for the old way).
+
+## What the passes after the upscaler cost (2026-09-30)
+
+`nr_sreval bench=300` runs the last frame 300 times back to back, so the GPU stays at full clocks (the per-frame times printed without it are 3 to 4 times too high). 4K out,
+1.5x, LDR, RTX 4070 Ti SUPER, model E: the whole run 2.13 ms with no passes after the upscaler; plain sharpening (0.5) +0.25 ms, the lean (Catmull-Rom or EASU alike) +0.32 ms,
+both +0.55 ms, both with Steady sharpening +0.74 ms (+0.17 for it). In HDR (fp16, 66 MB a picture) one live log had 0.97 ms for the lean and the two-pass steady sharpening: six full pictures
+read or written is about 0.5 GB, about 1 ms at the card's 500 GB/s, so bytes, not arithmetic, are the limit there. Folding the lean into the sharpening tile was rejected: it would evaluate
+the lean 2.25 times for the halo, and the lean is already about twice its own bandwidth time. Done: the running average in R10G10B10A2 (4 bytes), and no history read where it is not trusted.

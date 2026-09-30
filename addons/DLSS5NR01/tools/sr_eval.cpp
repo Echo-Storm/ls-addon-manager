@@ -262,6 +262,20 @@ int main(int argc, char** argv) {
                                   flickOut / flickN, flickIn / flickN, 100.0 * flickOut / std::max(1e-9, flickIn), detailOut / detailN, detailIn / detailN, 100.0 * detailOut / std::max(1e-9, detailIn),
                                   flickStretch / flickN, detailStretch / detailN);
     if (n) printf("average over %d frames (after the first 8): upscaled %.2f dB (coarse %.2f, steady %.2f), stretched %.2f dB (coarse %.2f, steady %.2f)\n", n, sumUp / n, sumUpC / n, sumUpT / n, sumPlain / n, sumPlainC / n, sumPlainT / n);
+    // bench=N: the last frame's picture run N more times back to back, without waiting between them, so the GPU stays busy at full clocks (the timings above
+    // are taken with the GPU idling between frames and read several times too high); prints the GPU times the engine measured over those runs
+    if (const int bench = Arg(argc, argv, "bench", 0); bench > 0) {
+        for (int j = 1; j <= bench; ++j) {
+            const uint64_t v = static_cast<uint64_t>(count) + j;
+            queue->Signal(copied, v);
+            eng.Run(inE, w, hh, DXGI_FORMAT_R8G8B8A8_UNORM, outE, W, H, DXGI_FORMAT_R8G8B8A8_UNORM, flowE, flowE ? w : 0, flowE ? hh : 0, flowE ? 1.0f : 0.0f, 1.0f, !noMotion && !flowE, static_cast<unsigned>(Arg(argc, argv, "preset", 0)), Arg(argc, argv, "sharpen", 0) / 100.0f, false, false,
+                    copiedE, v, doneE, v);
+        }
+        HANDLE ev = CreateEventW(nullptr, FALSE, FALSE, nullptr);
+        done->SetEventOnCompletion(static_cast<uint64_t>(count) + bench, ev); WaitForSingleObject(ev, 60000); CloseHandle(ev);
+        Sleep(50);
+        printf("bench %d runs back to back: ", bench);
+    }
     printf("GPU time per frame at the end: everything %.2f ms, after the upscaler (lean excluded: edges and sharpening) %.2f ms\n", eng.GpuMs(), eng.AfterMs());
     // the frames where the upscaler did worst against a plain stretch (its history hurt most)
     std::vector<const Score*> order; for (const Score& s : scores) if (!s.truth.empty() && s.frame - first >= 8) order.push_back(&s);

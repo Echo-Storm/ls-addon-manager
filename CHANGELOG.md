@@ -2,6 +2,9 @@
 
 ## Unreleased
 
+- **The passes after the upscaler move fewer bytes.** In HDR they are limited by memory traffic (about 0.97 ms at 4K in one log, six 66 MB pictures read or written): Steady
+  sharpening's running average is now kept in 10 bits a channel (4 bytes instead of 8; it holds the SDR view, 0 to 1) and is not read at all where the pixel moves too fast to
+  trust it. The same quality on the recordings; the gain shows in HDR (`nr_sreval bench=N` times the passes back to back).
 - **Steady sharpening is on by default (0.6)** and no longer says "test". The FSR Upscaler now sharpens with the same pass as DLSS and XeSS instead of AMD's RCAS, so it gets
   Steady sharpening too and the Sharpening slider means the same on all three: at 0.5, RCAS left 73 to 83 % of the game's detail while the pass leaves 101 to 112 % (as it does for
   DLSS and XeSS), and FSR scored about 0.5 dB closer to the true picture upscaling 1.5x. Saved settings keep their value.

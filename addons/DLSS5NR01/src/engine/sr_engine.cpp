@@ -138,14 +138,17 @@ void main(uint3 id : SV_DispatchThreadID, uint3 gid : SV_GroupID, uint3 gt : SV_
         const float3 v = gIn[s.y + 1][s.x + 1];
         float3 stab = v;
         if (histOk != 0u) {
-            float3 lo = v, hi = v;
-            [unroll] for (int dy = 0; dy < 3; ++dy) [unroll] for (int dx = 0; dx < 3; ++dx) { const float3 n = gIn[s.y + dy][s.x + dx]; lo = min(lo, n); hi = max(hi, n); }
             const int2 q = clamp(int2((float2(clamp(pix, 0, last)) + 0.5) * float2(inSize) / float2(size)), 0, int2(inSize) - 1);
             const float2 mv = tMotion[q] * mvScale;                                  // in output pixels
-            const float3 h = clamp(tHist.SampleLevel(sLinear, (float2(pix) + 0.5 + mv) / float2(size), 0).rgb, lo, hi);
-            // the faster the pixel moves, the less the average is trusted (a small error in the motion moves detail the sharpening then adds in the wrong place)
+            // the faster the pixel moves, the less the average is trusted (a small error in the motion moves detail the sharpening then adds in the wrong place);
+            // where it is not trusted at all the history is not even read
             const float trust = 1.0 - saturate((length(mv) - mvA) / max(mvB - mvA, 1e-3));
-            stab = lerp(v, h, steady * trust);
+            if (trust > 0.0) {
+                float3 lo = v, hi = v;
+                [unroll] for (int dy = 0; dy < 3; ++dy) [unroll] for (int dx = 0; dx < 3; ++dx) { const float3 n = gIn[s.y + dy][s.x + dx]; lo = min(lo, n); hi = max(hi, n); }
+                const float3 h = clamp(tHist.SampleLevel(sLinear, (float2(pix) + 0.5 + mv) / float2(size), 0).rgb, lo, hi);
+                stab = lerp(v, h, steady * trust);
+            }
         }
         gStab[s.y][s.x] = stab;
         if (s.x >= 1 && s.x <= 8 && s.y >= 1 && s.y <= 8 && all(pix >= 0) && all(pix <= last)) uHistOut[pix] = float4(stab, 1.0);
@@ -839,17 +842,28 @@ bool SrEngine::InitLean() {   // its own root signature: three pictures in, one 
 }
 
 // The previous frame's sharpening input (output size and format), at rest readable.
-bool SrEngine::EnsureSharpHist(uint32_t w, uint32_t h, DXGI_FORMAT fmt) {
-    if (m_sharpHist[0] && m_sharpHistW == w && m_sharpHistH == h && m_sharpHistFmt == fmt) return true;
+// The format of the steady sharpening's running average: R10G10B10A2 where the card can sample it and store to it, else RGBA16F (always possible).
+static DXGI_FORMAT outFormatOf(ID3D12Device* dev) {
+    D3D12_FEATURE_DATA_FORMAT_SUPPORT f{}; f.Format = DXGI_FORMAT_R10G10B10A2_UNORM;
+    if (SUCCEEDED(dev->CheckFeatureSupport(D3D12_FEATURE_FORMAT_SUPPORT, &f, sizeof f)) && (f.Support1 & D3D12_FORMAT_SUPPORT1_TEXTURE2D) && (f.Support1 & D3D12_FORMAT_SUPPORT1_SHADER_SAMPLE) &&
+        (f.Support2 & D3D12_FORMAT_SUPPORT2_UAV_TYPED_STORE)) return DXGI_FORMAT_R10G10B10A2_UNORM;
+    return DXGI_FORMAT_R16G16B16A16_FLOAT;
+}
+
+bool SrEngine::EnsureSharpHist(uint32_t w, uint32_t h, DXGI_FORMAT /*outFormat*/) {
+    if (m_sharpHist[0] && m_sharpHistW == w && m_sharpHistH == h) return true;
     if (m_sharpHist[0]) { WaitIdle(); for (auto*& t : m_sharpHist) SafeRelease(t); }
     m_sharpHistValid = false; m_sharpHistCur = 0;
+    // The average is kept in the SDR view (0..1), so 10 bits a channel in 4 bytes are enough (more precise than the 8 bits of an SDR picture, half the traffic of an
+    // HDR one); a card that cannot store to that format keeps it in the picture's own.
+    m_sharpHistFmt = outFormatOf(m_dev);
     D3D12_HEAP_PROPERTIES heap{}; heap.Type = D3D12_HEAP_TYPE_DEFAULT;
     D3D12_RESOURCE_DESC d{}; d.Dimension = D3D12_RESOURCE_DIMENSION_TEXTURE2D; d.Width = w; d.Height = h; d.DepthOrArraySize = 1; d.MipLevels = 1; d.SampleDesc.Count = 1;
-    d.Format = fmt; d.Flags = D3D12_RESOURCE_FLAG_ALLOW_UNORDERED_ACCESS;
+    d.Format = m_sharpHistFmt; d.Flags = D3D12_RESOURCE_FLAG_ALLOW_UNORDERED_ACCESS;
     // taken in turns: the one just written rests readable, the other rests writable
     if (FAILED(m_dev->CreateCommittedResource(&heap, D3D12_HEAP_FLAG_NONE, &d, D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE, nullptr, IID_PPV_ARGS(&m_sharpHist[0])))) return false;
     if (FAILED(m_dev->CreateCommittedResource(&heap, D3D12_HEAP_FLAG_NONE, &d, D3D12_RESOURCE_STATE_UNORDERED_ACCESS, nullptr, IID_PPV_ARGS(&m_sharpHist[1])))) { SafeRelease(m_sharpHist[0]); return false; }
-    m_sharpHistW = w; m_sharpHistH = h; m_sharpHistFmt = fmt;
+    m_sharpHistW = w; m_sharpHistH = h;
     return true;
 }
 
@@ -1150,10 +1164,10 @@ bool SrEngine::Run(ID3D12Resource* in, uint32_t inW, uint32_t inH, DXGI_FORMAT i
         si.Format = outFormat;
         D3D12_CPU_DESCRIPTOR_HANDLE h = cpu; h.ptr += 12 * m_descriptorSize;
         m_dev->CreateShaderResourceView(smoothing ? m_smoothed : post, &si, h); h.ptr += m_descriptorSize;
-        m_dev->CreateShaderResourceView(m_sharpHist[m_sharpHistCur], &si, h); h.ptr += m_descriptorSize;
+        { D3D12_SHADER_RESOURCE_VIEW_DESC sh = si; sh.Format = m_sharpHistFmt; m_dev->CreateShaderResourceView(m_sharpHist[m_sharpHistCur], &sh, h); h.ptr += m_descriptorSize; }
         si.Format = DXGI_FORMAT_R16G16_FLOAT; m_dev->CreateShaderResourceView(m_motion, &si, h); h.ptr += m_descriptorSize;
         m_dev->CreateUnorderedAccessView(out, nullptr, &uo, h); h.ptr += m_descriptorSize;
-        m_dev->CreateUnorderedAccessView(m_sharpHist[1 - m_sharpHistCur], nullptr, &uo, h);
+        { D3D12_UNORDERED_ACCESS_VIEW_DESC uh = uo; uh.Format = m_sharpHistFmt; m_dev->CreateUnorderedAccessView(m_sharpHist[1 - m_sharpHistCur], nullptr, &uh, h); }
     }
     if (leaning) {   // the lean pass: DLSS's picture, the frame, the distrust mask in; the output (or m_leaned) out
         D3D12_SHADER_RESOURCE_VIEW_DESC si{}; si.ViewDimension = D3D12_SRV_DIMENSION_TEXTURE2D; si.Shader4ComponentMapping = D3D12_DEFAULT_SHADER_4_COMPONENT_MAPPING; si.Texture2D.MipLevels = 1;
