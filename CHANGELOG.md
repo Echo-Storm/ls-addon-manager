@@ -8,7 +8,7 @@ Sharper upscalers at rest, with the shimmer kept down.
   the sharpening is worked out from a running average of the picture (followed along the measured motion and kept within this frame's neighbourhood, so a wrong
   motion cannot ghost) and only that sharpening is added to the current frame: the detail stays, the shimmer is not amplified. `nr_sreval` on World of Warcraft
   clips at 1:1: about 10 points less flicker for the same detail on a nearly still scene and 1 to 2 in motion, never worse than plain sharpening
-  (docs/frame-generation-research.md). Upscaling 1.5x it is neutral to slightly worse in motion, so it stays off by default. Tried by its author in HDR: sharper at rest, no
+  (docs/frame-generation-research.md). Upscaling 1.5x it is neutral to slightly worse in motion, so it stays off by default. Tried live in HDR by the project owner: sharper at rest, no
   HDR problems. Costs two more passes and one copy. Try Sharpening 0.5 to 0.7 with Steady sharpening 0.6 to 0.9.
 - **A new default: Sharpness at rest 0.5** (was off). Upscaling 1.5x and scored against the game's full-size frames (three clips), it is closer to them and steadier at every
   step: 1.3 dB closer and 1.4 dB steadier at 0.6 than at 0. It applies to new installs and to any setting never saved; a saved value stays.
