@@ -71,7 +71,7 @@ RWTexture2D<float4> uHistory : register(u1);   // the history for the next run
 
 cbuffer Constants : register(b0) {
     uint2 outSize; uint2 inSize;
-    uint  flags; float flowScale; float smoothAmount; uint encoding; float white; uint3 pad1;
+    uint  flags; float flowScale; float smoothAmount; uint encoding; float white; float stableWeight; uint2 pad1;
 };
 
 [numthreads(8, 8, 1)]
@@ -99,7 +99,10 @@ void CSDeltaSmooth(uint3 id : SV_DispatchThreadID) {
         const float agree = inside ? saturate(1.0 - abs(lumaNow - kept.a) / 0.05) : 0.0;
         const float3 history = lerp(clamp(kept.rgb, lo, hi), kept.rgb, agree);
         const float fast = flowScale > 0.0 ? saturate((length(mv) - flowScale) / flowScale) : 0.0;
-        delta = lerp(delta, history, saturate(smoothAmount) * lerp(1.0 - fast, 1.0, agree));
+        // Where the frame itself matches (agree), any change in the model's output is its own noise, not new content, so the history is trusted more there
+        // than the setting alone would (stableWeight: how far up it goes); the setting still rules where the frame changed.
+        const float w = lerp(saturate(smoothAmount), max(saturate(smoothAmount), stableWeight), agree * agree);
+        delta = lerp(delta, history, w * lerp(1.0 - fast, 1.0, agree));
     }
     uOut[id.xy] = float4(delta, 0);
     uHistory[id.xy] = float4(delta, dot(tProxy[id.xy].rgb, float3(0.299, 0.587, 0.114)));   // the frame's brightness, for the next run's check

@@ -2,6 +2,11 @@
 
 ## Unreleased
 
+- **Neural Rendering's temporal smoothing trusts its history more where the game's picture is unchanged, and starts at 0.7 (was 0.4).** Where a pixel's brightness matches what was kept
+  with its history (the same surface), any change in the model's output is the model's own noise, not new content, so the history weight there goes up to 1 - (1 - setting) / 4 (0.95 at 0.8,
+  at most 0.97) while the setting still rules where the frame changed. From the design notes of the Magpie fork (docs/magpie-fork-study.md), measured with `nr_nreval` on your own clips,
+  the model's change where the game's frame is still, in levels of 255 (Durotar, working scale 0.3: setting 0.4 -> 0.72 before, 0.43 now; 0.8 -> 0.40 before, 0.29 now; character screen: 0.4 ->
+  0.42 before, 0.20 now; 0.8 -> 0.21 before, 0.11 now). Existing settings keep their value (the slider is on the panel's Neural Rendering page).
 - **Neural Rendering's auto quality no longer ramps.** In a live log it started at 1.00 and stepped down nine times in 100 s (1.00, 0.90, 0.80 ... 0.25), and each step rebuilds the model with no
   history: the picture changed look every few seconds, and 2 to 6 % of presented frames had no change applied while it rebuilt (up to 82 % while a 6 GB recording was being saved). Now it
   (1) goes straight to the resolution where the model's time is expected to fit, from its measured time and area (fixed cost and per-area cost from two measurements), in two changes

@@ -20,7 +20,7 @@ constexpr int kFloatGetterSlot = 14;                   // the parameter block's 
 enum Pass { kShrink = 0, kMotion = 1, kDeltaPass = 2 };
 
 // Root constants b0, twelve dwords, as the shaders declare them (nr_shaders.h).
-struct PassConstants { uint32_t dstW, dstH, srcW, srcH; uint32_t flags; float flowScale; float smoothAmount; uint32_t encoding; float white; uint32_t pad[3]; };
+struct PassConstants { uint32_t dstW, dstH, srcW, srcH; uint32_t flags; float flowScale; float smoothAmount; uint32_t encoding; float white; float stableWeight; uint32_t pad[2]; };
 static_assert(sizeof(PassConstants) == 48, "twelve root constants");
 
 const char* NgxResultName(int r) {
@@ -765,6 +765,8 @@ bool NrEngine::Run(ID3D12Resource* sharedIn, ID3D12Resource* sharedDelta, ID3D12
     if (smooth) {
         c.flags = historyUsable ? 2u : 0u;
         c.smoothAmount = std::clamp(m_params.deltaSmooth, 0.0f, 0.95f);
+        // where the frame itself is unchanged the history counts for more than the setting alone: a quarter of the way to 1 by default (0.8 -> 0.95), or as set
+        c.stableWeight = m_params.smoothStable > 0.0f ? std::clamp(m_params.smoothStable, 0.0f, 0.98f) : std::min(0.97f, 1.0f - (1.0f - c.smoothAmount) * 0.25f);
         c.flowScale = 0.005f * static_cast<float>(m_ww);   // fast motion (working-size pixels a frame): the smoothing fades out (see CSDeltaSmooth)
         Transition(historyOut, D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE, D3D12_RESOURCE_STATE_UNORDERED_ACCESS);
         dispatch(m_psoDeltaSmooth, kDeltaPass, c);

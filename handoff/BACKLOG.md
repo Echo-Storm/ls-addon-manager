@@ -33,8 +33,7 @@ item is done (move it to the changelog) or when a new one comes up. Dates are wh
 
 - **Flickers "like crazy" while moving: the weakest link now** (owner, 2026-09-28). First try: smoothing keeps its history where the frame matches along the motion, on by default at 0.6 (saved settings keep 0). Not confirmed as the cause. If it does not help: record with NR on, build `nr_nreval` (the change's stability frame to frame), check the compose's one-frame-old result moved by its motion (a.offset) and the half-size model input.
 - **From the Magpie-fork study (docs/magpie-fork-study.md, GPL: ideas only, no code):** measured baseline with `nr_nreval` (WoW clip 23-54-01, frames 20-59, scale 50): the model's change where the
-  game is still 0.89 levels with smoothing 0, 0.64 with the default 0.4. To bring down, in this order: (1) smoothing by real time (`exp(-dt/0.08)`, history dropped after a 250 ms gap), not a fixed
-  weight per run, so it is the same at any frame rate; (2) persistence with hysteresis (amplitude and presence kept apart, appear ~60 ms, leave ~180 ms); (3) fast and slow histories; (4) a low-frequency
+  game is still 0.89 levels with smoothing 0, 0.64 with the default 0.4. To bring down, in this order: (1) DONE 2026-09-30: history trusted more where the input is unchanged (stable weight; docs/magpie-fork-study.md "What we tried"); smoothing by real time was considered and not adopted (the noise is per run); (2) persistence with hysteresis (amplitude and presence kept apart, appear ~60 ms, leave ~180 ms); (3) fast and slow histories; (4) a low-frequency
   temporal filter. Each measured on the WoW and Silent Hill f clips before it goes in.
 - **Small engine CPU wins from the same study:** GPU timestamp queries and their readback every frame (engine and estimator) sampled one frame in N or only while the panel is open; readback buffers mapped
   once; wait events created once. Measure with `nr_sreval bench=N`.

@@ -131,6 +131,7 @@ int main(int argc, char** argv) {
     NrParams params;   // the addon's defaults, then what the command line says
     params.workingScale = Arg(argc, argv, "scale", 50) / 100.0f;
     params.deltaSmooth = Arg(argc, argv, "smooth", 40) / 100.0f;
+    params.smoothStable = Arg(argc, argv, "stable", 0) / 100.0f;   // stable=N: the history weight where the frame is unchanged (percent)
     params.passes = static_cast<uint32_t>(Arg(argc, argv, "passes", 1));
     params.intensity = Arg(argc, argv, "intensity", 100) / 100.0f;
     const float sc = std::clamp(params.workingScale, 0.25f, 1.0f);

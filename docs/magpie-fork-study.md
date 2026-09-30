@@ -69,3 +69,18 @@ SUPER; worth revisiting only for a GPU where shader time is the limit, or as a s
 1. NR: frame-rate independent smoothing, then persistence/hysteresis, measured with `nr_nreval` on the WoW and Silent Hill f clips (the "still" number above).
 2. Engine: timestamp sampling, persistent readback mapping, event reuse (small CPU wins; measure with `nr_sreval bench`).
 3. NVOF: no action; numbers above.
+
+## What we tried from it (2026-09-30)
+
+Measured with `nr_nreval` (the model's change where the game's frame did not move, levels of 255; smaller is better), on the owner's own recordings of a character screen (daylight foliage) and
+of Durotar (red cracked ground), model at working scale 0.3.
+
+- **Trusting the history more where the input is unchanged (their principle: validate history by the input, never by the change itself): adopted.** Where the frame's brightness matches the
+  history's, the history weight rises to `1 - (1 - setting) / 4`. Durotar 0.72 -> 0.43 at setting 0.4, 0.40 -> 0.29 at 0.8; character screen 0.42 -> 0.20 and 0.21 -> 0.11. Default setting 0.4 -> 0.7.
+  Not measured: ghosting or lag (the metrics cannot see it; the luma check is the guard, but a colour change with the same brightness would keep the old change for about twenty frames).
+- **A wider downscale for the model's input (3x3 grid of bilinear reads instead of four): no effect** (0.03 either way): the input is not where the noise comes from.
+- **Time-based smoothing weight (`exp(-dt/tau)`): not adopted.** The model's noise is new every run, so how much is averaged out depends on how many runs are averaged, not on how long they
+  took; a per-run weight gives the same noise reduction at any frame rate (a time-based one gives less at 30 fps than at 60), at the price of more lag at low rates. Kept per-run.
+- Still open: persistence with hysteresis (their F) and the fast/slow histories (C); each needs a second history channel.
+- The GPU-based validation of the D3D12 debug layer (`nr_sreval debug=2`) reports an incompatible-layout message on the shared output texture in every pass, including the plain ones: it comes
+  from the offline tool's shared texture, not from a pass.
