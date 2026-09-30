@@ -441,11 +441,11 @@ void DrawPanel() {
                 "it has no extra detail to find, only its smoothing (anti-aliasing) to give. This puts that much of the plain stretched frame (see Steady in fast "
                 "motion) into the picture even at rest: 0 is the upscaler alone, 1 the plain stretch. Raise it if a still scene looks soft; sharpening (above) "
                 "then adds on top. The default is 0.5; measured against the game's full-size frames it is closer to them and steadier than 0.");
-            if (ImGui::SliderFloat("Steady sharpening (test)", &c.scalerSteadySharp, 0.0f, 0.9f, c.scalerSteadySharp <= 0.0f ? "off" : "%.2f")) changed = true;
+            if (ImGui::SliderFloat("Steady sharpening", &c.scalerSteadySharp, 0.0f, 0.9f, c.scalerSteadySharp <= 0.0f ? "off" : "%.2f")) changed = true;
             Tip("Sharpening amplifies the game's own shimmer as well as its detail. With this on, the sharpening is worked out from a running average of the "
-                "picture (followed along the motion), and only that is added to the current frame: the detail stays, the shimmer is not amplified. Measured on "
-                "recordings at 1:1: at rest about 10 points less flicker for the same detail, in motion 1 to 2 points. Costs two more passes. 0 is off; try 0.6 to 0.9 "
-                "with Sharpening around 0.5 to 0.7.");
+                "picture (followed along the motion, and trusted less where it moves fast), and only that is added to the current frame: the detail stays, the "
+                "shimmer is not amplified. On recordings it means about 10 points less flicker for the same detail on a still scene, and no change when upscaling in "
+                "motion. Costs about a millisecond at 4K. 0 is off; the default is 0.6.");
         }
         {
             if (ImGui::Checkbox("Crisp edges when moving (test)", &c.leanEasu)) changed = true;

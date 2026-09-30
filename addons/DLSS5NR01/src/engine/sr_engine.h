@@ -102,6 +102,7 @@ public:
     // Sharpening that follows the picture's stability (0..0.95: how much of the running average, 0 off): where the upscaled picture changes from one frame to the next without the motion
     // explaining it (the game's shimmer), the sharpening is reduced by this much, so it puts detail back without amplifying the flicker.
     void SetSteadyMotion(float from, float to) { m_steadyMvA.store(from); m_steadyMvB.store(to); }   // output pixels of motion where the average's weight starts to fall and where it is gone
+    void SetFsrOwnSharpen(bool own) { m_fsrOwnSharpen.store(own); }   // FSR's sharpening done by our pass (CAS, with Steady sharpening; the default) instead of AMD's RCAS (softer: 73 to 83 % of the game's detail at 0.5)
     void SetSteadySign(float sign) { m_steadySign.store(sign); }   // which way along the motion the previous frame is fetched (evaluation)
     void SetSteadySharpen(float steady) { m_steadySharp.store(steady < 0.0f ? 0.0f : steady > 0.95f ? 0.95f : steady); }
     void SetFastMotionShare(float share) { m_fastShare.store(share); }   // where SetFastMotion is automatic (-1): from this share of the width (0: the default)
@@ -167,7 +168,7 @@ private:
     bool InitLean();
     // steady sharpening: the sharpening pass with the previous frame's input and the motion (on the lean's root signature: three pictures in, one out)
     ID3D12RootSignature* m_steadyRoot = nullptr; ID3D12PipelineState* m_steadyPso = nullptr;
-    std::atomic<float> m_steadySharp{ 0.0f }, m_steadySign{ -1.0f }, m_steadyMvA{ 0.5f }, m_steadyMvB{ 3.0f };
+    std::atomic<bool> m_fsrOwnSharpen{ true }; std::atomic<float> m_steadySharp{ 0.0f }, m_steadySign{ -1.0f }, m_steadyMvA{ 0.5f }, m_steadyMvB{ 3.0f };
     ID3D12Resource* m_sharpHist[2] = {}; int m_sharpHistCur = 0; uint32_t m_sharpHistW = 0, m_sharpHistH = 0; DXGI_FORMAT m_sharpHistFmt = DXGI_FORMAT_UNKNOWN; bool m_sharpHistValid = false;
     bool EnsureSharpHist(uint32_t w, uint32_t h, DXGI_FORMAT fmt);
     ID3D12Resource* m_smoothed = nullptr; uint32_t m_smoothedW = 0, m_smoothedH = 0; DXGI_FORMAT m_smoothedFmt = DXGI_FORMAT_UNKNOWN;

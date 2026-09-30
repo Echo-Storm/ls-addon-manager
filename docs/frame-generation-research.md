@@ -405,3 +405,18 @@ in motion (23-54-20: plain 117 % / 156 %, band 114 % / 151 %; 23-54-47: 125 % / 
 It is also one pass now: one 8x8 group loads a 12x12 tile once, works the average out for the 10x10 around its pixels, sharpens from that and writes the average for the next
 frame into the second of two history textures (no temporary picture, no copy). The offline tool's GPU times are noisy (the GPU idles between frames), but the pass after the
 upscaler went from about +3 ms (two passes and a copy) to about +1.8 ms over plain sharpening at 4K 1:1; live times are in the log ("after the upscaler").
+
+## FSR's sharpening, and Steady sharpening on XeSS and FSR (2026-09-30)
+
+Upscaling 1.5x, sharpen 0.5, rest 0.5, three clips (WoW 23-54-01, 23-54-20, Silent Hill f 17-54-39; upscaled dB / steady dB):
+
+| | wowb 01 | wowb 20 | shf |
+|---|---|---|---|
+| XeSS, steady 0 | 35.47 / 42.11 | 34.69 / 38.23 | 43.40 / 40.79 |
+| XeSS, steady 0.6 | 35.47 / 42.00 | 34.64 / 37.97 | 43.32 / 40.69 |
+| FSR with AMD's RCAS (identical with steady 0.6: RCAS sharpens, our pass does not run below strength 1) | 34.61 / 42.10 | 33.69 / 37.26 | 43.37 / 40.42 |
+| FSR with our pass, steady 0 | 35.14 / 42.06 | 34.30 / 37.96 | 43.39 / 40.78 |
+| FSR with our pass, steady 0.6 | 35.16 / 41.96 | 34.25 / 37.70 | 43.31 / 40.69 |
+
+No-reference detail against the game's own frames (wowb 01 | shf): FSR with RCAS at 0.5 keeps 73 % | 83 % of the game's detail (1.0: 78 % | 84 %); with our pass 0.2: 96 % | 105 %,
+0.3: 98 % | 107 %, 0.5: 101 % | 112 %. So RCAS at the default is much softer than DLSS and XeSS at the same slider; FSR now uses our pass (`fsrown=0` in `nr_sreval` for the old way).

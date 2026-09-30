@@ -1088,7 +1088,8 @@ bool SrEngine::Run(ID3D12Resource* in, uint32_t inW, uint32_t inH, DXGI_FORMAT i
     ID3D12Resource* const color = in;   // what the upscaler reads (HDR: light)
     // Sharpening (strength 0..1.6, see kScalerSharpenScale): DLSS has none of its own, so the upscaler writes into a texture of ours and the
     // sharpening pass goes from there into out. FSR sharpens by itself (its RCAS) up to 1; beyond that our pass adds the rest on top.
-    const bool sharpening = (fsr ? sharpen > 1.001f : sharpen > 0.001f) && EnsureSharpenTarget(outW, outH, outFormat);
+    const bool ownSharp = fsr && m_fsrOwnSharpen.load();   // FSR: our sharpening pass does all of it (CAS, and Steady sharpening), not AMD's RCAS below 1
+    const bool sharpening = (fsr && !ownSharp ? sharpen > 1.001f : sharpen > 0.001f) && EnsureSharpenTarget(outW, outH, outFormat);
     // edge smoothing of the upscaler's picture: from m_unsharpened into the output, or into m_smoothed when sharpening follows
     const float edges = m_edges.load();
     const bool smoothing = edges > 0.001f && EnsureSharpenTarget(outW, outH, outFormat) && (!sharpening || EnsureSmoothTarget(outW, outH, outFormat));
@@ -1233,7 +1234,7 @@ bool SrEngine::Run(ID3D12Resource* in, uint32_t inW, uint32_t inH, DXGI_FORMAT i
         d.output = ffxApiGetResourceDX12(upscaled, FFX_API_RESOURCE_STATE_UNORDERED_ACCESS);
         d.jitterOffset = { 0.0f, 0.0f }; d.motionVectorScale = { m_motionScale, m_motionScale };   // vectors in the game's pixels
         d.renderSize = { inW, inH }; d.upscaleSize = { outW, outH };
-        d.enableSharpening = sharpen > 0.001f; d.sharpness = std::clamp(sharpen, 0.0f, 1.0f);
+        d.enableSharpening = !ownSharp && sharpen > 0.001f; d.sharpness = std::clamp(sharpen, 0.0f, 1.0f);
         d.frameTimeDelta = frameMs; d.preExposure = 1.0f; d.reset = reset || fresh;
         d.cameraNear = 0.1f; d.cameraFar = 1000.0f; d.cameraFovAngleVertical = 1.0f; d.viewSpaceToMetersFactor = 1.0f;   // the depth is flat anyway
         d.flags = hdr ? 0u : FFX_UPSCALE_FLAG_NON_LINEAR_COLOR_SRGB;   // the frame as the game shows it (gamma-encoded), or light in HDR
@@ -1318,7 +1319,7 @@ bool SrEngine::Run(ID3D12Resource* in, uint32_t inW, uint32_t inH, DXGI_FORMAT i
         Transition(source, D3D12_RESOURCE_STATE_UNORDERED_ACCESS, D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE);
         m_list->SetDescriptorHeaps(1, heaps);
         // DLSS: CAS up to its maximum, amplified above it. FSR: RCAS did up to 1; this adds what is above it (CAS at full strength, scaled)
-        const SharpenConstants sc = fsr ? SharpenConstants{ outW, outH, 1.0f, sharpen - 1.0f, hdr ? 1u : 0u }
+        const SharpenConstants sc = fsr && !ownSharp ? SharpenConstants{ outW, outH, 1.0f, sharpen - 1.0f, hdr ? 1u : 0u }
                                      : SharpenConstants{ outW, outH, std::min(sharpen, 1.0f), std::max(sharpen, 1.0f), hdr ? 1u : 0u };
         if (steadySharp) {
             // the motion is in the game's pixels, toward where the pixel was (or the other way: m_steadySign); the picture is outW wide
