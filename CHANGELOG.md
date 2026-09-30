@@ -2,6 +2,13 @@
 
 ## Unreleased
 
+- **HDR: sharpening could turn a highlight into a 10,000-nit speck.** The HDR view's roll-off is steep at its top (a view of exactly 1.0 is 125 times the SDR white), and the
+  sharpening passes and the picture controls (brightness, contrast, gamma, shadows, highlights, saturation) work in that view and put only their change back into the light: a bright pixel
+  that a change nudged to 1.0 came back as a white speck. Found by running the upscaler on an HDR recording in fp16 (new `nr_sreval hdr=1`): the peak light of the output was 125.75 against
+  1.20 in the input. Now a change made in the view goes back onto the light within 1.5x of it (plus 0.5 of the SDR white; dark and mid tones are untouched), and the sharpening's result stays
+  within 15 % of the range of its neighbours' light (no ringing; not applied to SDR). On the same footage the peak is 1.44; the mean light is kept (out / in 1.003) and the scores are the
+  same. Covers the plain and the steady sharpening passes (DLSS, FSR, XeSS) and the picture controls of the upscalers. A test for it (a made-up HDR clip with bright glints) is in the
+  Neural Rendering suite of `tools/run_addon_tests.ps1`.
 - **"Sharpen less in fast motion" (0.5 by default) in the upscalers' panel.** The eye cannot resolve the extra detail sharpening adds where the picture moves fast, but it does see
   the shimmer sharpening amplifies. The sharpening is lowered smoothly from 1 to 8 pixels of motion a frame, by this much at the fastest; at rest and in slow motion it is untouched.
   On a recording walking over cracked ground at 1:1 (DLSS model E, sharpening 0.45): flicker added over the game's own 113 % -> 107 % at 0.5 (102 % at 1.0), detail kept 137 % -> 127 % (117 %):

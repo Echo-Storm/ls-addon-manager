@@ -92,11 +92,16 @@ void main(uint3 id : SV_DispatchThreadID) {
     const int2 p = int2(id.xy), last = int2(size) - 1;
     const float4 c = tIn[p];
     const float3 v = View(c.rgb);
-    const float3 s = Sharpen(View(tIn[clamp(p + int2(0, -1), 0, last)].rgb), View(tIn[clamp(p + int2(-1, 0), 0, last)].rgb), v,
-                             View(tIn[clamp(p + int2(1, 0), 0, last)].rgb), View(tIn[clamp(p + int2(0, 1), 0, last)].rgb), saturate(amount));
-    const float3 r = saturate(v + (s - v) * gain);
-    // HDR: only the change goes back into light, so what sharpening leaves alone (a highlight's flat middle) stays exactly as it was
-    uOut[p] = float4(hdr != 0u ? c.rgb + (SdrToLight(r) - SdrToLight(v)) : r, c.a);
+    const float3 tn = View(tIn[clamp(p + int2(0, -1), 0, last)].rgb), tw = View(tIn[clamp(p + int2(-1, 0), 0, last)].rgb);
+    const float3 te = View(tIn[clamp(p + int2(1, 0), 0, last)].rgb), ts = View(tIn[clamp(p + int2(0, 1), 0, last)].rgb);
+    const float3 s = Sharpen(tn, tw, v, te, ts, saturate(amount));
+    float3 r = saturate(v + (s - v) * gain);
+    // HDR: only the change goes back into light, so what sharpening leaves alone (a highlight's flat middle) stays exactly as it was; and the light stays within 15 % of the
+    // range of its neighbours' light (no ringing: near the top of the view a small overshoot is a doubling of the light)
+    if (hdr != 0u) {
+        const float3 ln = tIn[clamp(p + int2(0, -1), 0, last)].rgb, lw = tIn[clamp(p + int2(-1, 0), 0, last)].rgb, le = tIn[clamp(p + int2(1, 0), 0, last)].rgb, ls = tIn[clamp(p + int2(0, 1), 0, last)].rgb;
+        uOut[p] = float4(WithinNeighbours(ApplyViewChange(c.rgb, v, r), ln, lw, le, ls, c.rgb), c.a);
+    } else uOut[p] = float4(r, c.a);
 }
 )";
 struct SharpenConstants { uint32_t w, h; float amount, gain; uint32_t hdr; };
@@ -167,7 +172,9 @@ void main(uint3 id : SV_DispatchThreadID, uint3 gid : SV_GroupID, uint3 gt : SV_
         cut = 1.0 - moveCut * smoothstep(1.0, 8.0, length(tMotion[qc] * mvScale));
     }
     const float3 r = saturate(v + (s - m) * gain * cut);   // this frame, plus the average's sharpening
-    uOut[p] = float4(hdr != 0u ? c.rgb + (SdrToLight(r) - SdrToLight(v)) : r, c.a);
+    if (hdr != 0u) {   // no ringing in HDR: the light within 15 % of the range of this frame's own neighbours' light (near the top of the view a small overshoot is a doubling of the light)
+        uOut[p] = float4(WithinNeighbours(ApplyViewChange(c.rgb, v, r), SdrToLight(gIn[gt.y + 1][gt.x + 2]), SdrToLight(gIn[gt.y + 2][gt.x + 1]), SdrToLight(gIn[gt.y + 2][gt.x + 3]), SdrToLight(gIn[gt.y + 3][gt.x + 2]), c.rgb), c.a);
+    } else uOut[p] = float4(r, c.a);
 }
 )";
 struct SteadyConstants { uint32_t w, h, inW, inH; float amount, gain; uint32_t hdr; float steady, mvScale; uint32_t histOk; float mvA, mvB, moveCut; };

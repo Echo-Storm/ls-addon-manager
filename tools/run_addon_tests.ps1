@@ -53,12 +53,14 @@ $suites = [ordered]@{
                    Build = @('installer', 'setup_core', 'setup_cli', 'pack_payload', 'LSAddonManagerSetup');
                    Script = "$root\installer\tests\setup_exe_test.ps1" }
     nr        = @{ When = '^addons/DLSS5NR01/(src|tools|CMakeLists)|^manager/sdk/|^tools/run_hosttest_matrix';
-                   Build = @('nr', 'nr_reqtest', 'nr_taptest', 'nr_settingstest', 'nr_autotest', 'nr_rectest', 'nr_lsrec', 'DLSS5NR01', 'DLSS4DLAA', 'FSR3UPSC', 'nr_hosttest', 'nr_selftest');
+                   Build = @('nr', 'nr_reqtest', 'nr_taptest', 'nr_settingstest', 'nr_autotest', 'nr_rectest', 'nr_lsrec', 'nr_sreval', 'DLSS5NR01', 'DLSS4DLAA', 'FSR3UPSC', 'nr_hosttest', 'nr_selftest');
                    Runs = @(@('Neural Rendering requirements check', "$nrBuild\Release\nr_reqtest.exe", @()),
                             @('Neural Rendering settings and looks', "$nrBuild\Release\nr_settingstest.exe", @()),
                             @('Neural Rendering auto quality', "$nrBuild\Release\nr_autotest.exe", @()),
                             @('The recorder (codec and file)', "$nrBuild\Release\nr_rectest.exe", @()),
-                            @('Neural Rendering frame tap', "$nrBuild\Release\nr_taptest.exe", @()));
+                            @('Neural Rendering frame tap', "$nrBuild\Release\nr_taptest.exe", @()),
+                            @('HDR: the upscaler keeps highlights (a made-up fp16 clip with bright glints; sharpening, lean, steady sharpening: no specks)', $env:ComSpec,
+                              @('/c', "`"$nrBuild\Release\nr_lsrec.exe`" make `"$env:TEMP\nr_hdr_test.lsrec`" 1280 720 40 hdr=1 && `"$nrBuild\Release\nr_sreval.exe`" `"$env:TEMP\nr_hdr_test.lsrec`" `"$env:TEMP\nr_hdr_test_out`" count=30 shrink=150 backend=fsr hdr=1 hdrcheck=1 sharpen=80 restmix=50 steady=60 movecut=50 show=0")));
                    Matrix = $true }
 }
 # the XeSS Upscaler is built only when Intel's SDK is in external\xess (tools\fetch_xess_sdk.ps1)

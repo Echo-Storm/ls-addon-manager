@@ -455,3 +455,13 @@ along the plain curve: a running average cannot help in fast motion. What the ey
 (`SetMoveCut`, `nr_sreval movecut=N`, smoothly from 1 to 8 output pixels a frame): flicker / detail 113 % / 137 % at 0, 110 / 131 at 0.3, 107 / 127 at 0.5, 105 / 123 at 0.7, 102 / 117 at 1.0. The plain
 curve (sharpening less everywhere) costs about 0.43 flicker points per detail point, so 102 % would cost it 26 detail points (111 %); the cut keeps 117 %. Upscaling 1.5x (upscaled dB / steady dB, wowb 01,
 wowb 20, shf): cut 0 35.35/41.79, 34.37/37.59, 43.01/40.43; cut 0.5 35.39/42.09, 34.40/37.68, 43.82/41.21; cut 1.0 35.36/41.69, 34.34/37.39, 43.18/40.30. The pass time is unchanged (0.71-0.73 ms).
+
+## HDR in fp16, and the highlight specks (2026-09-30)
+
+`nr_sreval hdr=1` keeps an HDR recording's frames as fp16 light (1 = the SDR white; the recording's own scRGB taken at SDR white 200 nits, as `nr_lsrec export` and the screenshots take it) through the
+engine, scores them tone-mapped, and checks the light: finite, mean, peak. On the Durotar clip (HDR, 2562x1442, upscaled 1.5x, DLSS model E): no passes after the upscaler: peak light 1.28 for an input peak of 1.20, mean 0.998;
+with plain sharpening (0.45): **peak 125.75**, mean 1.026; with everything (sharpening 0.45, Sharpness at rest 0.6, Steady sharpening 0.6, Sharpen less in fast motion 0.5, EASU): peak 125.75. The roll-off
+(`hdr_hlsl.h`: identity to 0.75, then logarithmic, 1.0 = 125.75 times the SDR white) makes a view of 1.0 a 10,000-nit highlight, and `c.rgb + (SdrToLight(r) - SdrToLight(v))` with `r` saturated at 1.0 lets a change that
+only nudges a bright pixel to 1.0 do that (0.02 of the view near the top is three times the light). Fixed by `ApplyViewChange` (the result within 1.5x + 0.5 of the light it had) and `WithinNeighbours` (within 15 % of the range of
+the neighbours' light). After: peak 1.44, mean 1.003, scores within 0.1 dB. On a made-up clip of 1.9-light glints (`nr_lsrec make ... hdr=1`): FSR alone 1.86, XeSS alone 2.24 (the upscalers overshoot their own glints), plain sharpening
+3.1 and 3.8 before the limit, 2.2 and 2.6 after; everything on 2.80 (Catmull-Rom's lean alone 2.39, EASU's 1.90). Also run with the D3D12 debug layer: no messages.

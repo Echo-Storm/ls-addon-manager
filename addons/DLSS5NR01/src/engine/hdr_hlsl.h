@@ -44,6 +44,19 @@ float3 LightToSdr(float3 l) { return LinearToSrgb(Compress(max(l, 0.0))); }
 float3 FromLight(float3 lin, uint encoding, float white) {
     return encoding == 1u ? lin * (white / 80.0) : NitsToPq(mul(kRec709To2020, max(lin, 0.0)) * white);
 }
+// The light, kept within 15 % (plus a little) of the range of its neighbours' light: no ringing. In the SDR view a sharpening's overshoot is a few percent, but the roll-off
+// is steep near its top (0.02 of the view there is three times the light), so a halo around a highlight would be a speck: it is limited here, in light.
+float3 WithinNeighbours(float3 light, float3 a, float3 b, float3 c, float3 d, float3 own) {
+    const float3 lo = min(min(min(a, b), min(c, d)), own), hi = max(max(max(a, b), max(c, d)), own);
+    return max(clamp(light, lo * 0.85 - 0.02, hi * 1.15 + 0.05), 0.0);
+}
+// A change made in the SDR view (viewOld to viewNew) put back on the light it came from. The roll-off's top is steep (an SDR view of exactly 1.0 is 125 times the
+// SDR white, 10000 nits at 80), so a sharpening or a control that only nudges a bright pixel's view to 1.0 would make a 10000-nit speck of it: the result stays
+// within 1.5x of the light it had plus 0.5 of the SDR white (and not below 1/1.5 of it less 0.5, never below 0), which leaves every change in the dark and mid tones alone.
+float3 ApplyViewChange(float3 light, float3 viewOld, float3 viewNew) {
+    const float3 l = max(light, 0.0);
+    return max(clamp(l + (SdrToLight(viewNew) - SdrToLight(viewOld)), l / 1.5 - 0.5, l * 1.5 + 0.5), 0.0);
+}
 float3 FromSdr(float3 s, uint encoding, float white) {
     if (encoding == 0u) return s;
     return FromLight(SdrToLight(s), encoding, white);

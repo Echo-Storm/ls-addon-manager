@@ -1,7 +1,8 @@
 // nr_lsrec: looks into recordings (.lsrec, addon/lsrec.h).
 //   nr_lsrec info <file>                                   what is in it: size, format, frames, time, frame rate, frames left out
 //   nr_lsrec export <file> <folder> [every=N] [first=N] [count=N]   frames as BMP pictures (HDR ones tone-mapped as the screenshots are)
-//   nr_lsrec make <file> <width> <height> <frames> [fps=N]  a made-up recording of a moving picture (for the tests, no game needed)
+//   nr_lsrec make <file> <width> <height> <frames> [fps=N] [hdr=1]  a made-up recording of a moving picture (for the tests, no game needed); hdr=1: half-float light
+//                                                     (1 = the SDR white) with small bright glints (1.2 to 1.9), the kind of highlight a sharpening pass must not turn into a speck
 #include "addon/lsrec.h"
 #include "addon/screenshot.h"
 #include <windows.h>
@@ -102,9 +103,30 @@ static int Make(int argc, char** argv) {
     const uint32_t w = static_cast<uint32_t>(atoi(argv[3])), h = static_cast<uint32_t>(atoi(argv[4])), n = static_cast<uint32_t>(atoi(argv[5]));
     const int fps = std::max(1, Arg(argc, argv, 6, "fps", 60));
     if (w < 64 || h < 64 || !n) { printf("width and height of at least 64, and some frames\n"); return 1; }
+    const bool hdr = Arg(argc, argv, 6, "hdr", 0) != 0;
     std::vector<Frame> frames(n);
-    std::vector<uint8_t> px(static_cast<size_t>(w) * h * 4);
+    std::vector<uint8_t> px(static_cast<size_t>(w) * h * (hdr ? 8 : 4));
     for (uint32_t t = 0; t < n; ++t) {
+        if (hdr) {
+            uint16_t* out = reinterpret_cast<uint16_t*>(px.data());
+            for (uint32_t y = 0; y < h; ++y) for (uint32_t x = 0; x < w; ++x) {
+                const double u = x + 0.5 - t * 3.3, v = y + 0.5 - t * 1.4;
+                const int64_t bx = static_cast<int64_t>(std::floor(u / 12 + 100000)), by = static_cast<int64_t>(std::floor(v / 12 + 100000));
+                const uint32_t c = Hash(static_cast<uint32_t>(bx), static_cast<uint32_t>(by));
+                float rgb[3] = { 0.04f + 0.6f * ((c & 0xFF) / 255.0f), 0.04f + 0.6f * (((c >> 8) & 0xFF) / 255.0f), 0.04f + 0.6f * (((c >> 16) & 0xFF) / 255.0f) };
+                // a glint: a 3x3 patch at the middle of some of the blocks, 1.2 to 1.9 times the SDR white
+                const double fx = u / 12 - std::floor(u / 12), fy = v / 12 - std::floor(v / 12);
+                if (Hash(static_cast<uint32_t>(bx) + 7u, static_cast<uint32_t>(by) + 3u) % 5u == 0 && fx > 0.375 && fx < 0.625 && fy > 0.375 && fy < 0.625) {
+                    const float g = 1.2f + 0.1f * static_cast<float>(c % 8u); rgb[0] = rgb[1] = rgb[2] = g;
+                }
+                uint16_t* p = out + (static_cast<size_t>(y) * w + x) * 4;
+                for (int k = 0; k < 3; ++k) p[k] = DirectX::PackedVector::XMConvertFloatToHalf(rgb[k]);
+                p[3] = DirectX::PackedVector::XMConvertFloatToHalf(1.0f);
+            }
+            frames[t].header.index = t + 1; frames[t].header.qpc = static_cast<int64_t>(t) * 10000000 / fps; frames[t].header.rawBytes = w * h * 8;
+            Compress(px.data(), w * 2, h, w * 8, frames[t].data);
+            continue;
+        }
         for (uint32_t y = 0; y < h; ++y) for (uint32_t x = 0; x < w; ++x) {
             const double u = x + 0.5 - t * 3.3, v = y + 0.5 - t * 1.4;
             const uint32_t c = Hash(static_cast<uint32_t>(static_cast<int64_t>(std::floor(u / 12 + 100000))), static_cast<uint32_t>(static_cast<int64_t>(std::floor(v / 12 + 100000))));
@@ -114,7 +136,8 @@ static int Make(int argc, char** argv) {
         frames[t].header.index = t + 1; frames[t].header.qpc = static_cast<int64_t>(t) * 10000000 / fps; frames[t].header.rawBytes = w * h * 4;
         Compress(px.data(), w, h, w * 4, frames[t].data);
     }
-    FileHeader header; header.width = w; header.height = h; header.format = 87; header.bytesPerPixel = 4; header.source = kPresented; header.qpcFrequency = 10000000;
+    FileHeader header; header.width = w; header.height = h; header.format = hdr ? 10 : 87; header.bytesPerPixel = hdr ? 8 : 4; header.source = kPresented; header.qpcFrequency = 10000000;
+    if (hdr) header.content = kLight;
     snprintf(header.game, sizeof header.game, "nr_lsrec make");
     std::vector<const Frame*> list; for (const Frame& f : frames) list.push_back(&f);
     std::string error;
@@ -127,6 +150,6 @@ int main(int argc, char** argv) {
     if (argc >= 3 && !strcmp(argv[1], "info")) return Info(argv[2]);
     if (argc >= 4 && !strcmp(argv[1], "export")) return Export(argc, argv);
     if (argc >= 6 && !strcmp(argv[1], "make")) return Make(argc, argv);
-    printf("nr_lsrec info <file.lsrec>\nnr_lsrec export <file.lsrec> <folder> [every=N] [first=N] [count=N]\nnr_lsrec make <file.lsrec> <width> <height> <frames> [fps=N]\n");
+    printf("nr_lsrec info <file.lsrec>\nnr_lsrec export <file.lsrec> <folder> [every=N] [first=N] [count=N]\nnr_lsrec make <file.lsrec> <width> <height> <frames> [fps=N] [hdr=1]\n");
     return 1;
 }

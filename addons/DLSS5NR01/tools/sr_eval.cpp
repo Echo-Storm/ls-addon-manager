@@ -98,6 +98,10 @@ int main(int argc, char** argv) {
     const SrEngine::Backend backend = backendName == "dlss" ? SrEngine::Backend::Dlss : backendName == "xess" ? SrEngine::Backend::Xess : SrEngine::Backend::Fsr;
     const int show = Arg(argc, argv, "show", 3);
     const bool pointSampled = ArgText(argc, argv, "sample") == "point";
+    // hdr=1: an HDR recording (fp16 scRGB frames) kept as fp16 light all the way through the engine, as it is live (SDR white 200 nits, as ToRgba8 takes it), and toned down to 8 bits only to be scored
+    const bool hdrMode = Arg(argc, argv, "hdr", 0) != 0 && h.bytesPerPixel == 8;
+    const DXGI_FORMAT frameFmt = hdrMode ? DXGI_FORMAT_R16G16B16A16_FLOAT : DXGI_FORMAT_R8G8B8A8_UNORM;
+    const float hdrScale = h.content == nr::lsrec::kOwnEncoding ? 80.0f / 200.0f : 1.0f;
     const bool noMotion = ArgText(argc, argv, "motion") == "none";   // motion=none: no motion vectors (all zero), to see what ours give
     if (count < 2) { printf("the recording has too few frames\n"); return 2; }
     std::wstring exeDir; { wchar_t exe[MAX_PATH]; GetModuleFileNameW(nullptr, exe, MAX_PATH); exeDir = exe; exeDir = exeDir.substr(0, exeDir.find_last_of(L'\\')); }
@@ -126,7 +130,7 @@ int main(int argc, char** argv) {
         D3D12_RESOURCE_DESC d{}; d.Dimension = D3D12_RESOURCE_DIMENSION_BUFFER; d.Width = size; d.Height = 1; d.DepthOrArraySize = 1; d.MipLevels = 1; d.SampleDesc.Count = 1; d.Layout = D3D12_TEXTURE_LAYOUT_ROW_MAJOR;
         ID3D12Resource* r = nullptr; dev->CreateCommittedResource(&heap, D3D12_HEAP_FLAG_NONE, &d, state, nullptr, IID_PPV_ARGS(&r)); return r;
     };
-    ID3D12Resource* in = texture(w, hh, false); ID3D12Resource* out = texture(W, H, true);
+    ID3D12Resource* in = texture(w, hh, false, frameFmt); ID3D12Resource* out = texture(W, H, true, frameFmt);
     // oracle=1: the motion comes from the full-size frames (oracle_flow.h), not from our estimate: the flow the upscaler is given, as a texture
     const bool oracle = Arg(argc, argv, "oracle", 0) != 0;
     ID3D12Resource* flowTex = oracle ? texture(w, hh, false, DXGI_FORMAT_R16G16B16A16_FLOAT) : nullptr;
@@ -200,6 +204,9 @@ int main(int argc, char** argv) {
     std::vector<uint8_t> px, frame, shrunk, picture, stretched, framePrev, picturePrev, stretchedPrev, framePrev2, picturePrev2, stretchedPrev2;
     double flickOut = 0, flickIn = 0, detailOut = 0, detailIn = 0, flickStretch = 0, detailStretch = 0; int flickN = 0, detailN = 0;
     double sumUp = 0, sumPlain = 0, sumUpC = 0, sumPlainC = 0, sumUpT = 0, sumPlainT = 0; int n = 0;
+    // hdr=1 helpers: light -> 8-bit (the roll-off and sRGB of ToRgba8), and the checks HDR needs
+    auto tone = [](float v) { v = std::max(v, 0.0f); if (v > 0.75f) v = 0.75f + 0.25f * (1.0f - std::exp(-(v - 0.75f) / 0.25f)); v = v <= 0.0031308f ? v * 12.92f : 1.055f * std::pow(v, 1.0f / 2.4f) - 0.055f; return static_cast<uint8_t>(std::clamp(v, 0.0f, 1.0f) * 255.0f + 0.5f); };
+    std::vector<float> frameF, shrunkF; double hdrMeanIn = 0, hdrMeanOut = 0; float hdrMaxIn = 0, hdrMaxOut = 0; uint64_t hdrBad = 0; int hdrN = 0;
     for (int i = 0; i < count; ++i) {
         if (!rec.Read(Arg(argc, argv, "still", 0) != 0 ? first : first + i, px) || !ToRgba8(h, px, frame)) { printf("frame %d could not be read\n", first + i); return 3; }
         if (pointSampled) {   // sample=point: what a game without anti-aliasing renders at a lower size (one sample at each pixel's centre): aliased, so a temporal upscaler has detail to unfold
@@ -209,9 +216,41 @@ int main(int argc, char** argv) {
                 memcpy(&shrunk[(static_cast<size_t>(y) * w + x) * 4], &frame[(static_cast<size_t>(sy) * W + sx) * 4], 4);
             }
         } else ResizeArea(frame, W, H, shrunk, w, hh);
+        if (hdrMode) {   // the frame as light (float), shrunk by area averaging, as half floats into the upload buffer; the plain stretch made in float too
+            const size_t nPix = static_cast<size_t>(W) * H;
+            frameF.resize(nPix * 3);
+            { const uint16_t* hp = reinterpret_cast<const uint16_t*>(px.data());
+              for (size_t k = 0; k < nPix; ++k) for (int c = 0; c < 3; ++c) frameF[k * 3 + c] = DirectX::PackedVector::XMConvertHalfToFloat(hp[k * 4 + c]) * hdrScale; }
+            shrunkF.assign(static_cast<size_t>(w) * hh * 3, 0.0f);
+            for (uint32_t y = 0; y < hh; ++y) for (uint32_t x = 0; x < w; ++x) {
+                const uint32_t x0 = static_cast<uint32_t>(static_cast<uint64_t>(x) * W / w), x1 = std::max(x0 + 1, static_cast<uint32_t>(static_cast<uint64_t>(x + 1) * W / w));
+                const uint32_t y0 = static_cast<uint32_t>(static_cast<uint64_t>(y) * H / hh), y1 = std::max(y0 + 1, static_cast<uint32_t>(static_cast<uint64_t>(y + 1) * H / hh));
+                double a[3] = { 0, 0, 0 }; int cnt = 0;
+                for (uint32_t yy = y0; yy < std::min(y1, H); ++yy) for (uint32_t xx = x0; xx < std::min(x1, W); ++xx) { for (int c = 0; c < 3; ++c) a[c] += frameF[(static_cast<size_t>(yy) * W + xx) * 3 + c]; ++cnt; }
+                for (int c = 0; c < 3; ++c) shrunkF[(static_cast<size_t>(y) * w + x) * 3 + c] = static_cast<float>(a[c] / std::max(cnt, 1));
+            }
+            uint8_t* m = nullptr; upload->Map(0, nullptr, reinterpret_cast<void**>(&m));
+            for (uint32_t y = 0; y < hh; ++y) {
+                uint16_t* row = reinterpret_cast<uint16_t*>(m + inFp.Offset + y * inFp.Footprint.RowPitch);
+                for (uint32_t x = 0; x < w; ++x) { for (int c = 0; c < 3; ++c) row[x * 4 + c] = FloatToHalf(shrunkF[(static_cast<size_t>(y) * w + x) * 3 + c]); row[x * 4 + 3] = FloatToHalf(1.0f); }
+            }
+            upload->Unmap(0, nullptr);
+            stretched.resize(nPix * 4);   // the plain stretch (bilinear, in light), toned down
+            for (uint32_t y = 0; y < H; ++y) for (uint32_t x = 0; x < W; ++x) {
+                const float fx = std::clamp((x + 0.5f) * w / W - 0.5f, 0.0f, static_cast<float>(w - 1)), fy = std::clamp((y + 0.5f) * hh / H - 0.5f, 0.0f, static_cast<float>(hh - 1));
+                const uint32_t ix = static_cast<uint32_t>(fx), iy = static_cast<uint32_t>(fy), jx = std::min(ix + 1, w - 1), jy = std::min(iy + 1, hh - 1); const float ax = fx - ix, ay = fy - iy;
+                for (int c = 0; c < 3; ++c) {
+                    const float v = (shrunkF[(static_cast<size_t>(iy) * w + ix) * 3 + c] * (1 - ax) + shrunkF[(static_cast<size_t>(iy) * w + jx) * 3 + c] * ax) * (1 - ay)
+                                  + (shrunkF[(static_cast<size_t>(jy) * w + ix) * 3 + c] * (1 - ax) + shrunkF[(static_cast<size_t>(jy) * w + jx) * 3 + c] * ax) * ay;
+                    stretched[(static_cast<size_t>(y) * W + x) * 4 + c] = tone(v);
+                }
+                stretched[(static_cast<size_t>(y) * W + x) * 4 + 3] = 255;
+            }
+        } else {
         { uint8_t* m = nullptr; upload->Map(0, nullptr, reinterpret_cast<void**>(&m));
           for (uint32_t y = 0; y < hh; ++y) memcpy(m + inFp.Offset + y * inFp.Footprint.RowPitch, shrunk.data() + static_cast<size_t>(y) * w * 4, w * 4);
           upload->Unmap(0, nullptr); }
+        }
         alloc->Reset(); list->Reset(alloc, nullptr);
         auto barrier = [&](ID3D12Resource* r, D3D12_RESOURCE_STATES a, D3D12_RESOURCE_STATES b) {
             D3D12_RESOURCE_BARRIER br{}; br.Type = D3D12_RESOURCE_BARRIER_TYPE_TRANSITION; br.Transition = { r, D3D12_RESOURCE_BARRIER_ALL_SUBRESOURCES, a, b }; list->ResourceBarrier(1, &br);
@@ -241,7 +280,7 @@ int main(int argc, char** argv) {
         submit();
         queue->Signal(copied, static_cast<uint64_t>(i) + 1);
         // the engine's run, on this thread (live, the engine's own thread runs it): the motion measured from the frames, no sharpening
-        eng.Run(inE, w, hh, DXGI_FORMAT_R8G8B8A8_UNORM, outE, W, H, DXGI_FORMAT_R8G8B8A8_UNORM, flowE, flowE ? w : 0, flowE ? hh : 0, flowE ? 1.0f : 0.0f, 1.0f, !noMotion && !flowE, static_cast<unsigned>(Arg(argc, argv, "preset", 0)), Arg(argc, argv, "sharpen", 0) / 100.0f, i == 0, false,
+        eng.Run(inE, w, hh, frameFmt, outE, W, H, frameFmt, flowE, flowE ? w : 0, flowE ? hh : 0, flowE ? 1.0f : 0.0f, 1.0f, !noMotion && !flowE, static_cast<unsigned>(Arg(argc, argv, "preset", 0)), Arg(argc, argv, "sharpen", 0) / 100.0f, i == 0, hdrMode,
                 copiedE, static_cast<uint64_t>(i) + 1, doneE, static_cast<uint64_t>(i) + 1);
         queue->Wait(done, static_cast<uint64_t>(i) + 1);
         alloc->Reset(); list->Reset(alloc, nullptr);
@@ -252,11 +291,28 @@ int main(int argc, char** argv) {
         barrier(out, D3D12_RESOURCE_STATE_COPY_SOURCE, D3D12_RESOURCE_STATE_COMMON);
         submit();
         picture.resize(static_cast<size_t>(W) * H * 4);
+        if (hdrMode) {   // the fp16 light, checked (finite, its mean and its peak against the frame's) and toned down to be scored
+            uint8_t* m = nullptr; readback->Map(0, nullptr, reinterpret_cast<void**>(&m));
+            double meanOut = 0, meanIn = 0; float maxOut = 0, maxIn = 0;
+            for (uint32_t y = 0; y < H; ++y) {
+                const uint16_t* row = reinterpret_cast<const uint16_t*>(m + outFp.Offset + y * outFp.Footprint.RowPitch);
+                for (uint32_t x = 0; x < W; ++x) for (int c = 0; c < 3; ++c) {
+                    const float v = DirectX::PackedVector::XMConvertHalfToFloat(row[x * 4 + c]);
+                    if (!std::isfinite(v)) { ++hdrBad; picture[(static_cast<size_t>(y) * W + x) * 4 + c] = 0; continue; }
+                    meanOut += v; maxOut = std::max(maxOut, v);
+                    picture[(static_cast<size_t>(y) * W + x) * 4 + c] = tone(v);
+                    const float f = frameF[(static_cast<size_t>(y) * W + x) * 3 + c]; meanIn += f; maxIn = std::max(maxIn, f);
+                }
+            }
+            D3D12_RANGE none{ 0, 0 }; readback->Unmap(0, &none);
+            const double nCh = static_cast<double>(W) * H * 3; if (i >= 8) { hdrMeanIn += meanIn / nCh; hdrMeanOut += meanOut / nCh; hdrMaxIn = std::max(hdrMaxIn, maxIn); hdrMaxOut = std::max(hdrMaxOut, maxOut); ++hdrN; }
+        } else {
         { uint8_t* m = nullptr; readback->Map(0, nullptr, reinterpret_cast<void**>(&m));
           for (uint32_t y = 0; y < H; ++y) memcpy(picture.data() + static_cast<size_t>(y) * W * 4, m + outFp.Offset + y * outFp.Footprint.RowPitch, W * 4);
           D3D12_RANGE none{ 0, 0 }; readback->Unmap(0, &none); }
+        }
         for (size_t k = 3; k < picture.size(); k += 4) picture[k] = 255;
-        ResizeBilinear(shrunk, w, hh, stretched, W, H);
+        if (!hdrMode) ResizeBilinear(shrunk, w, hh, stretched, W, H);
         if (const int saveFrame = Arg(argc, argv, "saveframe", -1); saveFrame >= 0 && first + i == saveFrame)   // saveframe=N: that frame as it is | upscaled | stretched, as frameN.bmp
             WriteBmp(outDir + L"\\frame" + std::to_wstring(saveFrame) + L".bmp", { &frame, &picture, &stretched }, W, H);
         Score s; s.frame = first + i;
@@ -291,13 +347,19 @@ int main(int argc, char** argv) {
         for (int j = 1; j <= bench; ++j) {
             const uint64_t v = static_cast<uint64_t>(count) + j;
             queue->Signal(copied, v);
-            eng.Run(inE, w, hh, DXGI_FORMAT_R8G8B8A8_UNORM, outE, W, H, DXGI_FORMAT_R8G8B8A8_UNORM, flowE, flowE ? w : 0, flowE ? hh : 0, flowE ? 1.0f : 0.0f, 1.0f, !noMotion && !flowE, static_cast<unsigned>(Arg(argc, argv, "preset", 0)), Arg(argc, argv, "sharpen", 0) / 100.0f, false, false,
+            eng.Run(inE, w, hh, frameFmt, outE, W, H, frameFmt, flowE, flowE ? w : 0, flowE ? hh : 0, flowE ? 1.0f : 0.0f, 1.0f, !noMotion && !flowE, static_cast<unsigned>(Arg(argc, argv, "preset", 0)), Arg(argc, argv, "sharpen", 0) / 100.0f, false, hdrMode,
                     copiedE, v, doneE, v);
         }
         HANDLE ev = CreateEventW(nullptr, FALSE, FALSE, nullptr);
         done->SetEventOnCompletion(static_cast<uint64_t>(count) + bench, ev); WaitForSingleObject(ev, 60000); CloseHandle(ev);
         Sleep(50);
         printf("bench %d runs back to back: ", bench);
+    }
+    if (hdrMode && hdrN) printf("HDR (fp16 light): non-finite values %llu; mean light in %.4f out %.4f (out / in %.3f); peak light in %.2f out %.2f (out / in %.2f)\n", static_cast<unsigned long long>(hdrBad), hdrMeanIn / hdrN, hdrMeanOut / hdrN, hdrMeanOut / std::max(1e-9, hdrMeanIn), hdrMaxIn, hdrMaxOut, hdrMaxOut / std::max(1e-9f, hdrMaxIn));
+    if (hdrMode && hdrN && Arg(argc, argv, "hdrcheck", 0) != 0) {   // hdrcheck=1: the test's verdict: nothing non-finite, the mean light kept within 3 %, and no highlight made much brighter (a speck)
+        const bool ok = hdrBad == 0 && std::fabs(hdrMeanOut / std::max(1e-9, hdrMeanIn) - 1.0) < 0.03 && hdrMaxOut <= hdrMaxIn * 1.5f + 0.6f;
+        printf("%s  the HDR checks (finite, mean light within 3 %%, no highlight above 1.5x + 0.6 of the input's peak)\n", ok ? "PASS" : "FAIL");
+        if (!ok) return 1;
     }
     if (debugLayer) printf("D3D12 debug layer: %d messages (errors, corruption, warnings)\n", s_debugMessages);
     printf("GPU time per frame at the end: everything %.2f ms, the motion estimate %.2f ms, after the upscaler (lean, edges, sharpening) %.2f ms\n", eng.GpuMs(), eng.MotionMs(), eng.AfterMs());
