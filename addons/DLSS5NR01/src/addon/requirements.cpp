@@ -180,8 +180,8 @@ Report Evaluate(const Inputs& in) {
         const std::string what = "version " + (ver.empty() ? std::string("unknown") : ver) + ", " + SizeText(in.modelSize);
         if (in.modelSignatureBad)
             rep.rows.push_back(MakeRow("Model file", Level::Note, what + ": Windows does not accept its digital signature (" + in.modelSignatureText + ")",
-                                       "NVIDIA's loader checks the signature too and refuses a file that fails it (the log says \"The digital signature of the object did not verify\" "
-                                       "and the engine fails with PlatformError). Try an unchanged copy of the file."));
+                                       "NVIDIA's loader checks the signature too. With driver 617.14 it refuses a file that fails it (the log says \"The digital signature of the object did not verify\" "
+                                       "and the engine fails with PlatformError), so a copy that was changed after NVIDIA signed it does not run there. Try an unchanged copy of the file."));
         else if (tested) rep.rows.push_back(MakeRow("Model file", Level::Ok, what + ": the build this addon was tested with"));
         else rep.rows.push_back(MakeRow("Model file", Level::Note, what + ": not the build this addon was tested with (" + std::string(kTestedModelVersion) + ")",
                                         "It may still work. If the engine fails to start, this file is the first thing to check."));
