@@ -92,9 +92,6 @@ int main(int argc, char** argv) {
     Check("the tested version but another size is also only a note", Find(r, "Model file")->level == Level::Note);
     in = Good(); in.modelVersion.clear(); r = Evaluate(in);
     Check("a model with no readable version is a note", Find(r, "Model file")->level == Level::Note && Has(Find(r, "Model file")->value, "unknown"));
-    in = Good(); in.modelSignatureBad = true; in.modelSignatureText = "the file was changed after it was signed"; r = Evaluate(in);
-    Check("a model whose signature fails: a note that says why, and that the loader refuses it",
-          Find(r, "Model file")->level == Level::Note && Has(Find(r, "Model file")->value, "changed after it was signed") && Has(Find(r, "Model file")->hint, "did not verify") && Has(r.headline, "Model file"));
 
     in = Good(); in.helperFound = false; r = Evaluate(in);
     Check("helper DLL missing: Missing, hint says the addon folder is incomplete", Find(r, "Helper DLL")->level == Level::Missing && Has(Find(r, "Helper DLL")->hint, "incomplete"));

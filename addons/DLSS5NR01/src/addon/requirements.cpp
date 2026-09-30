@@ -1,8 +1,6 @@
 #include "requirements.h"
 #include "forwarder/nr_api.h"
 #include <windows.h>
-#include <softpub.h>
-#include <wintrust.h>
 #include <dxgi.h>
 #include <cstdio>
 #include <cstdlib>
@@ -10,7 +8,6 @@
 #pragma comment(lib, "version.lib")
 #pragma comment(lib, "dxgi.lib")
 #pragma comment(lib, "advapi32.lib")
-#pragma comment(lib, "wintrust.lib")
 
 namespace req {
 
@@ -53,32 +50,6 @@ std::string FileVersion(const std::wstring& path) {
     char v[64];
     snprintf(v, sizeof v, "%u.%u.%u.%u", HIWORD(fixedInfo->dwFileVersionMS), LOWORD(fixedInfo->dwFileVersionMS), HIWORD(fixedInfo->dwFileVersionLS), LOWORD(fixedInfo->dwFileVersionLS));
     return v;
-}
-
-// True when Windows rejects the file's embedded Authenticode signature for a reason about the file (changed after signing, unsigned, a bad
-// certificate). Offline, no revocation lookups; a failure to run the check at all counts as fine.
-bool SignatureProblem(const std::wstring& path, std::string& why) {
-    WINTRUST_FILE_INFO file = {};
-    file.cbStruct = sizeof file;
-    file.pcwszFilePath = path.c_str();
-    WINTRUST_DATA data = {};
-    data.cbStruct = sizeof data;
-    data.dwUIChoice = WTD_UI_NONE;
-    data.fdwRevocationChecks = WTD_REVOKE_NONE;
-    data.dwUnionChoice = WTD_CHOICE_FILE;
-    data.pFile = &file;
-    data.dwStateAction = WTD_STATEACTION_VERIFY;
-    data.dwProvFlags = WTD_CACHE_ONLY_URL_RETRIEVAL | WTD_REVOCATION_CHECK_NONE;
-    GUID policy = WINTRUST_ACTION_GENERIC_VERIFY_V2;
-    const LONG rc = WinVerifyTrust(nullptr, &policy, &data);
-    data.dwStateAction = WTD_STATEACTION_CLOSE;
-    WinVerifyTrust(nullptr, &policy, &data);
-    if (rc == 0) return false;
-    const unsigned long code = static_cast<unsigned long>(rc);
-    if (code == static_cast<unsigned long>(TRUST_E_BAD_DIGEST)) why = "the file was changed after it was signed";
-    else if (code == static_cast<unsigned long>(TRUST_E_NOSIGNATURE)) why = "the file is not signed";
-    else { char b[48]; snprintf(b, sizeof b, "check failed, 0x%08lx", code); why = b; }
-    return true;
 }
 
 bool FileSize(const std::wstring& path, uint64_t& size) {
@@ -178,11 +149,7 @@ Report Evaluate(const Inputs& in) {
         const std::string ver = VersionShort(in.modelVersion);
         const bool tested = ver == kTestedModelVersion && in.modelSize == kTestedModelSize;
         const std::string what = "version " + (ver.empty() ? std::string("unknown") : ver) + ", " + SizeText(in.modelSize);
-        if (in.modelSignatureBad)
-            rep.rows.push_back(MakeRow("Model file", Level::Note, what + ": Windows does not accept its digital signature (" + in.modelSignatureText + ")",
-                                       "NVIDIA's loader checks the signature too. With driver 617.14 it refuses a file that fails it (the log says \"The digital signature of the object did not verify\" "
-                                       "and the engine fails with PlatformError), so a copy that was changed after NVIDIA signed it does not run there. Try an unchanged copy of the file."));
-        else if (tested) rep.rows.push_back(MakeRow("Model file", Level::Ok, what + ": the build this addon was tested with"));
+        if (tested) rep.rows.push_back(MakeRow("Model file", Level::Ok, what + ": the build this addon was tested with"));
         else rep.rows.push_back(MakeRow("Model file", Level::Note, what + ": not the build this addon was tested with (" + std::string(kTestedModelVersion) + ")",
                                         "It may still work. If the engine fails to start, this file is the first thing to check."));
     }
@@ -536,10 +503,7 @@ Inputs Gather(const std::wstring& modelPath, const std::wstring& addonDir) {
     // The model and this addon's helper
     in.modelPath = Utf8(modelPath);
     in.modelFound = FileSize(modelPath, in.modelSize);
-    if (in.modelFound) {
-        in.modelVersion = FileVersion(modelPath);
-        in.modelSignatureBad = SignatureProblem(modelPath, in.modelSignatureText);
-    }
+    if (in.modelFound) in.modelVersion = FileVersion(modelPath);
     uint64_t helperSize = 0;
     in.helperFound = FileSize(addonDir + L"\\" NR_FORWARDER_FILENAME, helperSize);
     return in;

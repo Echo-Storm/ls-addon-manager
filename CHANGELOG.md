@@ -1,11 +1,5 @@
 # Changelog
 
-## Unreleased
-
-- **Neural Rendering says when the model file's digital signature does not verify.** Found from issue 6: with driver 617.14 NVIDIA's loader refuses a
-  `nvngx_dlssnr.dll` that was changed after NVIDIA signed it ("The digital signature of the object did not verify"), and the engine then only reports
-  `CreateFeature(18): PlatformError`. The Requirements panel now checks the signature the way Windows does and the Model file row says so.
-
 ## 0.9.20 (2026-09-29)
 
 A bug sweep: every test suite run in full (the manager, the installer, the window, and all 48 Neural Rendering scenarios), plus a review of what changed since 0.9.12.

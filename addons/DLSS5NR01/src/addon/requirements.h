@@ -48,8 +48,6 @@ struct Inputs {
     bool modelFound = false;
     uint64_t modelSize = 0;
     std::string modelVersion;                // its file version, "310.8.0.0" (or "310,8,0,0")
-    bool modelSignatureBad = false;          // Windows says its digital signature does not verify (NVIDIA's loader refuses such a file)
-    std::string modelSignatureText;          // why, in words: "the file was changed after it was signed", "it is not signed", ...
 
     bool helperFound = false;                // nvngx.dll_dlss5nr01.dll beside the addon
 
