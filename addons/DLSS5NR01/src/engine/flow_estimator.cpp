@@ -528,7 +528,8 @@ FlowEstimator::Pass FlowEstimator::MakePass(int slot, int& index, ID3D12Resource
 }
 
 void FlowEstimator::Record(ID3D12GraphicsCommandList* list, int slot, ID3D12Resource* frame, DXGI_FORMAT frameFormat, ID3D12Resource* motion, ID3D12Resource* distrust,
-                           float stability, uint32_t encoding, float whiteNits) {
+                           float stability, uint32_t encoding, float whiteNits, int reuse) {
+    if (!m_havePrevious) reuse = 0;
     const int cur = m_current, prev = 1 - m_current;
     int index = 0;
     auto stamp = [&](int i) { if (m_stamps) list->EndQuery(m_stamps, D3D12_QUERY_TYPE_TIMESTAMP, static_cast<UINT>(slot * kStamps + i)); };
@@ -564,7 +565,7 @@ void FlowEstimator::Record(ID3D12GraphicsCommandList* list, int slot, ID3D12Reso
         run(Down, srv, fmt, m_luma[cur][k], R16, Constants{ m_lw[k], m_lh[k], m_lw[k - 1], m_lh[k - 1] }, m_lw[k], m_lh[k], true);
     }
     stamp(1);
-    if (m_havePrevious) {
+    if (m_havePrevious && reuse == 0) {
         const int top = m_levels - 1;
         {   // the whole picture's shift, at the smallest size
             ID3D12Resource* const srv[4] = { m_luma[cur][top], m_luma[prev][top], nullptr, nullptr }; const DXGI_FORMAT fmt[4] = { R16, R16, NONE, NONE };
@@ -585,8 +586,8 @@ void FlowEstimator::Record(ID3D12GraphicsCommandList* list, int slot, ID3D12Reso
             run(Median, srv, fmt, m_filtered, RG16, Constants{ m_gw[1], m_gh[1] }, m_gw[1], m_gh[1], true);
         }
         stamp(3);
-    }
-    {   // every pixel (zero without a frame before)
+    } else { stamp(2); stamp(3); }
+    if (reuse != 2) {   // every pixel (zero without a frame before)
         ID3D12Resource* const srv[4] = { m_luma[cur][0], m_luma[prev][0], m_filtered, nullptr }; const DXGI_FORMAT fmt[4] = { R16, R16, RG16, NONE };
         Constants c{ m_lw[0], m_lh[0], m_gw[1], m_gh[1], 0, 0, 0, m_havePrevious ? 1u : 0u, kLambda, kBias, std::clamp(stability, 0.0f, 1.0f), 0.0f, m_fastMotion };
         run(Pixel, srv, fmt, motion, RG16, c, m_lw[0], m_lh[0], false, distrust);

@@ -43,15 +43,18 @@ public:
     // old textures are kept until the caller's fence passes retireAt (Collect), so the frame path never waits for a size change.
     bool Ensure(uint32_t w, uint32_t h, uint64_t retireAt = 0);
     void Collect(uint64_t completed);   // frees retired textures whose work the GPU has finished
-    void Forget() { m_havePrevious = false; }   // the next frame has no frame before (a cut)
+    void Forget() { m_havePrevious = false; }
+    bool HasPrevious() const { return m_havePrevious; }   // the next frame has no frame before (a cut)
 
     // Records the passes. frame: the game's frame (readable, NON_PIXEL_SHADER_RESOURCE; RGBA8); motion: RG16F at the frame's size, in
     // UNORDERED_ACCESS, receives the vectors; distrust: R8 at the frame's size, in UNORDERED_ACCESS, receives the mask (0 trusted .. 1 not).
     // Leaves the command list's descriptor heap and root signature changed.
     // stability 0..1: how far the distrust mask looks past flicker (see the pixel pass). encoding: the frame's (hdr_hlsl.h: 0 SDR, 1 scRGB,
     // 2 HDR10), matched in its SDR view with the SDR white whiteNits (the upscaler hands its SDR view in already: 0).
+    // reuse (needs a frame before and an earlier full estimate): 0 estimates in full; 1 keeps the block vectors of the last full estimate and only refines them per pixel
+    // (skips the search); 2 keeps the last vectors and mask untouched (skips everything but this frame's pyramid, which the next estimate needs).
     void Record(ID3D12GraphicsCommandList* list, int slot, ID3D12Resource* frame, DXGI_FORMAT frameFormat, ID3D12Resource* motion, ID3D12Resource* distrust,
-                float stability = 0.0f, uint32_t encoding = 0, float whiteNits = 80.0f);
+                float stability = 0.0f, uint32_t encoding = 0, float whiteNits = 80.0f, int reuse = 0);
     // After the engine has reused the slot (its earlier work is finished): that frame's statistics join the running totals.
     void ReadStats(int slot);
     // The average vector (game pixels), match cost (0..1 per pixel) and distrust (0..1) since the last call; false when no frame was measured.

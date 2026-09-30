@@ -455,6 +455,12 @@ void DrawPanel() {
                 "and tell us which you prefer.");
         }
         {
+            if (ImGui::Checkbox("Share motion between generated frames", &c.scalerReuseMotion)) changed = true;
+            Tip("With frame generation, two frames are shown for each one the game draws, and the motion from one to the next is about the same for both steps. On: every "
+                "other frame keeps the motion of the one before instead of measuring it again, which saves about a quarter of a millisecond a frame at 4K and scored the same "
+                "on recordings. Off: measured for every frame. It does nothing without frame generation.");
+        }
+        {
             if (ImGui::Checkbox("Motion by shape (test)", &c.motionShapes)) changed = true;
             Tip("A test, off by default. The motion the upscaler is given is found by matching small patches of the frame before to this one. Off: by "
                 "their brightness, as before. On: by their shape and edges, with the brightness itself counting little, so a flash, a spell effect, a "

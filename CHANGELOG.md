@@ -2,6 +2,9 @@
 
 ## Unreleased
 
+- **With frame generation, every other presented frame keeps the motion estimate of the one before** ("Share motion between generated frames", on by default; it does nothing
+  without frame generation). Two frames are shown for each one the game draws and the motion from one to the next is about the same for both steps. The estimate's time
+  fell from 0.39 to 0.23 ms a frame on average at 4K with the same scores on the recordings (used here as a harsher test: their steps are whole game frames, not halves).
 - **The passes after the upscaler move fewer bytes.** In HDR they are limited by memory traffic (about 0.97 ms at 4K in one log, six 66 MB pictures read or written): Steady
   sharpening's running average is now kept in 10 bits a channel (4 bytes instead of 8; it holds the SDR view, 0 to 1) and is not read at all where the pixel moves too fast to
   trust it. The same quality on the recordings; the gain shows in HDR (`nr_sreval bench=N` times the passes back to back).

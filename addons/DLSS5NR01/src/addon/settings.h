@@ -38,6 +38,7 @@ struct Config {
     float scalerSteadySharp = 0.6f;     // sharpening follows the picture's stability: 0..0.9, how much of the running average it sharpens from (SrEngine::SetSteadySharpen; 0 off)
     float scalerLeanFrom = 0.0f;        // the motion the lean starts from, in % of the frame's width a frame (0: automatic, 0.1 at 1:1 and 0.05 upscaling)
     bool leanEasu = false;              // a test: the moving picture (the lean) is FSR 1's edge-adaptive EASU of the frame, not Catmull-Rom (SrEngine::SetLeanMode)
+    bool scalerReuseMotion = true;      // with frame generation (two or more frames presented per real one), every other frame keeps the motion estimate of the one before (SrEngine::SetFlowReuse)
     bool motionShapes = false;          // a test: the motion matched by shape and edges, not brightness (SrEngine::SetMeanWeight / SetGradWeight)
     float scalerStability = 0.0f;        // the upscalers: less shimmer, more trailing (SrEngine::SetStability)
     float scalerEdges = 0.0f;            // the upscalers: edge smoothing of the upscaled picture (SrEngine::SetEdgeSmoothing)

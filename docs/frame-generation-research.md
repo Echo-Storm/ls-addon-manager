@@ -428,3 +428,20 @@ No-reference detail against the game's own frames (wowb 01 | shf): FSR with RCAS
 both +0.55 ms, both with Steady sharpening +0.74 ms (+0.17 for it). In HDR (fp16, 66 MB a picture) one live log had 0.97 ms for the lean and the two-pass steady sharpening: six full pictures
 read or written is about 0.5 GB, about 1 ms at the card's 500 GB/s, so bytes, not arithmetic, are the limit there. Folding the lean into the sharpening tile was rejected: it would evaluate
 the lean 2.25 times for the halo, and the lean is already about twice its own bandwidth time. Done: the running average in R10G10B10A2 (4 bytes), and no history read where it is not trusted.
+
+## Sharing the motion between generated frames (2026-09-30)
+
+With frame generation the upscaler is given two frames for each the game draws; the log says "2 presented per real frame" and the motion estimate took 0.66 ms of a presented
+frame's 2.47 ms. `SrEngine::SetFlowReuse` / `nr_sreval flowreuse=N` keep the last estimate on every other frame: 1 keeps the block vectors and only refines them per pixel,
+2 keeps the vectors and the distrust mask untouched (the pyramid, which the next estimate needs, is still built). Upscaling 1.5x, sharpen 0.5, rest 0.5, steady 0.6, the
+recordings' frames as consecutive steps (whole game frames, so a harsher test than half steps; upscaled dB / steady dB):
+
+| | wowb 01 | wowb 20 | shf | motion estimate, GPU (`bench=400`) |
+|---|---|---|---|---|
+| every frame | 35.35 / 41.79 | 34.37 / 37.59 | 43.01 / 40.43 | 0.39 ms |
+| 1: refine only | 35.30 / 41.58 | 34.34 / 37.45 | 42.31 / 39.55 | 0.28 ms |
+| 2: keep everything | 35.34 / 41.79 | 34.37 / 37.56 | 43.07 / 40.44 | 0.23 ms |
+
+Mode 1 loses (a stale block vector misleads the per-pixel step); mode 2 is as good as estimating every frame and 41 % cheaper for the estimate. The whole run's time did not move in the
+back-to-back benchmark (it is limited by the CPU side or the upscaler there), so the gain is the estimate's own 0.16 ms a frame, about 6 % of a presented frame here; live it is
+"motion" in the log ("DLSS 2.47 ms a presented frame (motion 0.66)" before). The panel has "Share motion between generated frames" (on); it acts only when two or more frames are presented per real one.

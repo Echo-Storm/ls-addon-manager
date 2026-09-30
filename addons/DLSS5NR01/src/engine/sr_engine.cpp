@@ -605,7 +605,7 @@ bool SrEngine::Shutdown() {
     if (m_feature) { NVSDK_NGX_D3D12_ReleaseFeature(static_cast<NVSDK_NGX_Handle*>(m_feature)); m_feature = nullptr; }
     if (m_params) { NVSDK_NGX_D3D12_DestroyParameters(static_cast<NVSDK_NGX_Parameter*>(m_params)); m_params = nullptr; }
     if (m_ngxJoined) { m_ngxJoined = false; if (nr::ngxusers::Leaving() && m_dev) NVSDK_NGX_D3D12_Shutdown1(m_dev); else Log("DLSS upscaler: NGX left running (another addon still uses it)"); }
-    m_estimator.Shutdown(); m_estimatedLast = false; m_estimates = 0;
+    m_estimator.Shutdown(); m_estimatedLast = false; m_estimates = 0; m_haveMotion = false; m_flowPhase = 0;
     SafeRelease(m_motion); SafeRelease(m_distrust); SafeRelease(m_depth); SafeRelease(m_depthUpload);
     SafeRelease(m_leanPso); SafeRelease(m_leanRoot); SafeRelease(m_leaned); m_leanedW = m_leanedH = 0;
     SafeRelease(m_steadyPso); SafeRelease(m_steadyRoot); for (auto*& t : m_sharpHist) SafeRelease(t); m_sharpHistW = m_sharpHistH = 0; m_sharpHistValid = false;
@@ -1114,8 +1114,12 @@ bool SrEngine::Run(ID3D12Resource* in, uint32_t inW, uint32_t inH, DXGI_FORMAT i
     if (fsr) ConfigureFsrStability(stability);
     bool estimating = estimate && m_estimator.IsReady();
     if (estimating && m_estimator.NeedsResize(inW, inH)) { WaitIdle(); estimating = m_estimator.Ensure(inW, inH); }
-    if (estimating && !m_estimatedLast) m_estimator.Forget();   // its frame before is not the one before this
+    if (estimating && !m_estimatedLast) { m_estimator.Forget(); m_haveMotion = false; m_flowPhase = 0; }   // its frame before is not the one before this
     m_estimatedLast = estimating;
+    // Every other frame the estimate is kept or only refined (SetFlowReuse): with frame generation two frames are presented for each the game draws, and the motion from one to
+    // the next is about the same for both steps
+    const int reuse = estimating && m_haveMotion && m_flowReuse.load() > 0 && (m_flowPhase & 1) ? m_flowReuse.load() : 0;
+    if (estimating) ++m_flowPhase;
     // the lean (every upscaler): its picture into m_unsharpened, the leaned one into the output, or into m_leaned when edges or sharpening follow
     const bool leaning = estimating && !m_noMask && (m_fastMotion.load() != 0.0f || m_leanRest.load() > 0.001f) && m_leanPso && EnsureSharpenTarget(outW, outH, outFormat) &&
                          (!(sharpening || smoothing) || EnsureLeanTarget(outW, outH, outFormat));
@@ -1219,7 +1223,8 @@ bool SrEngine::Run(ID3D12Resource* in, uint32_t inW, uint32_t inH, DXGI_FORMAT i
         { const float fast = m_fastMotion.load(); m_estimator.SetFastMotion(fast >= 0.0f ? fast : (m_fastShare.load() > 0.0f ? m_fastShare.load() : inW == outW && inH == outH ? kFastMotionShare : kFastMotionShareUpscaling) * static_cast<float>(inW)); }
         Transition(m_distrust, D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE, D3D12_RESOURCE_STATE_UNORDERED_ACCESS);
         m_estimator.Record(m_list, slot, hdr ? m_view : in, hdr ? DXGI_FORMAT_R16G16B16A16_FLOAT : inFormat == DXGI_FORMAT_UNKNOWN ? DXGI_FORMAT_R8G8B8A8_UNORM : inFormat,
-                           m_motion, m_distrust, stability);
+                           m_motion, m_distrust, stability, 0, 80.0f, reuse);
+        if (reuse == 0) m_haveMotion = true;
         Transition(m_distrust, D3D12_RESOURCE_STATE_UNORDERED_ACCESS, D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE);
     } else {
         m_list->SetDescriptorHeaps(1, heaps);
