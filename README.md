@@ -14,10 +14,10 @@ Around them, the manager installs and switches addons, shows the machine's load 
 updates itself. It is free, MIT-licensed and unofficial: not affiliated with the Lossless Scaling developers. Read the [disclaimer](DISCLAIMER.md) before installing.
 
 [![build](https://github.com/Echo-Storm/ls-addon-manager/actions/workflows/build.yml/badge.svg)](https://github.com/Echo-Storm/ls-addon-manager/actions/workflows/build.yml)
-&nbsp; **0.9.20**, on the way to 1.0 ([roadmap](ROADMAP.md)) &nbsp;·&nbsp; Lossless Scaling 3.2.2.0 &nbsp;·&nbsp; Windows 10 or 11, x64
+&nbsp; **0.9.21**, on the way to 1.0 ([roadmap](ROADMAP.md)) &nbsp;·&nbsp; Lossless Scaling 3.2.2.0 &nbsp;·&nbsp; Windows 10 or 11, x64
 
 > [!TIP]
-> **New in 0.9.19:** the upscalers get a **Sharpness at rest** slider (still scenes were softer than moving ones) and a test of crisper edges when moving.
+> **New in 0.9.21:** the upscalers get **Steady sharpening (test)** (sharpness at rest without amplifying the game's shimmer) and **Sharpness at rest** now starts at 0.5. Before that, 0.9.19 added the Sharpness at rest slider and a test of crisper edges when moving.
 > **0.9.18:** the recorder is one setting for all the addons (switch it on in any panel).
 > **0.9.17:** the upscalers start in about a second again (0.9.14 to 0.9.16 took nearly ten).
 > **0.9.16:** the DLSS Upscaler starts with Neural Rendering on; the Performance tab works on AMD and Intel cards; the compatibility test
