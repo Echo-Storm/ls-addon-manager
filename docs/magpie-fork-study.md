@@ -89,3 +89,24 @@ of Durotar (red cracked ground), model at working scale 0.3.
 
 - **Engine CPU** (`nr_sreval bench=400`, the engine thread, per presented frame): DLSS 0.3 to 0.5 ms, FSR 0.35, XeSS 0.27, whichever of our passes are on (0.16 to 0.35 ms between settings, within the tool's resolution): about 3 % of one core at 120 frames a second. The Neural Rendering tap costs 0.1 to 0.3 ms a real frame and its compose 0.02 ms of CPU. Sampling the timestamp queries or keeping readback buffers mapped would save microseconds: not done.
 - **Neural Rendering compose GPU** (`nr_composebench`, 4K, RTX 4070 Ti SUPER): SDR 0.23 ms (0.29 with sharpening); HDR scRGB 0.59 ms (0.94 with sharpening). Arithmetic-bound by the view conversions (a logarithm and a power a channel each way), and the sharpening converted each of four neighbours again for every pixel. Now 0.56 and 0.83 ms (tile shared, round trips removed); the rest is the copy of the frame, the flow and delta reads and the conversions the result needs.
+
+## Persistence with hysteresis and the other filters, tried offline (2026-09-30)
+
+`tools/nr_filter_lab.py` runs candidate temporal filters on the model's own raw change from the owner's recordings (`nr_nreval smooth=0 dump=file`: per frame, the still-pixel mask and the change, at working
+scale 0.3), and scores the flicker left where the game's frame stood still and the frames each filter takes to come 90 % of the way to a clean step of 0.02, 0.05 and 0.10 (a flicker is only better at the same
+response). Durotar (raw 0.79 levels of 255; today's weight at slider 0.8, 0.95, leaves 0.091 = 12 %, 44 frames to a step) and the character screen (raw 0.52 -> 0.079, 15 %):
+
+| filter | Durotar flicker | response (0.02 / 0.05 / 0.10) | character screen flicker |
+|---|---|---|---|
+| EMA 0.95 (today at 0.8) | 0.091 | 44 / 44 / 44 | 0.079 |
+| EMA 0.97 | 0.063 | 75 / 75 / 75 | 0.057 |
+| fast 0.6 and slow 0.97 histories, slow reset to fast after 3 frames apart by > 0.02 (their C) | 0.084 | 75 / 12 / 28 | 0.068 |
+| the same with slow 0.98 | 0.074 | 88 / 16 / 41 | 0.059 |
+| stateless robust average, weight 0.97 -> 0.5 as the new value leaves the history by 0.02 to 0.06 | 0.078 | 75 / 54 / 32 | 0.064 |
+| variance-adaptive (a running noise estimate per pixel) | 0.076 | 53 / 43 / 34 | 0.064 |
+| **persistence with hysteresis (their F), 60 ms up / 180 ms down** | **0.322** | 7 | |
+
+Persistence loses clearly: the model's noise is amplitude jitter, not corrections flipping on and off, and the presence channel adds flicker of its own. The others slide along one frontier, at best 10 to 20 % less
+flicker at equal response for a second history texture (fast/slow) or a noise channel (adaptive): not perceptible on a residual of 0.1 to 0.3 levels, so not built. What dominates what is seen: on the Durotar clip **the
+game's own frames flicker at about 7 levels** (`nr_sreval`, "flicker" of the game's frames) against 0.3 to 1.0 from the model; sharpening amplifies that (the upscaler's sharpening 0.45 gives 113 % of it), and a second
+sharpener after the upscaler, Neural Rendering's own `sharpen` in the compose pass, stacks on top.

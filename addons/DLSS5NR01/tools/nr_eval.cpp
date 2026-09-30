@@ -1,7 +1,7 @@
 // nr_nreval: runs Neural Rendering's model (the addon's own NrEngine, with the user's nvngx_dlssnr.dll) on a recording and scores the flicker it adds.
 //
 //   nr_nreval <recording.lsrec> <output folder> [first=N] [count=N] [scale=50] [smooth=40] [passes=1] [intensity=100] [model=<path to nvngx_dlssnr.dll>]
-//             [lsdir=<Lossless Scaling folder>] [show=N] [maxdelta=50] [still=3]
+//             [lsdir=<Lossless Scaling folder>] [show=N] [maxdelta=50] [still=3] [stable=N] [dump=file] [lightlog=1]
 //
 // The picture shown is the game's frame plus the model's change (its "delta", at the working size, stretched to the frame's and clamped to
 // maxdelta percent), as the addon's compose adds it. Per frame, against the frame before:
@@ -191,6 +191,12 @@ int main(int argc, char** argv) {
     std::vector<Score> scores;
     std::vector<uint8_t> px, frame, framePrev, pic, picPrev;
     std::vector<float> d, dPrev, mv, mvPrev;
+    // dump=file (with smooth=0): every frame's still-pixel mask (1 where the game's frame did not change) and the model's own change there, as half floats, for tools/nr_filter_lab.py
+    FILE* dumpFile = nullptr;
+    if (const std::string dumpPath = ArgText(argc, argv, "dump"); !dumpPath.empty()) {
+        fopen_s(&dumpFile, dumpPath.c_str(), "wb");
+        if (dumpFile) { const uint32_t head[2] = { dw, dh }; fwrite(head, sizeof head, 1, dumpFile); }
+    }
     std::vector<uint8_t> heat; int heatFrame = -1;    double sumSteady = 0, sumStill = 0, sumMoving = 0, sumP95 = 0, sumLag = 0, sumPlain = 0; int n = 0;
     std::vector<double> lightShift;   // per frame: the model's mean change of the picture's brightness (levels of 255): lighting pumping
     for (int i = 0; i < count; ++i) {
@@ -267,6 +273,17 @@ int main(int argc, char** argv) {
                 sum += dl * 255.0; ++cnt;
             }
             s.still = cnt > W * H / 100 / 64 ? sum / cnt : 0.0;   // (at least about 1 % of the picture still)
+            if (dumpFile) {
+                std::vector<uint8_t> mask(static_cast<size_t>(dw) * dh); std::vector<uint16_t> half(static_cast<size_t>(dw) * dh * 3);
+                for (uint32_t y = 0; y < dh; ++y) for (uint32_t x = 0; x < dw; ++x) {
+                    const uint32_t fx = std::min(W - 1, static_cast<uint32_t>((x + 0.5) * W / dw)), fy = std::min(H - 1, static_cast<uint32_t>((y + 0.5) * H / dh));
+                    const size_t o = (static_cast<size_t>(fy) * W + fx) * 4, k = static_cast<size_t>(y) * dw + x;
+                    int diff = 0; for (int c = 0; c < 3; ++c) diff = std::max(diff, std::abs(int(frame[o + c]) - int(framePrev[o + c])));
+                    mask[k] = diff <= stillLevels ? 1 : 0;
+                    for (int c = 0; c < 3; ++c) half[k * 3 + c] = FloatToHalf(d[k * 4 + c]);
+                }
+                fwrite(mask.data(), 1, mask.size(), dumpFile); fwrite(half.data(), sizeof(uint16_t), half.size(), dumpFile);
+            }
             s.moving = MovingFlicker(frame, framePrev, W, H, d, dPrev, dw, dh, &usedShare, &s.p95, i == count / 2 ? &heat : nullptr);
             if (i == count / 2) heatFrame = first + i;
             // The live path, frame generation off: this frame is shown with the delta of the run before, sampled where the pixel was "one frame back
@@ -300,6 +317,7 @@ int main(int argc, char** argv) {
         }
         framePrev = frame; picPrev = pic; dPrev = d; mvPrev = mv;
     }
+    if (dumpFile) fclose(dumpFile);
     if (n) printf("average over %d frames (after the first 4): steady %.2f dB, delta change where the game is still %.2f levels of 255, along the motion %.2f (the worst 5 %% of blocks: %.2f); the live path %.2f (not moved: %.2f)\n", n, sumSteady / n, sumStill / n, sumMoving / n, sumP95 / n, sumLag / n, sumPlain / n);
     if (lightShift.size() > 6) {   // how much the model brightens or darkens the whole picture, and how that moves from frame to frame
         double mean = 0, var = 0, jump = 0, jumpMax = 0; const size_t from = 4;
