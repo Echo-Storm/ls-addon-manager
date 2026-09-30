@@ -190,15 +190,20 @@ Texture2D<float4> tIn : register(t1);
 Texture2D<float> tDistrust : register(t2);
 RWTexture2D<float4> uOut : register(u0);
 SamplerState sLinear : register(s0);
-cbuffer C : register(b0) { uint2 size; uint2 inSize; float strength; uint mode; float rest; };   // rest: the least the frame is blended in, even at rest   // mode 0: Catmull-Rom, 1: EASU
+cbuffer C : register(b0) { uint2 size; uint2 inSize; float strength; uint mode; float rest; };   // rest: the least the frame is blended in, even at rest   // mode 0: Catmull-Rom, 1: EASU; +2: HDR (the Catmull-Rom is held within its four nearest texels)
 float4 CatmullRom(float2 uv) {   // 16 loads, the input's size
     const float2 pos = uv * float2(inSize) - 0.5, base = floor(pos), f = pos - base;
     const float2 w0 = f * (-0.5 + f * (1.0 - 0.5 * f)), w1 = 1.0 + f * f * (-2.5 + 1.5 * f), w2 = f * (0.5 + f * (2.0 - 1.5 * f)), w3 = f * f * (-0.5 + 0.5 * f);
     const float wx[4] = { w0.x, w1.x, w2.x, w3.x }, wy[4] = { w0.y, w1.y, w2.y, w3.y };
     const int2 last = int2(inSize) - 1;
-    float4 sum = 0;
-    [unroll] for (int j = 0; j < 4; ++j) [unroll] for (int i = 0; i < 4; ++i) sum += tIn.Load(int3(clamp(int2(base) + int2(i - 1, j - 1), int2(0, 0), last), 0)) * (wx[i] * wy[j]);
-    return sum;
+    float4 sum = 0, lo = 1e30, hi = -1e30;
+    [unroll] for (int j = 0; j < 4; ++j) [unroll] for (int i = 0; i < 4; ++i) {
+        const float4 t = tIn.Load(int3(clamp(int2(base) + int2(i - 1, j - 1), int2(0, 0), last), 0));
+        sum += t * (wx[i] * wy[j]);
+        if (i >= 1 && i <= 2 && j >= 1 && j <= 2) { lo = min(lo, t); hi = max(hi, t); }   // the four texels the sample lies among
+    }
+    // HDR (mode bit 1): the negative lobes ring around a bright glint, and in light that is a speck: the result stays within the four nearest texels' range (as EASU's does)
+    return (mode & 2u) != 0u ? clamp(sum, lo, hi) : sum;
 }
 // Edge-adaptive spatial upscaling: AMD FidelityFX Super Resolution 1's EASU (from the FidelityFX SDK, ffx_fsr1.h, MIT licence, Copyright (C) Advanced
 // Micro Devices, Inc.; NOTICE.md), ported to plain HLSL with direct loads in place of the gathers. A 12-tap kernel (b c / e f g h / i j k l / n o) whose
@@ -284,7 +289,7 @@ void main(uint3 id : SV_DispatchThreadID) {
     const float4 up = tUp[id.xy];
     const float d = max(saturate(tDistrust.SampleLevel(sLinear, uv, 0) * strength), saturate(rest));
     if (d <= 0.001) { uOut[id.xy] = up; return; }
-    const float4 plain = mode == 1u ? Easu(uv) : CatmullRom(uv);
+    const float4 plain = (mode & 1u) != 0u ? Easu(uv) : CatmullRom(uv);
     uOut[id.xy] = float4(lerp(up.rgb, max(plain.rgb, 0.0), d), up.a);   // (Catmull-Rom can overshoot below 0)
 }
 )";
@@ -1325,7 +1330,7 @@ bool SrEngine::Run(ID3D12Resource* in, uint32_t inW, uint32_t inH, DXGI_FORMAT i
         D3D12_GPU_DESCRIPTOR_HANDLE gpuOut = gpu; gpuOut.ptr += 11 * m_descriptorSize;
         m_list->SetComputeRootDescriptorTable(0, gpuIn);
         m_list->SetComputeRootDescriptorTable(1, gpuOut);
-        const LeanConstants lc{ outW, outH, inW, inH, m_fastMotion.load() != 0.0f ? 1.0f : 0.0f, m_leanMode.load(), m_leanRest.load() };   // (strength 0: only the floor, when "Steady in fast motion" is off)
+        const LeanConstants lc{ outW, outH, inW, inH, m_fastMotion.load() != 0.0f ? 1.0f : 0.0f, m_leanMode.load() | (hdr ? 2u : 0u), m_leanRest.load() };   // (strength 0: only the floor, when "Steady in fast motion" is off)
         m_list->SetComputeRoot32BitConstants(2, sizeof(LeanConstants) / 4, &lc, 0);
         m_list->Dispatch((outW + 7) / 8, (outH + 7) / 8, 1);
         Transition(m_unsharpened, D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE, D3D12_RESOURCE_STATE_UNORDERED_ACCESS);

@@ -1,5 +1,10 @@
 # Changelog
 
+## Unreleased
+
+- **HDR: the Catmull-Rom lean can no longer ring around a bright glint.** Its negative lobes overshoot a small bright highlight by about 25 % in light (peak 2.39 against an input peak of 1.90 on the
+  test clip); in HDR the result is now held within its four nearest texels' range, as EASU's always was (peak 1.90; with all the passes on, 2.80 -> 2.23). SDR frames are untouched.
+
 ## 0.9.22 (2026-09-30)
 
 **A major bug fix for HDR, and a steadier Neural Rendering.** With HDR on, sharpening could turn a highlight into a white speck up to 10,000 nits bright; that is fixed in all three upscalers. The same
