@@ -3,12 +3,14 @@
 Everything worth doing that is not done yet, so nothing is lost between sessions. Newest context first within each group. Update it when an
 item is done (move it to the changelog) or when a new one comes up. Dates are when the item was noted.
 
-## GitHub issues (state 2026-09-29, all answered)
+## GitHub issues (state 2026-09-30, all answered)
 
 - #7 DLSS Upscaler "FeatureNotFound" with NR on: fixed in 0.9.16 (NGX search paths union, ngx_paths.h). Awaiting the reporter.
 - #4 Performance tab on AMD: fixed in 0.9.16 (Windows counters); awaiting a report from a real Radeon (only tested against NVML here).
 - #6 two NVIDIA GPUs: the compatibility test uses the card LS runs on (0.9.16). Running the model on a different card from LS: not supported (needs cross-adapter copies); the reporter was asked for the second GPU model and logs.
 - #5 antivirus flag (Defender cloud verdict `Trojan:Win32/Tecabans.STV!cl`): docs/antivirus.md written; our scans are clean. **Code signing** is the real fix: options to weigh with the owner: SignPath Foundation (free for open source, needs an application and a CI build), Azure Trusted Signing (about $10 a month; check eligibility), a normal certificate. Also submit the zip at microsoft.com/wdsi/filesubmission (needs the owner's Microsoft account).
+- #9 (2026-09-30) asks for XeSS FG / DLSS FG in place of LSFG's interpolator, pointing at the Magpie fork. Answered: we are looking at it; that code is GPL-3.0 so ours would be an own implementation from the published research (docs/magpie-fork-study.md); no date promised. #8 (softness at rest): answered 2026-09-30 (Sharpness at rest, Steady sharpening, single-frame neural upscaler not near-term).
+- Also 2026-09-30: the repository has one fork (ardesart, created 09-28, no changes of its own).
 - #1, #2, #3 answered on 2026-09-28 (#3 fixed in 0.9.15). Left open for the reporters.
 
 ## Released
