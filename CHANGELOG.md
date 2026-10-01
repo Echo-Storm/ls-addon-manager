@@ -2,6 +2,11 @@
 
 ## Unreleased
 
+- **The upscalers scale the motion by time, not by a count of presents.** With frame generation the upscaler is told how far each presented picture is along from the one before. It took that as 1 over
+  the number of presents between the last two real frames, which is right for a whole multiplier (x2, x3) but not for Lossless Scaling's adaptive mode or a screen whose refresh rate is not a multiple of
+  the game's (120 Hz at 50 fps is 2.4 presents to a frame, so 2 and 3 by turns): the step then alternated between 1/2 and 1/3, up to 20 % wrong on every frame, and the motion the upscaler used shook.
+  It is now the smoothed time between presents over the smoothed time between real frames (the log's "presented per real frame" line says "each 0.42 of a real step"). Unchanged for x2 and x3.
+  A reported symptom this may explain (bad pacing at 40 to 59 fps on a 120 Hz screen, clean at 25 to 39); not yet seen live.
 - **A settings file with nonsense in it cannot put the addons out of range.** A new test feeds every setting a list of bad texts (nan, inf, 1e308, negatives, words, empty). It found that "nan" in
   any number got through the limits (a comparison with nan is never true), that a few settings had no limit at all (the model's intensity, fine detail, local contrast, the compose blend, the
   per-pixel limit, the protect-bright start, the flow unit, the slow-model watchdog, the tap mode) and that a huge number could overflow the conversion to a whole number. Numbers that are not

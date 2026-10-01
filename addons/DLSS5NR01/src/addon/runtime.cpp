@@ -883,6 +883,20 @@ ScalerLink g_link;                               // Lossless Scaling's side: und
 std::atomic<bool> g_srStarting{ false };
 ID3D11Device* g_linkDevice = nullptr;            // the device the link was made on (the link holds it)
 uint32_t g_nisSinceTap = 0, g_nisPerFrame = 0;   // NIS passes between two real frames: the presents per real frame
+// How far one presented picture is along from the one before, as a share of a real frame's step: the time between presents over the time between real frames
+// (smoothed). With a whole number of presents to a real frame it is 1 / that number; with Lossless Scaling's adaptive mode (2.4 presents to a frame on a 120 Hz
+// screen at 50 fps, so 2 and 3 by turns) a count would alternate between 1/2 and 1/3, 20 % wrong on every frame, and the motion it scales would jitter.
+double g_presentDtMs = 0, g_realDtMs = 0; int64_t g_lastPresentQpc = 0;
+void NotePresentTime() {
+    LARGE_INTEGER now, f; QueryPerformanceCounter(&now); QueryPerformanceFrequency(&f);
+    if (g_lastPresentQpc) { const double ms = (now.QuadPart - g_lastPresentQpc) * 1000.0 / f.QuadPart; if (ms < 100.0) g_presentDtMs = g_presentDtMs > 0 ? g_presentDtMs * 0.95 + ms * 0.05 : ms; }
+    g_lastPresentQpc = now.QuadPart;
+}
+float PresentStepFraction() {
+    if (g_nisPerFrame <= 1) return 1.0f;   // no generated frames: each presented picture is a real one
+    if (g_presentDtMs > 0 && g_realDtMs > 0) return std::clamp(static_cast<float>(g_presentDtMs / g_realDtMs), 0.1f, 1.0f);
+    return 1.0f / g_nisPerFrame;
+}
 uint64_t g_nisSeen = 0, g_scalerStatusAt = 0, g_upscaled = 0;
 uint64_t g_linkTries = 0;   // passes handed to the upscaler since its link to Lossless Scaling's device was made
 ScalerSecond g_scalerSecond;   // under g_textMutex
@@ -909,6 +923,7 @@ void NoteRealFrame() {
         const float ms = static_cast<float>((now.QuadPart - g_lastTapQpc) * 1000.0 / f.QuadPart);
         if (ms < 500.0f) {   // longer is a pause (loading, alt-tab), not a frame
             g_frameTimes.push_back(ms);
+            g_realDtMs = g_realDtMs > 0 ? g_realDtMs * 0.95 + ms * 0.05 : ms;
             if (g_host && g_host->GetHostVersion() >= 0x010000) g_host->PublishMetric(kAddonId, "frame_ms", ms, "ms");
         }
     }
@@ -917,8 +932,8 @@ void NoteRealFrame() {
         std::vector<float> t = g_frameTimes; std::sort(t.begin(), t.end());
         auto at = [&](double q) { return t[std::min(t.size() - 1, static_cast<size_t>(q * t.size()))]; };
         double sum = 0; for (float v : t) sum += v;
-        Log("game frame time over %zu real frames: average %.1f ms (%.0f fps), p50 %.1f, p95 %.1f, p99 %.1f, worst %.1f | DLSS %.2f ms a presented frame (motion %.2f), %u presented per real frame",
-            t.size(), sum / t.size(), 1000.0 * t.size() / sum, at(0.5), at(0.95), at(0.99), t.back(), g_sr.GpuMs(), g_sr.MotionMs(), g_nisPerFrame);
+        Log("game frame time over %zu real frames: average %.1f ms (%.0f fps), p50 %.1f, p95 %.1f, p99 %.1f, worst %.1f | DLSS %.2f ms a presented frame (motion %.2f), %u presented per real frame (each %.2f of a real step)",
+            t.size(), sum / t.size(), 1000.0 * t.size() / sum, at(0.5), at(0.95), at(0.99), t.back(), g_sr.GpuMs(), g_sr.MotionMs(), g_nisPerFrame, PresentStepFraction());
         UpdateFindings(static_cast<int>(t.size()), at(0.5), at(0.95), at(0.99), nullptr, static_cast<float>(g_sr.GpuMs()), static_cast<float>(g_sr.MotionMs()));
         g_frameTimes.clear();
     }
@@ -1102,7 +1117,7 @@ bool ScalerPass(ID3D11DeviceContext* ctx, uint32_t x, uint32_t y, uint32_t z) {
                              "A window of the screen's shape (16:9 on a 16:9 screen) or full screen works. The Logs tab has the details: please report it.");
         return false;
     }
-    ++g_nisSeen; ++g_nisSinceTap;
+    ++g_nisSeen; ++g_nisSinceTap; NotePresentTime();
     screenshot::Tick(ctx);
     if (g_pairStep == 3) {   // NIS's half is taken right after its own dispatch: still waiting at the next NIS pass, it never came
         Log("before / after pair: NIS's picture was not taken (its pass did not run); only the upscaled one was saved");
@@ -1189,7 +1204,7 @@ bool ScalerPass(ID3D11DeviceContext* ctx, uint32_t x, uint32_t y, uint32_t z) {
                 }
                 uint32_t fw = 0, fh = 0;
                 ID3D11Resource* flow = motion == 1 ? g_tap.NewestFlow(fw, fh) : nullptr;
-                const float fraction = g_nisPerFrame > 1 ? 1.0f / g_nisPerFrame : 1.0f;
+                const float fraction = PresentStepFraction();
                 t_ownWork = true;
                 g_passStep = "Upscale";
                 const bool reset = g_resetRequested.exchange(false);
