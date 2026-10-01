@@ -1275,6 +1275,19 @@ bool ScalerPass(ID3D11DeviceContext* ctx, uint32_t x, uint32_t y, uint32_t z) {
         return false;
     }
     ++g_nisSeen; ++g_nisSinceTap; NotePresentTime();
+    g_tap.SetFrameHint(pass.inW, pass.inH);
+    {   // for the log, once: which of the pictures after a real frame's tap is the very frame the tap captured (the real one), and whether any generated-frame pass was seen at all
+        static uint64_t sameAt[8], seenAt[8]; static bool said = false;
+        const unsigned idx = std::min<unsigned>(g_nisSinceTap - 1, 7);
+        ++seenAt[idx]; if (pass.in && pass.in == g_tap.LastTapFrame()) ++sameAt[idx];
+        if (!said && g_nisSeen >= 900 && g_nisPerFrame >= 2) {
+            said = true;
+            char t[200]; int n = 0;
+            for (unsigned i = 0; i < 8 && i < static_cast<unsigned>(g_nisPerFrame) + 1; ++i) n += snprintf(t + n, sizeof t - n, "%s%llu of %llu", i ? ", " : "", static_cast<unsigned long long>(sameAt[i]), static_cast<unsigned long long>(seenAt[i]));
+            Log("%s upscaler: after a real frame's tap, the picture NIS scales is the captured frame itself at: pass 0 / 1 / ...: %s; generated-frame passes seen: %llu (frame %ux%u)", kUpscalerName, t,
+                static_cast<unsigned long long>(g_tap.GeneratedPassesSeen()), pass.inW, pass.inH);
+        }
+    }
     screenshot::Tick(ctx);
     if (g_pairStep == 3) {   // NIS's half is taken right after its own dispatch: still waiting at the next NIS pass, it never came
         Log("before / after pair: NIS's picture was not taken (its pass did not run); only the upscaled one was saved");

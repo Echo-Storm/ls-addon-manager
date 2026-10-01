@@ -151,7 +151,7 @@ void FrameTap::Reset() {
     ReleaseAll();
     m_flowNewW = m_flowNewH = 0; m_flowNewArea = 0; m_flowLastW = m_flowLastH = 0;
     m_heldSlot = -1; m_handOverNext = false; m_lastGatedTick = ~0ull; m_dropStreak = 0;
-    m_presentsSinceTap = 0; m_genSincePresent = false; m_perFrame = 0; m_realFirst = false; m_lastGenKey = 0;
+    m_presentsSinceTap = 0; m_genSincePresent = false; m_perFrame = 0; m_realFirst = false; m_lastGenKey = 0; m_lastTapFrame = nullptr; m_genPasses = 0; m_hintW = m_hintH = 0;
     snprintf(m_pattern, sizeof m_pattern, "learning");
 }
 
@@ -249,6 +249,8 @@ bool FrameTap::OnTap(const Bound& b, TapDecision& d) {
     if (m_frameSlotPref >= 0 && m_frameSlotPref < 8 && b.srv[m_frameSlotPref]) slot = m_frameSlotPref;
     else for (int i = 7; i >= 0 && slot < 0; --i) if (b.srv[i] && b.sig.srv[i].w == w && b.sig.srv[i].h == h && IsColour(b.sig.srv[i].fmt)) slot = i;
 
+    if (slot >= 0) m_lastTapFrame = b.srv[slot];
+
     // With a TICK set by hand, once per tick; otherwise (LSFG) every TAP is a new real frame
     const bool gate = m_tickKey ? m_lastGatedTick != m_ticks : true;
     m_gateName = m_tickKey ? "tick" : "every";
@@ -307,7 +309,7 @@ bool FrameTap::Observe(ID3D11DeviceContext* ctx, uint32_t x, uint32_t y, uint32_
         if (m_tickKey && key == m_tickKey) { d.isTick = true; ++m_ticks; }
         if (m_tapKey && key == m_tapKey) run = OnTap(b, d) || run;
         else if (b.IsFlowPass()) OnFlowPass(b);
-        else if (b.IsGeneratedFramePass(m_frameW, m_frameH)) { m_genSincePresent = true; if (key != m_lastGenKey) { m_lastGenKey = key; m_lastGenSig = b.sig; } }
+        else if (b.IsGeneratedFramePass(m_hintW ? m_hintW : m_frameW, m_hintW ? m_hintH : m_frameH)) { m_genSincePresent = true; ++m_genPasses; if (key != m_lastGenKey) { m_lastGenKey = key; m_lastGenSig = b.sig; } }
     }
     if (m_probeArmed) ProbePass(ctx, b, d);
     return run;
