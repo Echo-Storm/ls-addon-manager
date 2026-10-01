@@ -2,6 +2,11 @@
 
 ## Unreleased
 
+## 0.9.25 (2026-10-01)
+
+**Safeguards for a full graphics card, and a recorder that records what you see.** From a player's report (a 4090 at 40 to 50 fps: even with Lossless Scaling's frame generation alone, uneven with an addon, a one-frame warp of the whole picture with
+Neural Rendering) and from the owner's flicker: two guesses at the cause are guarded against, the real output can now be recorded for looking into it, and the addons say how much video memory they hold. Nothing changes a picture unless the card is held up.
+
 - **Two safeguards against the catch-up hitches a player described with Neural Rendering or the DLSS Upscaler on a full card** (a 4090 at 40 to 50 fps: Lossless Scaling's frame generation alone was even; with DLSS "uneven, catching up", with Neural
   Rendering added "fine for about 120 frames, then one or two frames of 100 ms with the whole picture warped"; G-Sync, so not the display). (1) The upscalers wait on the GPU for their picture rather than show one twice, which holds Lossless
   Scaling's queue up with the upscaler's: when the game holds the card, one very late picture is a hitch of that length and the frames behind it catch up. A picture that takes over 50 ms now switches the GPU wait off for 10 s (a picture
