@@ -102,7 +102,7 @@ Released today: 0.9.20 (bug sweep), 0.9.21 (Steady sharpening, Sharpness at rest
 
 - **From the Magpie dissection (docs/magpie-dissection.md, 2026-09-30), in order**: (1) scene-cut reset: measured, not needed (the lean, DLSS's bias mask and NR's luma check already give a clean first frame after a cut); (2) a frame trace (per-frame
   timeline ring, CSV export, `tools/analyze_frame_trace.py`) for pacing questions such as the player's report; (3) a "what is wrong" card in the panel from the existing numbers; then research needing the owner's yes first:
-  a user-supplied NVIDIA Video Effects runtime for single-frame VSR (issue #8), XeSS frame generation live (issue #9), the model on a second graphics card (cross-adapter heaps; nobody does it).
+  a user-supplied NVIDIA Video Effects runtime for single-frame VSR (issue #8), XeSS frame generation live (issue #9), the model on a second graphics card (cross-adapter heaps; nobody does it; the plumbing is proven with `nr_xadapter`, design and pitfalls in docs/dual-gpu.md, needs two real cards to measure).
 
 - **Very long term (owner, 2026-09-30): spin this off, the way the Magpie fork is**: a standalone capture-and-scale app rather than an addon inside Lossless Scaling. No plan; keep the engine code (upscaler passes, estimator, NR engine) separable from the host glue. Their code is GPL-3.0: ours would be written from the research (docs/magpie-fork-study.md).
 

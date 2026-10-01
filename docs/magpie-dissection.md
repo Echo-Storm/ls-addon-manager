@@ -33,7 +33,7 @@ Magpie has no dual-GPU path: `DeviceResources` walks the adapters (by the user's
 card. The only shared resources (`OpenSharedResource`) are between its two devices on that one adapter. So a real dual-GPU design would be new for everyone. Ours already covers the useful case (Lossless Scaling's
 card is the model's card, issue #6). The next step would be running the model on a *different* card from LS's (an idle second card when LS's is saturated, which is what we measured at the Durotar spot): frames in and
 deltas out cross the bus (a 4K HDR frame is 66 MB: about 4 GB/s at 60 a second on PCIe 4.0 x16, which fits), through cross-adapter shared heaps; the model's output is already consumed one frame late, so the added
-latency is hidden. A project of its own, worth doing only for someone with two strong cards; parked in the backlog.
+latency is hidden. A project of its own, worth doing only for someone with two strong cards; parked in the backlog. **The plumbing is proven (2026-10-01):** a cross-adapter heap with placed buffers and a shared fence work on this GeForce (against WARP as the second adapter); findings, pitfalls and the design in docs/dual-gpu.md.
 
 ## Motion, in one paragraph
 

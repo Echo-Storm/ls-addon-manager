@@ -140,6 +140,10 @@ add_executable(nr_composebench tools/compose_bench.cpp src/addon/compose11.cpp)
 target_include_directories(nr_composebench PRIVATE ${CMAKE_SOURCE_DIR}/src)
 target_link_libraries(nr_composebench PRIVATE d3d11 dxgi d3dcompiler)
 
+# nr_xadapter: the plumbing for running the model on a second graphics card (a cross-adapter buffer and fence, tools/xadapter_test.cpp; docs/dual-gpu.md)
+add_executable(nr_xadapter tools/xadapter_test.cpp)
+target_link_libraries(nr_xadapter PRIVATE d3d12 dxgi)
+
 # ---- Neural Rendering offline: runs the model on a recording and scores the flicker it adds (needs the user's nvngx_dlssnr.dll) ----
 add_executable(nr_nreval tools/nr_eval.cpp src/addon/lsrec.cpp src/engine/nr_engine.cpp src/engine/dlaa_model.cpp src/engine/flow_estimator.cpp)
 target_include_directories(nr_nreval PRIVATE ${CMAKE_SOURCE_DIR}/src ${NGX_DIR}/include)
