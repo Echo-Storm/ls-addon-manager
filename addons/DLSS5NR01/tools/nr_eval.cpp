@@ -23,6 +23,7 @@
 #include "addon/lsrec.h"
 #include "engine/nr_engine.h"
 #include "forwarder/nr_api.h"
+#include "addon/vram.h"
 #include "eval_common.h"
 
 using namespace nr::eval;
@@ -179,6 +180,7 @@ int main(int argc, char** argv) {
     // the engine, as the addon starts it, given our shared resources
     NrEngine eng;
     eng.SetModel(NrEngine::Model::NeuralRendering, 0);
+    const uint64_t vramBefore = nr::ProcessVideoMemoryMb(ad.AdapterLuid);
     if (!eng.Init(ad.AdapterLuid, exeDir + L"\\" NR_FORWARDER_FILENAME, model, exeDir, lsDir, [](const char* m) { printf("  %s\n", m); })) { printf("Neural Rendering could not start (the model %ls)\n", model.c_str()); return 4; }
     for (int i = 0; i < 400 && !eng.Prepare(W, H, DXGI_FORMAT_R8G8B8A8_UNORM, params); ++i) { if (eng.IsFailed()) { printf("the model could not be made\n"); return 4; } Sleep(50); }
     auto share = [&](ID3D12DeviceChild* obj) { HANDLE sh = nullptr; dev->CreateSharedHandle(obj, nullptr, GENERIC_ALL, nullptr, &sh); return sh; };
@@ -318,6 +320,7 @@ int main(int argc, char** argv) {
         framePrev = frame; picPrev = pic; dPrev = d; mvPrev = mv;
     }
     if (dumpFile) fclose(dumpFile);
+    { const uint64_t vramAfter = nr::ProcessVideoMemoryMb(ad.AdapterLuid); printf("video memory: this program holds %llu MB; Neural Rendering and its textures added %llu MB (from %llu MB before it started)\n", (unsigned long long)vramAfter, (unsigned long long)(vramAfter - std::min(vramAfter, vramBefore)), (unsigned long long)vramBefore); }
     if (n) printf("average over %d frames (after the first 4): steady %.2f dB, delta change where the game is still %.2f levels of 255, along the motion %.2f (the worst 5 %% of blocks: %.2f); the live path %.2f (not moved: %.2f)\n", n, sumSteady / n, sumStill / n, sumMoving / n, sumP95 / n, sumLag / n, sumPlain / n);
     if (lightShift.size() > 6) {   // how much the model brightens or darkens the whole picture, and how that moves from frame to frame
         double mean = 0, var = 0, jump = 0, jumpMax = 0; const size_t from = 4;

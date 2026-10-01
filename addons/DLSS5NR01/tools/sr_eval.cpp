@@ -25,6 +25,7 @@
 #include "engine/ngx_paths.h"
 #include "addon/lsrec.h"
 #include "engine/sr_engine.h"
+#include "addon/vram.h"
 #include "eval_common.h"
 #include "oracle_flow.h"
 
@@ -186,6 +187,7 @@ int main(int argc, char** argv) {
         const NVSDK_NGX_Result nr = NVSDK_NGX_D3D12_Init(0x24480451ull, (std::wstring(tmpDir) + L"DLSS5NR01_sreval").c_str(), dev, &nrInfo, NVSDK_NGX_Version_API);
         printf("Neural Rendering's NGX init first: %s\n", NVSDK_NGX_FAILED(nr) ? "failed" : "ok");
     }
+    const uint64_t vramBefore = nr::ProcessVideoMemoryMb(ad.AdapterLuid);   // (with the shared textures of this program, which stand for Lossless Scaling's own)
     if (!eng.Init(ad.AdapterLuid, exeDir, runtimeDir, [](const char* m) { printf("  %s\n", m); }, backend)) { printf("the upscaler could not start: %s\n", eng.LastError().c_str()); return 4; }
     static int s_debugMessages = 0;
     if (debugLayer && eng.Device()) {
@@ -369,6 +371,7 @@ int main(int argc, char** argv) {
             worst->truth.clear(); worst->truth.shrink_to_fit(); worst->picture.clear(); worst->picture.shrink_to_fit(); worst->stretched.clear(); worst->stretched.shrink_to_fit();
         }
     }
+    { const uint64_t vramAfter = nr::ProcessVideoMemoryMb(ad.AdapterLuid); printf("video memory: this program holds %llu MB; the upscaler and its textures added %llu MB (from %llu MB before it started)\n", (unsigned long long)vramAfter, (unsigned long long)(vramAfter - std::min(vramAfter, vramBefore)), (unsigned long long)vramBefore); }
     // steady: the frame-to-frame change against the truth's own change (shimmer, crawling edges and flicker cost; softness alone does not)
     if (flickN && detailN) printf("no reference (levels of 255 on luma; the picture / the game's own frames): flicker %.3f / %.3f (%.0f %%), detail %.3f / %.3f (%.0f %%); the plain stretch: flicker %.3f, detail %.3f\n",
                                   flickOut / flickN, flickIn / flickN, 100.0 * flickOut / std::max(1e-9, flickIn), detailOut / detailN, detailIn / detailN, 100.0 * detailOut / std::max(1e-9, detailIn),

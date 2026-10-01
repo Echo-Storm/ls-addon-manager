@@ -12,6 +12,7 @@
 #include "addon/log.h"
 #include "addon/frame_trace.h"
 #include "addon/diagnosis.h"
+#include "addon/vram.h"
 #include "addon/present_hook.h"
 #include "addon/framegen11.h"
 #include "addon/screenshot.h"
@@ -164,6 +165,15 @@ void UpdateFindings(int frames, float p50, float p95, float p99, const NrStats* 
     g_findings = std::move(f);
 }
 
+// Video memory (vram.h): this process's figure on the card, logged before and after an engine starts (the difference is what the engine holds) and with the periodic lines.
+uint64_t g_vramBaseMb = 0; LUID g_vramLuid{};
+void LogVideoMemory(const char* what) {
+    uint64_t budget = 0; const uint64_t now = nr::ProcessVideoMemoryMb(g_vramLuid, &budget);
+    if (!now) return;
+    Log("video memory: this process holds %llu MB on the card (%s)%s%llu MB, of a budget of %llu MB", static_cast<unsigned long long>(now), what,
+        g_vramBaseMb ? ", " : "", static_cast<unsigned long long>(g_vramBaseMb ? now - std::min(now, g_vramBaseMb) : 0), static_cast<unsigned long long>(budget));
+}
+
 void LogProgress(const NrStats& st) {
     // counted in the frames the model was given: Lossless Scaling's captures, or the presented frames with frame generation off (where the
     // capture count stays put, and would log every frame)
@@ -196,6 +206,7 @@ void LogProgress(const NrStats& st) {
                 "(waiting for its result %.3f, the pass %.3f; %llu presents)", sub[0], sub[1], sub[2], (unsigned long long)subs, com[0], com[1], com[2],
                 (unsigned long long)coms);
     }
+    if (taps == 60 || taps % 3000 == 0) LogVideoMemory("with the periodic lines: the figure now, then what it added since the engine started");
     if (taps == 60) {
         PresentHook::DumpState([](const char* m) { Log("%s", m); });
         Log("present stages: hook hits %u, body %llu, ready %llu, noted %llu, targeted %llu, with delta %llu", PresentHook::Hits(), (unsigned long long)g_presentStages[0],
@@ -845,7 +856,9 @@ void StartEngine(LUID card) {
             SetStatus("engine: loading model...");
             { std::lock_guard<std::mutex> lock(g_settingsMutex);
               g_engine.SetModel(g_config.model == 1 ? NrEngine::Model::Dlaa : NrEngine::Model::NeuralRendering, g_config.dlaaPreset == SrEngine::kPresetAuto ? 5u : g_config.dlaaPreset); }   // (its DLSS runs at 1:1: auto is E)
+            g_vramLuid = card; g_vramBaseMb = nr::ProcessVideoMemoryMb(card); if (g_vramBaseMb) Log("video memory: this process holds %llu MB on the card before Neural Rendering starts", static_cast<unsigned long long>(g_vramBaseMb));
             const bool ok = g_engine.Init(card, g_addonDir + L"\\" NR_FORWARDER_FILENAME, ModelPath(), g_addonDir, g_lsDir, [](const char* m) { Log("%s", m); });
+            if (ok) LogVideoMemory("Neural Rendering started: the figure after, then what it added");
             g_engineCard = card; g_engineCardKnown = true;
             if (!ok) {
                 g_failedCard = card; g_failedCardKnown = true;
@@ -1048,9 +1061,11 @@ void StartEngineFor(const LUID& card) {   // the engine's own device only: safe 
     std::thread([card, dir = g_srRuntimeDir] {
         LARGE_INTEGER f, a, b; QueryPerformanceFrequency(&f); QueryPerformanceCounter(&a);
         const SrEngine::Backend backend = kXessScaler ? SrEngine::Backend::Xess : kFsrScaler ? SrEngine::Backend::Fsr : SrEngine::Backend::Dlss;
+        g_vramLuid = card; g_vramBaseMb = nr::ProcessVideoMemoryMb(card);
         const bool ok = g_sr.Init(card, g_addonDir, dir, [](const char* m) { Log("%s", m); }, backend);
         QueryPerformanceCounter(&b);
         Log("%s upscaler: engine %s in %.0f ms, on a thread of its own", kUpscalerName, ok ? "started" : "failed", (b.QuadPart - a.QuadPart) * 1000.0 / f.QuadPart);
+        if (ok) LogVideoMemory("the upscaler started: the figure after, then what it added (its textures are made at the first frame)");
         SetStatus(ok ? std::string(kUpscalerName) + " ready" : g_sr.LastError());
         g_srStarting = false;
     }).detach();
@@ -1294,6 +1309,7 @@ bool ScalerPass(ID3D11DeviceContext* ctx, uint32_t x, uint32_t y, uint32_t z) {
             SetStatus(text);
         } else if (g_compare.load() == 2) g_host->SetStatus(kAddonId, "Showing Lossless Scaling's NIS (Before / after)", 0);
     }
+    if (replaced && (g_upscaled == 120 || g_upscaled % 6000 == 0)) LogVideoMemory("with the periodic lines: the figure now, then what it added since the engine started");
     if (replaced && (g_upscaled == 1 || g_upscaled % 3000 == 0))
         Log("%s scaler: %llu frames upscaled, NIS passes seen %llu, %u per real frame, %s %.2f ms%s", kUpscalerName, (unsigned long long)g_upscaled,
             (unsigned long long)g_nisSeen, g_nisPerFrame, kUpscalerName, g_sr.GpuMs(), g_lightRuns ? (", " + std::to_string(g_lightRuns) + " generated frames given the lighter run").c_str() : "");

@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+- **The addons log how much video memory they hold.** The owner saw Lossless Scaling hold over a gigabyte more than it had been (15.2 to 14.1 GB when it closed). Each addon now logs the process's video memory (DXGI's own figure)
+  before its engine starts, after it, and with the periodic lines ("video memory: this process holds N MB on the card ... N MB since the engine started"). `nr_sreval` and `nr_nreval` print what their engine adds. Measured offline at 2562x1442
+  in HDR: the upscaler (DLSS, with its textures) adds 281 to 372 MB (sharpening and steady sharpening on, 1.5x or 1:1), Neural Rendering 298 to 412 MB (model at 25 % to 50 %); at 4K the frame-size parts are 2.25 times that, and the
+  upscaler's shared textures with Lossless Scaling (two frames, three pictures, 66 MB each at 4K in HDR) come on top: with both addons on, over a gigabyte is what they hold.
 - **"Record what is shown" now works for the upscalers with Lossless Scaling's frame generation.** The setting said "(with frame generation of our own)" and did nothing else: the recordings stayed the frame going to the
   upscaler, so a flicker seen on screen could not be looked into (the recordings of 2026-10-01 were the inputs, and showed no flicker the addons add). With it on, the upscaler addons record the output swap chain's back
   buffer at Present, as it goes to the screen (after the upscaler, the generated frames included, tagged), in place of the upscaler's input. The recording can be scored with `nr_sreval`'s no-reference flicker, or toggled
