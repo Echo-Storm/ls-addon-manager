@@ -311,7 +311,9 @@ void Tap(ID3D11DeviceContext* ctx, uint32_t x, uint32_t y, uint32_t z) {
     // Lossless Scaling's pass may have the frame bound as an input: the copy needs it unbound, and it is put back after
     ID3D11ShaderResourceView* bound[8] = {}; ctx->CSGetShaderResources(0, 8, bound);
     ID3D11ShaderResourceView* none[8] = {}; ctx->CSSetShaderResources(0, 8, none);
-    const bool started = g_bridge.Submit(d.frame, d.flow, d.flowW, d.flowH, p, g_resetRequested.exchange(false), g_tap.Taps());
+    const bool reset = g_resetRequested.exchange(false);
+    const bool started = g_bridge.Submit(d.frame, d.flow, d.flowW, d.flowH, p, reset, g_tap.Taps());
+    if (reset && !started) g_resetRequested = true;   // a frame left out (the model busy, or its turn off under auto quality) did not carry the reset: it goes with the next
     ctx->CSSetShaderResources(0, 8, bound);
     for (ID3D11ShaderResourceView* v : bound) if (v) v->Release();
     ReleaseDecision(d);
@@ -626,7 +628,9 @@ void PresentTap(IDXGISwapChain* sc) {   // under g_frameMutex, on the presenting
         ID3D11UnorderedAccessView* noUavs[8] = {}; ctx->CSSetUnorderedAccessViews(0, 8, noUavs, nullptr);
         // waiting: a frame that comes while the model is still on the one before waits for it on the GPU (each frame gets its own result);
         // not waiting: it is left out, and the one before's result, moved, stands in
-        const bool started = g_bridge.Submit(buffer, nullptr, 0, 0, p, g_resetRequested.exchange(false), ++g_presentIndex, g_presentWait);
+        const bool reset = g_resetRequested.exchange(false);
+        const bool started = g_bridge.Submit(buffer, nullptr, 0, 0, p, reset, ++g_presentIndex, g_presentWait);
+        if (reset && !started) g_resetRequested = true;
         ctx->CSSetUnorderedAccessViews(0, 8, uavs, nullptr);
         for (ID3D11UnorderedAccessView* v : uavs) if (v) v->Release();
         AfterHandOver(started, ceiling, autoSettings, watchdogMs);
@@ -1188,8 +1192,10 @@ bool ScalerPass(ID3D11DeviceContext* ctx, uint32_t x, uint32_t y, uint32_t z) {
                 const float fraction = g_nisPerFrame > 1 ? 1.0f / g_nisPerFrame : 1.0f;
                 t_ownWork = true;
                 g_passStep = "Upscale";
-                replaced = g_link.Upscale(pass, flow, fw, fh, p.flowUnit, fraction, motion == 0, preset, p.sharpen * kScalerSharpenScale, g_resetRequested.exchange(false),
+                const bool reset = g_resetRequested.exchange(false);
+                replaced = g_link.Upscale(pass, flow, fw, fh, p.flowUnit, fraction, motion == 0, preset, p.sharpen * kScalerSharpenScale, reset,
                                           static_cast<ScalerLink::Handoff>(handoff), gpuWait);
+                if (reset && !replaced) g_resetRequested = true;   // the pass did not run: the reset waits for one that does
                 t_ownWork = false;
                 nr::trace::Add(nr::trace::kUpscale, replaced ? 1 : 0, static_cast<int32_t>(g_sr.GpuMs() * 100.0), static_cast<int32_t>(g_sr.MotionMs() * 100.0));
                 g_passStep = "the recorder";
