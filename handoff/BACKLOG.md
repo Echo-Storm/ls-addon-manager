@@ -33,6 +33,10 @@ Released today: 0.9.20 (bug sweep), 0.9.21 (Steady sharpening, Sharpness at rest
   - Their one complaint: **pacing and GPU utilisation get bumpy when the game drops below the frame rate Lossless Scaling is told to expect**; they suspect Lossless Scaling itself, and say adaptive frame generation smooths it.
     Worth checking against our side: the model runs on a thread of its own and waits for the GPU (see the "GPU start +N ms" in `DLSS5NR01.log`), and the new auto quality tightens its budget when the game's frames slow down (0.9.22), which may help.
     Needs a log from them (`DLSS5NR01.log`, `DLSS4DLAA.log`) while it is bumpy, and the game frame rate at the time.
+  - **Their logs came back (2026-10-01, RTX 4090, 4K HDR 1:1, DLSS Upscaler preset M then E, frame generation x2, 120 Hz screen, game capped at 60):** the game's own frame times are steady (p95 within 2 to 5 ms of p50 in all 14 windows,
+    base 26 to 51 fps), DLSS costs 1.4 to 1.6 ms of GPU per presented frame (the motion estimate 0.55 to 0.69 of it), no picture shown twice, 2 presented per real frame throughout, the Neural Rendering model 12.2 ms at their size and kept up (4
+    skipped in 1200). Nothing on our side is bumpy. What matches "terrible at 40 to 59 base, clean at 25 to 39" is the display: x2 gives 80 to 118 fps, which does not divide into 120 Hz (uneven repeats), while 30 x 4 and 60 x 2 do. Suggested to them:
+    Lossless Scaling's adaptive mode targeting 120, or a base that divides 120 (40 x 3, 60 x 2), or VRR. Their build was 0.9.23 (no frame trace); the next release has it, to confirm with the presents.
   - Use to keep in mind: a capture-card source (a window showing a capture feed, HDR or not) is a real use case for Neural Rendering, not only games rendered on the same PC.
 
 ## Released

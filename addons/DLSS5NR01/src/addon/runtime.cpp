@@ -1113,8 +1113,10 @@ bool ScalerPass(ID3D11DeviceContext* ctx, uint32_t x, uint32_t y, uint32_t z) {
     g_passStep = "looking for the NIS pass";
     if (!FindNisPass(ctx, x, y, z, pass, [](const char* m) { Log("%s", m); })) {
         if (NisLayoutRefused())   // NIS is chosen, but for a window it scales into part of the screen in a way that cannot be followed
-            SetScalerBlocked("Lossless Scaling scales this window into part of the screen in a way the upscaler cannot follow yet, so NIS stays. "
-                             "A window of the screen's shape (16:9 on a 16:9 screen) or full screen works. The Logs tab has the details: please report it.");
+            SetScalerBlocked(g_upscaled ? "Lossless Scaling also draws a pass into part of the screen that the upscaler leaves alone (NIS stays for that one). Normal while frames are being upscaled: "
+                                          "the log's \"frames upscaled\" lines count them."
+                                        : "Lossless Scaling scales this window into part of the screen in a way the upscaler cannot follow yet, so NIS stays. "
+                                          "A window of the screen's shape (16:9 on a 16:9 screen) or full screen works. The Logs tab has the details: please report it.");
         return false;
     }
     ++g_nisSeen; ++g_nisSinceTap; NotePresentTime();

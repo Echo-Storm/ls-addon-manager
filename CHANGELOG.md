@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+- **The upscalers' "NIS stays" line is no longer alarming while they work.** Lossless Scaling draws a second kind of pass into part of the screen, which the upscaler leaves to NIS; the log said "in a way the upscaler cannot follow
+  yet ... please report it" about it every 30 s, in logs where 96 % of the frames were being upscaled. Once frames have been upscaled the line says what it is and that it is normal.
 - **The upscalers scale the motion by time, not by a count of presents.** With frame generation the upscaler is told how far each presented picture is along from the one before. It took that as 1 over
   the number of presents between the last two real frames, which is right for a whole multiplier (x2, x3) but not for Lossless Scaling's adaptive mode or a screen whose refresh rate is not a multiple of
   the game's (120 Hz at 50 fps is 2.4 presents to a frame, so 2 and 3 by turns): the step then alternated between 1/2 and 1/3, up to 20 % wrong on every frame, and the motion the upscaler used shook.
