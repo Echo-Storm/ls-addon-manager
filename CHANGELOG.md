@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+- **`nr_lsrec flicker <recording>`**: for a recording (of what is shown, with "Record what is shown", or of anything) how much the picture changes from one frame to the next, by kind of pair, the biggest steps with the time between
+  frames, and whether the change pulses at a period: the objective side of "it flickers".
 - **The panel says whether your model file is a build seen working.** People have different `nvngx_dlssnr.dll` files, and a name, a version and a size do not tell two builds apart (issue #12: an RTX 4080 refused a file that looked like the tested
   one). The Requirements check now makes the file's SHA-256 (the first 16 hex digits) and says "a build seen working (file 4b8d...)" when it is on the list, and, for a file with the tested version and size that is not, "not the same file":
   the first thing to check if the compatibility test fails. The list (`kKnownModels`, and docs/model-compatibility.md) grows with the reports people send; a build seen failing is not on it.

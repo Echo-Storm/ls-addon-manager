@@ -1,6 +1,7 @@
 // nr_lsrec: looks into recordings (.lsrec, addon/lsrec.h).
 //   nr_lsrec info <file>                                   what is in it: size, format, frames, time, frame rate, frames left out
 //   nr_lsrec export <file> <folder> [every=N] [first=N] [count=N]   frames as BMP pictures (HDR ones tone-mapped as the screenshots are)
+//   nr_lsrec flicker <file> [first=N] [count=N]            how much the picture changes from frame to frame (levels of 255), by the kind of pair, the biggest steps, and whether the change pulses at a period
 //   nr_lsrec make <file> <width> <height> <frames> [fps=N] [hdr=1]  a made-up recording of a moving picture (for the tests, no game needed); hdr=1: half-float light
 //                                                     (1 = the SDR white) with small bright glints (1.2 to 1.9), the kind of highlight a sharpening pass must not turn into a speck
 #include "addon/lsrec.h"
@@ -146,8 +147,95 @@ static int Make(int argc, char** argv) {
     return 0;
 }
 
+
+// ---- flicker: how much the picture changes from one frame to the next, for a recording of what is shown (or of anything): the mean change of luma (levels of 255, on every 4th pixel each way), split by
+// the tag of the pair (a made frame after a real one and the other way, when the recording says), its spread, the biggest steps, and whether the change repeats at some period (a pulse every Nth frame)
+static bool LumaOf(const FileHeader& h, const std::vector<uint8_t>& px, std::vector<float>& luma) {
+    const uint32_t sw = (h.width + 3) / 4, sh = (h.height + 3) / 4;
+    luma.assign(static_cast<size_t>(sw) * sh, 0.0f);
+    const bool half = (h.content == kSdrView || h.content == kLight) && h.bytesPerPixel == 8;
+    std::vector<uint8_t> row(static_cast<size_t>(h.width) * 4);
+    for (uint32_t y = 0; y < h.height; y += 4) {
+        const uint8_t* src = px.data() + static_cast<size_t>(y) * h.width * h.bytesPerPixel;
+        if (!half && !nr::screenshot::ToBgra8(static_cast<DXGI_FORMAT>(h.format), src, h.width, row.data())) return false;
+        for (uint32_t x = 0; x < h.width; x += 4) {
+            float c[3];
+            if (half) {
+                const uint16_t* in = reinterpret_cast<const uint16_t*>(src) + static_cast<size_t>(x) * 4;
+                for (int k = 0; k < 3; ++k) {
+                    float v = DirectX::PackedVector::XMConvertHalfToFloat(in[k]);
+                    if (h.content == kLight) { v = std::max(v, 0.0f); if (v > 0.75f) v = 0.75f + 0.25f * (1.0f - std::exp(-(v - 0.75f) / 0.25f)); v = v <= 0.0031308f ? v * 12.92f : 1.055f * std::pow(v, 1.0f / 2.4f) - 0.055f; }
+                    c[k] = std::clamp(v, 0.0f, 1.0f) * 255.0f;
+                }
+            } else { c[0] = row[x * 4 + 2]; c[1] = row[x * 4 + 1]; c[2] = row[x * 4]; }
+            luma[static_cast<size_t>(y / 4) * sw + x / 4] = 0.2126f * c[0] + 0.7152f * c[1] + 0.0722f * c[2];
+        }
+    }
+    return true;
+}
+
+static int Flicker(int argc, char** argv) {
+    Reader r; std::string error;
+    if (!r.Open(Wide(argv[2]), &error)) { printf("%s: %s\n", argv[2], error.c_str()); return 2; }
+    const FileHeader& h = r.Header();
+    const size_t first = static_cast<size_t>(std::max(0, Arg(argc, argv, 3, "first", 0)));
+    const size_t count = static_cast<size_t>(std::max(2, Arg(argc, argv, 3, "count", 1 << 30)));
+    std::vector<uint8_t> px; std::vector<float> prev, cur;
+    std::vector<double> steps; std::vector<uint32_t> tags; std::vector<double> dts;
+    uint32_t prevTag = 0; int64_t prevQpc = 0;
+    for (size_t i = first; i < r.Count() && i < first + count; ++i) {
+        if (!r.Read(i, px) || !LumaOf(h, px, cur)) { printf("frame %zu could not be read or converted\n", i); return 3; }
+        const uint32_t tag = r.FrameInfo(i).tag; const int64_t qpc = r.FrameInfo(i).qpc;
+        if (!prev.empty()) {
+            double sum = 0; for (size_t k = 0; k < cur.size(); ++k) sum += std::fabs(cur[k] - prev[k]);
+            steps.push_back(sum / cur.size());
+            tags.push_back(prevTag * 4 + tag);
+            dts.push_back(h.qpcFrequency ? (qpc - prevQpc) * 1000.0 / h.qpcFrequency : 0.0);
+        }
+        prev.swap(cur); prevTag = tag; prevQpc = qpc;
+    }
+    if (steps.size() < 3) { printf("too few frames to say anything\n"); return 0; }
+    auto stats = [&](const std::vector<double>& v, const char* name, const char* unit = "levels of 255") {
+        if (v.empty()) return;
+        std::vector<double> s = v; std::sort(s.begin(), s.end());
+        double m = 0; for (double x : v) m += x; m /= v.size();
+        printf("  %-22s n %4zu  mean %.3f  p50 %.3f  p95 %.3f  max %.3f %s\n", name, v.size(), m, s[s.size() / 2], s[static_cast<size_t>(0.95 * (s.size() - 1))], s.back(), unit);
+    };
+    printf("%s: %zu frame steps (%ux%u, every 4th pixel each way)\n", argv[2], steps.size(), h.width, h.height);
+    stats(steps, "all steps");
+    std::vector<double> realToMade, madeToReal, same;
+    for (size_t i = 0; i < steps.size(); ++i) {
+        const uint32_t a = tags[i] / 4, b = tags[i] % 4;
+        if (a == nr::lsrec::kReal && b == nr::lsrec::kMadeBetween) realToMade.push_back(steps[i]);
+        else if (a == nr::lsrec::kMadeBetween && b == nr::lsrec::kReal) madeToReal.push_back(steps[i]);
+        else same.push_back(steps[i]);
+    }
+    if (!realToMade.empty() || !madeToReal.empty()) { stats(realToMade, "real -> made"); stats(madeToReal, "made -> real"); }
+    // the biggest steps: a spike (a frame repeated, a warp) shows here
+    std::vector<size_t> order(steps.size()); for (size_t i = 0; i < order.size(); ++i) order[i] = i;
+    std::sort(order.begin(), order.end(), [&](size_t a, size_t b) { return steps[a] > steps[b]; });
+    printf("  the biggest steps (frame number: change, ms since the frame before):");
+    for (size_t k = 0; k < std::min<size_t>(5, order.size()); ++k) printf("  %zu: %.2f (%.1f ms)", first + order[k] + 1, steps[order[k]], dts[order[k]]);
+    printf("\n");
+    // a repeating pulse: the autocorrelation of the steps at lags 2..12
+    double mean = 0; for (double x : steps) mean += x; mean /= steps.size();
+    double var = 0; for (double x : steps) var += (x - mean) * (x - mean);
+    int bestLag = 0; double best = 0;
+    for (int lag = 2; lag <= 12 && static_cast<size_t>(lag) < steps.size() / 2; ++lag) {
+        double c = 0; for (size_t i = 0; i + lag < steps.size(); ++i) c += (steps[i] - mean) * (steps[i + lag] - mean);
+        const double ac = var > 0 ? c / var : 0; if (ac > best) { best = ac; bestLag = lag; }
+    }
+    if (best > 0.35) printf("  the change repeats every %d frames (autocorrelation %.2f): a pulse of that period, not noise\n", bestLag, best);
+    else printf("  no repeating pulse (the best period, %d frames, correlates %.2f)\n", bestLag, best);
+    // the time between frames, when it is recorded
+    std::vector<double> d2; for (double d : dts) if (d > 0) d2.push_back(d);
+    if (d2.size() > 3) stats(d2, "time between frames", "ms");
+    return 0;
+}
+
 int main(int argc, char** argv) {
     if (argc >= 3 && !strcmp(argv[1], "info")) return Info(argv[2]);
+    if (argc >= 3 && !strcmp(argv[1], "flicker")) return Flicker(argc, argv);
     if (argc >= 4 && !strcmp(argv[1], "export")) return Export(argc, argv);
     if (argc >= 6 && !strcmp(argv[1], "make")) return Make(argc, argv);
     printf("nr_lsrec info <file.lsrec>\nnr_lsrec export <file.lsrec> <folder> [every=N] [first=N] [count=N]\nnr_lsrec make <file.lsrec> <width> <height> <frames> [fps=N] [hdr=1]\n");
