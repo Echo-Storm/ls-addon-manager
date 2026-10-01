@@ -2,6 +2,9 @@
 
 ## Unreleased
 
+- **Auto quality no longer cycles between every frame and every 2nd or 3rd.** The owner's trace showed it: the model skips frames, the game recovers, the governor calls that calm and goes back to every frame, the game slows again, and
+  so on every 40 to 60 s, each change a visible change in how the picture is made. When going back did not hold (the game was slow again within 90 s) the hold at every 2nd or 3rd now doubles each time (30 s, 1 min, 2 min, up to 10
+  min), and starts afresh after five calm minutes at every frame.
 ## 0.9.25 (2026-10-01)
 
 **Safeguards for a full graphics card, and a recorder that records what you see.** From a player's report (a 4090 at 40 to 50 fps: even with Lossless Scaling's frame generation alone, uneven with an addon, a one-frame warp of the whole picture with

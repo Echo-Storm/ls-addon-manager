@@ -137,6 +137,20 @@ int main() {
         Simulate(a, now, 60, 0.6f, s, 1.0f, 16.7f);            // a minute of steady frames
         Check("after the frames have been steady for a while it runs on every frame again", a.RunEvery() == 1, std::to_string(a.RunEvery()));
     }
+    {   // the model skipping frames lets the game recover, going back to every frame slows it again: a cycle every minute; each time the hold is longer
+        AutoQuality a; uint64_t now = 0;
+        const AutoQuality::Settings s{ true, 1.0f, 0.25f };
+        Simulate(a, now, 60, 0.6f, s, 1.0f, 16.7f);
+        Simulate(a, now, 12, 0.6f, s, 1.0f, 30.0f);            // slow: every 2nd or 3rd
+        Simulate(a, now, 60, 0.6f, s, 1.0f, 16.7f);            // recovered (the skipping's doing): back to every frame
+        Check("the first return to every frame comes after a minute of calm", a.RunEvery() == 1, std::to_string(a.RunEvery()));
+        Simulate(a, now, 12, 0.6f, s, 1.0f, 30.0f);            // slow again at once
+        Check("slow again soon after going back: every 2nd or 3rd again", a.RunEvery() >= 2, std::to_string(a.RunEvery()));
+        Simulate(a, now, 45, 0.6f, s, 1.0f, 16.7f);            // 45 s of calm: with the old 30 s hold it would be back already
+        Check("...and the hold is longer now: 45 s of calm is not enough", a.RunEvery() >= 2, std::to_string(a.RunEvery()));
+        Simulate(a, now, 90, 0.6f, s, 1.0f, 16.7f);
+        Check("...but a long calm does bring it back", a.RunEvery() == 1, std::to_string(a.RunEvery()));
+    }
     {
         AutoQuality a; uint64_t now = 0;
         const AutoQuality::Settings s{ true, 5.0f, 0.25f };    // a budget it can meet by lowering the resolution

@@ -44,7 +44,7 @@ bool AutoQuality::Update(uint64_t nowMs, float modelMs, float frameIntervalMs, f
         const bool changed = m_scale != ceiling && m_scale > 0 && s.on;
         m_scale = ceiling;
         m_overSince = m_underSince = 0;
-        m_settled = false; m_every = 1; m_heavySince = m_calmSince = 0;
+        m_settled = false; m_every = 1; m_heavySince = m_calmSince = 0; m_resumedAt = 0; m_holdMs = 30000;
         if (!s.on) { m_avgMs = 0; return false; }
         return changed;
     }
@@ -70,13 +70,16 @@ bool AutoQuality::Update(uint64_t nowMs, float modelMs, float frameIntervalMs, f
             m_calmSince = 0;
             if (!m_heavySince) m_heavySince = nowMs;
             if (m_every < 3 && nowMs - m_heavySince >= 3000 && nowMs - m_everyChangedAt >= 8000) {
-                ++m_every; m_everyChangedAt = nowMs; m_everyHoldUntil = nowMs + 30000; m_heavySince = nowMs;
+                // going back to every frame made the game slow again within 90 s: the calm was the skipping's own doing, so the next hold is twice as long (up to 10 minutes)
+                if (m_resumedAt && nowMs - m_resumedAt < 90000) m_holdMs = std::min<uint64_t>(m_holdMs * 2, 600000);
+                ++m_every; m_everyChangedAt = nowMs; m_everyHoldUntil = nowMs + m_holdMs; m_heavySince = nowMs; m_resumedAt = 0;
             }
         } else {
             m_heavySince = 0;
             if (m_pressure >= 0.999f) {
                 if (!m_calmSince) m_calmSince = nowMs;
-                if (m_every > 1 && nowMs - m_calmSince >= 10000 && nowMs >= m_everyHoldUntil) { m_every = 1; m_everyChangedAt = nowMs; }
+                if (m_every > 1 && nowMs - m_calmSince >= 10000 && nowMs >= m_everyHoldUntil) { m_every = 1; m_everyChangedAt = nowMs; m_resumedAt = nowMs; }
+                if (m_every == 1 && m_resumedAt && nowMs - m_resumedAt > 300000) { m_holdMs = 30000; m_resumedAt = 0; }   // five calm minutes at every frame: the next time starts afresh
             } else m_calmSince = 0;
         }
     }

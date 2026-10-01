@@ -51,6 +51,7 @@ private:
     float m_frameAvg = 0, m_frameBase = 0, m_pressure = 1.0f;   // the game's frame time: now, and the best it has lately managed
     bool m_settled = false;                                       // the model fits the budget at the current scale
     uint64_t m_overSince = 0, m_underSince = 0, m_lastChange = 0, m_noRaiseUntil = 0;
+    uint64_t m_resumedAt = 0, m_holdMs = 30000;   // when the model went back to every frame, and how long it stays at every 2nd or 3rd after the next increase (grows if going back did not hold)
     int m_every = 1; uint64_t m_heavySince = 0, m_calmSince = 0, m_everyChangedAt = 0, m_everyHoldUntil = 0;
     std::deque<Step> m_history;  // the newest last, at most 8
 };
