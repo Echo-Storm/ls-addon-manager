@@ -298,6 +298,14 @@ def scenario_scaler(ctx, res, text, frame):
             ctx['scaler_detail'] = float(detail.group(1))
 
 
+def scenario_scaler_light(ctx, res, text, frame):
+    # the generated frames (a generated-frame pass before the first NIS pass of each real frame) get the lighter run; the picture that replaces NIS is still a real, upscaled one
+    res.check('a generated frame is recognised and given the lighter run', 'lighter upscaling: the first generated frame was given the lighter run' in text)
+    nis = re.search(r'\[check-nis\].*', text)
+    res.check("the pictures that replace NIS are still DLSS's, real and generated", 'DLSS REPLACED NIS' in text, nis.group(0)[12:] if nis else 'no check line')
+    res.check('...and nothing failed', 'could not' not in text.lower() or 'could not hook' in text.lower())
+
+
 def scenario_scaler_noflow(ctx, res, text, frame):
     # frame generation off: no capture or flow passes, NIS on the BGRA8 frame
     nis = re.search(r'\[check-nis\].*', text)
@@ -553,6 +561,7 @@ SCENARIOS = [
     ('selftest', ['selfTestOnStart=1'], scenario_selftest),
     ('scaler', ['addon=DLSS4DLAA.dll', 'nis=1', 'sharpen=0'], scenario_scaler),   # no sharpening (the upscalers' default is 0.3): the baseline for scaler_sharp
     ('scaler_m', ['addon=DLSS4DLAA.dll', 'nis=1', 'dlaaPreset=13'], scenario_scaler),
+    ('scaler_light', ['addon=DLSS4DLAA.dll', 'nis=1', 'nisgen=1', 'sharpen=0.5', 'scalerLightGen=1'], scenario_scaler_light),   # lighter upscaling of generated frames (a test)
     ('scaler_sharp', ['addon=DLSS4DLAA.dll', 'nis=1', 'sharpen=0.5'], scenario_scaler),
     ('scaler_bgra', ['addon=DLSS4DLAA.dll', 'nis=1', 'nisbgra=1', 'nisnoflow=1'], scenario_scaler_noflow),   # frame generation off: only NIS, on the BGRA8 capture
     ('scaler_move_none', ['addon=DLSS4DLAA.dll', 'nis=1', 'nisbgra=1', 'nisnoflow=1', 'nismove=1', 'motionSource=2'], scenario_move_none),   # a sliding picture, DLSS told nothing moves

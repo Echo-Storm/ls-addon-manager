@@ -75,6 +75,8 @@ public:
     bool Observe(ID3D11DeviceContext* ctx, uint32_t x, uint32_t y, uint32_t z, TapDecision& d);
     // Every present of Lossless Scaling's swap chain.
     PresentInfo NotePresent();
+    // True when a generated-frame pass ran since the last call (cleared): asked at each NIS pass, it says that the picture NIS is about to scale is a generated one
+    bool TakeGenerated() { std::lock_guard<std::mutex> lk(m_mu); const bool g = m_genSincePresent; m_genSincePresent = false; return g; }
     // The flow LSFG wrote most recently (AddRef'd; the caller releases).
     ID3D11Resource* NewestFlow(uint32_t& w, uint32_t& h);
 

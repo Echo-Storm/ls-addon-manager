@@ -119,10 +119,12 @@ def report(events, meta, gaps, window_ms):
     # the upscaler
     up = [e for e in events if e[1] == 'upscale']
     if up:
-        used = [e for e in up if e[2] == 1]
+        used = [e for e in up if e[2] & 1]
+        light = [e for e in up if e[2] & 2]
         w('## Upscaler passes')
         w('')
         w('- passes %d, the upscaler\'s picture used on %d (%.1f%%)' % (len(up), len(used), 100.0 * len(used) / len(up)))
+        if light: w('- generated frames given the lighter run: %d (%.1f%% of the passes)' % (len(light), 100.0 * len(light) / len(up)))
         if used:
             w('- engine GPU (ms): ' + dist([e[3] / 100.0 for e in used if e[3]]))
             w('- motion estimate (ms): ' + dist([e[4] / 100.0 for e in used if e[4]]))

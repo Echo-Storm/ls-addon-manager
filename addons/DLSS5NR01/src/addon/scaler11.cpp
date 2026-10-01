@@ -345,7 +345,7 @@ void ScalerLink::DescribeTargets(const NisPass& pass) {
 }
 
 bool ScalerLink::Upscale(const NisPass& pass, ID3D11Resource* flow, uint32_t flowW, uint32_t flowH, float flowUnit, float motionFraction, bool estimate, unsigned preset,
-                         float sharpen, bool reset, Handoff handoff, bool gpuWait) {
+                         float sharpen, bool reset, Handoff handoff, bool gpuWait, bool cheap, float presentStep, float warp) {
     if (!IsReady() || !m_engine) return false;
     if (m_engine->CheckStuck() || !m_engine->IsReady()) return false;   // a runtime that stopped responding: NIS from now on
     struct StepGuard { std::atomic<const char*>& s; ~StepGuard() { s = "idle"; } } stepGuard{ m_step };
@@ -433,7 +433,7 @@ bool ScalerLink::Upscale(const NisPass& pass, ID3D11Resource* flow, uint32_t flo
         // to the engine's own thread: this one never waits on NVIDIA's or AMD's code (SrEngine::Submit)
         const SrEngine::Job job{ m_in[in].d3d12, pass.inW, pass.inH, inFmt, m_out[out].d3d12, pass.outW, pass.outH, pictureFmt,
                                  flowTex ? m_flow[in].d3d12 : nullptr, m_flow[in].w, m_flow[in].h, flowUnit, motionFraction, estimate, preset, sharpen,
-                                 m_pendingReset, m_encoding != 0, m_copied.d3d12, n, m_done.d3d12, n };
+                                 m_pendingReset, m_encoding != 0, m_copied.d3d12, n, m_done.d3d12, n, cheap, presentStep, warp };
         m_step = "handing the frame to the engine";
         m_engine->Submit(job);
         m_holds[out] = n;   // a picture only counts once the engine says it ran (RanOk)

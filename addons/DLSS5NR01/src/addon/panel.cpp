@@ -479,6 +479,13 @@ void DrawPanel() {
                 "on recordings. Off: measured for every frame. It does nothing without frame generation.");
         }
         {
+            if (ImGui::Checkbox("Lighter upscaling of generated frames (test)", &c.scalerLightGen)) changed = true;
+            Tip("A test, off by default. With frame generation, the upscaler runs on the frames the game draws only; the frames Lossless Scaling makes between them get the last "
+                "upscaled picture moved along the motion, checked against the new frame (where they disagree, the new frame stretched plainly), and sharpened. That takes the "
+                "upscaler's cost for those frames from about 3 ms to under 1 ms at 4K, a quarter of the cost of a game frame. On recordings it scored the same on detail and "
+                "flicker, a little lower on steadiness in motion. Flip it with the camera turning and in a calm scene, and tell us if you see a difference. It does nothing without frame generation.");
+        }
+        {
             if (ImGui::Checkbox("Motion by shape (test)", &c.motionShapes)) changed = true;
             Tip("A test, off by default. The motion the upscaler is given is found by matching small patches of the frame before to this one. Off: by "
                 "their brightness, as before. On: by their shape and edges, with the brightness itself counting little, so a flash, a spell effect, a "

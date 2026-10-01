@@ -51,6 +51,7 @@ public:
         ID3D12Resource* flow; uint32_t flowW, flowH; float flowUnit, motionFraction; bool estimate; unsigned preset; float sharpen; bool reset;
         bool hdr;   // the frame is an HDR frame as light (1 = the SDR white): the upscaler takes it in its HDR mode and writes light
         ID3D12Fence* copied; uint64_t copiedValue; ID3D12Fence* done; uint64_t doneValue;
+        bool cheap = false; float step = 1.0f, warp = -1.0f;   // a cheap run (SetCheapNext) for a generated frame: the present step and how far along the motion its picture is (warp < 0: the step)
     };
     void Submit(const Job& job);   // "done" = job.doneValue is signalled on the engine's queue once it has run (or could not), never before
     // The newest job whose work is on the engine's GPU queue (its done value): only such a frame may be waited for on the GPU.
@@ -112,7 +113,7 @@ public:
     // the whole vector (its history is the real frame before).
     void SetPresentStep(float f) { m_presentStep.store(f < 0.1f ? 0.1f : f > 1.0f ? 1.0f : f); }
     void SetWarpSign(float s) { m_warpSign.store(s); }   // (a test: which way a cheap run moves the upscaler's picture along the motion)
-    void SetCheapNext(bool cheap) { m_cheapNext.store(cheap); }
+    void SetCheapNext(bool cheap, float warp = -1.0f) { m_cheapNext.store(cheap); m_cheapWarp.store(warp); }   // warp: how far along the motion the picture is moved (a share of the real frames' step; < 0: the present step)
     void SetFlowReuse(int mode) { m_flowReuse.store(mode < 0 ? 0 : mode > 2 ? 2 : mode); }
     // Sharpening is cut by this much (0..1) where the picture moves fast (smoothly from 1 to 8 output pixels a frame): detail the eye cannot resolve there, shimmer it can see
     void SetMoveCut(float cut) { m_moveCut.store(cut < 0.0f ? 0.0f : cut > 1.0f ? 1.0f : cut); }
@@ -182,7 +183,7 @@ private:
     bool InitLean();
     // steady sharpening: the sharpening pass with the previous frame's input and the motion (on the lean's root signature: three pictures in, one out)
     ID3D12RootSignature* m_steadyRoot = nullptr; ID3D12PipelineState* m_steadyPso = nullptr;
-    std::atomic<bool> m_cheapNext{ false }; std::atomic<float> m_presentStep{ 1.0f }; std::atomic<float> m_warpSign{ 1.0f };
+    std::atomic<bool> m_cheapNext{ false }; std::atomic<float> m_presentStep{ 1.0f }; std::atomic<float> m_cheapWarp{ -1.0f }; std::atomic<float> m_warpSign{ 1.0f };
     std::atomic<bool> m_fsrOwnSharpen{ true }; std::atomic<int> m_flowReuse{ 0 }; std::atomic<float> m_moveCut{ 0.0f }; bool m_haveMotion = false; uint32_t m_flowPhase = 0; std::atomic<float> m_steadySharp{ 0.0f }, m_steadySign{ -1.0f }, m_steadyMvA{ 0.5f }, m_steadyMvB{ 3.0f };
     ID3D12Resource* m_sharpHist[2] = {}; int m_sharpHistCur = 0; uint32_t m_sharpHistW = 0, m_sharpHistH = 0; DXGI_FORMAT m_sharpHistFmt = DXGI_FORMAT_UNKNOWN; bool m_sharpHistValid = false;
     bool EnsureSharpHist(uint32_t w, uint32_t h, DXGI_FORMAT fmt);

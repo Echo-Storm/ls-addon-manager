@@ -87,7 +87,7 @@ public:
     // copy reads as black, see the grab pass), or null when none was handed over. Taken once.
     ID3D11Texture2D* TakeGrabbed() { ID3D11Texture2D* t = m_grabbed; m_grabbed = nullptr; return t; }
     bool Upscale(const NisPass& pass, ID3D11Resource* flow, uint32_t flowW, uint32_t flowH, float flowUnit, float motionFraction, bool estimate, unsigned preset,
-                 float sharpen, bool reset, Handoff handoff = Handoff::Late, bool gpuWait = true);
+                 float sharpen, bool reset, Handoff handoff = Handoff::Late, bool gpuWait = true, bool cheap = false, float presentStep = 1.0f, float warp = -1.0f);   // cheap: a generated frame, given the lighter run (SrEngine::SetCheapNext)
 
     // Counted since the link was made: passes that showed a picture, frames not handed over (the engine had kIn already), pictures shown a
     // second time, GPU waits for the next picture; and of passes, repeats and waits, those that came within kClosePassMs of the pass before

@@ -2,6 +2,12 @@
 
 ## Unreleased
 
+- **"Lighter upscaling of generated frames (test)"** (the three upscalers, off by default). With frame generation the upscaler runs on every presented frame, and in the owner's HDR 1.5x log that was 3.3 ms of GPU
+  for each (6.6 ms for each frame the game draws, about two thirds of everything the addons add at the spot where the game fell from 60 to 40 fps). With the option on, the frames the game draws get the full upscaler
+  and the frames Lossless Scaling makes between them get the last upscaled picture, moved along the motion by their share of the step, checked against the new frame at the scale of a few pixels (where they disagree, the new
+  frame stretched plainly), and sharpened as usual: under 1 ms instead of 3. A generated frame is recognised by the generated-frame pass that runs before it. Measured offline on four recordings (docs/frame-generation-research.md):
+  detail and flicker about equal, 0.4 to 0.8 dB lower in fast motion, a little lower on the steadiness score. Not yet seen by eye: flip it with the camera turning and in a calm dark scene. The frame trace marks these frames,
+  and the log's "frames upscaled" line counts them.
 - **The upscalers' "NIS stays" line is no longer alarming while they work.** Lossless Scaling draws a second kind of pass into part of the screen, which the upscaler leaves to NIS; the log said "in a way the upscaler cannot follow
   yet ... please report it" about it every 30 s, in logs where 96 % of the frames were being upscaled. Once frames have been upscaled the line says what it is and that it is normal.
 - **The upscalers scale the motion by time, not by a count of presents.** With frame generation the upscaler is told how far each presented picture is along from the one before. It took that as 1 over

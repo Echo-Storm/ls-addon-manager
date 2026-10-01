@@ -882,6 +882,7 @@ SrEngine g_sr;                                   // DLSS on our own device; read
 ScalerLink g_link;                               // Lossless Scaling's side: under g_frameMutex, on the render thread only
 std::atomic<bool> g_srStarting{ false };
 ID3D11Device* g_linkDevice = nullptr;            // the device the link was made on (the link holds it)
+uint64_t g_lightRuns = 0; uint32_t g_genIndex = 0;   // lighter upscaling (a test): generated frames given the lighter run, and the generated ones since the real frame
 uint32_t g_nisSinceTap = 0, g_nisPerFrame = 0;   // NIS passes between two real frames: the presents per real frame
 // How far one presented picture is along from the one before, as a share of a real frame's step: the time between presents over the time between real frames
 // (smoothed). With a whole number of presents to a real frame it is 1 / that number; with Lossless Scaling's adaptive mode (2.4 presents to a frame on a 120 Hz
@@ -1167,13 +1168,13 @@ bool ScalerPass(ID3D11DeviceContext* ctx, uint32_t x, uint32_t y, uint32_t z) {
                 Log("%s upscaler: could not hook Present; no corner square after a hotkey%s", kUpscalerName,
                     handoffMode == static_cast<int>(ScalerLink::Handoff::AtPresent) || frameGenOn ? ", and the picture cannot go over NIS's there" : "");
             if (g_linkDevice == dev && g_compare.load() != 2) {   // "original only" lets NIS run, for comparing
-                NrParams p; unsigned preset; int handoff, motion; bool gpuWait, steadyFast, shapes, easu, reuseMotion; float stability, edges, leanFrom, leanRest, steadySharp, moveCut;
+                NrParams p; unsigned preset; int handoff, motion; bool gpuWait, steadyFast, shapes, easu, reuseMotion, lightGen; float stability, edges, leanFrom, leanRest, steadySharp, moveCut;
                 { std::lock_guard<std::mutex> settings(g_settingsMutex); p = g_config.p; preset = g_config.dlaaPreset; handoff = g_config.scalerHandoff; motion = g_config.motionSource;
-                  gpuWait = g_config.scalerGpuWait; stability = g_config.scalerStability; edges = g_config.scalerEdges; steadyFast = g_config.scalerFastMotion; shapes = g_config.motionShapes; leanFrom = g_config.scalerLeanFrom; easu = g_config.leanEasu; leanRest = g_config.scalerLeanRest; steadySharp = g_config.scalerSteadySharp; moveCut = g_config.scalerMoveCut; reuseMotion = g_config.scalerReuseMotion; }
+                  gpuWait = g_config.scalerGpuWait; stability = g_config.scalerStability; edges = g_config.scalerEdges; steadyFast = g_config.scalerFastMotion; shapes = g_config.motionShapes; leanFrom = g_config.scalerLeanFrom; easu = g_config.leanEasu; leanRest = g_config.scalerLeanRest; steadySharp = g_config.scalerSteadySharp; moveCut = g_config.scalerMoveCut; reuseMotion = g_config.scalerReuseMotion; lightGen = g_config.scalerLightGen; }
                 g_sr.SetStability(stability); g_sr.SetEdgeSmoothing(edges);
                 g_sr.SetFastMotion(steadyFast ? -1.0f : 0.0f); g_sr.SetFastMotionShare(leanFrom * 0.01f);   // in fast motion lean on the frame (from the chosen share, or its own), or never
                 g_sr.SetLeanMode(easu ? 1u : 0u); g_sr.SetLeanRest(leanRest); g_sr.SetSteadySharpen(steadySharp); g_sr.SetMoveCut(moveCut);
-                g_sr.SetFlowReuse(reuseMotion && g_nisPerFrame >= 2 ? 2 : 0);   // frame generation: every other presented frame keeps the motion estimate of the one before
+                g_sr.SetFlowReuse(reuseMotion && !lightGen && g_nisPerFrame >= 2 ? 2 : 0);   // frame generation: every other presented frame keeps the motion estimate of the one before
                 g_sr.SetMeanWeight(shapes ? 0.0f : 1.0f); g_sr.SetGradWeight(shapes ? 0.3f : 0.0f);   // the motion matched by shape and edges (a test), or by brightness
                 ScalerLink::Picture picture;   // at the defaults while Neural Rendering is on (its own Picture controls act on the shown picture)
                 if (!NeuralRenderingOnNow()) {
@@ -1207,12 +1208,18 @@ bool ScalerPass(ID3D11DeviceContext* ctx, uint32_t x, uint32_t y, uint32_t z) {
                 uint32_t fw = 0, fh = 0;
                 ID3D11Resource* flow = motion == 1 ? g_tap.NewestFlow(fw, fh) : nullptr;
                 const float fraction = PresentStepFraction();
+                // lighter upscaling of generated frames (a test): a generated-frame pass ran since the last NIS pass, so this picture is a generated one; k counts them since the real frame
+                const bool generated = g_tap.TakeGenerated();
+                g_genIndex = generated ? g_genIndex + 1 : 0;
+                const bool cheap = lightGen && g_nisPerFrame >= 2 && generated;
+                if (cheap && ++g_lightRuns == 1) Log("%s upscaler: lighter upscaling: the first generated frame was given the lighter run (the generated frame %u since the real one, each frame %.2f of a real step)", kUpscalerName, g_genIndex, fraction);
                 t_ownWork = true;
                 g_passStep = "Upscale";
                 replaced = g_link.Upscale(pass, flow, fw, fh, p.flowUnit, fraction, motion == 0, preset, p.sharpen * kScalerSharpenScale, g_resetRequested.exchange(false),
-                                          static_cast<ScalerLink::Handoff>(handoff), gpuWait);   // (a reset not handed over is kept by the link: ScalerLink::m_pendingReset)
+                                          static_cast<ScalerLink::Handoff>(handoff), gpuWait,
+                                          cheap, lightGen ? fraction : 1.0f, cheap ? std::min(1.0f, static_cast<float>(g_genIndex) * fraction) : -1.0f);   // (a reset not handed over is kept by the link: ScalerLink::m_pendingReset)
                 t_ownWork = false;
-                nr::trace::Add(nr::trace::kUpscale, replaced ? 1 : 0, static_cast<int32_t>(g_sr.GpuMs() * 100.0), static_cast<int32_t>(g_sr.MotionMs() * 100.0));
+                nr::trace::Add(nr::trace::kUpscale, (replaced ? 1 : 0) | (cheap ? 2 : 0), static_cast<int32_t>(g_sr.GpuMs() * 100.0), static_cast<int32_t>(g_sr.MotionMs() * 100.0));
                 g_passStep = "the recorder";
                 if (ID3D11Texture2D* grabbed = g_link.TakeGrabbed()) {   // (HDR frames go to the upscaler as light: said so in the file)
                     bool shown; { std::lock_guard<std::mutex> settings(g_settingsMutex); shown = kFrameGen && g_config.frameGen && g_config.recordShown; }
@@ -1270,8 +1277,8 @@ bool ScalerPass(ID3D11DeviceContext* ctx, uint32_t x, uint32_t y, uint32_t z) {
         } else if (g_compare.load() == 2) g_host->SetStatus(kAddonId, "Showing Lossless Scaling's NIS (Before / after)", 0);
     }
     if (replaced && (g_upscaled == 1 || g_upscaled % 3000 == 0))
-        Log("%s scaler: %llu frames upscaled, NIS passes seen %llu, %u per real frame, %s %.2f ms", kUpscalerName, (unsigned long long)g_upscaled,
-            (unsigned long long)g_nisSeen, g_nisPerFrame, kUpscalerName, g_sr.GpuMs());
+        Log("%s scaler: %llu frames upscaled, NIS passes seen %llu, %u per real frame, %s %.2f ms%s", kUpscalerName, (unsigned long long)g_upscaled,
+            (unsigned long long)g_nisSeen, g_nisPerFrame, kUpscalerName, g_sr.GpuMs(), g_lightRuns ? (", " + std::to_string(g_lightRuns) + " generated frames given the lighter run").c_str() : "");
     return replaced;   // true: Lossless Scaling's NIS pass is skipped, DLSS's picture is in its output
 }
 

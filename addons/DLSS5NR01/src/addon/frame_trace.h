@@ -10,7 +10,7 @@
 //   tap      a real frame reached the addon: c = its index
 //   present  a frame was presented: a = a number for the swap chain (the busiest is Lossless Scaling's output), b = the present flags, c = the sync interval
 //   model    a model run ended: a = 1 started / 0 left out (the model was busy), b = its GPU start delay in 0.01 ms, c = its run in 0.01 ms
-//   upscale  an upscaler pass: a = 1 the upscaler's picture was used / 0 NIS stayed, b = the engine's GPU ms and c = its motion estimate's ms, both in 0.01 ms
+//   upscale  an upscaler pass: a = 1 the upscaler's picture was used / 0 NIS stayed (+ 2: a generated frame given the lighter run), b = the engine's GPU ms and c = its motion estimate's ms, both in 0.01 ms
 //   auto     auto quality changed something: a = the model resolution in percent, b = the model runs on every Nth frame
 //   hotkey   a = which hotkey (Ctrl+Shift+F-key index, see runtime.cpp)
 #pragma once

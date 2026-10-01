@@ -736,6 +736,7 @@ void SrEngine::WorkerLoop() {
             j = m_jobs.front(); m_jobs.pop_front(); m_busy = true;
         }
         m_busySince = GetTickCount64();
+        SetPresentStep(j.step); SetCheapNext(j.cheap, j.warp);   // (set for this run only, on this thread: the next job brings its own)
         // marked as going through before it is submitted (the GPU may finish it before this thread gets back), taken back if it did not
         m_okRing[j.doneValue % kOkRing].store(j.doneValue, std::memory_order_release);
         const bool ok = Run(j.in, j.inW, j.inH, j.inFormat, j.out, j.outW, j.outH, j.outFormat, j.flow, j.flowW, j.flowH, j.flowUnit, j.motionFraction,
@@ -847,12 +848,14 @@ bool SrEngine::InitLean() {   // its own root signature: three pictures in, one 
     SafeRelease(blob); SafeRelease(error);
     if (!rootOk) return false;
     ID3DBlob* code = nullptr; ID3DBlob* err = nullptr;
+    const ULONGLONG compileStart = GetTickCount64();
     if (FAILED(D3DCompile(kLeanHlsl, strlen(kLeanHlsl), "sr_lean", nullptr, nullptr, "main", "cs_5_0", D3DCOMPILE_OPTIMIZATION_LEVEL3, 0, &code, &err))) {
         Log("sr_lean: %s", err ? static_cast<const char*>(err->GetBufferPointer()) : "?"); SafeRelease(err); return false;
     }
     D3D12_COMPUTE_PIPELINE_STATE_DESC pso{}; pso.pRootSignature = m_leanRoot; pso.CS = { code->GetBufferPointer(), code->GetBufferSize() };
     const HRESULT hr = m_dev->CreateComputePipelineState(&pso, IID_PPV_ARGS(&m_leanPso)); SafeRelease(code);
     if (FAILED(hr)) return false;
+    Log("%s upscaler: the lean pass compiled in %llu ms", Name(), static_cast<unsigned long long>(GetTickCount64() - compileStart));
     // steady sharpening (an option: without it the sharpening pass is the plain one): its own root signature, three pictures in and two out
     {
         D3D12_DESCRIPTOR_RANGE srv3{}; srv3.RangeType = D3D12_DESCRIPTOR_RANGE_TYPE_SRV; srv3.NumDescriptors = 3;
@@ -1356,7 +1359,7 @@ bool SrEngine::Run(ID3D12Resource* in, uint32_t inW, uint32_t inH, DXGI_FORMAT i
         D3D12_GPU_DESCRIPTOR_HANDLE gpuOut = gpu; gpuOut.ptr += 17 * m_descriptorSize;
         m_list->SetComputeRootDescriptorTable(0, gpuIn);
         m_list->SetComputeRootDescriptorTable(1, gpuOut);
-        const LeanConstants lc{ outW, outH, inW, inH, m_fastMotion.load() != 0.0f ? 1.0f : 0.0f, m_leanMode.load() | (hdr ? 2u : 0u), m_leanRest.load(), cheap ? m_presentStep.load() : 0.0f, m_warpSign.load() * static_cast<float>(outW) / static_cast<float>(inW) };   // (strength 0: only the floor, when "Steady in fast motion" is off)
+        const LeanConstants lc{ outW, outH, inW, inH, m_fastMotion.load() != 0.0f ? 1.0f : 0.0f, m_leanMode.load() | (hdr ? 2u : 0u), m_leanRest.load(), cheap ? (m_cheapWarp.load() >= 0.0f ? m_cheapWarp.load() : m_presentStep.load()) : 0.0f, m_warpSign.load() * static_cast<float>(outW) / static_cast<float>(inW) };   // (strength 0: only the floor, when "Steady in fast motion" is off)
         m_list->SetComputeRoot32BitConstants(2, sizeof(LeanConstants) / 4, &lc, 0);
         m_list->Dispatch((outW + 7) / 8, (outH + 7) / 8, 1);
         Transition(m_unsharpened, D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE, D3D12_RESOURCE_STATE_UNORDERED_ACCESS);

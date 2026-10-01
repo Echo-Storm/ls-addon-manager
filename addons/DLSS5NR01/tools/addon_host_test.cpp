@@ -453,8 +453,9 @@ int main(int argc, char** argv) {
             ID3D11Buffer* noCb = nullptr; dc->CSSetConstantBuffers(0, 1, &noCb);
             dc->CSSetUnorderedAccessViews(0, 1, nullu, nullptr); dc->CSSetShaderResources(0, 3, nulls);
         };
+        bool nisGen = false;   // nisgen=1: a generated-frame pass (two full frames and the flow in, a full frame out) before the first of the two NIS passes, as LSFG draws it
         bool nisNoFlow = false, nisMove = false;   // nisnoflow=1: frame generation off, so no capture or flow passes, only NIS; nismove=1: the picture slides
-        for (int i = 4; i < argc; ++i) { if (!strcmp(argv[i], "nisnoflow=1")) nisNoFlow = true; if (!strcmp(argv[i], "nismove=1")) nisMove = true; }
+        for (int i = 4; i < argc; ++i) { if (!strcmp(argv[i], "nisnoflow=1")) nisNoFlow = true; if (!strcmp(argv[i], "nismove=1")) nisMove = true; if (!strcmp(argv[i], "nisgen=1")) nisGen = true; }
         // nisswitch=<key>=<value>: that setting changes at frame 75, and the run goes on for 325 frames more, so a runtime that starts
         // again cold (DLSS: two seconds or more) still has passes to replace (as the manager's Runtimes list changes "fsrRuntime" while the game runs)
         std::string switchKey, switchValue;
@@ -462,7 +463,7 @@ int main(int argc, char** argv) {
             const char* kv = argv[i] + 10; const char* eq = strchr(kv, '=');
             if (eq) { switchKey.assign(kv, eq - kv); switchValue = eq + 1; }
         }
-        const int kFrames = switchKey.empty() ? 150 : 400, kSwitchAt = 75;
+        const int kFrames = switchKey.empty() ? (nisNoFlow ? 260 : 150) : 400, kSwitchAt = 75;   // (no flow: frames are 16 ms apart, and the engine takes 2 to 2.7 s to start: a run of 150 ended before it did on a busy machine)
         int nisGap = 12; for (int i = 4; i < argc; ++i) if (!strncmp(argv[i], "nisgap=", 7)) nisGap = std::clamp(atoi(argv[i] + 7), 0, 24);
         for (int fr = 0; fr < kFrames; ++fr) {
             if (fr == kSwitchAt && !switchKey.empty()) { host.cfg[switchKey] = switchValue; printf("[hosttest] frame %d: %s = %s\n", fr, switchKey.c_str(), switchValue.c_str()); }
@@ -474,6 +475,8 @@ int main(int argc, char** argv) {
             ID3D11UnorderedAccessView* null4[4] = {}; dc->CSSetUnorderedAccessViews(0, 4, null4, nullptr); dc->CSSetShaderResources(0, 3, nulls);
             dc->CSSetShaderResources(4, 1, &sPyr3); dc->CSSetUnorderedAccessViews(0, 1, &uFlow16, nullptr); dc->CSSetShader(csFlow16, nullptr, 0); host.Dispatch(dc, FLW / 8, FLH / 8, 1);
             { ID3D11ShaderResourceView* n8[8] = {}; dc->CSSetShaderResources(0, 8, n8); } dc->CSSetUnorderedAccessViews(0, 1, nullu, nullptr);
+            if (nisGen) { ID3D11ShaderResourceView* s3[3] = { sPrev, sCur, sFlow16 }; dc->CSSetShaderResources(0, 3, s3); dc->CSSetUnorderedAccessViews(0, 1, &uOut, nullptr); dc->CSSetShader(csGen, nullptr, 0); host.Dispatch(dc, W / 8, H / 8, 1);
+                          dc->CSSetShaderResources(0, 3, nulls); dc->CSSetUnorderedAccessViews(0, 1, nullu, nullptr); }
             nisPass(); std::this_thread::sleep_for(std::chrono::milliseconds(nisGap));        // the generated frame (nisgap=: how soon the real one follows)
             nisPass(); std::this_thread::sleep_for(std::chrono::milliseconds(24 - nisGap));   // the real one
             if (fr % 30 == 0) frame("nis"); else emptyFrame();
