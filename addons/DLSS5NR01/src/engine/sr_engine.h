@@ -104,6 +104,15 @@ public:
     void SetSteadyMotion(float from, float to) { m_steadyMvA.store(from); m_steadyMvB.store(to); }   // output pixels of motion where the average's weight starts to fall and where it is gone
     void SetFsrOwnSharpen(bool own) { m_fsrOwnSharpen.store(own); }   // FSR's sharpening done by our pass (CAS, with Steady sharpening; the default) instead of AMD's RCAS (softer: 73 to 83 % of the game's detail at 0.5)
     // Every other frame, keep the last motion estimate (2) or only refine its block vectors per pixel (1): for frame generation, which presents two frames for each real one; 0 always estimates in full
+    // The next Run is a cheap one: no motion estimate and no upscaler, the picture is this frame upscaled plainly (the lean at its fullest: Catmull-Rom) and sharpened, on the last
+    // real frame's motion. For the frames Lossless Scaling generates, where the upscaler's history would otherwise be fed two pictures for each the game drew. Ignored (a full run)
+    // when there is no motion yet or the lean is not available. Taken once.
+    // With cheap runs in between (SetCheapNext) the estimator sees only every Nth presented frame, so its vectors span N presents: this is 1 / N (1: every frame is run). The passes after the
+    // upscaler take the vectors per present (the steady sharpening's history is one present back) and the lean's speed threshold is the speed's, not the vector's; the upscaler itself is given
+    // the whole vector (its history is the real frame before).
+    void SetPresentStep(float f) { m_presentStep.store(f < 0.1f ? 0.1f : f > 1.0f ? 1.0f : f); }
+    void SetWarpSign(float s) { m_warpSign.store(s); }   // (a test: which way a cheap run moves the upscaler's picture along the motion)
+    void SetCheapNext(bool cheap) { m_cheapNext.store(cheap); }
     void SetFlowReuse(int mode) { m_flowReuse.store(mode < 0 ? 0 : mode > 2 ? 2 : mode); }
     // Sharpening is cut by this much (0..1) where the picture moves fast (smoothly from 1 to 8 output pixels a frame): detail the eye cannot resolve there, shimmer it can see
     void SetMoveCut(float cut) { m_moveCut.store(cut < 0.0f ? 0.0f : cut > 1.0f ? 1.0f : cut); }
@@ -164,7 +173,7 @@ private:
     double m_gpuMs = 0, m_motionMs = 0;
     FlowEstimator m_estimator; bool m_estimatedLast = false; uint64_t m_estimates = 0; float m_motionScale = 1.0f; bool m_noMask = false; std::atomic<float> m_fastMotion{ -1.0f }, m_fastShare{ 0.0f }; std::atomic<uint32_t> m_leanMode{ 0 }; std::atomic<float> m_leanRest{ 0.0f };
     std::atomic<float> m_stability{ 0.0f }, m_edges{ 0.0f };
-    static const int kDescriptors = 17;   // per slot: flow, motion, sharpen in/out, edges in/out, view in/out, lean in (3) / out, steady stabiliser in (3) / out, steady sharpen in (3) / out
+    static const int kDescriptors = 18;   // per slot: flow, motion, sharpen in/out, edges in/out, view in/out, lean in (4: picture, frame, distrust, motion) / out (the last), steady stabiliser in (3) / out, steady sharpen in (3) / out
     ID3D12PipelineState* m_edgesPso = nullptr;
     // the lean (every upscaler; DLSS takes no mask of its own): its picture blended toward this frame, upscaled plainly, by the distrust mask
     ID3D12RootSignature* m_leanRoot = nullptr; ID3D12PipelineState* m_leanPso = nullptr;
@@ -173,6 +182,7 @@ private:
     bool InitLean();
     // steady sharpening: the sharpening pass with the previous frame's input and the motion (on the lean's root signature: three pictures in, one out)
     ID3D12RootSignature* m_steadyRoot = nullptr; ID3D12PipelineState* m_steadyPso = nullptr;
+    std::atomic<bool> m_cheapNext{ false }; std::atomic<float> m_presentStep{ 1.0f }; std::atomic<float> m_warpSign{ 1.0f };
     std::atomic<bool> m_fsrOwnSharpen{ true }; std::atomic<int> m_flowReuse{ 0 }; std::atomic<float> m_moveCut{ 0.0f }; bool m_haveMotion = false; uint32_t m_flowPhase = 0; std::atomic<float> m_steadySharp{ 0.0f }, m_steadySign{ -1.0f }, m_steadyMvA{ 0.5f }, m_steadyMvB{ 3.0f };
     ID3D12Resource* m_sharpHist[2] = {}; int m_sharpHistCur = 0; uint32_t m_sharpHistW = 0, m_sharpHistH = 0; DXGI_FORMAT m_sharpHistFmt = DXGI_FORMAT_UNKNOWN; bool m_sharpHistValid = false;
     bool EnsureSharpHist(uint32_t w, uint32_t h, DXGI_FORMAT fmt);

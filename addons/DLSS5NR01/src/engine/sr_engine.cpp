@@ -188,9 +188,10 @@ const char* kLeanHlsl = R"(
 Texture2D<float4> tUp : register(t0);
 Texture2D<float4> tIn : register(t1);
 Texture2D<float> tDistrust : register(t2);
+Texture2D<float2> tMotion : register(t3);
 RWTexture2D<float4> uOut : register(u0);
 SamplerState sLinear : register(s0);
-cbuffer C : register(b0) { uint2 size; uint2 inSize; float strength; uint mode; float rest; };   // rest: the least the frame is blended in, even at rest   // mode 0: Catmull-Rom, 1: EASU; +2: HDR (the Catmull-Rom is held within its four nearest texels)
+cbuffer C : register(b0) { uint2 size; uint2 inSize; float strength; uint mode; float rest; float warp; float mvScale; };   // warp: the upscaler's picture is a real frame's, this frame is warp of a step on (a cheap run): it is moved along the motion by that much   // rest: the least the frame is blended in, even at rest   // mode 0: Catmull-Rom, 1: EASU; +2: HDR (the Catmull-Rom is held within its four nearest texels)
 float4 CatmullRom(float2 uv) {   // 16 loads, the input's size
     const float2 pos = uv * float2(inSize) - 0.5, base = floor(pos), f = pos - base;
     const float2 w0 = f * (-0.5 + f * (1.0 - 0.5 * f)), w1 = 1.0 + f * f * (-2.5 + 1.5 * f), w2 = f * (0.5 + f * (2.0 - 1.5 * f)), w3 = f * f * (-0.5 + 0.5 * f);
@@ -286,14 +287,32 @@ float4 Easu(float2 uv) {
 void main(uint3 id : SV_DispatchThreadID) {
     if (id.x >= size.x || id.y >= size.y) return;
     const float2 uv = (float2(id.xy) + 0.5) / float2(size);
-    const float4 up = tUp[id.xy];
-    const float d = max(saturate(tDistrust.SampleLevel(sLinear, uv, 0) * strength), saturate(rest));
-    if (d <= 0.001) { uOut[id.xy] = up; return; }
+    float4 up = tUp[id.xy]; float moved = 0.0; float2 shiftUv = 0;
+    if (warp != 0.0) {   // (the frame the picture was made for is a step behind: where the pixel's content was is the motion on from here, by the share of a step)
+        const int2 q = clamp(int2((float2(id.xy) + 0.5) * float2(inSize) / float2(size)), 0, int2(inSize) - 1);
+        const float2 shift = tMotion[q] * (mvScale * warp);   // in output pixels
+        shiftUv = shift / float2(size);
+        up = tUp.SampleLevel(sLinear, uv + shiftUv, 0);
+        moved = smoothstep(0.5, 2.5, length(shift));          // the further the content moved, the less a picture from a step ago is worth
+    }
+    float d = max(saturate(tDistrust.SampleLevel(sLinear, uv, 0) * strength), saturate(rest));
+    if (d <= 0.001 && warp == 0.0) { uOut[id.xy] = up; return; }
     const float4 plain = (mode & 1u) != 0u ? Easu(uv) : CatmullRom(uv);
+    if (warp != 0.0) d = max(max(d, moved), saturate(tDistrust.SampleLevel(sLinear, uv, 0) * strength * 2.0));   // (the motion this picture is moved along is a guess: it is trusted half as far)
+    if (warp != 0.0) {   // a picture from a step ago stands in only where it still agrees with this frame at the scale of a few pixels (the two differ in detail by design; where the content moved, was uncovered or cut, they differ in the large)
+        float3 ca = 0, cb = 0;
+        [unroll] for (int j = -1; j <= 1; j += 2) [unroll] for (int i = -1; i <= 1; i += 2) {
+            const float2 o = float2(i, j) * 3.0 / float2(size);
+            ca += max(tUp.SampleLevel(sLinear, uv + shiftUv + o, 0).rgb, 0.0);
+            cb += max(tIn.SampleLevel(sLinear, uv + o, 0).rgb, 0.0);
+        }
+        const float lu = dot(ca, float3(0.2126, 0.7152, 0.0722)) * 0.25, lp = dot(cb, float3(0.2126, 0.7152, 0.0722)) * 0.25;
+        d = max(d, saturate((abs(lu - lp) / (0.04 + max(lu, lp)) - 0.08) / 0.17));
+    }
     uOut[id.xy] = float4(lerp(up.rgb, max(plain.rgb, 0.0), d), up.a);   // (Catmull-Rom can overshoot below 0)
 }
 )";
-struct LeanConstants { uint32_t w, h, inW, inH; float strength; uint32_t mode; float rest; };
+struct LeanConstants { uint32_t w, h, inW, inH; float strength; uint32_t mode; float rest; float warp, mvScale; };
 
 // Edge smoothing of the upscaler's picture, for games without anti-aliasing of their own. Where the brightness steps sharply (an edge drawn
 // without anti-aliasing: stair steps), it finds which way the edge runs and how far along it each way the step continues, which says where
@@ -812,7 +831,7 @@ bool SrEngine::EnsureInputs(uint32_t w, uint32_t h) {
 }
 
 bool SrEngine::InitLean() {   // its own root signature: three pictures in, one out, five constants, a linear sampler
-    D3D12_DESCRIPTOR_RANGE srv{}; srv.RangeType = D3D12_DESCRIPTOR_RANGE_TYPE_SRV; srv.NumDescriptors = 3;
+    D3D12_DESCRIPTOR_RANGE srv{}; srv.RangeType = D3D12_DESCRIPTOR_RANGE_TYPE_SRV; srv.NumDescriptors = 4;
     D3D12_DESCRIPTOR_RANGE uav{}; uav.RangeType = D3D12_DESCRIPTOR_RANGE_TYPE_UAV; uav.NumDescriptors = 1;
     D3D12_ROOT_PARAMETER params[3]{};
     params[0].ParameterType = D3D12_ROOT_PARAMETER_TYPE_DESCRIPTOR_TABLE; params[0].DescriptorTable = { 1, &srv };
@@ -1142,6 +1161,8 @@ bool SrEngine::Run(ID3D12Resource* in, uint32_t inW, uint32_t inH, DXGI_FORMAT i
     // the lean (every upscaler): its picture into m_unsharpened, the leaned one into the output, or into m_leaned when edges or sharpening follow
     const bool leaning = estimating && !m_noMask && (m_fastMotion.load() != 0.0f || m_leanRest.load() > 0.001f) && m_leanPso && EnsureSharpenTarget(outW, outH, outFormat) &&
                          (!(sharpening || smoothing) || EnsureLeanTarget(outW, outH, outFormat));
+    // a cheap run (SetCheapNext): only where the last real frame's motion and the lean are there to go on
+    const bool cheap = m_cheapNext.exchange(false) && !fresh && estimating && m_haveMotion && leaning;
     ID3D12Resource* const upscaled = (sharpening || smoothing || leaning) ? m_unsharpened : out;   // where the upscaler writes
     ID3D12Resource* const post = leaning ? m_leaned : m_unsharpened;                               // what edges and sharpening read
     // sharpening that follows the stability: needs the measured motion and the previous frame's picture; a frame without either starts the history again
@@ -1199,8 +1220,10 @@ bool SrEngine::Run(ID3D12Resource* in, uint32_t inW, uint32_t inH, DXGI_FORMAT i
         si.Format = inFormat == DXGI_FORMAT_UNKNOWN ? (hdr ? DXGI_FORMAT_R16G16B16A16_FLOAT : DXGI_FORMAT_R8G8B8A8_UNORM) : inFormat;
         m_dev->CreateShaderResourceView(color, &si, h); h.ptr += m_descriptorSize;
         si.Format = DXGI_FORMAT_R8_UNORM; m_dev->CreateShaderResourceView(m_distrust, &si, h); h.ptr += m_descriptorSize;
+        si.Format = DXGI_FORMAT_R16G16_FLOAT; m_dev->CreateShaderResourceView(m_motion, &si, h);
         D3D12_UNORDERED_ACCESS_VIEW_DESC uo{}; uo.Format = outFormat; uo.ViewDimension = D3D12_UAV_DIMENSION_TEXTURE2D;
-        m_dev->CreateUnorderedAccessView((sharpening || smoothing) ? m_leaned : out, nullptr, &uo, h);
+        D3D12_CPU_DESCRIPTOR_HANDLE hLeanOut = cpu; hLeanOut.ptr += 17 * m_descriptorSize;
+        m_dev->CreateUnorderedAccessView((sharpening || smoothing) ? m_leaned : out, nullptr, &uo, hLeanOut);
     }
     if (hdr) {   // the view pass: the frame (light) in, its SDR view out
         D3D12_CPU_DESCRIPTOR_HANDLE cpuIn = cpu; cpuIn.ptr += 6 * m_descriptorSize;
@@ -1235,11 +1258,13 @@ bool SrEngine::Run(ID3D12Resource* in, uint32_t inW, uint32_t inH, DXGI_FORMAT i
     // 1. motion vectors: measured from the frames, or frame generation's flow (or none)
     Transition(m_motion, D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE, D3D12_RESOURCE_STATE_UNORDERED_ACCESS);
     ID3D12DescriptorHeap* heaps[] = { m_heap };
-    if (estimating) {
+    if (cheap) {
+        // the last real frame's motion and mask stay as they are
+    } else if (estimating) {
         // In fast motion the upscaler leans on this frame (the distrust mask rises from 0.5 % of the frame's width a frame, fully at twice it):
         // Lossless Scaling's frames come without the jitter a game gives its upscaler, so history adds little there, and in a fast turn it trailed
         // (nr_sreval, Silent Hill f, a turn shrunk 1.5x: FSR 3.1 39.4 -> 41.8 dB at a quarter of the size, the leaves' doubled edges gone).
-        { const float fast = m_fastMotion.load(); m_estimator.SetFastMotion(fast >= 0.0f ? fast : (m_fastShare.load() > 0.0f ? m_fastShare.load() : inW == outW && inH == outH ? kFastMotionShare : kFastMotionShareUpscaling) * static_cast<float>(inW)); }
+        { const float fast = m_fastMotion.load(); m_estimator.SetFastMotion(fast >= 0.0f ? fast : (m_fastShare.load() > 0.0f ? m_fastShare.load() : inW == outW && inH == outH ? kFastMotionShare : kFastMotionShareUpscaling) * static_cast<float>(inW) / m_presentStep.load()); }
         Transition(m_distrust, D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE, D3D12_RESOURCE_STATE_UNORDERED_ACCESS);
         m_estimator.Record(m_list, slot, hdr ? m_view : in, hdr ? DXGI_FORMAT_R16G16B16A16_FLOAT : inFormat == DXGI_FORMAT_UNKNOWN ? DXGI_FORMAT_R8G8B8A8_UNORM : inFormat,
                            m_motion, m_distrust, stability, 0, 80.0f, reuse);
@@ -1262,7 +1287,7 @@ bool SrEngine::Run(ID3D12Resource* in, uint32_t inW, uint32_t inH, DXGI_FORMAT i
 
     // 2. the upscaler: FSR 3, or DLSS
     bool evaluated = true; char evalError[96] = {};
-    if (fsr) {
+    if (fsr && !cheap) {
         ffxDispatchDescUpscale d{}; d.header.type = FFX_API_DISPATCH_DESC_TYPE_UPSCALE;
         d.commandList = m_list;
         d.color = ffxApiGetResourceDX12(color, FFX_API_RESOURCE_STATE_COMPUTE_READ);
@@ -1281,7 +1306,7 @@ bool SrEngine::Run(ID3D12Resource* in, uint32_t inW, uint32_t inH, DXGI_FORMAT i
     }
     auto* p = static_cast<NVSDK_NGX_Parameter*>(m_params);
 #if NR_HAVE_XESS
-    if (m_backend == Backend::Xess) {
+    if (m_backend == Backend::Xess && !cheap) {
         xess_d3d12_execute_params_t x{};
         x.pColorTexture = color; x.pVelocityTexture = m_motion; x.pDepthTexture = m_depth; x.pOutputTexture = upscaled;
         // the distrust mask as XeSS's responsive one (where the motion cannot be trusted, or is fast); clipped to nothing without it (frame
@@ -1294,7 +1319,7 @@ bool SrEngine::Run(ID3D12Resource* in, uint32_t inW, uint32_t inH, DXGI_FORMAT i
         if (rc != XESS_RESULT_SUCCESS) { evaluated = false; snprintf(evalError, sizeof evalError, "XeSS execute failed (code %d)", static_cast<int>(rc)); }
     }
 #endif
-    if (dlss) {
+    if (dlss && !cheap) {
     p->Set(NVSDK_NGX_Parameter_Color, color);
     p->Set(NVSDK_NGX_Parameter_Output, upscaled);
     p->Set(NVSDK_NGX_Parameter_Depth, m_depth);
@@ -1327,10 +1352,10 @@ bool SrEngine::Run(ID3D12Resource* in, uint32_t inW, uint32_t inH, DXGI_FORMAT i
         m_list->SetComputeRootSignature(m_leanRoot);
         m_list->SetPipelineState(m_leanPso);
         D3D12_GPU_DESCRIPTOR_HANDLE gpuIn = gpu; gpuIn.ptr += 8 * m_descriptorSize;
-        D3D12_GPU_DESCRIPTOR_HANDLE gpuOut = gpu; gpuOut.ptr += 11 * m_descriptorSize;
+        D3D12_GPU_DESCRIPTOR_HANDLE gpuOut = gpu; gpuOut.ptr += 17 * m_descriptorSize;
         m_list->SetComputeRootDescriptorTable(0, gpuIn);
         m_list->SetComputeRootDescriptorTable(1, gpuOut);
-        const LeanConstants lc{ outW, outH, inW, inH, m_fastMotion.load() != 0.0f ? 1.0f : 0.0f, m_leanMode.load() | (hdr ? 2u : 0u), m_leanRest.load() };   // (strength 0: only the floor, when "Steady in fast motion" is off)
+        const LeanConstants lc{ outW, outH, inW, inH, m_fastMotion.load() != 0.0f ? 1.0f : 0.0f, m_leanMode.load() | (hdr ? 2u : 0u), m_leanRest.load(), cheap ? m_presentStep.load() : 0.0f, m_warpSign.load() * static_cast<float>(outW) / static_cast<float>(inW) };   // (strength 0: only the floor, when "Steady in fast motion" is off)
         m_list->SetComputeRoot32BitConstants(2, sizeof(LeanConstants) / 4, &lc, 0);
         m_list->Dispatch((outW + 7) / 8, (outH + 7) / 8, 1);
         Transition(m_unsharpened, D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE, D3D12_RESOURCE_STATE_UNORDERED_ACCESS);
@@ -1361,7 +1386,7 @@ bool SrEngine::Run(ID3D12Resource* in, uint32_t inW, uint32_t inH, DXGI_FORMAT i
                                      : SharpenConstants{ outW, outH, std::min(sharpen, 1.0f), std::max(sharpen, 1.0f), hdr ? 1u : 0u };
         if (steadySharp) {
             // the motion is in the game's pixels, toward where the pixel was (or the other way: m_steadySign); the picture is outW wide
-            const SteadyConstants st{ outW, outH, inW, inH, sc.amount, sc.gain, sc.hdr, steadyShare, m_steadySign.load() * static_cast<float>(outW) / static_cast<float>(inW), histOk ? 1u : 0u, m_steadyMvA.load(), m_steadyMvB.load(), m_moveCut.load() };
+            const SteadyConstants st{ outW, outH, inW, inH, sc.amount, sc.gain, sc.hdr, steadyShare, m_steadySign.load() * m_presentStep.load() * static_cast<float>(outW) / static_cast<float>(inW), histOk ? 1u : 0u, m_steadyMvA.load(), m_steadyMvB.load(), m_moveCut.load() };
             m_list->SetComputeRootSignature(m_steadyRoot);
             m_list->SetPipelineState(m_steadyPso);
             D3D12_GPU_DESCRIPTOR_HANDLE g = gpu; g.ptr += 12 * m_descriptorSize;

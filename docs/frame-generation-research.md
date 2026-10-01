@@ -465,3 +465,29 @@ with plain sharpening (0.45): **peak 125.75**, mean 1.026; with everything (shar
 only nudges a bright pixel to 1.0 do that (0.02 of the view near the top is three times the light). Fixed by `ApplyViewChange` (the result within 1.5x + 0.5 of the light it had) and `WithinNeighbours` (within 15 % of the range of
 the neighbours' light). After: peak 1.44, mean 1.003, scores within 0.1 dB. On a made-up clip of 1.9-light glints (`nr_lsrec make ... hdr=1`): FSR alone 1.86, XeSS alone 2.24 (the upscalers overshoot their own glints), plain sharpening
 3.1 and 3.8 before the limit, 2.2 and 2.6 after; everything on 2.80 (Catmull-Rom's lean alone 2.39, EASU's 1.90). Also run with the D3D12 debug layer: no messages.
+
+## The upscaler on the real frames only, with frame generation (2026-10-01)
+
+The owner's HDR log at 1.5x, DLSS preset E, frame generation x2: the DLSS side costs 3.3 ms of GPU for every presented frame (the upscaler 2.2, the passes after it about 1, the motion 0.27), so 6.6 ms for each real frame
+of 28 ms. The question: run DLSS on the real frames only, and give the generated ones a cheap picture. `SrEngine::SetCheapNext` is that run: no motion estimate, no upscaler; the lean takes the last upscaled picture, moved
+along the last real frame's motion by half a step (`SetPresentStep`, the lean's `warp`), toward this frame's plain stretch (Catmull-Rom) where the two disagree, then the sharpening as usual (about 0.6 ms of the 3.3).
+`nr_sreval realonly=1` emulates it on a recording taken as the presented frames (the odd frames are the generated ones; the engine is given none of them); `realonly=2` is the plain stretch on the CPU instead; `step=`, `warpsign=` as tests.
+DLSS, 1.5x, sharpening 0.5, 32 frames, all frames upscaled (A) against real frames only (B):
+
+| clip | A: dB / steady dB / flicker / detail | B: dB / steady dB / flicker / detail |
+|---|---|---|
+| SDR, Silent Hill f, fast turns (1) | 38.40 / 35.80 / 101 % / 105 % | 37.64 / 34.91 / 100 % / 107 % |
+| SDR, Silent Hill f (2) | 36.54 / 33.87 / 100 % / 99 % | 36.11 / 33.37 / 100 % / 100 % |
+| HDR, WoW hall (1) | 25.96 / 42.23 / 100 % / 106 % | 25.97 / 39.23 / 110 % / 106 % |
+| HDR, WoW hall (2) | 29.15 / 40.49 / 96 % / 112 % | 29.22 / 39.30 / 110 % / 112 % |
+
+What it took to get there (each tried on all four clips): the plain stretch alone for the generated frames scores as well as DLSS in the noisy SDR clips (+0.2 dB) but in the calm HDR hall DLSS and a plain stretch differ
+by about three levels of 255, so alternating them flickered at 222 to 321 % of the game's own; keeping the last upscaled picture as it was (no moving) fixed the flicker (92 to 98 %) and lost 0.3 to 0.55 dB in motion; moving it half a step
+along the motion helped only with the motion sign the history fetch does not use (`warpsign=1`); an agreement test between the upscaled picture and this frame, compared at the scale of a few pixels (the detail differs by design), sends
+the pixels that moved or were uncovered to the plain stretch (a test on single pixels flickered, one that is too loose lost 4 dB in a fast turn). The numbers above are the best balance found: **about equal in detail and flicker, 0.4 to 0.8 dB
+lower in fast SDR motion, 1 to 3 dB lower on the steadiness score in the HDR hall**: a performance mode, not a free one. At 4K 1.5x it would take the DLSS side from 3.3 to about 2 ms of GPU per presented frame (the generated ones
+cost about 0.7), 2.6 ms less for each real frame at x2, near 10 % of a 28 ms frame.
+
+Not wired live. It needs (1) to know which presented picture is the real one (the capture pass sees the real frame; LS presents the generated frame before or after it, to be found out) and to carry a cheap flag with each queued run to the
+engine's thread (`SetCheapNext` is a flag for the next run, enough for the offline loop); (2) the estimator to be left to the real frames and `SetPresentStep` set to the time ratio (runtime.cpp `PresentStepFraction`);
+(3) the owner's eyes on a calm scene and a fast one, which no number replaces. An option "Lighter upscaling with frame generation", off by default, once it has been seen live.

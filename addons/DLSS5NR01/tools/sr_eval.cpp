@@ -68,6 +68,27 @@ void ResizeBilinear(const std::vector<uint8_t>& src, uint32_t sw, uint32_t sh, s
     }
 }
 
+// src (sw x sh) stretched to dw x dh with Catmull-Rom (the picture the upscalers lean on, on the CPU): realonly=1 gives it to the frames the upscaler is not run on
+float CatmullRom(float t, float p0, float p1, float p2, float p3) { return 0.5f * ((2 * p1) + (-p0 + p2) * t + (2 * p0 - 5 * p1 + 4 * p2 - p3) * t * t + (-p0 + 3 * p1 - 3 * p2 + p3) * t * t * t); }
+void ResizeCubic(const std::vector<uint8_t>& src, uint32_t sw, uint32_t sh, std::vector<uint8_t>& dst, uint32_t dw, uint32_t dh) {
+    std::vector<float> mid(static_cast<size_t>(dw) * sh * 3);   // across first, then down
+    for (uint32_t y = 0; y < sh; ++y) for (uint32_t x = 0; x < dw; ++x) {
+        const float fx = (x + 0.5f) * sw / dw - 0.5f; const int ix = static_cast<int>(std::floor(fx)); const float a = fx - ix;
+        for (int c = 0; c < 3; ++c) {
+            auto at = [&](int xx) { return float(src[(static_cast<size_t>(y) * sw + std::clamp(xx, 0, static_cast<int>(sw) - 1)) * 4 + c]); };
+            mid[(static_cast<size_t>(y) * dw + x) * 3 + c] = CatmullRom(a, at(ix - 1), at(ix), at(ix + 1), at(ix + 2));
+        }
+    }
+    dst.assign(static_cast<size_t>(dw) * dh * 4, 255);
+    for (uint32_t y = 0; y < dh; ++y) {
+        const float fy = (y + 0.5f) * sh / dh - 0.5f; const int iy = static_cast<int>(std::floor(fy)); const float a = fy - iy;
+        for (uint32_t x = 0; x < dw; ++x) for (int c = 0; c < 3; ++c) {
+            auto at = [&](int yy) { return mid[(static_cast<size_t>(std::clamp(yy, 0, static_cast<int>(sh) - 1)) * dw + x) * 3 + c]; };
+            dst[(static_cast<size_t>(y) * dw + x) * 4 + c] = static_cast<uint8_t>(std::clamp(CatmullRom(a, at(iy - 1), at(iy), at(iy + 1), at(iy + 2)) + 0.5f, 0.0f, 255.0f));
+        }
+    }
+}
+
 } // namespace
 
 int main(int argc, char** argv) {
@@ -254,6 +275,14 @@ int main(int argc, char** argv) {
           for (uint32_t y = 0; y < hh; ++y) memcpy(m + inFp.Offset + y * inFp.Footprint.RowPitch, shrunk.data() + static_cast<size_t>(y) * w * 4, w * 4);
           upload->Unmap(0, nullptr); }
         }
+        // realonly=1: what frame generation could do (the recording's frames are the presented ones): the upscaler runs on the even frames only (it is given nothing of the odd ones), the odd
+        // ones are the plain Catmull-Rom stretch of their own frame; scored as they are, with the alternation counted by the steady and flicker numbers
+        // realonly=1: the engine's own cheap run on the odd frames (SrEngine::SetCheapNext: no estimate, no upscaler; the plain stretch, sharpened); realonly=2: the plain stretch on the CPU, not sharpened
+        if (i == 0) eng.SetWarpSign(static_cast<float>(Arg(argc, argv, "warpsign", 1)));
+        if (Arg(argc, argv, "realonly", 0) == 1 && (i & 1)) eng.SetCheapNext(true);
+        if (i == 0 && Arg(argc, argv, "realonly", 0) == 1) eng.SetPresentStep(Arg(argc, argv, "step", 50) / 100.0f);   // step=N: the share of a real frame's step one presented frame is (50: x2)
+        const bool cheap = Arg(argc, argv, "realonly", 0) == 2 && (i & 1) && !hdrMode;
+        if (!cheap) {
         alloc->Reset(); list->Reset(alloc, nullptr);
         auto barrier = [&](ID3D12Resource* r, D3D12_RESOURCE_STATES a, D3D12_RESOURCE_STATES b) {
             D3D12_RESOURCE_BARRIER br{}; br.Type = D3D12_RESOURCE_BARRIER_TYPE_TRANSITION; br.Transition = { r, D3D12_RESOURCE_BARRIER_ALL_SUBRESOURCES, a, b }; list->ResourceBarrier(1, &br);
@@ -314,6 +343,7 @@ int main(int argc, char** argv) {
           for (uint32_t y = 0; y < H; ++y) memcpy(picture.data() + static_cast<size_t>(y) * W * 4, m + outFp.Offset + y * outFp.Footprint.RowPitch, W * 4);
           D3D12_RANGE none{ 0, 0 }; readback->Unmap(0, &none); }
         }
+        } else ResizeCubic(shrunk, w, hh, picture, W, H);
         for (size_t k = 3; k < picture.size(); k += 4) picture[k] = 255;
         if (!hdrMode) ResizeBilinear(shrunk, w, hh, stretched, W, H);
         if (const int saveFrame = Arg(argc, argv, "saveframe", -1); saveFrame >= 0 && first + i == saveFrame)   // saveframe=N: that frame as it is | upscaled | stretched, as frameN.bmp
