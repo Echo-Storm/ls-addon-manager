@@ -2,6 +2,11 @@
 
 ## Unreleased
 
+## 0.9.24 (2026-10-01)
+
+**Pacing tools, a card that backs off, and a test option for a full graphics card.** The frame trace and the "What stands out" card are for the next "bumpy pacing" report; Neural Rendering now spares a full card; the upscalers'
+motion is right at frame-generation ratios that are not whole numbers; a settings file with nonsense in it cannot break the addons. Nothing here changes a picture unless an option is turned on.
+
 - **"Lighter upscaling of generated frames (test)"** (the three upscalers, off by default). With frame generation the upscaler runs on every presented frame, and in the owner's HDR 1.5x log that was 3.3 ms of GPU
   for each (6.6 ms for each frame the game draws, about two thirds of everything the addons add at the spot where the game fell from 60 to 40 fps). With the option on, the frames the game draws get the full upscaler
   and the frames Lossless Scaling makes between them get the last upscaled picture, moved along the motion by their share of the step, checked against the new frame at the scale of a few pixels (where they disagree, the new

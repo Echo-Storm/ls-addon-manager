@@ -14,10 +14,10 @@ Around them, the manager installs and switches addons, shows the machine's load 
 updates itself. It is free, MIT-licensed and unofficial: not affiliated with the Lossless Scaling developers. Read the [disclaimer](DISCLAIMER.md) before installing.
 
 [![build](https://github.com/Echo-Storm/ls-addon-manager/actions/workflows/build.yml/badge.svg)](https://github.com/Echo-Storm/ls-addon-manager/actions/workflows/build.yml)
-&nbsp; **0.9.23**, on the way to 1.0 ([roadmap](ROADMAP.md)) &nbsp;·&nbsp; Lossless Scaling 3.2.2.0 &nbsp;·&nbsp; Windows 10 or 11, x64
+&nbsp; **0.9.24**, on the way to 1.0 ([roadmap](ROADMAP.md)) &nbsp;·&nbsp; Lossless Scaling 3.2.2.0 &nbsp;·&nbsp; Windows 10 or 11, x64
 
 > [!TIP]
-> **New in 0.9.23 and 0.9.22: HDR fixes.** With HDR on, sharpening could turn a highlight into a white speck (up to 10,000 nits) in all three upscalers (0.9.22), and the Catmull-Rom lean could ring around bright highlights (0.9.23): both fixed. Also in 0.9.22: Neural Rendering flickers less (its auto quality no longer ramps, its smoothing is steadier), **Sharpen less in fast motion** (0.5), and the FSR Upscaler sharpens like the others.
+> **New in 0.9.24: a "What stands out" card and a frame trace for pacing problems** (both in each addon's panel and logs), **Neural Rendering backs off when the card is full** (it runs the model on every 2nd or 3rd frame at its lowest size), the upscalers' motion is right for non-whole frame-generation ratios, a settings file with nonsense in it can no longer put the addons out of range, and a new test option, **Lighter upscaling of generated frames**, for a card that is full. Earlier: **0.9.23 and 0.9.22: HDR fixes.** With HDR on, sharpening could turn a highlight into a white speck (up to 10,000 nits) in all three upscalers (0.9.22), and the Catmull-Rom lean could ring around bright highlights (0.9.23): both fixed. Also in 0.9.22: Neural Rendering flickers less (its auto quality no longer ramps, its smoothing is steadier), **Sharpen less in fast motion** (0.5), and the FSR Upscaler sharpens like the others.
 > **0.9.18:** the recorder is one setting for all the addons (switch it on in any panel).
 > **0.9.17:** the upscalers start in about a second again (0.9.14 to 0.9.16 took nearly ten).
 > **0.9.16:** the DLSS Upscaler starts with Neural Rendering on; the Performance tab works on AMD and Intel cards; the compatibility test
