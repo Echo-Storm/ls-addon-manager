@@ -4,8 +4,8 @@
 
 - **Neural Rendering on an ultrawide screen with a game that is not (issue #13).** A 2560x1440 game on a 5120x1440 screen is drawn by Lossless Scaling with black bars each side; the model's change belongs to the picture, but the compose
   stretched it over the whole screen, which put the picture's change on the bars and misplaced it on the picture ("extreme artifacting"). The compose now works out where the frame is drawn (its shape fitted into the screen, centred) and
-  leaves the bars as they are; the log says so ("the 2560x1440 frame is drawn into 5120x1440 with bars"). "The picture fills the whole screen" (Neural Rendering, Advanced) is for Lossless Scaling's stretch mode, where there are no bars.
-  New check in the suite (`nr_composebench viewport= barcheck=1`).
+  leaves the bars as they are, after checking that they are there (a one-pixel strip through the middle of where each bar would be, copied now and then, must be dark: in Lossless Scaling's stretch mode there are none and nothing changes); the log says so ("the 2560x1440 frame is drawn into 5120x1440 with bars", "the bars are there"). "The picture fills the whole screen" (Neural Rendering, Advanced) is for Lossless Scaling's stretch mode, where there are no bars.
+  New checks in the suite (`nr_composebench viewport= barcheck=1`, and the host scenario `ultrawide_bars`).
 - **A runtime that crashed Lossless Scaling is not tried again (issue #11).** The FSR Upscaler's FSR 4.1.1b INT8 runtime (chosen in the Runtimes list) closed Lossless Scaling on a Radeon RX 6600 XT as soon as it scaled a window. A runtime that is not
   the shipped one is now marked "on trial" in a file (`runtime-trial.txt` in the addon's folder) from its start until it has upscaled ten seconds of frames or Lossless Scaling closes normally; found at the next start, the shipped runtime runs
   instead and the log says why. To try it again, choose the shipped one in the Runtimes list and then the other again.

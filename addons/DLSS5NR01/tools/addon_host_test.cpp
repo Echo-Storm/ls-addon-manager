@@ -299,7 +299,9 @@ int main(int argc, char** argv) {
     WNDCLASSEXW wc{ sizeof wc }; wc.lpfnWndProc = DefWindowProcW; wc.hInstance = GetModuleHandleW(nullptr); wc.lpszClassName = L"NrHostTest"; RegisterClassExW(&wc);
     HWND hwnd = CreateWindowExW(WS_EX_TOOLWINDOW, wc.lpszClassName, L"nr hosttest", WS_POPUP, 0, 0, 320, 180, nullptr, nullptr, wc.hInstance, nullptr);
     // never shown: the swap chain presents fine without being visible, and a test must not put windows on anyone's screen
-    DXGI_SWAP_CHAIN_DESC1 scd{}; scd.Width = W; scd.Height = H; scd.Format = DXGI_FORMAT_B8G8R8A8_UNORM; scd.SampleDesc.Count = 1; scd.BufferUsage = DXGI_USAGE_RENDER_TARGET_OUTPUT; scd.BufferCount = 2; scd.SwapEffect = DXGI_SWAP_EFFECT_FLIP_SEQUENTIAL; scd.Scaling = DXGI_SCALING_STRETCH;
+    bool barsMode = false; for (int i = 4; i < argc; ++i) if (!strcmp(argv[i], "bars=1")) barsMode = true;   // bars=1: the screen is wider than the frame (2560x1080 for 1920x1080), the frame drawn in the middle with black bars, as Lossless Scaling does
+    const UINT SW = barsMode ? 2560 : W;
+    DXGI_SWAP_CHAIN_DESC1 scd{}; scd.Width = SW; scd.Height = H; scd.Format = DXGI_FORMAT_B8G8R8A8_UNORM; scd.SampleDesc.Count = 1; scd.BufferUsage = DXGI_USAGE_RENDER_TARGET_OUTPUT; scd.BufferCount = 2; scd.SwapEffect = DXGI_SWAP_EFFECT_FLIP_SEQUENTIAL; scd.Scaling = DXGI_SCALING_STRETCH;
     IDXGISwapChain1* sc = nullptr;
     if (FAILED(f->CreateSwapChainForHwnd(dev, hwnd, &scd, nullptr, nullptr, &sc))) { printf("swap chain failed\n"); return 1; }
     auto pump = [&]() { MSG msg; while (PeekMessageW(&msg, nullptr, 0, 0, PM_REMOVE)) { TranslateMessage(&msg); DispatchMessageW(&msg); } };
@@ -345,12 +347,16 @@ int main(int argc, char** argv) {
     };
     auto present = [&](bool real) {
         ID3D11Texture2D* bb = nullptr; sc->GetBuffer(0, IID_PPV_ARGS(&bb));
-        if (presents >= 2 && presents % 7 == 0) checkBackbuffer(presents == 210 ? (real ? "present_real.bmp" : "present_gen.bmp") : nullptr);
-        if (real) dc->CopyResource(bb, cur);
+        if (!barsMode && presents >= 2 && presents % 7 == 0) checkBackbuffer(presents == 210 ? (real ? "present_real.bmp" : "present_gen.bmp") : nullptr);
+        if (barsMode) {   // black all over, the frame in the middle
+            ID3D11RenderTargetView* rtv = nullptr; dev->CreateRenderTargetView(bb, nullptr, &rtv);
+            if (rtv) { const float black[4] = { 0, 0, 0, 1 }; dc->ClearRenderTargetView(rtv, black); rtv->Release(); }
+        }
+        if (real) { if (barsMode) dc->CopySubresourceRegion(bb, 0, (SW - W) / 2, 0, 0, cur, 0, nullptr); else dc->CopyResource(bb, cur); }
         else {
             ID3D11ShaderResourceView* s3[3] = { sPrev, sCur, sFlow16 }; dc->CSSetShaderResources(0, 3, s3); dc->CSSetUnorderedAccessViews(0, 1, &uOut, nullptr); dc->CSSetShader(csGen, nullptr, 0); host.Dispatch(dc, W / 8, H / 8, 1);
             dc->CSSetUnorderedAccessViews(0, 1, nullu, nullptr); dc->CSSetShaderResources(0, 3, nulls);
-            dc->CopyResource(bb, out);
+            if (barsMode) dc->CopySubresourceRegion(bb, 0, (SW - W) / 2, 0, 0, out, 0, nullptr); else dc->CopyResource(bb, out);
         }
         bb->Release();
         void* before = (*(void***)sc)[8];

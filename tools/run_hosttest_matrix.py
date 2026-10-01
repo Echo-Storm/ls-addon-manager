@@ -184,6 +184,14 @@ def scenario_runtime_crashed(ctx, res, text, frame):
     res.check('...the shipped one upscales instead', 'REPLACED NIS' in text)
 
 
+def scenario_bars(ctx, res, text, frame):
+    # Lossless Scaling draws a 1920x1080 frame into a 2560x1080 screen with black bars: the compose works out where, checks the bars are dark, and applies its change in the picture only
+    res.check('the compose works out where the frame is drawn', bool(re.search(r'compose: the 1920x1080 frame is drawn into 2560x1080 with bars', text)))
+    res.check('...and the strips through the bars are seen to be dark', 'compose: the bars are there' in text)
+    comp = re.findall(r'composed (\d+)', text)
+    res.check("...and the model's change is composed", bool(comp) and max(int(c) for c in comp) > 20, ', '.join(comp[-3:]))
+
+
 def scenario_base(ctx, res, text, frame):
     res.check('compose applied', 'COMPOSE APPLIED' in text)
     mc = motion_counts(text)
@@ -563,6 +571,7 @@ SCENARIOS = [
     ('smooth_passes3', ['deltaSmooth=0.5', 'passes=3'], scenario_smooth_passes),
     ('ghost_off', ['flowsplit=1', 'ghostGuard=0'], scenario_ghost_off),
     ('ghost_on', ['flowsplit=1', 'ghostGuard=1'], scenario_ghost_on),
+    ('ultrawide_bars', ['bars=1'], scenario_bars),   # the screen wider than the frame: the compose keeps to the picture (issue #13)
     ('flow_previous', ['freshFlow=0'], scenario_flow_previous),
     ('selftest', ['selfTestOnStart=1'], scenario_selftest),
     ('scaler', ['addon=DLSS4DLAA.dll', 'nis=1', 'sharpen=0'], scenario_scaler),   # no sharpening (the upscalers' default is 0.3): the baseline for scaler_sharp
@@ -806,9 +815,9 @@ def main():
         res = Result()
         ctx['keys'] = keys
         basic(res, rc, text)
-        if frame is None and name != 'ui_shot':
+        if frame is None and name not in ('ui_shot', 'ultrawide_bars'):
             res.check('present_gen.bmp written', False)
-        elif frame is not None:
+        elif frame is not None or name == 'ultrawide_bars':
             try:
                 checker(ctx, res, text, frame)
             except KeyError as e:   # it compares with a scenario that did not run

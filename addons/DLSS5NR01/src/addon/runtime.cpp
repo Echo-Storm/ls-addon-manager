@@ -667,6 +667,65 @@ void FollowFrameGeneration(bool allowed) {
     if (g_presentMode && !allowed) { g_presentMode = false; g_bridge.Shutdown(); Log("frame generation off: taking the presented frames is switched off"); }
 }
 
+// Are Lossless Scaling's bars really there? The viewport is worked out from the shapes (a frame fitted into the screen), which is right when Lossless Scaling draws it at its aspect ratio and wrong in its
+// stretch mode, where the frame covers the whole screen. A one-pixel strip through the middle of where each bar would be (a copy every 45 presents, read back at the next, never waited for) says: dark all
+// along, there is a bar. Until it has said anything the shapes are not trusted (the whole screen, as before 0.9.26).
+struct BarProbe {
+    ID3D11Texture2D* stage = nullptr; UINT sw = 0, sh = 0; DXGI_FORMAT fmt = DXGI_FORMAT_UNKNOWN; bool pending = false, vertical = false; uint64_t lastAt = 0;
+    int bars = -1;   // -1 not known yet, 0 no bars, 1 bars
+    ~BarProbe() { if (stage) stage->Release(); }
+    static bool Dark(const uint8_t* p, DXGI_FORMAT f) {
+        switch (f) {
+        case DXGI_FORMAT_R8G8B8A8_UNORM: case DXGI_FORMAT_R8G8B8A8_UNORM_SRGB: case DXGI_FORMAT_B8G8R8A8_UNORM: case DXGI_FORMAT_B8G8R8A8_UNORM_SRGB: case DXGI_FORMAT_B8G8R8X8_UNORM:
+            return p[0] < 4 && p[1] < 4 && p[2] < 4;
+        case DXGI_FORMAT_R10G10B10A2_UNORM: { uint32_t v; memcpy(&v, p, 4); return (v & 0x3FF) < 16 && ((v >> 10) & 0x3FF) < 16 && ((v >> 20) & 0x3FF) < 16; }
+        case DXGI_FORMAT_R16G16B16A16_FLOAT: { uint16_t h[3]; memcpy(h, p, 6); return (h[0] & 0x7FFF) < 0x2400 && (h[1] & 0x7FFF) < 0x2400 && (h[2] & 0x7FFF) < 0x2400; }
+        default: return false;
+        }
+    }
+    static UINT BytesPerPixel(DXGI_FORMAT f) { return f == DXGI_FORMAT_R16G16B16A16_FLOAT ? 8u : 4u; }
+    // vw, vh: the viewport's size as shares of the buffer; called at every compose with the buffer and its context
+    void Update(ID3D11DeviceContext* ctx, ID3D11Texture2D* buf, const D3D11_TEXTURE2D_DESC& bd, float vw, float vh) {
+        const bool vert = vw < 0.985f;   // pillarbox (bars left and right) or letterbox (top and bottom)
+        if (pending && stage && sw == (vert ? 2u : bd.Width) && sh == (vert ? bd.Height : 2u) && fmt == bd.Format) {
+            D3D11_MAPPED_SUBRESOURCE m{};
+            const HRESULT hr = ctx->Map(stage, 0, D3D11_MAP_READ, D3D11_MAP_FLAG_DO_NOT_WAIT, &m);
+            if (SUCCEEDED(hr)) {
+                const UINT bpp = BytesPerPixel(fmt); uint64_t dark = 0, all = 0;
+                for (UINT y = 0; y < sh; ++y) for (UINT x = 0; x < sw; ++x) { ++all; dark += Dark(static_cast<const uint8_t*>(m.pData) + static_cast<size_t>(y) * m.RowPitch + static_cast<size_t>(x) * bpp, fmt) ? 1 : 0; }
+                ctx->Unmap(stage, 0);
+                const int now = all && dark * 100 >= all * 97 ? 1 : 0;
+                if (now != bars) Log("compose: the bars %s (the strips through the middle of where they would be are %s)", now ? "are there" : "are not there: Lossless Scaling stretches the picture over the screen", now ? "dark" : "not dark");
+                bars = now; pending = false;
+            } else if (hr != DXGI_ERROR_WAS_STILL_DRAWING) pending = false;
+        }
+        const uint64_t now = GetTickCount64();
+        if (pending || (bars >= 0 && now - lastAt < 750)) return;   // (45 presents or so)
+        const UINT w = bd.Width, h = bd.Height, bpp = BytesPerPixel(bd.Format);
+        if (bpp == 0 || !(bd.Format == DXGI_FORMAT_R16G16B16A16_FLOAT || bd.Format == DXGI_FORMAT_R10G10B10A2_UNORM || bpp == 4)) return;
+        const UINT nw = vert ? 2u : w, nh = vert ? h : 2u;
+        if (!stage || sw != nw || sh != nh || fmt != bd.Format) {
+            if (stage) { stage->Release(); stage = nullptr; }
+            ID3D11Device* dev = nullptr; buf->GetDevice(&dev); if (!dev) return;
+            D3D11_TEXTURE2D_DESC sd{}; sd.Width = nw; sd.Height = nh; sd.MipLevels = 1; sd.ArraySize = 1; sd.Format = bd.Format; sd.SampleDesc.Count = 1; sd.Usage = D3D11_USAGE_STAGING; sd.CPUAccessFlags = D3D11_CPU_ACCESS_READ;
+            const HRESULT hr = dev->CreateTexture2D(&sd, nullptr, &stage); dev->Release();
+            if (FAILED(hr)) { stage = nullptr; return; }
+            sw = nw; sh = nh; fmt = bd.Format;
+        }
+        if (vert) {   // the middle of the left bar, and of the right one
+            const UINT xl = static_cast<UINT>(w * (1.0f - vw) * 0.25f), xr = w - 1 - xl;
+            D3D11_BOX l{ xl, 0, 0, xl + 1, h, 1 }, r{ xr, 0, 0, xr + 1, h, 1 };
+            ctx->CopySubresourceRegion(stage, 0, 0, 0, 0, buf, 0, &l); ctx->CopySubresourceRegion(stage, 0, 1, 0, 0, buf, 0, &r);
+        } else {
+            const UINT yt = static_cast<UINT>(h * (1.0f - vh) * 0.25f), yb = h - 1 - yt;
+            D3D11_BOX t{ 0, yt, 0, w, yt + 1, 1 }, b{ 0, yb, 0, w, yb + 1, 1 };
+            ctx->CopySubresourceRegion(stage, 0, 0, 0, 0, buf, 0, &t); ctx->CopySubresourceRegion(stage, 0, 0, 1, 0, buf, 0, &b);
+        }
+        pending = true; vertical = vert; lastAt = now;
+    }
+};
+BarProbe g_barProbe;
+
 void Compose(IDXGISwapChain* sc) {
     g_composedNow = false;
     const PresentInfo shown = g_tap.NotePresent();
@@ -706,10 +765,13 @@ void Compose(IDXGISwapChain* sc) {
         if (!g_presentMode && !fill && fw > 0 && fh > 0 && bd.Width && bd.Height) {
             const float scale = std::min(static_cast<float>(bd.Width) / fw, static_cast<float>(bd.Height) / fh);
             const float vw = std::min(1.0f, fw * scale / bd.Width), vh = std::min(1.0f, fh * scale / bd.Height);
-            if (vw < 0.985f || vh < 0.985f) {   // bars: the frame fits one way and not the other
+            if (vw < 0.985f || vh < 0.985f) {   // the shapes say bars: the frame fits one way and not the other
+              if (ID3D11DeviceContext* bctx = g_bridge.Context()) g_barProbe.Update(bctx, buffer, bd, vw, vh);
+              if (g_barProbe.bars == 1) {
                 a.viewport[0] = (1.0f - vw) * 0.5f; a.viewport[1] = (1.0f - vh) * 0.5f; a.viewport[2] = vw; a.viewport[3] = vh;
                 static float said[2] = {};
                 if (said[0] != vw || said[1] != vh) { said[0] = vw; said[1] = vh; Log("compose: the %.0fx%.0f frame is drawn into %ux%u with bars; the model's change is kept to the picture (x %.0f..%.0f)", fw, fh, bd.Width, bd.Height, a.viewport[0] * bd.Width, (a.viewport[0] + vw) * bd.Width); }
+              }
             }
         }
     }
