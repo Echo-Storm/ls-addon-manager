@@ -178,6 +178,12 @@ def scenario_runtime_switch(ctx, res, text, frame):
     res.check('...and still replaces NIS', 'REPLACED NIS' in text)
 
 
+def scenario_runtime_crashed(ctx, res, text, frame):
+    # the marker said the chosen runtime was being tried when Lossless Scaling went down: it is not used again until another is chosen; the shipped one upscales
+    res.check('the chosen runtime that did not finish its last start is not used', 'did not finish its last start' in text)
+    res.check('...the shipped one upscales instead', 'REPLACED NIS' in text)
+
+
 def scenario_base(ctx, res, text, frame):
     res.check('compose applied', 'COMPOSE APPLIED' in text)
     mc = motion_counts(text)
@@ -595,6 +601,7 @@ SCENARIOS = [
     ('scaler_tone_nr_on', ['addon=DLSS4DLAA.dll', 'nis=1', 'nisbgra=1', 'nisnoflow=1', 'sharpen=0', 'brightness=0.15', '_enabled=1'], scenario_tone),   # ...left to NR
     ('fsr_runtime_switch', ['addon=FSR3UPSC.dll', 'nis=1', 'nisbgra=1', 'nisnoflow=1', 'nisswitch=fsrRuntime=@FSR4@'], scenario_runtime_switch),   # the Runtimes list's +
     ('dlss_runtime_switch', ['addon=DLSS4DLAA.dll', 'nis=1', 'nisbgra=1', 'nisnoflow=1', 'nisswitch=dlssRuntime=@DLSSCOPY@'], scenario_runtime_switch),
+    ('dlss_runtime_crashed', ['addon=DLSS4DLAA.dll', 'nis=1', 'nisbgra=1', 'nisnoflow=1', 'dlssRuntime=@DLSSCRASHED@'], scenario_runtime_crashed),   # a chosen runtime that did not finish its last start: the shipped one runs
     ('scaler_unload', ['addon=DLSS4DLAA.dll', 'nis=1', 'nisbgra=1', 'nisnoflow=1', 'unload=1'], scenario_unload),   # switched off while running, then a new device
     ('fsr_unload', ['addon=FSR3UPSC.dll', 'nis=1', 'nisbgra=1', 'nisnoflow=1', 'unload=1'], scenario_unload),
     ('pair', ['second=DLSS4DLAA.dll'], scenario_pair),
@@ -624,7 +631,7 @@ RETIRED = {
     'ui_shot':            'renders the panel for the README, not a test',
 }
 
-SOLO = {'fsr_runtime_switch', 'dlss_runtime_switch'}   # run alone (see main)
+SOLO = {'fsr_runtime_switch', 'dlss_runtime_switch', 'dlss_runtime_crashed'}   # run alone (see main)
 
 # --changed: each scenario belongs to an area, and an area runs when a file it covers changed since the last commit. A change to what every
 # addon of the pair shares (the addon's entry, settings, the test host, the build) runs everything; a change the list does not know runs QUICK.
@@ -751,6 +758,9 @@ def main():
     ctx = {'pat': pattern(), 'nr': a.nr, 'snippet': a.snippet, 'out': a.out}
     t0 = time.time()
     todo = []
+    crash_marker = {}
+    try: os.remove(os.path.join(a.nr, 'runtime-trial.txt'))   # (one left by an earlier run)
+    except OSError: pass
     for name, keys, checker in SCENARIOS:
         if only and name not in only and name != 'base':
             continue
@@ -762,6 +772,13 @@ def main():
             if not os.path.exists(fsr4):
                 print('  skip  %s: run tools\\fetch_fsr4.ps1 first' % name); continue
             keys = [k.replace('@FSR4@', os.path.abspath(fsr4).replace('\\', '/')) for k in keys]
+        if any('@DLSSCRASHED@' in k for k in keys):   # a copy of the DLSS runtime, chosen, with the marker a crash of it would have left
+            src = os.path.join(a.nr, 'dlss', 'nvngx_dlss.dll')
+            copy_dir = os.path.join(a.out, 'dlss_crashed'); os.makedirs(copy_dir, exist_ok=True)
+            shutil.copyfile(src, os.path.join(copy_dir, 'nvngx_dlss.dll'))
+            chosen = os.path.join(copy_dir, 'nvngx_dlss.dll').replace(chr(92), '/')
+            crash_marker[name] = chosen   # written just before this scenario runs (the others, run side by side, would clear it: they have not chosen that runtime)
+            keys = [k.replace('@DLSSCRASHED@', chosen) for k in keys]
         if any('@DLSSCOPY@' in k for k in keys):   # the shipped DLSS runtime, copied to a folder of its own (a second file to switch to)
             src = os.path.join(a.nr, 'dlss', 'nvngx_dlss.dll')
             copy_dir = os.path.join(a.out, 'dlss_copy'); os.makedirs(copy_dir, exist_ok=True)
@@ -776,7 +793,13 @@ def main():
     with ThreadPoolExecutor(max_workers=max(1, a.jobs)) as pool:
         done = dict(zip([t[0] for t in todo if t[0] not in SOLO], pool.map(run, [t for t in todo if t[0] not in SOLO])))
     for t in todo:
-        if t[0] in SOLO: done[t[0]] = run(t)
+        if t[0] in SOLO:
+            if t[0] in crash_marker:
+                with open(os.path.join(a.nr, 'runtime-trial.txt'), 'wb') as marker: marker.write(crash_marker[t[0]].encode('utf-8'))
+            done[t[0]] = run(t)
+            if t[0] in crash_marker:
+                try: os.remove(os.path.join(a.nr, 'runtime-trial.txt'))
+                except OSError: pass
     runs = [done[t[0]] for t in todo]
     failed = 0
     for (name, keys, checker), (rc, text, frame, secs) in zip(todo, runs):

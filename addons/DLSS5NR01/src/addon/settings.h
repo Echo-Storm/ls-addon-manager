@@ -49,6 +49,7 @@ struct Config {
     int scalerHandoff = 0;               // the DLSS Upscaler's handoff (ScalerLink::Handoff): 0 one frame late, 1 GPU wait, 2 DLSS runs but NIS stays,
                                          // 3 NIS runs and DLSS's picture is copied over it at Present
     NrParams p;                          // the look, and the few model settings that are not part of a look
+    bool composeFillsScreen = false;     // Neural Rendering: the picture is stretched over the whole screen (Lossless Scaling's stretch mode), not drawn at its aspect ratio with bars: the model's change is then everywhere
     bool presentMode = true;             // with frame generation off, the model takes the presented frame (see Present in runtime.cpp)
     bool presentWait = false;            // ...and each frame waits on the GPU for its own result (off: the newest ready one, moved along the motion)
     int frameEncoding = 0;               // what 10-bit and half-float frames hold (hdr.h EncodingOf): 0 automatic, 1 SDR, 2 HDR

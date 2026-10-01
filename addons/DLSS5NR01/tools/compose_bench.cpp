@@ -83,6 +83,29 @@ int main(int argc, char** argv) {
     a.target = target; a.delta = deltaView; a.offset = 0.0f; a.intensity = 1.0f; a.maxDelta = 0.5f; a.hiProtect = 0.85f; a.sharpen = sharpen;
     a.saturation = 1.0f; a.vibrance = 0.15f; a.gamma = 1.0f; a.encoding = static_cast<uint32_t>(encoding); a.whiteNits = 240.0f;
     a.ghostGuard = 0.0f;
+    // viewport=x,y,w,h (percent of the target): the frame is drawn only there (Lossless Scaling's bars on an ultrawide screen); barcheck=1 then runs once and counts what changed inside and outside it
+    int vp[4] = { 0, 0, 100, 100 };
+    for (int i = 1; i < argc; ++i) if (!strncmp(argv[i], "viewport=", 9)) sscanf_s(argv[i] + 9, "%d,%d,%d,%d", &vp[0], &vp[1], &vp[2], &vp[3]);
+    for (int k = 0; k < 4; ++k) a.viewport[k] = vp[k] / 100.0f;
+    if (ArgInt(argc, argv, "barcheck", 0) != 0) {
+        D3D11_TEXTURE2D_DESC sd2 = td; sd2.Usage = D3D11_USAGE_STAGING; sd2.BindFlags = 0; sd2.CPUAccessFlags = D3D11_CPU_ACCESS_READ;
+        ID3D11Texture2D* before = nullptr; ID3D11Texture2D* after = nullptr; dev->CreateTexture2D(&sd2, nullptr, &before); dev->CreateTexture2D(&sd2, nullptr, &after);
+        ctx->CopyResource(before, target); compose.Run(ctx, a); ctx->CopyResource(after, target);
+        D3D11_MAPPED_SUBRESOURCE mb{}, ma{};
+        if (FAILED(ctx->Map(before, 0, D3D11_MAP_READ, 0, &mb)) || FAILED(ctx->Map(after, 0, D3D11_MAP_READ, 0, &ma))) { printf("barcheck: the textures could not be read\n"); return 4; }
+        const size_t bpp = hdr ? 8 : 4; uint64_t barsChanged = 0, bars = 0, pictureChanged = 0, picture = 0;
+        for (uint32_t y = 0; y < H; ++y) for (uint32_t x = 0; x < W; ++x) {
+            const float u = (x + 0.5f) / W, v = (y + 0.5f) / H;
+            const bool inside = u >= a.viewport[0] && u <= a.viewport[0] + a.viewport[2] && v >= a.viewport[1] && v <= a.viewport[1] + a.viewport[3];
+            const bool differs = memcmp(static_cast<const uint8_t*>(mb.pData) + y * mb.RowPitch + x * bpp, static_cast<const uint8_t*>(ma.pData) + y * ma.RowPitch + x * bpp, bpp) != 0;
+            if (inside) { ++picture; pictureChanged += differs; } else { ++bars; barsChanged += differs; }
+        }
+        ctx->Unmap(before, 0); ctx->Unmap(after, 0);
+        printf("barcheck: bars %llu of %llu pixels changed; picture %llu of %llu changed\n", (unsigned long long)barsChanged, (unsigned long long)bars, (unsigned long long)pictureChanged, (unsigned long long)picture);
+        const bool ok = barsChanged == 0 && pictureChanged > picture / 10;
+        printf("%s\n", ok ? "BAR CHECK PASSED" : "BAR CHECK FAILED");
+        return ok ? 0 : 1;
+    }
     if (ArgInt(argc, argv, "once", 0) != 0) {   // once=1 (with dump=file): exactly one Run on the fresh frame, for comparing two versions of the shader
         compose.Run(ctx, a);
         D3D11_TEXTURE2D_DESC sd2 = td; sd2.Usage = D3D11_USAGE_STAGING; sd2.BindFlags = 0; sd2.CPUAccessFlags = D3D11_CPU_ACCESS_READ;

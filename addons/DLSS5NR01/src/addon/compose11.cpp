@@ -49,6 +49,8 @@ cbuffer Constants : register(b0) {
     float4 hud[6];        // left, top, right, bottom, 0..1
     uint   encoding;      // the frame's: 0 SDR, 1 scRGB, 2 HDR10 (hdr_hlsl.h)
     float  white;         // the SDR white, in nits (HDR only)
+    float2 padA;
+    float4 viewport;      // where the frame is drawn in the buffer, in uv: x, y, w, h (0, 0, 1, 1: all of it). Outside it (the bars) nothing is changed
 };
 static const float3 kLuma = float3(0.299, 0.587, 0.114);
 static const float3 kHudGreen = float3(0.49, 0.70, 0.26);
@@ -141,20 +143,23 @@ void CSCompose(uint3 id : SV_DispatchThreadID, uint3 gid : SV_GroupID, uint3 gt 
     }
     if (id.x >= size.x || id.y >= size.y) return;
     const float4 frame = tFrame[id.xy];
+    const float2 uv = (float2(id.xy) + 0.5) / float2(size);
+    const float2 uvF = (uv - viewport.xy) / viewport.zw;   // the same place in the frame's own uv (the delta, the flow and the motion are the frame's)
+    const bool inFrame = all(uvF >= 0.0) && all(uvF <= 1.0);
+    if (!inFrame && marker == 0u && (flags & 4u) == 0u && compare != 1u) { uOut[id.xy] = frame; return; }   // Lossless Scaling's bars: as they are (the feedback overlays below still draw there)
     const float3 fs = useTile ? gSdr[gt.y + 1][gt.x + 1] : Sdr(frame.rgb);
     bool replaced = false;   // a debug view or an overlay: written as it is, not as a change to the frame
-    const float2 uv = (float2(id.xy) + 0.5) / float2(size);
     const float hudInside = HudInside(uv);
     const bool plain = debugView == 0 || debugView == 3;   // the views that show the picture as it will be seen
-    const bool original = compare == 2 || (compare == 1 && uv.x < splitPos) || (hudInside > 0.999 && plain);
+    const bool original = !inFrame || compare == 2 || (compare == 1 && uv.x < splitPos) || (hudInside > 0.999 && plain);
     float3 c = fs;
     if (!original) {
-        const float4 flow = (flags & 1u) ? tFlow.SampleLevel(sLinear, uv, 0) : float4(0, 0, 0, 0);
+        const float4 flow = (flags & 1u) ? tFlow.SampleLevel(sLinear, uvF, 0) : float4(0, 0, 0, 0);
         // where this pixel's content was in frame d
-        float2 uvInD = offset > 0.0 ? uv - offset * flow.zw * uvPerUnit : uv + offset * flow.xy * uvPerUnit;
+        float2 uvInD = offset > 0.0 ? uvF - offset * flow.zw * uvPerUnit : uvF + offset * flow.xy * uvPerUnit;
         if (flags & 8u) {   // frame d's own motion stands in for the frames since: where this pixel was, `offset` frames back at that speed
             uint mw, mh; tMotion.GetDimensions(mw, mh);
-            uvInD = uv + offset * tMotion.SampleLevel(sLinear, uv, 0) / float2(mw, mh);
+            uvInD = uvF + offset * tMotion.SampleLevel(sLinear, uvF, 0) / float2(mw, mh);
         }
         const float ghost = GhostWeight(flow);
         const float highlightFade = hiProtect < 0.999 ? 1.0 - smoothstep(hiProtect, 1.0, dot(fs, kLuma)) : 1.0;
@@ -231,8 +236,9 @@ struct Constants {
     uint32_t grainSeed; float grainSize; uint32_t hudCount; float hudFeather;
     float hud[6][4];
     uint32_t encoding; float white; uint32_t pad[2];
+    float viewport[4];
 };
-static_assert(offsetof(Constants, gamma) == 80 && offsetof(Constants, hud) == 112 && offsetof(Constants, encoding) == 208 && sizeof(Constants) == 224,
+static_assert(offsetof(Constants, gamma) == 80 && offsetof(Constants, hud) == 112 && offsetof(Constants, encoding) == 208 && offsetof(Constants, viewport) == 224 && sizeof(Constants) == 240,
               "Constants must match the shader's cbuffer");
 
 template <class T> void SafeRelease(T*& p) { if (p) { p->Release(); p = nullptr; } }
@@ -367,6 +373,7 @@ bool Compose11::Run(ID3D11DeviceContext* ctx, const Args& a) {
     c.shadows = a.shadows; c.highlights = a.highlights; c.grain = a.grain; c.grainSeed = a.grainSeed; c.grainSize = std::clamp(a.grainSize, 1.0f, 4.0f);
     c.hudCount = std::min(a.hudCount, 6u); c.hudFeather = a.hudFeather; memcpy(c.hud, a.hud, sizeof c.hud);
     c.encoding = a.encoding; c.white = a.whiteNits > 1.0f ? a.whiteNits : 200.0f;
+    for (int i = 0; i < 4; ++i) c.viewport[i] = a.viewport[i];
     D3D11_MAPPED_SUBRESOURCE mapped{};
     if (SUCCEEDED(ctx->Map(m_constants, 0, D3D11_MAP_WRITE_DISCARD, 0, &mapped))) { memcpy(mapped.pData, &c, sizeof c); ctx->Unmap(m_constants, 0); }
 

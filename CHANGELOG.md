@@ -2,6 +2,13 @@
 
 ## Unreleased
 
+- **Neural Rendering on an ultrawide screen with a game that is not (issue #13).** A 2560x1440 game on a 5120x1440 screen is drawn by Lossless Scaling with black bars each side; the model's change belongs to the picture, but the compose
+  stretched it over the whole screen, which put the picture's change on the bars and misplaced it on the picture ("extreme artifacting"). The compose now works out where the frame is drawn (its shape fitted into the screen, centred) and
+  leaves the bars as they are; the log says so ("the 2560x1440 frame is drawn into 5120x1440 with bars"). "The picture fills the whole screen" (Neural Rendering, Advanced) is for Lossless Scaling's stretch mode, where there are no bars.
+  New check in the suite (`nr_composebench viewport= barcheck=1`).
+- **A runtime that crashed Lossless Scaling is not tried again (issue #11).** The FSR Upscaler's FSR 4.1.1b INT8 runtime (chosen in the Runtimes list) closed Lossless Scaling on a Radeon RX 6600 XT as soon as it scaled a window. A runtime that is not
+  the shipped one is now marked "on trial" in a file (`runtime-trial.txt` in the addon's folder) from its start until it has upscaled ten seconds of frames or Lossless Scaling closes normally; found at the next start, the shipped runtime runs
+  instead and the log says why. To try it again, choose the shipped one in the Runtimes list and then the other again.
 - **Auto quality no longer cycles between every frame and every 2nd or 3rd.** The owner's trace showed it: the model skips frames, the game recovers, the governor calls that calm and goes back to every frame, the game slows again, and
   so on every 40 to 60 s, each change a visible change in how the picture is made. When going back did not hold (the game was slow again within 90 s) the hold at every 2nd or 3rd now doubles each time (30 s, 1 min, 2 min, up to 10
   min), and starts afresh after five calm minutes at every frame.

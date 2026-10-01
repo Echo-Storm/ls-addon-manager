@@ -19,6 +19,7 @@ Open an issue at <https://github.com/Echo-Storm/ls-addon-manager/issues> and pas
 | Card | Driver | Model version | Result | Addon | Reported by |
 |---|---|---|---|---|---|
 | NVIDIA GeForce RTX 4070 Ti SUPER (16 GB) | 616.92 | 310.8 (158.2 MB) | PASS | 0.6.0 | the maintainer (Windows 11, Lossless Scaling 3.2.2.0, World of Warcraft: Forever) |
+| NVIDIA GeForce RTX 4080 (16 GB) | 617.14 | 310.8 (158.2 MB) | FAIL NOT_SUPPORTED | 0.9.23 | theblackborz (issue #12; Windows 10.0.26200) |
 
 ## What the results mean
 

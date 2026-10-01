@@ -39,7 +39,8 @@ extern Compose11 g_compose;
 extern Recorder& g_recorder;   // never destroyed: its threads must not be joined as the process ends (Shutdown does it at AddonShutdown)
 std::wstring RecordFolder();   // Config::recordFolder, or Videos\Lossless Scaling
 void SaveRecording();          // the panel's button and the hotkey
-void ExportFrameTrace(const char* why);   // the frame trace (frame_trace.h) as logs\frame-trace-<addon>.csv
+void ExportFrameTrace(const char* why);
+void ClearRuntimeTrial();                  // a runtime on trial that was still running when Lossless Scaling closed normally did not take it down   // the frame trace (frame_trace.h) as logs\frame-trace-<addon>.csv
 
 // Switched off: by hand, by a failure, or by the watchdog (which switches it back on after a pause, three times a session at most).
 extern std::atomic<bool> g_off, g_offByWatchdog;

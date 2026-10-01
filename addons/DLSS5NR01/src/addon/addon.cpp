@@ -154,6 +154,7 @@ EAM_EXPORT void AddonInitialize(IHost* host, ImGuiContext* ctx, void* allocFunc,
 EAM_EXPORT void AddonShutdown() {
     Log("shutting down");
     ExportFrameTrace("at shutdown");
+    ClearRuntimeTrial();
     g_off = true;
     // First let go of Lossless Scaling: no pass or device event reaches the addon while it tears down. (The upscaler's teardown used to come
     // first, holding the frame lock; if it stalled, Lossless Scaling's next device event waited on that lock for ever: a hang, 2026-09-24.)

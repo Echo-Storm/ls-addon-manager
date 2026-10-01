@@ -699,6 +699,20 @@ void Compose(IDXGISwapChain* sc) {
     a.offset = !g_presentMode ? static_cast<float>(shown.target - static_cast<double>(deltaFrame))
              : waitForOwn ? 0.0f : static_cast<float>(std::min<uint64_t>(g_presentIndex - deltaFrame, 3));
     a.isGen = !g_presentMode && shown.gen;
+    {   // the frame is drawn into the buffer by Lossless Scaling at its aspect ratio (a 2560x1440 game on a 5120x1440 screen: black bars each side): the model's change belongs to that area only (issue #13)
+        bool fill; { std::lock_guard<std::mutex> lock(g_settingsMutex); fill = g_config.composeFillsScreen; }
+        D3D11_TEXTURE2D_DESC bd; buffer->GetDesc(&bd);
+        const float fw = static_cast<float>(g_bridge.Width()), fh = static_cast<float>(g_bridge.Height());
+        if (!g_presentMode && !fill && fw > 0 && fh > 0 && bd.Width && bd.Height) {
+            const float scale = std::min(static_cast<float>(bd.Width) / fw, static_cast<float>(bd.Height) / fh);
+            const float vw = std::min(1.0f, fw * scale / bd.Width), vh = std::min(1.0f, fh * scale / bd.Height);
+            if (vw < 0.985f || vh < 0.985f) {   // bars: the frame fits one way and not the other
+                a.viewport[0] = (1.0f - vw) * 0.5f; a.viewport[1] = (1.0f - vh) * 0.5f; a.viewport[2] = vw; a.viewport[3] = vh;
+                static float said[2] = {};
+                if (said[0] != vw || said[1] != vh) { said[0] = vw; said[1] = vh; Log("compose: the %.0fx%.0f frame is drawn into %ux%u with bars; the model's change is kept to the picture (x %.0f..%.0f)", fw, fh, bd.Width, bd.Height, a.viewport[0] * bd.Width, (a.viewport[0] + vw) * bd.Width); }
+            }
+        }
+    }
     a.intensity = p.composeIntensity; a.maxDelta = p.maxDelta; a.ghostGuard = p.ghostGuard; a.hiProtect = p.hiProtect; a.debugView = p.debugView;
     a.sharpen = p.sharpen; a.saturation = p.saturation; a.vibrance = p.vibrance; a.brightness = p.brightness; a.contrast = p.contrast; a.gamma = p.gamma;
     a.shadows = p.shadows; a.highlights = p.highlights; a.grain = p.grain; a.grainSize = p.grainSize; a.grainSeed = static_cast<uint32_t>(g_presents);
@@ -983,8 +997,39 @@ std::atomic<uint32_t> g_scaleInW{ 0 }, g_scaleInH{ 0 }, g_scaleOutW{ 0 }, g_scal
 // The runtime the upscaler runs on: the file chosen in the manager's Runtimes list (its + menu sets "fsrRuntime" / "dlssRuntime" to it), else
 // the one shipped in the addon's fsr or dlss folder. The engine is given the file's folder (NGX looks for nvngx_dlss.dll there by name).
 std::wstring g_srRuntimeDir;   // the folder the engine was started from (empty: not started)
+// A runtime that is not the shipped one (a newer or modified one the person chose in the Runtimes list) runs code of someone else's inside Lossless Scaling's process, and one that crashes takes
+// Lossless Scaling down with it, on every start. A marker file says "this one is being tried" from when it starts until it has upscaled a few hundred frames or Lossless Scaling closes normally; found
+// at the next start, the runtime took the process down, and the shipped one is used until the person chooses another (issue #11: FSR 4.1.1b INT8 on an RX 6600 XT closed Lossless Scaling).
+std::wstring RuntimeTrialMarker() { return g_addonDir + L"\\runtime-trial.txt"; }
+std::string ReadRuntimeTrial() {
+    std::string text; FILE* f = nullptr;
+    if (_wfopen_s(&f, RuntimeTrialMarker().c_str(), L"rb") != 0 || !f) return text;
+    char buf[1024]; const size_t n = fread(buf, 1, sizeof buf - 1, f); fclose(f);
+    text.assign(buf, n);
+    return text;
+}
+bool g_trialWritten = false;   // this session put the marker there (and clears it when the runtime has done its first frames, or at a normal close)
+void WriteRuntimeTrial(const std::string& chosen) {
+    FILE* f = nullptr;
+    if (_wfopen_s(&f, RuntimeTrialMarker().c_str(), L"wb") != 0 || !f) return;
+    fwrite(chosen.data(), 1, chosen.size(), f); fclose(f);
+    g_trialWritten = true;
+}
+void ClearRuntimeTrialImpl() { DeleteFileW(RuntimeTrialMarker().c_str()); }
+
 std::wstring ChosenRuntimeDir() {
     std::string chosen = g_host ? g_host->GetConfig(kAddonId, kRuntimeKey, "") : "";
+    if (kScalerAddon) {
+        const std::string trial = ReadRuntimeTrial();
+        if (!trial.empty()) {
+            if (trial != chosen) ClearRuntimeTrialImpl();   // another runtime is chosen now (the shipped one, or a different one): the person has moved on from the one that did not start
+            else if (!g_trialWritten) {   // (a marker this session wrote is its own trial, running now: not a crash)
+                static std::string said;
+                if (said != chosen) { said = chosen; Log("%s upscaler: the runtime %s did not finish its last start (Lossless Scaling closed while it was being tried): the shipped one runs instead. Choose the shipped one in the Runtimes list and then this one again to try it again.", kUpscalerName, chosen.c_str()); }
+                return g_addonDir + L"\\" + kRuntimeFolderW;
+            }
+        }
+    }
     if (chosen.empty()) return g_addonDir + L"\\" + kRuntimeFolderW;
     std::wstring w(chosen.size(), L'\0');
     w.resize(std::max(0, MultiByteToWideChar(CP_UTF8, 0, chosen.c_str(), (int)chosen.size(), w.data(), (int)w.size())));
@@ -1067,6 +1112,10 @@ void StartEngineFor(const LUID& card) {   // the engine's own device only: safe 
     g_srStarting = true;
     SetStatus(std::string(kUpscalerName) + ": starting...");
     g_srRuntimeDir = ChosenRuntimeDir();
+    if (kScalerAddon && g_host) {   // a runtime that is not the shipped one is on trial until it has upscaled a few hundred frames
+        const std::string chosen = g_host->GetConfig(kAddonId, kRuntimeKey, "");
+        if (!chosen.empty() && g_srRuntimeDir != g_addonDir + L"\\" + kRuntimeFolderW) WriteRuntimeTrial(chosen); else ClearRuntimeTrialImpl();
+    }
     std::thread([card, dir = g_srRuntimeDir] {
         LARGE_INTEGER f, a, b; QueryPerformanceFrequency(&f); QueryPerformanceCounter(&a);
         const SrEngine::Backend backend = kXessScaler ? SrEngine::Backend::Xess : kFsrScaler ? SrEngine::Backend::Fsr : SrEngine::Backend::Dlss;
@@ -1318,6 +1367,7 @@ bool ScalerPass(ID3D11DeviceContext* ctx, uint32_t x, uint32_t y, uint32_t z) {
             SetStatus(text);
         } else if (g_compare.load() == 2) g_host->SetStatus(kAddonId, "Showing Lossless Scaling's NIS (Before / after)", 0);
     }
+    if (replaced && g_upscaled == 600 && g_trialWritten) { ClearRuntimeTrialImpl(); g_trialWritten = false; }   // (it has upscaled ten seconds of frames: it does not take the process down at once)
     if (replaced && (g_upscaled == 120 || g_upscaled % 6000 == 0)) LogVideoMemory("with the periodic lines: the figure now, then what it added since the engine started");
     if (replaced && (g_upscaled == 1 || g_upscaled % 3000 == 0))
         Log("%s scaler: %llu frames upscaled, NIS passes seen %llu, %u per real frame, %s %.2f ms%s", kUpscalerName, (unsigned long long)g_upscaled,
@@ -1464,6 +1514,8 @@ std::wstring RecordFolder() {
 }
 
 // The frame trace as a CSV in the logs folder: frame-trace-<addon>.csv, the latest export (tools/analyze_frame_trace.py reads it).
+void ClearRuntimeTrial() { if (g_trialWritten) { ClearRuntimeTrialImpl(); g_trialWritten = false; } }   // (state.h: at a normal close; a marker left by a runtime that crashed stays)
+
 void ExportFrameTrace(const char* why) {
     std::string error;
     const std::wstring path = g_lsDir + L"\\logs\\frame-trace-" + std::wstring(kAddonId, kAddonId + strlen(kAddonId)) + L".csv";

@@ -366,6 +366,9 @@ void DrawPanel() {
             "Off: it runs as soon as the frame is captured and gets the previous frame's motion, one frame late, which smears and ghosts when the camera turns, starts or stops. "
             "On is the default; the switch is here to compare the two.");
         if (!c.p.useFlow) ImGui::EndDisabled();
+        if (ImGui::Checkbox("The picture fills the whole screen", &c.composeFillsScreen)) changed = true;
+        Tip("Off (the default): Lossless Scaling draws the game at its own shape with black bars when the screen is wider or taller (a 16:9 game on a 32:9 screen), and the model's "
+            "change is kept to the picture, not the bars. Turn it on if Lossless Scaling is set to stretch the picture over the whole screen, so the model's change covers all of it.");
         if (ImGui::Checkbox("Also with frame generation off", &c.presentMode)) changed = true;
         Tip("With Lossless Scaling's frame generation off there is no captured frame to run on. On (the default): the model then takes the frame Lossless Scaling "
             "presents. The model's working size is taken as for a 1920-wide frame, so it costs what it does with frame generation on. Off: without frame "
