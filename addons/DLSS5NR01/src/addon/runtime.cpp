@@ -1207,10 +1207,8 @@ bool ScalerPass(ID3D11DeviceContext* ctx, uint32_t x, uint32_t y, uint32_t z) {
                 const float fraction = PresentStepFraction();
                 t_ownWork = true;
                 g_passStep = "Upscale";
-                const bool reset = g_resetRequested.exchange(false);
-                replaced = g_link.Upscale(pass, flow, fw, fh, p.flowUnit, fraction, motion == 0, preset, p.sharpen * kScalerSharpenScale, reset,
-                                          static_cast<ScalerLink::Handoff>(handoff), gpuWait);
-                if (reset && !replaced) g_resetRequested = true;   // the pass did not run: the reset waits for one that does
+                replaced = g_link.Upscale(pass, flow, fw, fh, p.flowUnit, fraction, motion == 0, preset, p.sharpen * kScalerSharpenScale, g_resetRequested.exchange(false),
+                                          static_cast<ScalerLink::Handoff>(handoff), gpuWait);   // (a reset not handed over is kept by the link: ScalerLink::m_pendingReset)
                 t_ownWork = false;
                 nr::trace::Add(nr::trace::kUpscale, replaced ? 1 : 0, static_cast<int32_t>(g_sr.GpuMs() * 100.0), static_cast<int32_t>(g_sr.MotionMs() * 100.0));
                 g_passStep = "the recorder";

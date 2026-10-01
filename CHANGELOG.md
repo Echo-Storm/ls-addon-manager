@@ -11,9 +11,9 @@
   any number got through the limits (a comparison with nan is never true), that a few settings had no limit at all (the model's intensity, fine detail, local contrast, the compose blend, the
   per-pixel limit, the protect-bright start, the flow unit, the slow-model watchdog, the tap mode) and that a huge number could overflow the conversion to a whole number. Numbers that are not
   finite now read as the setting's default (or, in a look, leave the setting as it was), and every setting is limited to a little wider than its slider.
-- **A reset of the history was lost when its frame was left out.** "Reset history", a change of the model's size and a rebuild each ask for a reset with the next frame given to the model or the upscaler;
-  if that frame was left out (the model busy, its turn off under auto quality's every-Nth setting, or an upscaler pass that did not run) the request was spent and the history never reset. It now
-  waits for a frame that runs.
+- **A reset of the history was lost when its frame was left out (Neural Rendering).** "Reset history", a change of the model's size and a rebuild each ask for a reset with the next frame given to the model;
+  if that frame was left out (the model busy, or its turn off under auto quality's every-Nth setting) the request was spent and the history never reset. It now waits for a frame that runs
+  (Neural Rendering; the upscalers already kept theirs).
 - **A "What stands out" card in each addon's panel.** From the numbers the addon already keeps (how even the game's frames were over the last few seconds, what the model waited for, what auto quality
   is doing, what the upscaler costs) it says in plain words what is wrong and what to try: "the game's frame times are uneven... the graphics card is full", "the model waits 9 ms for the card",
   "auto quality is running the model on every 2nd frame", "you are looking at the plain picture (the before / after toggle)". It stays empty when nothing stands out. New test `nr_diagtest`.
