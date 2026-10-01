@@ -270,6 +270,9 @@ You should not need this unless a future Lossless Scaling version changes its pi
 Scaling and the game must be scaling. The addon only sees compute dispatches; with LSFG off there
 is nothing to tap.
 
+**The picture has black bars (an ultrawide screen, a 16:9 game).** Lossless Scaling draws the game at its own shape with bars; since 0.9.26 the model's change is kept to the picture (the log says "the bars are there"). If Lossless Scaling is set to
+stretch the picture over the whole screen, turn on *The picture fills the whole screen* (Advanced).
+
 **Stutter, or the picture is uneven.** Under *Status* the panel lists, in plain words, what stands out in the last few seconds: uneven game frames, the model waiting for the graphics card, auto quality running the model on every second frame, the plain picture being shown by the before / after toggle. For a report, press Ctrl+Shift+F1 (or close Lossless Scaling) and send the log and `logs\frame-trace-<addon>.csv` (a timeline of the frames; `tools/analyze_frame_trace.py` reads it).
 
 **"DISABLED: NR slower than watchdog threshold for 30 frames".** The working scale is too high

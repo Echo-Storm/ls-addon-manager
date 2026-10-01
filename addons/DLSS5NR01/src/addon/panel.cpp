@@ -125,7 +125,14 @@ void DrawPanel() {
             if (GetFileAttributesW(reportFile.c_str()) != INVALID_FILE_ATTRIBUTES) {
                 ImGui::SameLine();
                 if (ImGui::SmallButton("Open the compatibility report")) ShellExecuteW(nullptr, L"open", reportFile.c_str(), nullptr, nullptr, SW_SHOWNORMAL);
-                Tip("A short text file about the last compatibility test: your graphics card, driver, Windows, the model file's name, version and size, and the result. Paste it into an issue or the compatibility table. It holds no folders, user name or file hash.");
+                Tip("A short text file about the last compatibility test: your graphics card, driver, Windows, the model file's name, version and size, and the result. Paste it into an issue or the compatibility table. It holds no folders or user name; the model file shows as its name, version, size and the first 16 digits of its hash (which tells two builds that are called the same apart), and a failure adds what NVIDIA's code said.");
+                ImGui::SameLine();
+                if (ImGui::SmallButton("Copy the report")) {
+                    FILE* rf = nullptr; std::string text;
+                    if (_wfopen_s(&rf, reportFile.c_str(), L"rb") == 0 && rf) { char buf[4096]; size_t n; while ((n = fread(buf, 1, sizeof buf, rf)) > 0) text.append(buf, n); fclose(rf); }
+                    if (!text.empty()) ImGui::SetClipboardText(text.c_str());
+                }
+                Tip("Copies the compatibility report to the clipboard, ready to paste into an issue.");
             }
             { bool ok; const std::string msg = BrowseResult(ok);
               if (!msg.empty()) { ImGui::PushStyleColor(ImGuiCol_Text, ok ? eam::ui::theme::V(eam::ui::theme::kAccent) : eam::ui::theme::V(eam::ui::theme::kWarn)); ImGui::TextWrapped("%s", msg.c_str()); ImGui::PopStyleColor(); } }

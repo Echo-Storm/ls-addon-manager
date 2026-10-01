@@ -42,6 +42,10 @@ has the graphics card to spare for it. A post-process anti-aliasing (FXAA, CMAA)
   a moving picture better (test host: a sliding picture 11.1 levels off the truth against FSR 3.1's 14.2) and costs more. Switching takes
   about a second while the game runs; the panel names the FSR that runs. It is the same choice as the **+** next to FSR in the manager's
   Runtimes list, where other files can be added too.
+- **Share motion between generated frames** (on): with frame generation, every other presented frame keeps the motion estimate of the one before (a quarter of a millisecond a frame at 4K).
+- **Lighter upscaling of generated frames (test)** (off): with frame generation the upscaler runs on the frames the game draws only; the frames Lossless Scaling makes between them get the last upscaled picture moved along the
+  motion, checked against the new frame (where the two disagree, the new frame stretched plainly), and sharpened: under 1 ms of GPU instead of about 3 at 4K. On recordings it scored about the same on detail and flicker and a
+  little lower on steadiness in motion (docs/frame-generation-research.md). For a card that is full. Flip it with the camera turning and in a calm scene, and tell us if you see a difference.
 - **DLSS model** (DLSS Upscaler only): **Auto** (the default: E at 1:1, L when upscaling), or *K* (NVIDIA's default), *L*, *J* (DLSS 4), *M* (DLSS 4.5)
   or *E* (DLSS 3's CNN model). Lossless Scaling's frames carry no camera jitter, which the DLSS 4 models expect, so they behave differently here
   than in a game. Measured on recordings (`nr_sreval`): **L** is the steadiest when upscaling (the only one that does not drift from the picture in
@@ -144,6 +148,9 @@ The addon writes `logs\DLSS4DLAA.log`, `logs\FSR3UPSC.log` or `logs\XESSUPSC.log
 | Smear when moving | Check Motion is *Measured from the frames*. The log's `motion estimator:` lines give the average motion found and how much of the picture was marked untrusted. |
 | FSR 4 looks wrong, costs too much or does not start | Set *FSR version* back to FSR 3.1.4. A chosen runtime that has gone missing falls back to the shipped one by itself (the log says so). |
 | You want us to see it | Turn on *Recording* (the addon's panel), make it happen, press Ctrl+Shift+F1 and send the `.lsrec` file from `Videos\Lossless Scaling`: it holds the frames as they went to the upscaler, and we can play them back. |
+| You want us to see what you see (flicker, shimmer) | The same, with *Record what is shown* on: the recording then holds the frames as they go to the screen (after the upscaler, the frames Lossless Scaling made between included) instead of the frames going to the upscaler. Recording uses a lot of the card: leave it off otherwise. |
+| Lossless Scaling closed as soon as a chosen runtime (FSR 4.1.1b, or another file chosen in the Runtimes list) ran | The runtime is marked "on trial" until it has upscaled ten seconds of frames; if Lossless Scaling goes down meanwhile, the next start uses the shipped runtime and the log says why. To try the chosen one again, choose the shipped one in the Runtimes list and then the other. |
+| Hitches ("catching up") when the game keeps the card full | The log says "a picture took N ms to finish": the GPU wait is then switched off for 10 s (a picture is repeated instead). *Lighter upscaling of generated frames* and a lower DLSS mode take cost off the card. |
 | "... could not run: ..." in the panel | The runtime is missing from the addon's `dlss`, `fsr` or `xess` folder (reinstall the addon), or, for DLSS, the card is not an NVIDIA RTX card. NIS runs as usual meanwhile. |
 
 ## How it works
