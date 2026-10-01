@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+- **A settings file with nonsense in it cannot put the addons out of range.** A new test feeds every setting a list of bad texts (nan, inf, 1e308, negatives, words, empty). It found that "nan" in
+  any number got through the limits (a comparison with nan is never true), that a few settings had no limit at all (the model's intensity, fine detail, local contrast, the compose blend, the
+  per-pixel limit, the protect-bright start, the flow unit, the slow-model watchdog, the tap mode) and that a huge number could overflow the conversion to a whole number. Numbers that are not
+  finite now read as the setting's default (or, in a look, leave the setting as it was), and every setting is limited to a little wider than its slider.
 - **A reset of the history was lost when its frame was left out.** "Reset history", a change of the model's size and a rebuild each ask for a reset with the next frame given to the model or the upscaler;
   if that frame was left out (the model busy, its turn off under auto quality's every-Nth setting, or an upscaler pass that did not run) the request was spent and the history never reset. It now
   waits for a frame that runs.

@@ -3,6 +3,7 @@
 #include <eam/addon_sdk.h>
 #include <algorithm>
 #include <cfloat>
+#include <cmath>
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
@@ -11,19 +12,19 @@ namespace nr {
 
 namespace {
 
-// The settings of NrParams, each once: its key, its range (FLT_MAX: the model takes any value), and whether it is part of a look.
+// The settings of NrParams, each once: its key, its range (a little wider than the panel's slider), and whether it is part of a look.
 struct FloatSetting { const char* key; float NrParams::* field; float lo, hi; bool inLook; };
 struct UIntSetting { const char* key; uint32_t NrParams::* field; uint32_t lo, hi; bool inLook; };
 
 const FloatSetting kFloats[] = {
-    { "intensity",        &NrParams::intensity,        -FLT_MAX, FLT_MAX, true },   // the model keeps it to 0..1 itself
-    { "localStructure",   &NrParams::localStructure,   -FLT_MAX, FLT_MAX, true },
-    { "localTone",        &NrParams::localTone,        -FLT_MAX, FLT_MAX, true },
-    { "skinStructure",    &NrParams::skinStructure,    -FLT_MAX, FLT_MAX, true },
+    { "intensity",        &NrParams::intensity,        0.0f, 1.0f, true },   // (the model keeps it to 0..1 itself)
+    { "localStructure",   &NrParams::localStructure,   -10.0f, 10.0f, true },
+    { "localTone",        &NrParams::localTone,        -10.0f, 10.0f, true },
+    { "skinStructure",    &NrParams::skinStructure,    -1.0f, 10.0f, true },
     { "workingScale",     &NrParams::workingScale,     0.25f, 1.0f,  true },
-    { "composeIntensity", &NrParams::composeIntensity, -FLT_MAX, FLT_MAX, true },
-    { "maxDelta",         &NrParams::maxDelta,         -FLT_MAX, FLT_MAX, true },
-    { "hiProtect",        &NrParams::hiProtect,        -FLT_MAX, FLT_MAX, true },
+    { "composeIntensity", &NrParams::composeIntensity, 0.0f, 4.0f, true },
+    { "maxDelta",         &NrParams::maxDelta,         0.01f, 1.0f, true },
+    { "hiProtect",        &NrParams::hiProtect,        0.5f, 1.0f, true },
     { "sharpen",          &NrParams::sharpen,          0.0f, 1.0f,   true },
     { "saturation",       &NrParams::saturation,       0.0f, 2.0f,   true },
     { "vibrance",         &NrParams::vibrance,         0.0f, 1.0f,   true },
@@ -37,7 +38,7 @@ const FloatSetting kFloats[] = {
     { "deltaSmooth",      &NrParams::deltaSmooth,      0.0f, 0.95f,  true },
     { "ghostGuard",       &NrParams::ghostGuard,       0.0f, 1.0f,   true },
     { "hudFeather",       &NrParams::hudFeather,       0.0f, 0.05f,  true },
-    { "flowUnit",         &NrParams::flowUnit,         -FLT_MAX, FLT_MAX, false },
+    { "flowUnit",         &NrParams::flowUnit,         0.25f, 16.0f, false },
 };
 const UIntSetting kUInts[] = {
     { "passes",    &NrParams::passes,      1, 4, true },
@@ -49,6 +50,12 @@ const UIntSetting kUInts[] = {
 
 float Limit(float v, const FloatSetting& s) { return std::clamp(v, s.lo, s.hi); }
 uint32_t Limit(long long v, const UIntSetting& s) { return static_cast<uint32_t>(std::clamp<long long>(v, s.lo, s.hi)); }
+
+// A number from text: the fallback when it is not one (nan and inf parse as numbers), and never beyond a billion either way (so the casts below stay defined).
+double Parse(const char* text, double fallback) {
+    const double v = atof(text);
+    return std::isfinite(v) ? std::clamp(v, -1e9, 1e9) : fallback;
+}
 
 std::string Number(float v) { char text[32]; snprintf(text, sizeof text, "%g", v); return text; }
 
@@ -116,9 +123,9 @@ bool ApplyLook(const std::string& text, NrParams& p) {
         const std::string key = item.substr(0, eq), value = item.substr(eq + 1);
         bool known = false;
         if (key == "hud") { HudFromText(value, p); known = true; }
-        else if (key == "useFlow") { p.useFlow = atof(value.c_str()) != 0.0; known = true; }
-        for (const FloatSetting& s : kFloats) if (s.inLook && key == s.key) { p.*s.field = Limit(static_cast<float>(atof(value.c_str())), s); known = true; }
-        for (const UIntSetting& s : kUInts) if (s.inLook && key == s.key) { p.*s.field = Limit(static_cast<long long>(atof(value.c_str())), s); known = true; }
+        else if (key == "useFlow") { p.useFlow = Parse(value.c_str(), p.useFlow ? 1.0 : 0.0) != 0.0; known = true; }
+        for (const FloatSetting& s : kFloats) if (s.inLook && key == s.key) { p.*s.field = Limit(static_cast<float>(Parse(value.c_str(), p.*s.field)), s); known = true; }
+        for (const UIntSetting& s : kUInts) if (s.inLook && key == s.key) { p.*s.field = Limit(static_cast<long long>(Parse(value.c_str(), p.*s.field)), s); known = true; }
         any |= known;
     }
     return any;
@@ -146,7 +153,7 @@ static RecorderSeen s_recorderSeen;
 
 Loaded LoadSettings(IHost* host, const char* id) {
     auto text = [&](const std::string& key, const char* dflt = "") { return std::string(host ? host->GetConfig(id, key.c_str(), dflt) : dflt); };
-    auto number = [&](const char* key, double dflt) { const std::string s = text(key); return s.empty() ? dflt : atof(s.c_str()); };
+    auto number = [&](const char* key, double dflt) { const std::string s = text(key); return s.empty() ? dflt : Parse(s.c_str(), dflt); };
     auto flag = [&](const char* key, bool dflt) { return number(key, dflt ? 1 : 0) != 0.0; };
     auto integer = [&](const char* key, int dflt) { return static_cast<int>(number(key, dflt)); };
 
@@ -235,9 +242,9 @@ Loaded LoadSettings(IHost* host, const char* id) {
         const std::string look = text("game." + exe);
         if (!look.empty()) c.games.push_back({ exe, look });
     }
-    c.tapMode = integer("tapMode", 0); c.frameSlot = integer("frameSlot", -1);
+    c.tapMode = std::clamp(integer("tapMode", 0), 0, 1); c.frameSlot = integer("frameSlot", -1);
     c.tickSig = text("tickSig"); c.tapSig = text("tapSig");
-    c.watchdogMs = static_cast<float>(number("watchdogMs", 80.0));
+    c.watchdogMs = std::clamp(static_cast<float>(number("watchdogMs", 80.0)), 20.0f, 500.0f);
     c.snippetPath = text("snippetPath");
     for (const std::string& name : SplitList(text("presetNames"))) {
         const std::string data = text("preset." + name);

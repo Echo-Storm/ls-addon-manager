@@ -138,6 +138,29 @@ int main() {
         Check("a format it cannot convert is refused", !screenshot::ToBgra8(DXGI_FORMAT_R32_FLOAT, half, 1, out));
     }
 
+    printf("== a settings file full of garbage\n");
+    {
+        // every key answers with the same bad text: whatever loads must be finite and inside what the engines can take
+        struct GarbageHost : StandInHost { std::string text; const char* GetConfig(const char*, const char*, const char*) override { return text.c_str(); } };
+        const char* garbage[] = { "nan", "-nan", "inf", "-inf", "1e308", "-1e308", "99999999999", "-99999999999", "-5", "0", "", "abc", "0x7fffffff", "1;2;3", "||;;==", "true", "-0" };
+        bool allFinite = true, ranges = true; std::string first;
+        for (const char* g : garbage) {
+            GarbageHost host; host.text = g;
+            Config c = LoadSettings(&host, "DLSS5NR01").config;
+            const float fs[] = { c.scalerLeanRest, c.scalerMoveCut, c.scalerSteadySharp, c.scalerLeanFrom, c.scalerStability, c.scalerEdges, c.recordSeconds, c.autoBudgetMs, c.autoFloor, c.autoScaleLast, c.watchdogMs,
+                                 c.p.intensity, c.p.localStructure, c.p.localTone, c.p.skinStructure, c.p.flowUnit, c.p.workingScale, c.p.smoothStable, c.p.deltaSmooth, c.p.composeIntensity, c.p.maxDelta,
+                                 c.p.ghostGuard, c.p.hiProtect, c.p.sharpen, c.p.saturation, c.p.vibrance, c.p.brightness, c.p.contrast, c.p.gamma, c.p.shadows, c.p.highlights, c.p.grain, c.p.grainSize, c.p.hudFeather };
+            for (size_t i = 0; i < sizeof fs / sizeof fs[0]; ++i) if (!std::isfinite(fs[i]) || std::fabs(fs[i]) > 1e4f) { allFinite = false; if (first.empty()) first = std::string("text '") + g + "', setting number " + std::to_string(i); }
+            const bool ok = c.scalerLeanRest >= 0 && c.scalerLeanRest <= 1 && c.scalerMoveCut >= 0 && c.scalerMoveCut <= 1 && c.scalerSteadySharp >= 0 && c.scalerSteadySharp <= 0.9f &&
+                            c.p.workingScale >= 0.25f && c.p.workingScale <= 1.0f && c.p.passes >= 1 && c.p.passes <= 4 && c.p.flowUnit > 0.0f && c.p.grainSize >= 1 && c.p.hudCount <= (uint32_t)NrParams::kMaxHud &&
+                            c.autoBudgetMs > 0 && c.autoFloor >= 0.25f && c.autoFloor <= 1.0f && c.watchdogMs > 0 && c.recordSeconds > 0 && c.recordBudgetMb > 0 &&
+                            c.p.deltaSmooth >= 0 && c.p.deltaSmooth < 1 && c.p.style <= 2;
+            if (!ok) { ranges = false; if (first.empty()) first = std::string("text '") + g + "'"; }
+        }
+        Check("garbage in every key loads as finite numbers", allFinite, first);
+        Check("...inside the ranges the engines take", ranges, first);
+    }
+
     printf("\n%s\n", g_failed ? "SETTINGS TEST FAILED" : "SETTINGS TEST PASSED");
     return g_failed ? 1 : 0;
 }
