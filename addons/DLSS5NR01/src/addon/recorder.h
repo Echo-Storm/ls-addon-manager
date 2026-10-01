@@ -27,7 +27,9 @@ public:
     // on: keep recording; seconds and budgetMb: how much is kept (the older frames go first). Off frees everything.
     void Configure(bool on, float seconds, uint32_t budgetMb);
     // A frame the addon received (on the render thread that owns ctx). source: lsrec::Source; content: lsrec::Content; tag: lsrec::Tag.
-    void Offer(ID3D11DeviceContext* ctx, ID3D11Texture2D* frame, uint32_t source, uint32_t content = 0, uint32_t tag = 0);
+    // cropW x cropH (when given and smaller than the frame): only the middle of the frame is kept, at full size. A 4K frame in HDR is 66 MB and a recording of what is shown has every presented frame: the
+    // card and the processor cannot keep that up (a test kept 84 of 247 frames, compressed to more than they were), and a flicker shows in the middle as well as anywhere.
+    void Offer(ID3D11DeviceContext* ctx, ID3D11Texture2D* frame, uint32_t source, uint32_t content = 0, uint32_t tag = 0, uint32_t cropW = 0, uint32_t cropH = 0);
     // The device is going away (under the lock the frame path holds): the staging textures are released once the workers are done with them.
     void Forget();
     void Shutdown();   // the end: the threads stop (Forget first)
@@ -59,6 +61,7 @@ private:
     static constexpr int kSlots = 6;
     Slot m_slots[kSlots];
     ID3D11Device* m_dev = nullptr; ID3D11DeviceContext* m_ctx = nullptr;   // the device the staging textures are on, and its context (maps them)
+    uint32_t m_srcW = 0, m_srcH = 0;   // the frames' own size (m_w and m_h: what is kept of them)
     uint32_t m_w = 0, m_h = 0, m_bpp = 0, m_source = 0; DXGI_FORMAT m_fmt = DXGI_FORMAT_UNKNOWN, m_viewFmt = DXGI_FORMAT_UNKNOWN;
     uint32_t m_content = 0;   // lsrec::Content of the frames kept
     uint64_t m_offered = 0;

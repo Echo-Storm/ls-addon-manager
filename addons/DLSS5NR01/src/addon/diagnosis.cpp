@@ -15,6 +15,12 @@ std::vector<Finding> Diagnose(const Snapshot& s) {
     if (s.showingPlain)
         add(Level::Note, "You are looking at the plain picture (the before / after toggle), not the enhanced one.", "Press the before / after hotkey again to see the result.");
 
+    if (s.recording)   // it is the first thing to rule out when the card is full: it copies every frame it keeps (a recording of what is shown copies every presented frame, 4K and HDR ones are 33 to 66 MB each)
+        add(s.frames >= 60 && s.frameP95 > 1.4f * s.frameP50 ? Level::Problem : Level::Note,
+            s.recordingShown ? "Recording is on, and it records what is shown: every presented frame is copied (a 4K frame is 33 to 66 MB) and kept in memory."
+                             : "Recording is on: it copies the frames it keeps all the time, which takes some of the graphics card and the processor.",
+            "Turn it off (Recording in the panel) unless you are recording a problem: it is the first thing to rule out when frames are uneven or the card is full.");
+
     if (s.frames >= 60 && s.frameP50 > 0) {
         const bool uneven = s.frameP95 > 1.6f * s.frameP50 && s.frameP95 - s.frameP50 > 6.0f;
         const bool waits = s.model && s.startMs > 4.0f;

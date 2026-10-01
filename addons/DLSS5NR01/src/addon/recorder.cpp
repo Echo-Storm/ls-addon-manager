@@ -133,7 +133,7 @@ void Recorder::DropStaging() {
     SafeRelease(m_ctx); SafeRelease(m_dev);
 }
 
-void Recorder::Offer(ID3D11DeviceContext* ctx, ID3D11Texture2D* frame, uint32_t source, uint32_t content, uint32_t tag) {
+void Recorder::Offer(ID3D11DeviceContext* ctx, ID3D11Texture2D* frame, uint32_t source, uint32_t content, uint32_t tag, uint32_t cropW, uint32_t cropH) {
     if (!ctx || !frame) return;
     const bool on = m_on.load();
     if (!on && !m_dev) return;   // off, and nothing to give back
@@ -149,15 +149,16 @@ void Recorder::Offer(ID3D11DeviceContext* ctx, ID3D11Texture2D* frame, uint32_t 
         return;
     }
     ID3D11Device* dev = nullptr; frame->GetDevice(&dev);
-    if (d.Width != m_w || d.Height != m_h || d.Format != m_fmt || source != m_source || content != m_content || dev != m_dev || ctx != m_ctx) {
+    const uint32_t keepW = cropW && cropW < d.Width ? cropW : d.Width, keepH = cropH && cropH < d.Height ? cropH : d.Height;
+    if (d.Width != m_srcW || d.Height != m_srcH || keepW != m_w || keepH != m_h || d.Format != m_fmt || source != m_source || content != m_content || dev != m_dev || ctx != m_ctx) {
         Collect(true); DropStaging();
         m_dev = dev; m_dev->AddRef(); m_ctx = ctx; m_ctx->AddRef();
         {
             std::lock_guard<std::mutex> lock(m_keepMutex);
             m_kept.clear(); m_keptBytes = 0; ++m_keptGeneration;
-            m_w = d.Width; m_h = d.Height; m_fmt = d.Format; m_viewFmt = view; m_bpp = bpp; m_source = source; m_content = content;
+            m_srcW = d.Width; m_srcH = d.Height; m_w = keepW; m_h = keepH; m_fmt = d.Format; m_viewFmt = view; m_bpp = bpp; m_source = source; m_content = content;
         }
-        Log("recorder: %ux%u, format %d (%u bytes a pixel), %s", m_w, m_h, (int)view, bpp,
+        Log("recorder: %ux%u%s, format %d (%u bytes a pixel), %s", m_w, m_h, (m_w != m_srcW || m_h != m_srcH) ? " (the middle of the frame)" : "", (int)view, bpp,
             source == lsrec::kCaptured ? "the captured frames" : source == lsrec::kPresented ? "the presented frames" : "NIS's input");
     }
     if (dev) dev->Release();
@@ -171,7 +172,11 @@ void Recorder::Offer(ID3D11DeviceContext* ctx, ID3D11Texture2D* frame, uint32_t 
         sd.Usage = D3D11_USAGE_STAGING; sd.CPUAccessFlags = D3D11_CPU_ACCESS_READ;
         if (FAILED(m_dev->CreateTexture2D(&sd, nullptr, &slot->staging))) { ++m_missed; Log("recorder: a staging texture could not be made"); return; }
     }
-    ctx->CopySubresourceRegion(slot->staging, 0, 0, 0, 0, frame, 0, nullptr);
+    if (m_w != m_srcW || m_h != m_srcH) {   // the middle (an even offset: the formats' blocks)
+        const UINT left = ((m_srcW - m_w) / 2) & ~1u, top = ((m_srcH - m_h) / 2) & ~1u;
+        const D3D11_BOX box{ left, top, 0, left + m_w, top + m_h, 1 };
+        ctx->CopySubresourceRegion(slot->staging, 0, 0, 0, 0, frame, 0, &box);
+    } else ctx->CopySubresourceRegion(slot->staging, 0, 0, 0, 0, frame, 0, nullptr);
     slot->index = index; slot->qpc = Qpc(); slot->tag = tag; slot->state = Slot::Copied;
 }
 

@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+- **"Record what is shown" keeps the middle 1920x1080 of each presented frame, and the card says when the recorder is the problem.** The owner's first recordings of what is shown (4K, HDR, frame generation x2) kept 84 of 247 frames
+  and compressed to more than their raw size: a 4K HDR frame is 66 MB and every presented frame is copied. The middle of the frame at full size (an even offset) is kept instead, a quarter of the data, which a card in use can
+  copy; a flicker shows in the middle as well as anywhere. And "What stands out" now says "Recording is on ... it is the first thing to rule out when frames are uneven" (a problem when they are, a note when they are not): the same
+  session's log showed a full card (the model waiting 19.7 ms, a picture 1,016 ms late) exactly while the recorder was saving.
 - **`nr_lsrec flicker <recording>`**: for a recording (of what is shown, with "Record what is shown", or of anything) how much the picture changes from one frame to the next, by kind of pair, the biggest steps with the time between
   frames, and whether the change pulses at a period: the objective side of "it flickers".
 - **The panel says whether your model file is a build seen working.** People have different `nvngx_dlssnr.dll` files, and a name, a version and a size do not tell two builds apart (issue #12: an RTX 4080 refused a file that looked like the tested

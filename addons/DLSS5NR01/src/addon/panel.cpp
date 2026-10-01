@@ -789,8 +789,8 @@ void DrawPanel() {
         if (!c.recordOn) ImGui::BeginDisabled();
         if (kFrameGen) {
             if (ImGui::Checkbox("Record what is shown", &c.recordShown)) changed = true;
-            Tip("The frames as they go to the screen (after the upscaler, at the screen's size, the frames Lossless Scaling or our own frame generation made between included), "
-                "instead of the frame going to the upscaler. For looking into what you see: flicker, shimmer, a frame generation artefact. The frames are big (4K, HDR "
+            Tip("The frames as they go to the screen (after the upscaler, the frames Lossless Scaling or our own frame generation made between included), the middle 1920x1080 of them at the screen's size (every "
+                "presented frame of a 4K screen in full is more than the card can copy), instead of the frame going to the upscaler. For looking into what you see: flicker, shimmer, a frame generation artefact. The frames are big (4K, HDR "
                 "twice that), so fewer seconds fit: raise the memory, or keep 2 to 3 seconds. Off: the frame going to the upscaler, to try the upscaler on it offline.");
         }
         { const float d = 5.0f; changed |= eam::ui::SliderFloat("Seconds kept", &c.recordSeconds, 1.0f, 30.0f, "%.0f s", 0, &d); }

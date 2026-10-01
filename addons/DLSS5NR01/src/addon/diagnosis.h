@@ -20,6 +20,8 @@ struct Snapshot {
     float upscalerMs = 0, motionMs = 0;   // the engine's GPU time for a presented frame, and its motion estimate's share
     // the picture on screen is the plain one (the before / after toggle)
     bool showingPlain = false;
+    // the recorder is on (it copies frames all the time) and whether it records what is shown (every presented frame, twice the frames and big ones)
+    bool recording = false, recordingShown = false;
 };
 
 enum class Level { Info = 0, Note = 1, Problem = 2 };

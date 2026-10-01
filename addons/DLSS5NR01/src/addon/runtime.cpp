@@ -148,7 +148,7 @@ void UpdateFindings(int frames, float p50, float p95, float p99, const NrStats* 
     d.frames = frames; d.frameP50 = p50; d.frameP95 = p95; d.frameP99 = p99;
     d.showingPlain = g_compare.load() == 2;
     bool autoOn; float floor;
-    { std::lock_guard<std::mutex> lock(g_settingsMutex); autoOn = g_config.autoQuality; floor = g_config.autoFloor; }
+    { std::lock_guard<std::mutex> lock(g_settingsMutex); autoOn = g_config.autoQuality; floor = g_config.autoFloor; d.recording = g_config.recordOn; d.recordingShown = g_config.recordShown; }
     if (st) {
         static uint64_t runsBefore = 0, skippedBefore = 0;
         const uint64_t runs = g_bridge.Runs(), skipped = g_bridge.Skipped();
@@ -225,13 +225,13 @@ void FollowSharedRecorder();
 
 // A frame for the recorder (under g_frameMutex, on the render thread): its settings follow the panel's, and for the tests it saves by itself
 // once recordSaveAfter frames are held.
-void Record(ID3D11DeviceContext* ctx, ID3D11Texture2D* frame, uint32_t source, uint32_t content = 0, uint32_t tag = 0) {
+void Record(ID3D11DeviceContext* ctx, ID3D11Texture2D* frame, uint32_t source, uint32_t content = 0, uint32_t tag = 0, bool crop = false) {
     static const bool logSet = (g_recorder.SetLog([](const char* m) { Log("%s", m); }), true);
     (void)logSet;
     bool on; float seconds; int budget, saveAfter;
     { std::lock_guard<std::mutex> lock(g_settingsMutex); on = g_config.recordOn; seconds = g_config.recordSeconds; budget = g_config.recordBudgetMb; saveAfter = g_config.recordSaveAfter; }
     g_recorder.Configure(on, seconds, static_cast<uint32_t>(budget));
-    g_recorder.Offer(ctx, frame, source, content, tag);
+    g_recorder.Offer(ctx, frame, source, content, tag, crop ? 1920 : 0, crop ? 1080 : 0);
     static bool savedForTest = false;
     if (saveAfter > 0 && !savedForTest && g_recorder.GetStatus().frames >= static_cast<uint32_t>(saveAfter)) { savedForTest = true; SaveRecording(); }
 }
@@ -813,7 +813,7 @@ void RecordShownFrame(IDXGISwapChain* sc) {
     if (FAILED(sc->GetBuffer(0, IID_PPV_ARGS(&back))) || !back) return;
     ID3D11Device* dev = nullptr; back->GetDevice(&dev);
     ID3D11DeviceContext* ctx = nullptr; if (dev) dev->GetImmediateContext(&ctx);
-    if (ctx) Record(ctx, back, lsrec::kPresented, 0, g_lastPassGenerated.load() ? lsrec::kMadeBetween : lsrec::kReal);
+    if (ctx) Record(ctx, back, lsrec::kPresented, 0, g_lastPassGenerated.load() ? lsrec::kMadeBetween : lsrec::kReal, true);   // (the middle 1920x1080: every presented frame in full is more than the card can copy)
     if (ctx) ctx->Release();
     if (dev) dev->Release();
     back->Release();

@@ -48,6 +48,14 @@ int main() {
     r = Diagnose(up);
     Check("a costly motion estimate is an info line", r.size() == 1 && r[0].level == Level::Info);
 
+    Snapshot rec = calm; rec.recording = true; rec.recordingShown = true;
+    r = Diagnose(rec);
+    Check("the recorder on is pointed out (a note while the frames are steady)", r.size() == 1 && r[0].level == Level::Note && Has(r, "Recording is on") && Has(r, "what is shown"));
+    rec.frameP95 = 33.0f; r = Diagnose(rec);
+    Check("...and a problem, first, when the frames are uneven", r.size() >= 2 && r[0].level == Level::Problem && Has(r, "Recording is on"));
+    rec.recordingShown = false; rec.frameP95 = 17.5f; r = Diagnose(rec);
+    Check("...a plain recorder says so without the presented frames", r.size() == 1 && Has(r, "copies the frames it keeps") && !Has(r, "what is shown"));
+
     Snapshot many = waiting; many.runEvery = 3; many.keepUpPct = 50; many.showingPlain = true; many.autoOn = false; many.modelMs = 9; many.scale = 0.25f; many.floor = 0.25f;
     Check("at most four findings", Diagnose(many).size() <= 4);
 
