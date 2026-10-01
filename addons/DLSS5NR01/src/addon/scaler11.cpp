@@ -109,6 +109,9 @@ struct NisConfigView {   // NISConfig (NVIDIA Image Scaling SDK 1.0), the part r
 };
 static_assert(sizeof(NisConfigView) == 104, "NISConfig's viewports start at byte 72");
 
+// How much smaller than its input an output viewport may be and still count as 1:1 (issue #13: a 3440x1441 window drawn into 3438x1440 of a 3440x1440 screen, a shrink of 0.06 %): half a percent, at least 4 pixels.
+uint32_t Slack(uint32_t size) { return std::max<uint32_t>(4u, size / 200u); }
+
 struct ViewportReader {
     struct Key { uint32_t inW, inH, outW, outH, x, y; bool operator==(const Key& k) const { return !memcmp(this, &k, sizeof k); } };
     ID3D11Device* dev = nullptr;
@@ -151,7 +154,7 @@ bool ResolveViewports(ID3D11DeviceContext* ctx, const D3D11_TEXTURE2D_DESC& in, 
         const float scaleX = c.outW ? static_cast<float>(c.inW) / c.outW : 0.0f, scaleY = c.outH ? static_cast<float>(c.inH) / c.outH : 0.0f;
         const bool fits = c.inW && c.inH && c.outW && c.outH && c.inX + c.inW <= in.Width && c.inY + c.inH <= in.Height &&
                           c.outX + c.outW <= o.Width && c.outY + c.outH <= o.Height && x == (c.outW + 31) / 32 && y == (c.outH + 23) / 24 &&
-                          c.outW >= c.inW && c.outH >= c.inH &&
+                          c.outW + Slack(c.inW) >= c.inW && c.outH + Slack(c.inH) >= c.inH &&   // (an output a hair smaller than the input is taken as 1:1 with the edges trimmed: below)
                           std::abs(c.f[12] - scaleX) < 0.02f * scaleX + 1e-4f && std::abs(c.f[13] - scaleY) < 0.02f * scaleY + 1e-4f;   // kScaleX, kScaleY
         say("NIS pass on part of its output: frame %ux%u, output %ux%u, %ux%u groups; its constants: input viewport %u,%u %ux%u, output viewport %u,%u %ux%u, "
             "scale %.4f x %.4f -> %s", in.Width, in.Height, o.Width, o.Height, x, y, c.inX, c.inY, c.inW, c.inH, c.outX, c.outY, c.outW, c.outH, c.f[12], c.f[13],
@@ -163,6 +166,10 @@ bool ResolveViewports(ID3D11DeviceContext* ctx, const D3D11_TEXTURE2D_DESC& in, 
     const NisConfigView& c = r.cfg;
     pass.inX = c.inX; pass.inY = c.inY; pass.inW = c.inW; pass.inH = c.inH;
     pass.outX = c.outX; pass.outY = c.outY; pass.outW = c.outW; pass.outH = c.outH;
+    // An output smaller than the input by a pixel or two: the input is trimmed evenly on both sides to the output's size, so that the upscaler runs 1:1 (DLAA) on the middle (the picture is
+    // within a pixel of NIS's own at the very edges and exact in the middle).
+    if (pass.outW < pass.inW) { const uint32_t cut = pass.inW - pass.outW; pass.inX += cut / 2; pass.inW = pass.outW; }
+    if (pass.outH < pass.inH) { const uint32_t cut = pass.inH - pass.outH; pass.inY += cut / 2; pass.inH = pass.outH; }
     return true;
 }
 

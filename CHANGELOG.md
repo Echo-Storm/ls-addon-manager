@@ -1,5 +1,11 @@
 # Changelog
 
+## Unreleased
+
+- **A 3440x1440 screen (and any window drawn a pixel or two smaller than its frame): the upscalers start.** Issue #13 (a second report): with Transport Fever 3 on a 3440x1440 monitor the log said "frame 3440x1441, output 3440x1440 ... input viewport 0,0 3440x1441,
+  output viewport 1,0 3438x1440 ... they do not fit together; NIS stays": Lossless Scaling draws the window's 3440x1441 into 3438x1440, a shrink of 0.06 %, and the upscaler only took an output at least as big as its input. An output up to half a percent
+  smaller (at least 4 pixels) is now taken as 1:1, the input trimmed evenly on both sides to the output's size (within a pixel of NIS's own picture at the very edges, exact in the middle). Host scenario `scaler_crop_3440`.
+
 ## 0.9.26 (2026-10-01)
 
 **Fixes from the issues (#11, #12, #13), a card that says when the recorder is the problem, and a test option for a full card that is safe to try.** Nothing here changes a picture unless an option is turned on, except the ultrawide fix (issue #13) and the Auto quality hold, which only act in the cases they were made for.
