@@ -24,6 +24,7 @@
 //   19 EVALUATE           the model failed when it ran
 //   20 UNCHANGED          the model ran but did not change the picture
 #include <windows.h>
+#include <bcrypt.h>
 #include <d3d12.h>
 #include <dxgi1_6.h>
 #include <cstdint>
@@ -48,8 +49,29 @@ void Say(const char* fmt, ...) {
 // What the report says about this machine, filled in as it becomes known (Finish can be reached from any step)
 struct ReportInfo {
     std::wstring path;                 // --report <file>: where to write it; empty: no report
-    std::string gpu, memory, driver, model, modelSize, modelVersion, size;
+    std::string gpu, memory, driver, model, modelSize, modelVersion, size, modelHash;
+    std::string adapters;              // every graphics adapter the system has, and which one was tested
+    std::string variants;              // when the model refused: what it did at other sizes, so a size-dependent refusal shows
+    std::vector<std::string> ngx;      // what NVIDIA's NGX said while the test ran (folders left out), for the report of a failure
 } g_report;
+
+// The first 16 hex digits of the file's SHA-256 (it says whether two reports are of the same build of the model, which a name and a size do not); empty when it cannot be made.
+std::string FileHash(const std::wstring& path) {
+    std::string out;
+    HANDLE f = CreateFileW(path.c_str(), GENERIC_READ, FILE_SHARE_READ, nullptr, OPEN_EXISTING, FILE_ATTRIBUTE_NORMAL, nullptr);
+    if (f == INVALID_HANDLE_VALUE) return out;
+    BCRYPT_ALG_HANDLE alg = nullptr; BCRYPT_HASH_HANDLE h = nullptr;
+    if (BCryptOpenAlgorithmProvider(&alg, BCRYPT_SHA256_ALGORITHM, nullptr, 0) == 0 && BCryptCreateHash(alg, &h, nullptr, 0, nullptr, 0, 0) == 0) {
+        std::vector<unsigned char> buf(1 << 20); DWORD n = 0; bool ok = true;
+        while (ReadFile(f, buf.data(), static_cast<DWORD>(buf.size()), &n, nullptr) && n) if (BCryptHashData(h, buf.data(), n, 0) != 0) { ok = false; break; }
+        unsigned char digest[32] = {};
+        if (ok && BCryptFinishHash(h, digest, sizeof digest, 0) == 0) { char hex[40]; for (int i = 0; i < 8; ++i) snprintf(hex + i * 2, 3, "%02x", digest[i]); out = hex; }
+    }
+    if (h) BCryptDestroyHash(h);
+    if (alg) BCryptCloseAlgorithmProvider(alg, 0);
+    CloseHandle(f);
+    return out;
+}
 
 std::string OsVersion() {
     typedef LONG(WINAPI* RtlGetVersionFn)(OSVERSIONINFOW*);
@@ -82,10 +104,17 @@ void WriteReport(int code, const char* key, const char* words) {
     text += "graphics card:   " + card + (g_report.memory.empty() ? "" : " (" + g_report.memory + ")") + "\r\n";
     text += "NVIDIA driver:   " + driver + "\r\n";
     text += "Windows:         " + OsVersion() + "\r\n";
-    text += "model file:      " + model + ", " + modelDesc + "\r\n";
+    text += "model file:      " + model + ", " + modelDesc + (g_report.modelHash.empty() ? "" : ", sha256 " + g_report.modelHash + "...") + "\r\n";
     if (!g_report.size.empty()) text += "test picture:    " + g_report.size + "\r\n";
     text += std::string("addon:           ") + NR_ADDON_VERSION_TEXT + " (nr_selftest)\r\n";
     text += std::string("date:            ") + date + "\r\n\r\n";
+    if (!g_report.adapters.empty()) text += "graphics adapters:\r\n" + g_report.adapters + "\r\n";
+    if (!g_report.variants.empty()) text += "the same test at other sizes (the model refused at the size above):\r\n" + g_report.variants + "\r\n";
+    if (code != 0 && !g_report.ngx.empty()) {   // what NVIDIA's own code said (the last lines): where a refusal comes from
+        text += "what NGX said (the last 40 lines, folders left out):\r\n";
+        for (size_t i = g_report.ngx.size() > 40 ? g_report.ngx.size() - 40 : 0; i < g_report.ngx.size(); ++i) text += "  " + g_report.ngx[i] + "\r\n";
+        text += "\r\n";
+    }
     text += "For the table in docs/model-compatibility.md:\r\n| Card | Driver | Model version | Result | Addon |\r\n|---|---|---|---|---|\r\n" + row + "\r\n";
     FILE* f = nullptr;
     if (_wfopen_s(&f, g_report.path.c_str(), L"wb") == 0 && f) { fwrite(text.data(), 1, text.size(), f); fclose(f); }
@@ -97,10 +126,25 @@ int Finish(int code, const char* key, const char* words) {
     return code;
 }
 
+// A line of NGX's with the folders taken out (a drive and a path: a user name can be in it), for a report that goes into a public issue: "C:\Users\x\folder\file.dll" becomes "<folder>\file.dll".
+std::string WithoutFolders(const std::string& s) {
+    std::string out; size_t i = 0;
+    while (i < s.size()) {
+        if (i + 2 < s.size() && isalpha(static_cast<unsigned char>(s[i])) && s[i + 1] == ':' && (s[i + 2] == '\\' || s[i + 2] == '/')) {
+            size_t j = i; while (j < s.size() && s[j] != ' ' && s[j] != '\'' && s[j] != '"' && s[j] != ')' && s[j] != ',') ++j;
+            const size_t slash = s.find_last_of("\\/", j - 1);
+            out += "<folder>";
+            if (slash != std::string::npos && slash >= i && slash + 1 < j) out += "\\" + s.substr(slash + 1, j - slash - 1);
+            i = j;
+        } else out += s[i++];
+    }
+    return out;
+}
+
 void NVSDK_CONV NgxLog(const char* msg, NVSDK_NGX_Logging_Level, NVSDK_NGX_Feature) {
     std::string s(msg ? msg : "");
     while (!s.empty() && (s.back() == '\n' || s.back() == '\r')) s.pop_back();
-    if (s.find("NGXLoadConfig") == std::string::npos) Say("  [ngx] %s", s.c_str());
+    if (s.find("NGXLoadConfig") == std::string::npos) { Say("  [ngx] %s", s.c_str()); if (g_report.ngx.size() < 400) g_report.ngx.push_back(WithoutFolders(s)); }
 }
 
 const char* Name(int r) {
@@ -308,6 +352,7 @@ int wmain(int argc, wchar_t** argv) {
             const double mb = ((static_cast<unsigned long long>(fa.nFileSizeHigh) << 32) | fa.nFileSizeLow) / (1024.0 * 1024.0);
             char m[32]; snprintf(m, sizeof m, "%.1f MB", mb); g_report.modelSize = m;
             g_report.modelVersion = ModelVersionText(model);
+            g_report.modelHash = FileHash(model);
         }
     }
 
@@ -332,6 +377,12 @@ int wmain(int argc, wchar_t** argv) {
             unsigned hi = 0, lo = 0;
             if (wanted && !luidArg.empty() && swscanf(luidArg.c_str(), L"%x:%x", &hi, &lo) == 2)
                 wanted = static_cast<unsigned>(d.AdapterLuid.HighPart) == hi && d.AdapterLuid.LowPart == lo;
+            {   // every adapter, for the report: a card that is not the one driving the display, a second NVIDIA card, an integrated one
+                char n[128] = {}; WideCharToMultiByte(CP_UTF8, 0, d.Description, -1, n, sizeof n - 1, nullptr, nullptr);
+                char line[256]; snprintf(line, sizeof line, "  %s%s (vendor %04x, device %04x, %llu MB)%s\r\n", n, (d.Flags & DXGI_ADAPTER_FLAG_SOFTWARE) ? " [software]" : "", d.VendorId, d.DeviceId,
+                                         static_cast<unsigned long long>(d.DedicatedVideoMemory >> 20), wanted && !adapter ? "  <- tested" : "");
+                g_report.adapters += line;
+            }
             if (wanted && !adapter) { adapter = a; desc = d; } else a->Release();
         }
     }
@@ -421,8 +472,20 @@ int wmain(int argc, wchar_t** argv) {
     Say("create feature 18: %s", Name(createResult));
     gpu.Run();   // creating the feature records GPU work
     if (!feature) {
-        if (createResult == static_cast<int>(NVSDK_NGX_Result_FAIL_FeatureNotSupported))
+        if (createResult == static_cast<int>(NVSDK_NGX_Result_FAIL_FeatureNotSupported)) {
+            // a refusal that depends on the size (or on how many times it was tried) looks different from one that does not: the same feature at other sizes, not run
+            static const UINT sizes[][2] = { { 1920, 1080 }, { 960, 540 }, { 640, 360 }, { 2560, 1440 }, { 1280, 720 } };
+            for (const auto& sz : sizes) {
+                NrCreateParams c2 = create; c2.width = sz[0]; c2.height = sz[1];
+                void* f2 = helper.create(gpu.list, caps, &c2);
+                const int r2 = helper.last(1);
+                gpu.Run();
+                char line[96]; snprintf(line, sizeof line, "  %ux%u: %s\r\n", sz[0], sz[1], f2 ? "a feature was created" : Name(r2));
+                g_report.variants += line;
+                if (f2) helper.release(f2);
+            }
             return Finish(17, "NOT_SUPPORTED", "this model file cannot create its feature on your graphics card");
+        }
         char w[160]; snprintf(w, sizeof w, "the model failed to create its feature (%s)", Name(createResult));
         return Finish(18, "FEATURE", w);
     }

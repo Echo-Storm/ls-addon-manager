@@ -2,6 +2,9 @@
 
 ## Unreleased
 
+- **The compatibility report says more when the model refuses (issue #12: an RTX 4080 got "NOT_SUPPORTED", which no Ada card should).** The report a person pastes into an issue now also carries: every graphics adapter the system has and
+  which one was tested; the first 16 hex digits of the model file's SHA-256 (a name and a size do not say whether two people have the same build); what NVIDIA's NGX said while the test ran (the last 40 lines, folders left out); and, when
+  the model refuses, what it does for the same feature at other sizes (1920x1080, 960x540, 640x360, 2560x1440 and 1280x720 again), which shows whether the refusal depends on the size.
 - **Neural Rendering on an ultrawide screen with a game that is not (issue #13).** A 2560x1440 game on a 5120x1440 screen is drawn by Lossless Scaling with black bars each side; the model's change belongs to the picture, but the compose
   stretched it over the whole screen, which put the picture's change on the bars and misplaced it on the picture ("extreme artifacting"). The compose now works out where the frame is drawn (its shape fitted into the screen, centred) and
   leaves the bars as they are, after checking that they are there (a one-pixel strip through the middle of where each bar would be, copied now and then, must be dark: in Lossless Scaling's stretch mode there are none and nothing changes); the log says so ("the 2560x1440 frame is drawn into 5120x1440 with bars", "the bars are there"). "The picture fills the whole screen" (Neural Rendering, Advanced) is for Lossless Scaling's stretch mode, where there are no bars.
