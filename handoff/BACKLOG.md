@@ -10,6 +10,8 @@ item is done (move it to the changelog) or when a new one comes up. Dates are wh
   scaler"; it now says the module, offset, address and step). The test host now prints the faulting module, offset and stack for any thread's crash ("[hosttest] FAULT"), which `tools/` loops can catch (see the crash hunt script idea:
   run the four HDR scenarios together until one fails). Not seen in 40 clean runs since; not seen in live use. If a user reports a crash in `nvwgf2umx.dll` while the upscaler starts on HDR frames, this is the lead.
 
+- **Issue #11, a lead from the reporter (2026-10-01):** on an RX 6600 XT the FSR 4.1.1b INT8 runtime crashes in our addon but works for them in OptiScaler with `FsrAgilitySDKUpgrade` configured. The addon's own D3D12 device uses the system D3D12 and no Agility SDK; if the INT8 build needs a newer D3D12 core that would explain it (a guess). Asked them for the files and versions they use; to try: ship the Agility SDK beside the FSR addon and create the device through it.
+
 ## GitHub issues (state 2026-09-30, all answered)
 
 - #7 DLSS Upscaler "FeatureNotFound" with NR on: fixed in 0.9.16 (NGX search paths union, ngx_paths.h). Awaiting the reporter.
