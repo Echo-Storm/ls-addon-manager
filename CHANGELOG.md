@@ -1,6 +1,8 @@
 # Changelog
 
-## Unreleased
+## 0.9.27 (2026-10-01)
+
+**The upscalers start on a 3440x1440 screen** (issue #13, a second report). Checked on the test host with the geometry from the reporter's log, not yet in a game.
 
 - **A 3440x1440 screen (and any window drawn a pixel or two smaller than its frame): the upscalers start.** Issue #13 (a second report): with Transport Fever 3 on a 3440x1440 monitor the log said "frame 3440x1441, output 3440x1440 ... input viewport 0,0 3440x1441,
   output viewport 1,0 3438x1440 ... they do not fit together; NIS stays": Lossless Scaling draws the window's 3440x1441 into 3438x1440, a shrink of 0.06 %, and the upscaler only took an output at least as big as its input. An output up to half a percent
