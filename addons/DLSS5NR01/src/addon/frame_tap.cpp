@@ -131,7 +131,8 @@ struct FrameTap::Bound {
         const ViewShape& out = sig.uav[0];
         if (!uav[0] || !out.valid || !out.tex2d || !IsColour(out.fmt) || !frameW || out.w != frameW || out.h != frameH) return false;
         int fullColour = 0; bool flowIn = false;
-        for (const auto& v : sig.srv) if (v.valid && v.tex2d) { if (IsColour(v.fmt) && v.w == frameW && v.h == frameH) ++fullColour; if (v.fmt == kFlowFormat) flowIn = true; }
+        // (in HDR the frames are RGBA16F too: a flow field is the smaller one, so that a full-size frame read by a copy or a conversion does not pass for it)
+        for (const auto& v : sig.srv) if (v.valid && v.tex2d) { if (IsColour(v.fmt) && v.w == frameW && v.h == frameH) ++fullColour; if (v.fmt == kFlowFormat && Area(v) < (uint64_t)frameW * frameH) flowIn = true; }
         return fullColour >= 2 || flowIn;
     }
 };
@@ -150,7 +151,7 @@ void FrameTap::Reset() {
     ReleaseAll();
     m_flowNewW = m_flowNewH = 0; m_flowNewArea = 0; m_flowLastW = m_flowLastH = 0;
     m_heldSlot = -1; m_handOverNext = false; m_lastGatedTick = ~0ull; m_dropStreak = 0;
-    m_presentsSinceTap = 0; m_genSincePresent = false; m_perFrame = 0; m_realFirst = false;
+    m_presentsSinceTap = 0; m_genSincePresent = false; m_perFrame = 0; m_realFirst = false; m_lastGenKey = 0;
     snprintf(m_pattern, sizeof m_pattern, "learning");
 }
 
@@ -306,7 +307,7 @@ bool FrameTap::Observe(ID3D11DeviceContext* ctx, uint32_t x, uint32_t y, uint32_
         if (m_tickKey && key == m_tickKey) { d.isTick = true; ++m_ticks; }
         if (m_tapKey && key == m_tapKey) run = OnTap(b, d) || run;
         else if (b.IsFlowPass()) OnFlowPass(b);
-        else if (b.IsGeneratedFramePass(m_frameW, m_frameH)) m_genSincePresent = true;
+        else if (b.IsGeneratedFramePass(m_frameW, m_frameH)) { m_genSincePresent = true; if (key != m_lastGenKey) { m_lastGenKey = key; m_lastGenSig = b.sig; } }
     }
     if (m_probeArmed) ProbePass(ctx, b, d);
     return run;

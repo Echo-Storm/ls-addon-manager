@@ -49,6 +49,12 @@ Neural Rendering) and from the owner's flicker: two guesses at the cause are gua
 **Pacing tools, a card that backs off, and a test option for a full graphics card.** The frame trace and the "What stands out" card are for the next "bumpy pacing" report; Neural Rendering now spares a full card; the upscalers'
 motion is right at frame-generation ratios that are not whole numbers; a settings file with nonsense in it cannot break the addons. Nothing here changes a picture unless an option is turned on.
 
+- **Fixed before release: the lighter upscaling went on every picture, and menus stayed on screen** (found in the owner's first live run with the option, 2026-10-01). In HDR the frames and the flow fields are both RGBA16F, so a
+  plain copy of a frame passed for a generated-frame pass, and every presented picture counted as generated: the real frames got the lighter run too, the upscaler never ran again, and the lean blended toward a
+  picture that was never made again (offline, with every frame asked for the lighter run: 15 to 17 dB against 24, and a menu that left took ten frames to go; `tools/make_menu_clip.py` makes the clip, `nr_sreval realonly=3`
+  asks for it). Three guards now: a flow field counts only when it is smaller than the frame; a test that is true for more than 16 pictures in a row is taken as not telling them apart (no lighter run, and the log names
+  the pass that set it); and the engine never does more than 8 lighter runs in a row, whatever it is asked. Without the option on, nothing changed.
+
 - **"Lighter upscaling of generated frames (test)"** (the three upscalers, off by default). With frame generation the upscaler runs on every presented frame, and in the owner's HDR 1.5x log that was 3.3 ms of GPU
   for each (6.6 ms for each frame the game draws, about two thirds of everything the addons add at the spot where the game fell from 60 to 40 fps). With the option on, the frames the game draws get the full upscaler
   and the frames Lossless Scaling makes between them get the last upscaled picture, moved along the motion by their share of the step, checked against the new frame at the scale of a few pixels (where they disagree, the new

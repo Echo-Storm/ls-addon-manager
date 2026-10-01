@@ -281,8 +281,8 @@ int main(int argc, char** argv) {
         // ones are the plain Catmull-Rom stretch of their own frame; scored as they are, with the alternation counted by the steady and flicker numbers
         // realonly=1: the engine's own cheap run on the odd frames (SrEngine::SetCheapNext: no estimate, no upscaler; the plain stretch, sharpened); realonly=2: the plain stretch on the CPU, not sharpened
         if (i == 0) eng.SetWarpSign(static_cast<float>(Arg(argc, argv, "warpsign", 1)));
-        if (Arg(argc, argv, "realonly", 0) == 1 && (i & 1)) eng.SetCheapNext(true);
-        if (i == 0 && Arg(argc, argv, "realonly", 0) == 1) eng.SetPresentStep(Arg(argc, argv, "step", 50) / 100.0f);   // step=N: the share of a real frame's step one presented frame is (50: x2)
+        if ((Arg(argc, argv, "realonly", 0) == 1 && (i & 1)) || (Arg(argc, argv, "realonly", 0) == 3 && i > 0)) eng.SetCheapNext(true);   // realonly=3: every frame is asked for the lighter run (what a wrong generated-frame test does)
+        if (i == 0 && (Arg(argc, argv, "realonly", 0) == 1 || Arg(argc, argv, "realonly", 0) == 3)) eng.SetPresentStep(Arg(argc, argv, "step", 50) / 100.0f);   // step=N: the share of a real frame's step one presented frame is (50: x2)
         const bool cheap = Arg(argc, argv, "realonly", 0) == 2 && (i & 1) && !hdrMode;
         if (!cheap) {
         alloc->Reset(); list->Reset(alloc, nullptr);

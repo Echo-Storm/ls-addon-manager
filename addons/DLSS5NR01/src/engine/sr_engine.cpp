@@ -1166,7 +1166,11 @@ bool SrEngine::Run(ID3D12Resource* in, uint32_t inW, uint32_t inH, DXGI_FORMAT i
     const bool leaning = estimating && !m_noMask && (m_fastMotion.load() != 0.0f || m_leanRest.load() > 0.001f) && m_leanPso && EnsureSharpenTarget(outW, outH, outFormat) &&
                          (!(sharpening || smoothing) || EnsureLeanTarget(outW, outH, outFormat));
     // a cheap run (SetCheapNext): only where the last real frame's motion and the lean are there to go on
-    const bool cheap = cheapAsked && !fresh && estimating && m_haveMotion && leaning;
+    // (never more than kMaxCheapRun in a row, whatever is asked: a cheap run goes on the last full run's picture and motion, which turn stale; with frame generation at most 7 pictures lie
+    // between two real frames. Asked for every picture, the lean blended toward a picture that was never made again and menus stayed on screen, 2026-10-01.)
+    constexpr int kMaxCheapRun = 8;
+    const bool cheap = cheapAsked && !fresh && estimating && m_haveMotion && leaning && m_cheapStreak < kMaxCheapRun;
+    m_cheapStreak = cheap ? m_cheapStreak + 1 : 0;
     ID3D12Resource* const upscaled = (sharpening || smoothing || leaning) ? m_unsharpened : out;   // where the upscaler writes
     ID3D12Resource* const post = leaning ? m_leaned : m_unsharpened;                               // what edges and sharpening read
     // sharpening that follows the stability: needs the measured motion and the previous frame's picture; a frame without either starts the history again

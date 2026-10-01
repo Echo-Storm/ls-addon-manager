@@ -997,6 +997,8 @@ SrEngine g_sr;                                   // DLSS on our own device; read
 ScalerLink g_link;                               // Lossless Scaling's side: under g_frameMutex, on the render thread only
 std::atomic<bool> g_srStarting{ false };
 ID3D11Device* g_linkDevice = nullptr;            // the device the link was made on (the link holds it)
+constexpr uint32_t kGenStuckAfter = 16;   // generated pictures in a row (frame generation makes at most 7 between real frames) after which the test is taken as not telling them apart
+bool g_genStuckLogged = false;
 uint64_t g_lightRuns = 0; uint32_t g_genIndex = 0;   // lighter upscaling (a test): generated frames given the lighter run, and the generated ones since the real frame
 uint32_t g_nisSinceTap = 0, g_nisPerFrame = 0;   // NIS passes between two real frames: the presents per real frame
 // How far one presented picture is along from the one before, as a share of a real frame's step: the time between presents over the time between real frames
@@ -1361,9 +1363,19 @@ bool ScalerPass(ID3D11DeviceContext* ctx, uint32_t x, uint32_t y, uint32_t z) {
                 ID3D11Resource* flow = motion == 1 ? g_tap.NewestFlow(fw, fh) : nullptr;
                 const float fraction = PresentStepFraction();
                 // lighter upscaling of generated frames (a test): a generated-frame pass ran since the last NIS pass, so this picture is a generated one; k counts them since the real frame
-                const bool generated = g_tap.TakeGenerated();
-                g_lastPassGenerated = generated;   // (for the recording of what is shown, at the Present that follows)
+                bool generated = g_tap.TakeGenerated();
                 g_genIndex = generated ? g_genIndex + 1 : 0;
+                if (generated && g_genIndex > kGenStuckAfter) {   // true for every picture: the test does not tell the real frames from the generated ones in this setup, and the lighter run would go on all of them
+                    generated = false;
+                    if (!g_genStuckLogged) {
+                        g_genStuckLogged = true;
+                        DispatchSig sig; uint32_t fw0 = 0, fh0 = 0;
+                        const bool known = g_tap.LastGenPass(sig, fw0, fh0);
+                        Log("%s upscaler: the generated-frame test is true for %u pictures in a row, so it cannot tell the real frames from the generated ones here: no picture gets the lighter run. Pass that set it (frame %ux%u): (%u,%u,%u) %s", kUpscalerName,
+                            g_genIndex, fw0, fh0, sig.x, sig.y, sig.z, known ? PassText(sig).c_str() : "none seen");
+                    }
+                }
+                g_lastPassGenerated = generated;   // (for the recording of what is shown, at the Present that follows)
                 const bool cheap = lightGen && g_nisPerFrame >= 2 && generated;
                 if (cheap && ++g_lightRuns == 1) Log("%s upscaler: lighter upscaling: the first generated frame was given the lighter run (the generated frame %u since the real one, each frame %.2f of a real step)", kUpscalerName, g_genIndex, fraction);
                 t_ownWork = true;

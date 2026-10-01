@@ -77,6 +77,8 @@ public:
     PresentInfo NotePresent();
     // True when a generated-frame pass ran since the last call (cleared): asked at each NIS pass, it says that the picture NIS is about to scale is a generated one
     bool TakeGenerated() { std::lock_guard<std::mutex> lk(m_mu); const bool g = m_genSincePresent; m_genSincePresent = false; return g; }
+    // The shape of the pass that last set the generated-frame flag, and the frame size it was compared with (for the log when the flag cannot tell the pictures apart)
+    bool LastGenPass(DispatchSig& sig, uint32_t& frameW, uint32_t& frameH) { std::lock_guard<std::mutex> lk(m_mu); sig = m_lastGenSig; frameW = m_frameW; frameH = m_frameH; return m_lastGenKey != 0; }
     // The flow LSFG wrote most recently (AddRef'd; the caller releases).
     ID3D11Resource* NewestFlow(uint32_t& w, uint32_t& h);
 
@@ -130,7 +132,7 @@ private:
     uint32_t m_dropStreak = 0;          // frames in a row that got no flow pass: past a few, frame generation is off and nothing is waited for
 
     // presents
-    int m_presentsSinceTap = 0; bool m_genSincePresent = false; int m_perFrame = 0; bool m_realFirst = false; char m_pattern[64] = "learning";
+    uint64_t m_lastGenKey = 0; DispatchSig m_lastGenSig; int m_presentsSinceTap = 0; bool m_genSincePresent = false; int m_perFrame = 0; bool m_realFirst = false; char m_pattern[64] = "learning";
 
     // probe
     bool m_probeArmed = false; std::wstring m_probeDir; int m_probeTaps = 0; std::string m_probeStatus = "idle";

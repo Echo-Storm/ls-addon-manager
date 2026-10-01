@@ -183,6 +183,7 @@ private:
     bool InitLean();
     // steady sharpening: the sharpening pass with the previous frame's input and the motion (on the lean's root signature: three pictures in, one out)
     ID3D12RootSignature* m_steadyRoot = nullptr; ID3D12PipelineState* m_steadyPso = nullptr;
+    int m_cheapStreak = 0;   // cheap runs in a row (a cheap run keeps the last full run's picture, motion and mask: only so many frames can go on them)
     std::atomic<bool> m_cheapNext{ false }; std::atomic<float> m_presentStep{ 1.0f }; std::atomic<float> m_cheapWarp{ -1.0f }; std::atomic<float> m_warpSign{ 1.0f };
     std::atomic<bool> m_fsrOwnSharpen{ true }; std::atomic<int> m_flowReuse{ 0 }; std::atomic<float> m_moveCut{ 0.0f }; bool m_haveMotion = false; uint32_t m_flowPhase = 0; std::atomic<float> m_steadySharp{ 0.0f }, m_steadySign{ -1.0f }, m_steadyMvA{ 0.5f }, m_steadyMvB{ 3.0f };
     ID3D12Resource* m_sharpHist[2] = {}; int m_sharpHistCur = 0; uint32_t m_sharpHistW = 0, m_sharpHistH = 0; DXGI_FORMAT m_sharpHistFmt = DXGI_FORMAT_UNKNOWN; bool m_sharpHistValid = false;
