@@ -1176,7 +1176,7 @@ void StartEngineFor(const LUID& card) {   // the engine's own device only: safe 
     g_srRuntimeDir = ChosenRuntimeDir();
     if (kScalerAddon && g_host) {   // a runtime that is not the shipped one is on trial until it has upscaled a few hundred frames
         const std::string chosen = g_host->GetConfig(kAddonId, kRuntimeKey, "");
-        if (!chosen.empty() && g_srRuntimeDir != g_addonDir + L"\\" + kRuntimeFolderW) WriteRuntimeTrial(chosen); else ClearRuntimeTrialImpl();
+        if (!chosen.empty() && g_srRuntimeDir != g_addonDir + L"\\" + kRuntimeFolderW) WriteRuntimeTrial(chosen); else if (g_trialWritten) { ClearRuntimeTrialImpl(); g_trialWritten = false; }   // (a marker left by a runtime that crashed stays: the shipped one is running because of it)
     }
     std::thread([card, dir = g_srRuntimeDir] {
         LARGE_INTEGER f, a, b; QueryPerformanceFrequency(&f); QueryPerformanceCounter(&a);

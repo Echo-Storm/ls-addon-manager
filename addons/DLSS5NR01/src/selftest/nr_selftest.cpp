@@ -138,6 +138,7 @@ std::string WithoutFolders(const std::string& s) {
             i = j;
         } else out += s[i++];
     }
+    for (char& c : out) if (c == '\\') c = '/';   // (one separator, and none of the backslashes a path is told by)
     return out;
 }
 
