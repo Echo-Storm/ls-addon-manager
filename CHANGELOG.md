@@ -2,6 +2,11 @@
 
 ## Unreleased
 
+- **Two safeguards against the catch-up hitches a player described with Neural Rendering or the DLSS Upscaler on a full card** (a 4090 at 40 to 50 fps: Lossless Scaling's frame generation alone was even; with DLSS "uneven, catching up", with Neural
+  Rendering added "fine for about 120 frames, then one or two frames of 100 ms with the whole picture warped"; G-Sync, so not the display). (1) The upscalers wait on the GPU for their picture rather than show one twice, which holds Lossless
+  Scaling's queue up with the upscaler's: when the game holds the card, one very late picture is a hitch of that length and the frames behind it catch up. A picture that takes over 50 ms now switches the GPU wait off for 10 s (a picture
+  is repeated instead, a hitch of one frame), and says so in the log; the periodic line counts the slow pictures and the slowest. (2) Neural Rendering moved a model result that arrived many frames late along the motion by all of them, which
+  warps the picture; a result more than three frames old (plus one for each frame auto quality skips) is now left off that picture, and the log says so. Both are guesses from the description, to be checked against their logs and traces.
 - **The addons log how much video memory they hold.** The owner saw Lossless Scaling hold over a gigabyte more than it had been (15.2 to 14.1 GB when it closed). Each addon now logs the process's video memory (DXGI's own figure)
   before its engine starts, after it, and with the periodic lines ("video memory: this process holds N MB on the card ... N MB since the engine started"). `nr_sreval` and `nr_nreval` print what their engine adds. Measured offline at 2562x1442
   in HDR: the upscaler (DLSS, with its textures) adds 281 to 372 MB (sharpening and steady sharpening on, 1.5x or 1:1), Neural Rendering 298 to 412 MB (model at 25 % to 50 %); at 4K the frame-size parts are 2.25 times that, and the

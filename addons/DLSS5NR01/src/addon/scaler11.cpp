@@ -244,7 +244,7 @@ bool ScalerLink::Fit(Shared& t, uint32_t w, uint32_t h, DXGI_FORMAT fmt, bool en
 
 bool ScalerLink::Init(ID3D11Device* dev, ID3D11DeviceContext* ctx, SrEngine* engine, LogFn log) {
     m_log = std::move(log); m_engine = engine; m_ctx = ctx; m_frame = 0; for (auto& h : m_holds) h = 0; m_described = false; m_loggedPartial = false;
-    m_count = Counters(); m_lastShown = 0;
+    m_count = Counters(); m_lastShown = 0; m_latencySeen = 0; m_latencyIgnoreUntil = 90; m_starvedUntilQpc = 0; for (auto& q : m_handedQpc) q = 0;
     if (m_engine) m_engine->ResetTracking();   // the frames are numbered from 1 again
     m_atPresent = m_copiedAtPresent = 0; m_probeState = 0; m_pendingReset = false;
     if (FAILED(dev->QueryInterface(IID_PPV_ARGS(&m_dev))) || FAILED(ctx->QueryInterface(IID_PPV_ARGS(&m_ctx4)))) {
@@ -437,6 +437,8 @@ bool ScalerLink::Upscale(const NisPass& pass, ID3D11Resource* flow, uint32_t flo
         m_step = "handing the frame to the engine";
         m_engine->Submit(job);
         m_holds[out] = n;   // a picture only counts once the engine says it ran (RanOk)
+        m_handedQpc[n % 8] = qpcNow.QuadPart;
+        if (m_pendingReset) m_latencyIgnoreUntil = std::max(m_latencyIgnoreUntil, n + 30);
         m_pendingReset = false;
         if (m_handoff == Handoff::Wait) {
             // a GPU wait only for work already on the engine's queue, never for a job its thread may not get to
@@ -451,12 +453,26 @@ bool ScalerLink::Upscale(const NisPass& pass, ID3D11Resource* flow, uint32_t flo
     // The newest picture the engine has finished (never one it is writing: those are the kIn at most after it, in other textures).
     m_step = "the probe";
     const uint64_t newest = m_done.d3d11->GetCompletedValue();
+    {   // how long the pictures that finished since the last pass took (a card held up by the game makes them late)
+        QueryPerformanceCounter(&qpcNow);
+        for (uint64_t k = std::max(m_latencySeen, m_frame > 8 ? m_frame - 8 : 0) + 1; k <= newest && k <= m_frame; ++k) {
+            if (!m_handedQpc[k % 8] || k <= m_latencyIgnoreUntil) continue;
+            const double ms = (qpcNow.QuadPart - m_handedQpc[k % 8]) * 1000.0 / qpcFreq.QuadPart;
+            if (ms > m_count.slowestPictureMs) m_count.slowestPictureMs = ms;
+            if (ms > Counters::kStarvedMs) {
+                if (m_starvedUntilQpc < qpcNow.QuadPart) { ++m_count.starved; Log("%s upscaler: a picture took %.0f ms to finish (the graphics card is held up by the game's work): not waiting on the GPU for pictures for the next %.0f s", kUpscalerName, ms, Counters::kStarvedHoldMs / 1000.0); }
+                m_starvedUntilQpc = qpcNow.QuadPart + static_cast<int64_t>(Counters::kStarvedHoldMs * qpcFreq.QuadPart / 1000.0);
+            }
+        }
+        if (newest > m_latencySeen) m_latencySeen = newest;
+    }
+    const bool starved = m_starvedUntilQpc > qpcNow.QuadPart;
     Probe(newest, room);
     if ((m_count.passes % 3000) == 0)
         Log("%s upscaler: %llu passes (%llu within %.0f ms of the one before), %llu frames not handed over (the engine had %d already), %llu pictures "
-            "shown twice (%llu of them close), waited on the GPU for the next picture %llu times (%llu close)", kUpscalerName, (unsigned long long)m_count.passes,
+            "shown twice (%llu of them close), waited on the GPU for the next picture %llu times (%llu close), %llu pictures took over %.0f ms (slowest %.0f ms)", kUpscalerName, (unsigned long long)m_count.passes,
             (unsigned long long)m_count.closePasses, Counters::kClosePassMs, (unsigned long long)m_count.skipped, kIn, (unsigned long long)m_count.repeats,
-            (unsigned long long)m_count.closeRepeats, (unsigned long long)m_count.waits, (unsigned long long)m_count.closeWaits);
+            (unsigned long long)m_count.closeRepeats, (unsigned long long)m_count.waits, (unsigned long long)m_count.closeWaits, (unsigned long long)m_count.starved, Counters::kStarvedMs, m_count.slowestPictureMs);
     if (m_handoff == Handoff::Observe) return false;
     if (m_handoff == Handoff::AtPresent) { m_atPresent = newest && m_holds[newest % kOut] == newest && m_engine->RanOk(newest) ? newest : 0; return false; }   // NIS runs; the picture goes over it at Present
     // When the engine has finished nothing newer than the picture shown last (two passes close together, as adaptive frame generation makes
@@ -468,7 +484,7 @@ bool ScalerLink::Upscale(const NisPass& pass, ID3D11Resource* flow, uint32_t flo
     // Only work already on the engine's queue is waited for on the GPU. The frame handed over a moment ago is usually still being recorded
     // on the engine's thread: a short CPU wait for that (well under a millisecond, what the run cost this thread when it ran here) keeps
     // the GPU wait working for close pairs, rather than showing a picture twice.
-    if (m_handoff == Handoff::Late && gpuWait && m_lastShown && newest <= m_lastShown && next <= m_frame && m_holds[next % kOut] == next &&
+    if (m_handoff == Handoff::Late && gpuWait && !starved && m_lastShown && newest <= m_lastShown && next <= m_frame && m_holds[next % kOut] == next &&
         (m_engine->Submitted() >= next || m_engine->WaitSubmitted(next, 3)) && m_engine->RanOk(next)) {
         m_step = "queueing a GPU wait for the next picture";
         m_ctx4->Wait(m_done.d3d11, next);

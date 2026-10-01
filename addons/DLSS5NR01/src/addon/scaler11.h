@@ -94,7 +94,9 @@ public:
     // (two frames close together, as adaptive frame generation makes them).
     struct Counters {
         static constexpr double kClosePassMs = 6.0;
+        static constexpr double kStarvedMs = 50.0, kStarvedHoldMs = 10000.0;
         uint64_t passes = 0, skipped = 0, repeats = 0, waits = 0, closePasses = 0, closeRepeats = 0, closeWaits = 0;
+        uint64_t starved = 0; double slowestPictureMs = 0;   // pictures that took over kStarvedMs to finish (the GPU wait is then off for kStarvedHoldMs), and the slowest seen
     };
     Counters Count() const { return m_count; }
     bool LastRefusedFormat() const { return m_refusedFormat; }   // the last pass was a frame format the upscaler cannot take (HDR)
@@ -139,6 +141,10 @@ private:
     uint64_t m_holds[kOut] = {};      // the frame whose finished picture each m_out holds (0: none)
     Counters m_count;
     uint64_t m_lastShown = 0;         // the frame whose picture the last pass showed
+    // How long each picture took from being handed to the engine to being finished, as the passes see it (to one pass's interval). When the card is full the engine's queue can be
+    // held up behind the game's work, and Lossless Scaling's queue, waiting on the GPU for that picture, is held up with it: one very late picture is a hitch of that long and the frames
+    // behind it catch up. After one over kStarvedMs the GPU wait is left off for kStarvedHoldMs (a picture is then repeated, a hitch of one frame, rather than waited for).
+    int64_t m_handedQpc[8] = {}; uint64_t m_latencySeen = 0, m_latencyIgnoreUntil = 90; int64_t m_starvedUntilQpc = 0;   // (not judged while the engine starts or builds its feature again: the first frames, a reset)
     int64_t m_lastPassQpc = 0;
     Handoff m_handoff = Handoff::Late;
     bool m_pendingReset = false;      // a history reset asked for while the engine was busy: it goes with the next frame handed over

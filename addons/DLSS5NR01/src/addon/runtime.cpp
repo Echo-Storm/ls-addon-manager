@@ -705,6 +705,15 @@ void Compose(IDXGISwapChain* sc) {
     a.hudCount = p.hudCount; memcpy(a.hud, p.hud, sizeof a.hud); a.hudFeather = p.hudFeather; a.hudShow = g_showHud;
     a.compare = static_cast<uint32_t>(compare); a.splitPos = g_splitPos; a.marker = marker;
     { D3D11_TEXTURE2D_DESC desc; buffer->GetDesc(&desc); a.encoding = static_cast<uint32_t>(FrameEncodingOf(desc.Format, sc, &a.whiteNits)); }
+    // A result that arrives many frames late (the card held up by the game, the model stalled) does not belong to this picture any more: moved that far along the motion it warps it.
+    // Every Nth frame's model run (auto quality) leaves results N frames old by design, so the limit grows with N.
+    if (!g_presentMode && a.offset > 3.0f + static_cast<float>(g_bridge.RunEvery())) {
+        static uint64_t tooOld = 0;
+        if (++tooOld == 1 || tooOld % 600 == 0) Log("compose: the model's result is %.1f frames old: left off this picture (%llu times so far); moved that far along the motion it would warp it", a.offset, static_cast<unsigned long long>(tooOld));
+        if (flow) flow->Release();
+        buffer->Release();
+        return;
+    }
     g_bridge.BeginDeltaUse(deltaFrame);
     g_composedNow = true;
     t_ownWork = true;
