@@ -433,6 +433,10 @@ int main(int argc, char** argv) {
         ID3D11Texture2D* coef1 = MakeTex(dev, 2, 64, DXGI_FORMAT_R32G32B32A32_FLOAT, false), * coef2 = MakeTex(dev, 2, 64, DXGI_FORMAT_R32G32B32A32_FLOAT, false);
         ID3D11Texture2D* nisOut = MakeTex(dev, OW, OH, DXGI_FORMAT_R8G8B8A8_UNORM, true);
         ID3D11ShaderResourceView* nisSrvs[3] = { srv(nisIn), srv(coef1), srv(coef2) }; ID3D11UnorderedAccessView* uNisOut = uav(nisOut);
+        // nisgen=1: as in Lossless Scaling, the real frame's NIS pass reads the very frame the capture pass (the TAP) read, and a generated frame's reads a texture of its own (the tap's frame identity tells them apart)
+        bool genTex = false; for (int i = 4; i < argc; ++i) if (!strcmp(argv[i], "nisgen=1")) genTex = true;
+        ID3D11Texture2D* nisInGen = genTex ? MakeTex(dev, NW, NH, nisBgra ? DXGI_FORMAT_B8G8R8A8_UNORM : DXGI_FORMAT_R8G8B8A8_UNORM, false) : nullptr;
+        ID3D11ShaderResourceView* sNisGen = nisInGen ? srv(nisInGen) : nullptr;
         { const float black[4] = {}; dc->ClearUnorderedAccessViewFloat(uNisOut, black); }
         // NIS's constants as NISConfig lays them out: 18 floats (kScaleX, kScaleY at 12 and 13), then the input and output viewports
         uint32_t nisCfg[28] = {};
@@ -447,6 +451,7 @@ int main(int argc, char** argv) {
                                                  " [numthreads(32,24,1)] void main(uint3 id:SV_DispatchThreadID){ if (id.x < cfg[6].x && id.y < cfg[6].y)"
                                                  " o[id.xy + cfg[5].zw]=float4(1,0,1,1)+(f[uint2(0,0)]+c1[uint2(0,0)]+c2[uint2(0,0)])*0; }");
         Fill(dc, nisIn, NW, NH);
+        if (nisInGen) Fill(dc, nisInGen, NW, NH);
         // nisedge=1: the frame is a hard slanted edge drawn without anti-aliasing (white where u - 3v passes the middle, point-sampled: stair
         // steps three pixels long), and the output is measured against the ideal smooth edge ([check-edge])
         bool nisEdge = false; for (int i = 4; i < argc; ++i) if (!strcmp(argv[i], "nisedge=1")) nisEdge = true;
@@ -476,12 +481,13 @@ int main(int argc, char** argv) {
                                     " [loop] for(uint i=0;i<" + std::to_string(gpuLoad * 1000) + "u;++i) v=sin(v*1.0001+0.1); o[id.xy]=v; }";
             csLoad = MakeCS(dev, src.c_str()); loadTex = MakeTex(dev, 256, 256, DXGI_FORMAT_R16G16B16A16_FLOAT, true); uLoad = uav(loadTex);
         }
-        auto nisPass = [&] {
+        auto nisPass = [&](bool real = true) {
             if (csLoad) {   // the game's frame, on the same GPU
                 dc->CSSetUnorderedAccessViews(0, 1, &uLoad, nullptr); dc->CSSetShader(csLoad, nullptr, 0); dc->Dispatch(32, 32, 1);
                 dc->CSSetUnorderedAccessViews(0, 1, nullu, nullptr);
             }
-            dc->CSSetShaderResources(0, 3, nisSrvs); dc->CSSetUnorderedAccessViews(0, 1, &uNisOut, nullptr); dc->CSSetShader(csNis, nullptr, 0);
+            ID3D11ShaderResourceView* passSrvs[3] = { !real && sNisGen ? sNisGen : nisSrvs[0], nisSrvs[1], nisSrvs[2] };
+            dc->CSSetShaderResources(0, 3, passSrvs); dc->CSSetUnorderedAccessViews(0, 1, &uNisOut, nullptr); dc->CSSetShader(csNis, nullptr, 0);
             dc->CSSetConstantBuffers(0, 1, &nisCb);
             host.Dispatch(dc, (VW + 31) / 32, (VH + 23) / 24, 1);
             ID3D11Buffer* noCb = nullptr; dc->CSSetConstantBuffers(0, 1, &noCb);
@@ -505,13 +511,13 @@ int main(int argc, char** argv) {
             if (nisLine) fillLine(fr);
             if (nisNoFlow) { nisPass(); std::this_thread::sleep_for(std::chrono::milliseconds(16)); if (fr % 30 == 0) frame("nis"); else emptyFrame(); continue; }
             Fill(dc, cur, W, H);
-            dc->CSSetShaderResources(0, 1, &sCur); dc->CSSetUnorderedAccessViews(0, 4, uPyr, nullptr); dc->CSSetShader(csPyr, nullptr, 0); host.Dispatch(dc, W * 7 / 10 / 8, H * 7 / 10 / 8, 1);
+            dc->CSSetShaderResources(0, 1, genTex ? &nisSrvs[0] : &sCur); dc->CSSetUnorderedAccessViews(0, 4, uPyr, nullptr); dc->CSSetShader(csPyr, nullptr, 0); host.Dispatch(dc, W * 7 / 10 / 8, H * 7 / 10 / 8, 1);
             ID3D11UnorderedAccessView* null4[4] = {}; dc->CSSetUnorderedAccessViews(0, 4, null4, nullptr); dc->CSSetShaderResources(0, 3, nulls);
             dc->CSSetShaderResources(4, 1, &sPyr3); dc->CSSetUnorderedAccessViews(0, 1, &uFlow16, nullptr); dc->CSSetShader(csFlow16, nullptr, 0); host.Dispatch(dc, FLW / 8, FLH / 8, 1);
             { ID3D11ShaderResourceView* n8[8] = {}; dc->CSSetShaderResources(0, 8, n8); } dc->CSSetUnorderedAccessViews(0, 1, nullu, nullptr);
             if (nisGen) { ID3D11ShaderResourceView* s3[3] = { sPrev, sCur, sFlow16 }; dc->CSSetShaderResources(0, 3, s3); dc->CSSetUnorderedAccessViews(0, 1, &uOut, nullptr); dc->CSSetShader(csGen, nullptr, 0); host.Dispatch(dc, W / 8, H / 8, 1);
                           dc->CSSetShaderResources(0, 3, nulls); dc->CSSetUnorderedAccessViews(0, 1, nullu, nullptr); }
-            nisPass(); std::this_thread::sleep_for(std::chrono::milliseconds(nisGap));        // the generated frame (nisgap=: how soon the real one follows)
+            nisPass(false); std::this_thread::sleep_for(std::chrono::milliseconds(nisGap));   // the generated frame (nisgap=: how soon the real one follows)
             nisPass(); std::this_thread::sleep_for(std::chrono::milliseconds(24 - nisGap));   // the real one
             if (fr % 30 == 0) frame("nis"); else emptyFrame();
         }
@@ -646,7 +652,7 @@ int main(int argc, char** argv) {
             }
             if (hIn) hIn->Release(); if (hOut) hOut->Release();
         }
-        uNisOut->Release(); csNis->Release(); nisIn->Release(); coef1->Release(); coef2->Release(); nisOut->Release();
+        uNisOut->Release(); csNis->Release(); nisIn->Release(); if (nisInGen) nisInGen->Release(); coef1->Release(); coef2->Release(); nisOut->Release();
     }
     {   // the tap must be read-only now: LS's frame textures keep the original pattern
         for (ID3D11Texture2D* t : { prev, cur }) { double mean = 0; uint64_t changed = CountChanged(dev, dc, t, W, H, &mean, nullptr);

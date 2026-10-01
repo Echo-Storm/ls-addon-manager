@@ -1376,7 +1376,10 @@ bool ScalerPass(ID3D11DeviceContext* ctx, uint32_t x, uint32_t y, uint32_t z) {
                 ID3D11Resource* flow = motion == 1 ? g_tap.NewestFlow(fw, fh) : nullptr;
                 const float fraction = PresentStepFraction();
                 // lighter upscaling of generated frames (a test): a generated-frame pass ran since the last NIS pass, so this picture is a generated one; k counts them since the real frame
-                bool generated = g_tap.TakeGenerated();
+                // A generated frame is any picture that is not the real one: the real frame's picture is the frame the tap captured, itself (measured live, x3: pass 2 of 3 after a tap, 297 of 297; Lossless Scaling's generated
+                // frames are not compute passes the tap could see: 0 seen), so a picture whose input is another texture is a generated one. (Before the first tap nothing is.)
+                bool generated = g_tap.Taps() > 0 && g_tap.LastTapFrame() && pass.in != g_tap.LastTapFrame();
+                g_tap.TakeGenerated();   // (the flag is not used here: it is cleared so that it cannot go stale)
                 g_genIndex = generated ? g_genIndex + 1 : 0;
                 if (generated && g_genIndex > kGenStuckAfter) {   // true for every picture: the test does not tell the real frames from the generated ones in this setup, and the lighter run would go on all of them
                     generated = false;
@@ -1384,7 +1387,7 @@ bool ScalerPass(ID3D11DeviceContext* ctx, uint32_t x, uint32_t y, uint32_t z) {
                         g_genStuckLogged = true;
                         DispatchSig sig; uint32_t fw0 = 0, fh0 = 0;
                         const bool known = g_tap.LastGenPass(sig, fw0, fh0);
-                        Log("%s upscaler: the generated-frame test is true for %u pictures in a row, so it cannot tell the real frames from the generated ones here: no picture gets the lighter run. Pass that set it (frame %ux%u): (%u,%u,%u) %s", kUpscalerName,
+                        Log("%s upscaler: %u pictures in a row were not the frame the tap captured, so the real frames cannot be told from the generated ones here: no picture gets the lighter run. (Last generated-frame pass seen, frame %ux%u: (%u,%u,%u) %s)", kUpscalerName,
                             g_genIndex, fw0, fh0, sig.x, sig.y, sig.z, known ? PassText(sig).c_str() : "none seen");
                     }
                 }

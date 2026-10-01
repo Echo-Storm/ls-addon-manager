@@ -55,10 +55,9 @@ motion is right at frame-generation ratios that are not whole numbers; a setting
   plain copy of a frame passed for a generated-frame pass, and every presented picture counted as generated: the real frames got the lighter run too, the upscaler never ran again, and the lean blended toward a
   picture that was never made again (offline, with every frame asked for the lighter run: 15 to 17 dB against 24, and a menu that left took ten frames to go; `tools/make_menu_clip.py` makes the clip, `nr_sreval realonly=3`
   asks for it). Three guards now: a flow field counts only when it is smaller than the frame; a test that is true for more than 16 pictures in a row is taken as not telling them apart (no lighter run, and the log names
-  the pass that set it); and the engine never does more than 8 lighter runs in a row, whatever it is asked. Without the option on, nothing changed. The owner's next log showed the second guard working (16 pictures
-  got the lighter run, then it stopped, and the pass it named was NIS's own: the tap took the 4K output for the frame's size); the frame size now comes from the NIS pass's input, and the log says once, after about 900
-  pictures, which picture after a real frame is the captured frame itself and how many generated-frame passes were seen, so that the real frames can be told for sure. Until then the option may do nothing on a setup where
-  a generated frame is not a compute pass of the kind the test knows; that is safe.
+  the pass that set it); and the engine never does more than 8 lighter runs in a row, whatever it is asked. Without the option on, nothing changed. The owner's next logs settled how to tell them apart: Lossless Scaling's generated frames are not compute passes the addon can see (0 seen), but the picture its NIS pass scales for a real frame is the very frame the capture pass read
+  (at x3, pass 2 of 3 after each capture, 297 of 297; never passes 0 or 1). A generated frame is now any picture whose input is another texture; the guards stay (and the log names when they act). The log says once, after about 900 pictures,
+  which picture after a capture is the captured frame itself. The test host now draws its real and generated pictures that way.
 
 - **"Lighter upscaling of generated frames (test)"** (the three upscalers, off by default). With frame generation the upscaler runs on every presented frame, and in the owner's HDR 1.5x log that was 3.3 ms of GPU
   for each (6.6 ms for each frame the game draws, about two thirds of everything the addons add at the spot where the game fell from 60 to 40 fps). With the option on, the frames the game draws get the full upscaler
