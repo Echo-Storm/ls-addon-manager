@@ -2,6 +2,9 @@
 
 ## Unreleased
 
+- **The panel says whether your model file is a build seen working.** People have different `nvngx_dlssnr.dll` files, and a name, a version and a size do not tell two builds apart (issue #12: an RTX 4080 refused a file that looked like the tested
+  one). The Requirements check now makes the file's SHA-256 (the first 16 hex digits) and says "a build seen working (file 4b8d...)" when it is on the list, and, for a file with the tested version and size that is not, "not the same file":
+  the first thing to check if the compatibility test fails. The list (`kKnownModels`, and docs/model-compatibility.md) grows with the reports people send; a build seen failing is not on it.
 - **The compatibility report says more when the model refuses (issue #12: an RTX 4080 got "NOT_SUPPORTED", which no Ada card should).** The report a person pastes into an issue now also carries: every graphics adapter the system has and
   which one was tested; the first 16 hex digits of the model file's SHA-256 (a name and a size do not say whether two people have the same build); what NVIDIA's NGX said while the test ran (the last 40 lines, folders left out); and, when
   the model refuses, what it does for the same feature at other sizes (1920x1080, 960x540, 640x360, 2560x1440 and 1280x720 again), which shows whether the refusal depends on the size.

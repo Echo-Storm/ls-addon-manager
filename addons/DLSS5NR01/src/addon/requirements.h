@@ -20,6 +20,12 @@ struct Row {
 // The model this addon was built and tested against. Another build may work; it has just not been seen here.
 constexpr uint64_t kTestedModelSize = 165840496ull;
 constexpr const char* kTestedModelVersion = "310.8";
+// The model files seen working, by the first 16 hex digits of their SHA-256 (a name, a version and a size do not tell two builds apart): the panel says whether the file in use is one of these.
+// A report from a person whose test passes or fails (docs/model-compatibility.md, the compatibility report's "model file" line) is how this list grows; a build seen failing is not listed.
+struct KnownModel { const char* hash; const char* what; };
+constexpr KnownModel kKnownModels[] = {
+    { "4b8d19bc3eff58a0", "version 310.8, 158.2 MB: passes on an RTX 4070 Ti SUPER (drivers 616.92 and 617.14)" },
+};
 constexpr uint64_t kSmallestPlausibleModel = 20ull * 1024 * 1024;   // the real one is about 158 MB; anything far smaller is not it
 
 enum class EngineState { NotStarted, Ready, Running, Failed };
@@ -48,6 +54,7 @@ struct Inputs {
     bool modelFound = false;
     uint64_t modelSize = 0;
     std::string modelVersion;                // its file version, "310.8.0.0" (or "310,8,0,0")
+    std::string modelHash;                   // the first 16 hex digits of its SHA-256 (empty when not made)
 
     bool helperFound = false;                // nvngx.dll_dlss5nr01.dll beside the addon
 

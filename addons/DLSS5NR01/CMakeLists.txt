@@ -53,7 +53,7 @@ set(NR_ADDON_SOURCES
 function(nr_addon target)
     add_library(${target} SHARED ${NR_ADDON_SOURCES})
     target_include_directories(${target} PRIVATE src ${NGX_DIR}/include ${CMAKE_SOURCE_DIR}/third_party/ffx/include ${XESS_DIR}/inc ${CMAKE_SOURCE_DIR}/../../manager/sdk/include ${imgui_SOURCE_DIR})
-    target_link_libraries(${target} PRIVATE ${NGX_LIB} d3d12 d3d11 dxgi d3dcompiler user32 gdi32 advapi32 shlwapi ole32 shell32 comdlg32 windowscodecs)
+    target_link_libraries(${target} PRIVATE ${NGX_LIB} d3d12 d3d11 dxgi d3dcompiler user32 gdi32 advapi32 shlwapi ole32 shell32 comdlg32 windowscodecs bcrypt)
     set_target_properties(${target} PROPERTIES PREFIX "" OUTPUT_NAME "${target}")
     # Keep a PDB and a linker map next to the Release DLL so the offsets in a crash backtrace can be resolved.
     if(MSVC)
@@ -174,4 +174,4 @@ target_include_directories(nr_autotest PRIVATE src)
 # ---- offline test of the requirements checker (no model, no NVIDIA SDK needed at run time) ----
 add_executable(nr_reqtest tools/requirements_test.cpp src/addon/requirements.cpp)
 target_include_directories(nr_reqtest PRIVATE src)
-target_link_libraries(nr_reqtest PRIVATE dxgi)
+target_link_libraries(nr_reqtest PRIVATE dxgi bcrypt)

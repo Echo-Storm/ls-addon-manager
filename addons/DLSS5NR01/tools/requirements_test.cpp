@@ -90,6 +90,13 @@ int main(int argc, char** argv) {
     Check("another model version: overall is Note and the headline says it", r.overall == Level::Note && Has(r.headline, "Model file"));
     in = Good(); in.modelSize = kTestedModelSize + 1; r = Evaluate(in);
     Check("the tested version but another size is also only a note", Find(r, "Model file")->level == Level::Note);
+    in = Good(); in.modelHash = "4b8d19bc3eff58a0"; r = Evaluate(in);
+    Check("a model file seen working (by its hash) is Ok and says so", Find(r, "Model file")->level == Level::Ok && Has(Find(r, "Model file")->value, "a build seen working") && Has(Find(r, "Model file")->value, "4b8d19bc3eff58a0"));
+    in = Good(); in.modelHash = "0123456789abcdef"; r = Evaluate(in);
+    Check("the tested version and size but another file: a note that says the file differs", Find(r, "Model file")->level == Level::Note && Has(Find(r, "Model file")->value, "not the same file") && Has(Find(r, "Model file")->value, "0123456789abcdef"));
+    Check("...and it points to the page that lists the files seen working", Has(Find(r, "Model file")->hint, "model-compatibility"));
+    in = Good(); in.modelHash.clear(); r = Evaluate(in);
+    Check("no hash (not made): as before, by version and size", Find(r, "Model file")->level == Level::Ok);
     in = Good(); in.modelVersion.clear(); r = Evaluate(in);
     Check("a model with no readable version is a note", Find(r, "Model file")->level == Level::Note && Has(Find(r, "Model file")->value, "unknown"));
 

@@ -23,6 +23,15 @@ Open an issue at <https://github.com/Echo-Storm/ls-addon-manager/issues> and pas
 
 ## What the results mean
 
+## Model files seen working, by hash
+
+People have different `nvngx_dlssnr.dll` files, and a name, a version and a size do not tell two builds apart. The first 16 hex digits of the file's SHA-256 are in the compatibility report (the "model file" line, since 0.9.26) and in the panel's
+Requirements. A file on this list is shown in the panel as "a build seen working". To add yours: run Test compatibility, and paste the report into an issue.
+
+| Hash (first 16) | Version, size | Seen working on |
+|---|---|---|
+| `4b8d19bc3eff58a0` | 310.8, 158.2 MB | RTX 4070 Ti SUPER (drivers 616.92 and 617.14) |
+
 | Result | Meaning |
 |--------|---------|
 | `PASS` | The model loaded, created its feature and changed the test picture on this card. It does not prove the picture looks right in every game. |

@@ -1,6 +1,8 @@
 #include "requirements.h"
 #include "forwarder/nr_api.h"
 #include <windows.h>
+#include <bcrypt.h>
+#include <vector>
 #include <dxgi.h>
 #include <cstdio>
 #include <cstdlib>
@@ -38,6 +40,24 @@ std::string Utf8(const std::wstring& w) {
 }
 
 // "a.b.c.d" of a file's fixed version resource; empty when it has none.
+// The first 16 hex digits of the file's SHA-256, or empty (the file cannot be read, or the hash cannot be made).
+std::string FileHash16(const std::wstring& path) {
+    std::string out;
+    HANDLE f = CreateFileW(path.c_str(), GENERIC_READ, FILE_SHARE_READ, nullptr, OPEN_EXISTING, FILE_ATTRIBUTE_NORMAL, nullptr);
+    if (f == INVALID_HANDLE_VALUE) return out;
+    BCRYPT_ALG_HANDLE alg = nullptr; BCRYPT_HASH_HANDLE h = nullptr;
+    if (BCryptOpenAlgorithmProvider(&alg, BCRYPT_SHA256_ALGORITHM, nullptr, 0) == 0 && BCryptCreateHash(alg, &h, nullptr, 0, nullptr, 0, 0) == 0) {
+        std::vector<unsigned char> buf(1 << 20); DWORD n = 0; bool ok = true;
+        while (ReadFile(f, buf.data(), static_cast<DWORD>(buf.size()), &n, nullptr) && n) if (BCryptHashData(h, buf.data(), n, 0) != 0) { ok = false; break; }
+        unsigned char digest[32] = {};
+        if (ok && BCryptFinishHash(h, digest, sizeof digest, 0) == 0) { char hex[40]; for (int i = 0; i < 8; ++i) snprintf(hex + i * 2, 3, "%02x", digest[i]); out = hex; }
+    }
+    if (h) BCryptDestroyHash(h);
+    if (alg) BCryptCloseAlgorithmProvider(alg, 0);
+    CloseHandle(f);
+    return out;
+}
+
 std::string FileVersion(const std::wstring& path) {
     DWORD ignored = 0;
     const DWORD size = GetFileVersionInfoSizeW(path.c_str(), &ignored);
@@ -149,7 +169,12 @@ Report Evaluate(const Inputs& in) {
         const std::string ver = VersionShort(in.modelVersion);
         const bool tested = ver == kTestedModelVersion && in.modelSize == kTestedModelSize;
         const std::string what = "version " + (ver.empty() ? std::string("unknown") : ver) + ", " + SizeText(in.modelSize);
-        if (tested) rep.rows.push_back(MakeRow("Model file", Level::Ok, what + ": the build this addon was tested with"));
+        bool known = false; for (const KnownModel& k : kKnownModels) if (!in.modelHash.empty() && in.modelHash == k.hash) known = true;
+        if (known) rep.rows.push_back(MakeRow("Model file", Level::Ok, what + ": a build seen working (file " + in.modelHash + ")"));
+        else if (tested && !in.modelHash.empty())   // the number and size of the tested build, another file: models that are called the same differ
+            rep.rows.push_back(MakeRow("Model file", Level::Note, what + ": the same version and size as the build this addon was tested with, but not the same file (" + in.modelHash + ")",
+                                       "Builds of the model with the same name and version are not all alike. If the compatibility test fails, this file is the first thing to check: docs/model-compatibility.md lists the files seen working."));
+        else if (tested) rep.rows.push_back(MakeRow("Model file", Level::Ok, what + ": the build this addon was tested with"));
         else rep.rows.push_back(MakeRow("Model file", Level::Note, what + ": not the build this addon was tested with (" + std::string(kTestedModelVersion) + ")",
                                         "It may still work. If the engine fails to start, this file is the first thing to check."));
     }
@@ -503,7 +528,7 @@ Inputs Gather(const std::wstring& modelPath, const std::wstring& addonDir) {
     // The model and this addon's helper
     in.modelPath = Utf8(modelPath);
     in.modelFound = FileSize(modelPath, in.modelSize);
-    if (in.modelFound) in.modelVersion = FileVersion(modelPath);
+    if (in.modelFound) { in.modelVersion = FileVersion(modelPath); in.modelHash = FileHash16(modelPath); }
     uint64_t helperSize = 0;
     in.helperFound = FileSize(addonDir + L"\\" NR_FORWARDER_FILENAME, helperSize);
     return in;
