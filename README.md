@@ -242,6 +242,7 @@ That check, and a download you ask for, are the only times the manager goes onli
 | Neural Rendering turns bright areas neon orange or cyan in HDR | Fixed in 0.9.15: update. |
 | Windowed mode does nothing | Restart Lossless Scaling after switching it on: its virtual display must exist before Lossless Scaling starts. |
 | Something looks wrong in a game | Turn on *Recording* in any addon's panel (one setting for all), make it happen, press **Ctrl+Shift+F1**, and attach the `.lsrec` file (in `Videos\Lossless Scaling`) to your report. |
+| Stutter or uneven pacing | Look at the **What stands out** lines under *Status* in the addon's panel: they say in plain words whether the game's own frames are uneven, whether the graphics card is full, and what to try. For a report, make it happen, press **Ctrl+Shift+F1** (or close Lossless Scaling), and send the addon's log and `logs\frame-trace-<addon>.csv` from the Lossless Scaling folder: it is a timeline of the frames (`python tools/analyze_frame_trace.py <csv>` reads it). |
 | Anything else | See the [questions and answers](docs/faq.md). To report a bug, make a **diagnostics file** on the Settings tab. To undo everything, run Setup and choose **Uninstall**. |
 
 <details>
