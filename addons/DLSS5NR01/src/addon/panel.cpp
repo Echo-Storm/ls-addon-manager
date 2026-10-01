@@ -778,10 +778,10 @@ void DrawPanel() {
             "takes some processor time and the memory below. Nothing waits for it: a frame that comes while all the copies are busy is left out.");
         if (!c.recordOn) ImGui::BeginDisabled();
         if (kFrameGen) {
-            if (ImGui::Checkbox("Record what is shown (with frame generation of our own)", &c.recordShown)) changed = true;
-            Tip("With frame generation of our own on: the frames as they go to the screen, the frames made between and the real ones (after the upscaler, "
-                "at the screen's size), each marked which it is, instead of the frame going to the upscaler. For showing what frame generation and the "
-                "upscaler do in motion. The frames are big (4K), so fewer seconds fit: raise the memory, or keep 2 to 3 seconds.");
+            if (ImGui::Checkbox("Record what is shown", &c.recordShown)) changed = true;
+            Tip("The frames as they go to the screen (after the upscaler, at the screen's size, the frames Lossless Scaling or our own frame generation made between included), "
+                "instead of the frame going to the upscaler. For looking into what you see: flicker, shimmer, a frame generation artefact. The frames are big (4K, HDR "
+                "twice that), so fewer seconds fit: raise the memory, or keep 2 to 3 seconds. Off: the frame going to the upscaler, to try the upscaler on it offline.");
         }
         { const float d = 5.0f; changed |= eam::ui::SliderFloat("Seconds kept", &c.recordSeconds, 1.0f, 30.0f, "%.0f s", 0, &d); }
         Tip("How far back a saved recording goes. More seconds take more memory.");

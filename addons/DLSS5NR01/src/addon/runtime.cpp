@@ -203,6 +203,7 @@ void LogProgress(const NrStats& st) {
     }
 }
 
+std::atomic<bool> g_lastPassGenerated{ false };   // the last NIS pass showed a generated frame
 std::atomic<IDXGISwapChain*> g_fgChain{ nullptr };   // Lossless Scaling's output swap chain as NIS's back buffer names it (the upscalers' frame generation)
 void OnPresent(IDXGISwapChain* sc, UINT sync, UINT flags);
 void Compose(IDXGISwapChain* sc);
@@ -707,6 +708,21 @@ void PresentGuarded(IDXGISwapChain* sc) {   // no objects here: __try cannot unw
     __try { Present(sc); } __except (OnFault(GetExceptionCode(), "present")) { t_ownWork = false; }
 }
 
+// "Record what is shown" for the upscalers: the output swap chain's back buffer as it goes to the screen (after the upscaler, the frames Lossless Scaling made between included),
+// instead of the frame going to the upscaler. Not with frame generation of our own, which records its own presents.
+void RecordShownFrame(IDXGISwapChain* sc) {
+    bool on, shown, ownFrameGen; { std::lock_guard<std::mutex> lock(g_settingsMutex); on = g_config.recordOn; shown = g_config.recordShown; ownFrameGen = kFrameGen && g_config.frameGen; }
+    if (!on || !shown || ownFrameGen) return;
+    ID3D11Texture2D* back = nullptr;
+    if (FAILED(sc->GetBuffer(0, IID_PPV_ARGS(&back))) || !back) return;
+    ID3D11Device* dev = nullptr; back->GetDevice(&dev);
+    ID3D11DeviceContext* ctx = nullptr; if (dev) dev->GetImmediateContext(&ctx);
+    if (ctx) Record(ctx, back, lsrec::kPresented, 0, g_lastPassGenerated.load() ? lsrec::kMadeBetween : lsrec::kReal);
+    if (ctx) ctx->Release();
+    if (dev) dev->Release();
+    back->Release();
+}
+
 void OnPresent(IDXGISwapChain* sc, UINT sync, UINT flags) {
     if (g_off && g_host->GetHostVersion() >= 0x010000) {   // switched off: keep saying so (a status that is not refreshed goes stale)
         static uint64_t saidAt = 0;
@@ -721,6 +737,7 @@ void OnPresent(IDXGISwapChain* sc, UINT sync, UINT flags) {
     nr::trace::Add(nr::trace::kPresent, static_cast<int32_t>((reinterpret_cast<uintptr_t>(sc) >> 4) & 0x7fffffff), static_cast<int32_t>(flags), static_cast<int32_t>(sync));
     if (kScalerAddon) {
         ScalerPresentGuarded(sc);
+        if (sc == g_fgChain.load(std::memory_order_acquire)) RecordShownFrame(sc);   // (before the corner square)
         ScalerMarkerGuarded(sc);   // the corner square after a hotkey
         bool frameGen; { std::lock_guard<std::mutex> lock(g_settingsMutex); frameGen = g_config.frameGen; }
         if (kFrameGen && frameGen && sc == g_fgChain.load(std::memory_order_acquire)) {   // Lossless Scaling's output swap chain only (not the manager's window)
@@ -1210,6 +1227,7 @@ bool ScalerPass(ID3D11DeviceContext* ctx, uint32_t x, uint32_t y, uint32_t z) {
                 const float fraction = PresentStepFraction();
                 // lighter upscaling of generated frames (a test): a generated-frame pass ran since the last NIS pass, so this picture is a generated one; k counts them since the real frame
                 const bool generated = g_tap.TakeGenerated();
+                g_lastPassGenerated = generated;   // (for the recording of what is shown, at the Present that follows)
                 g_genIndex = generated ? g_genIndex + 1 : 0;
                 const bool cheap = lightGen && g_nisPerFrame >= 2 && generated;
                 if (cheap && ++g_lightRuns == 1) Log("%s upscaler: lighter upscaling: the first generated frame was given the lighter run (the generated frame %u since the real one, each frame %.2f of a real step)", kUpscalerName, g_genIndex, fraction);
@@ -1222,7 +1240,7 @@ bool ScalerPass(ID3D11DeviceContext* ctx, uint32_t x, uint32_t y, uint32_t z) {
                 nr::trace::Add(nr::trace::kUpscale, (replaced ? 1 : 0) | (cheap ? 2 : 0), static_cast<int32_t>(g_sr.GpuMs() * 100.0), static_cast<int32_t>(g_sr.MotionMs() * 100.0));
                 g_passStep = "the recorder";
                 if (ID3D11Texture2D* grabbed = g_link.TakeGrabbed()) {   // (HDR frames go to the upscaler as light: said so in the file)
-                    bool shown; { std::lock_guard<std::mutex> settings(g_settingsMutex); shown = kFrameGen && g_config.frameGen && g_config.recordShown; }
+                    bool shown; { std::lock_guard<std::mutex> settings(g_settingsMutex); shown = g_config.recordShown; }   // (the presents are recorded: our own frame generation's, or the output chain's at Present, RecordShownFrame)
                     if (!shown) Record(ctx, grabbed, lsrec::kNisInput, g_link.Encoding() ? lsrec::kLight : lsrec::kOwnEncoding);   // (else the presents are recorded)
                 }
                 g_passStep = "after Upscale";   // the frame as DLSS or FSR got it

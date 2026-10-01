@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+- **"Record what is shown" now works for the upscalers with Lossless Scaling's frame generation.** The setting said "(with frame generation of our own)" and did nothing else: the recordings stayed the frame going to the
+  upscaler, so a flicker seen on screen could not be looked into (the recordings of 2026-10-01 were the inputs, and showed no flicker the addons add). With it on, the upscaler addons record the output swap chain's back
+  buffer at Present, as it goes to the screen (after the upscaler, the generated frames included, tagged), in place of the upscaler's input. The recording can be scored with `nr_sreval`'s no-reference flicker, or toggled
+  between the enhanced and the plain picture (F7) in the same scene to see what the chain adds.
 ## 0.9.24 (2026-10-01)
 
 **Pacing tools, a card that backs off, and a test option for a full graphics card.** The frame trace and the "What stands out" card are for the next "bumpy pacing" report; Neural Rendering now spares a full card; the upscalers'
