@@ -201,7 +201,35 @@ static uint64_t CountChanged(ID3D11Device* dev, ID3D11DeviceContext* dc, ID3D11T
     return changed;
 }
 
+// A crash on any thread says where before the process goes: the module and offset (and what an access violation touched), so a rare fault in a test run can be found in the code.
+static LONG CALLBACK ReportFault(EXCEPTION_POINTERS* info) {
+    const DWORD code = info->ExceptionRecord->ExceptionCode;
+    if (code != EXCEPTION_ACCESS_VIOLATION && code != 0xC0000409 && code != 0xC0000374 && code != EXCEPTION_ILLEGAL_INSTRUCTION) return EXCEPTION_CONTINUE_SEARCH;
+    static LONG once = 0; if (InterlockedExchange(&once, 1)) return EXCEPTION_CONTINUE_SEARCH;
+    HMODULE mod = nullptr; char name[MAX_PATH] = "?";
+    if (GetModuleHandleExA(GET_MODULE_HANDLE_EX_FLAG_FROM_ADDRESS | GET_MODULE_HANDLE_EX_FLAG_UNCHANGED_REFCOUNT, static_cast<LPCSTR>(info->ExceptionRecord->ExceptionAddress), &mod) && mod) GetModuleFileNameA(mod, name, sizeof name);
+    const char* slash = strrchr(name, 92);
+    printf("[hosttest] FAULT 0x%08lx at %s+0x%llx on thread %lu", code, slash ? slash + 1 : name, (unsigned long long)((char*)info->ExceptionRecord->ExceptionAddress - (char*)mod), GetCurrentThreadId());
+    if (code == EXCEPTION_ACCESS_VIOLATION && info->ExceptionRecord->NumberParameters >= 2) printf(" (%s address 0x%llx)", info->ExceptionRecord->ExceptionInformation[0] ? "writing" : "reading", (unsigned long long)info->ExceptionRecord->ExceptionInformation[1]);
+    printf("\n");
+    // the stack from the fault itself (x64 unwind data), not from this handler
+    CONTEXT ctx = *info->ContextRecord;
+    for (int i = 0; i < 28 && ctx.Rip; ++i) {
+        HMODULE m2 = nullptr; char n2[MAX_PATH] = "?";
+        if (GetModuleHandleExA(GET_MODULE_HANDLE_EX_FLAG_FROM_ADDRESS | GET_MODULE_HANDLE_EX_FLAG_UNCHANGED_REFCOUNT, reinterpret_cast<LPCSTR>(ctx.Rip), &m2) && m2) GetModuleFileNameA(m2, n2, sizeof n2);
+        const char* s2 = strrchr(n2, 92);
+        printf("[hosttest]   #%d %s+0x%llx", i, s2 ? s2 + 1 : n2, (unsigned long long)(ctx.Rip - reinterpret_cast<DWORD64>(m2)));
+        printf("%c", 10);
+        DWORD64 base = 0; PRUNTIME_FUNCTION fn = RtlLookupFunctionEntry(ctx.Rip, &base, nullptr);
+        if (!fn) { ctx.Rip = *reinterpret_cast<DWORD64*>(ctx.Rsp); ctx.Rsp += 8; continue; }   // a leaf with no unwind data: the return address is on top
+        void* handlerData = nullptr; DWORD64 frame = 0;
+        RtlVirtualUnwind(UNW_FLAG_NHANDLER, base, ctx.Rip, fn, &ctx, &handlerData, &frame, nullptr);
+    }
+    return EXCEPTION_CONTINUE_SEARCH;
+}
+
 int main(int argc, char** argv) {
+    AddVectoredExceptionHandler(1, ReportFault);
     setvbuf(stdout, nullptr, _IONBF, 0);   // unbuffered: a crash must not swallow the last lines
     const char* dllPath = argc > 1 ? argv[1] : "DLSS5NR01.dll";
     HMODULE h = LoadLibraryA(dllPath); if (!h) { printf("LoadLibrary failed %lu\n", GetLastError()); return 1; }

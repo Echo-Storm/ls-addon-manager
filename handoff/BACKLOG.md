@@ -3,6 +3,13 @@
 Everything worth doing that is not done yet, so nothing is lost between sessions. Newest context first within each group. Update it when an
 item is done (move it to the changelog) or when a new one comes up. Dates are when the item was noted.
 
+## Known, rare (2026-10-01)
+
+- **A fault inside NVIDIA's driver in the HDR upscaler host scenarios**: `scaler_hdr_scrgb`, run with three others side by side, ended with an access violation in `nvwgf2umx.dll` (a null read) about once in 20 to 60 runs (5 in roughly
+  100); 0xc0000005 twice and 0xc0000409 once; always right after the host switches the frames to scRGB (new shared textures, the engine started again on them). Our own guarded passes caught one (the log: "exception 0x... in the DLSS
+  scaler"; it now says the module, offset, address and step). The test host now prints the faulting module, offset and stack for any thread's crash ("[hosttest] FAULT"), which `tools/` loops can catch (see the crash hunt script idea:
+  run the four HDR scenarios together until one fails). Not seen in 40 clean runs since; not seen in live use. If a user reports a crash in `nvwgf2umx.dll` while the upscaler starts on HDR frames, this is the lead.
+
 ## GitHub issues (state 2026-09-30, all answered)
 
 - #7 DLSS Upscaler "FeatureNotFound" with NR on: fixed in 0.9.16 (NGX search paths union, ngx_paths.h). Awaiting the reporter.

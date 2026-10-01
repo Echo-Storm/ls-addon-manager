@@ -1437,20 +1437,34 @@ bool ScalerPass(ID3D11DeviceContext* ctx, uint32_t x, uint32_t y, uint32_t z) {
     return replaced;   // true: Lossless Scaling's NIS pass is skipped, DLSS's picture is in its output
 }
 
-bool ScalerFault(unsigned code) {
+// Where an exception happened: the module and the offset in it (and, for an access violation, what was touched), so a fault in the field can be found in the code. The step the pass was at is the link's.
+bool ScalerFault(EXCEPTION_POINTERS* info) {
+    const unsigned code = info && info->ExceptionRecord ? info->ExceptionRecord->ExceptionCode : 0;
+    char where[200] = "";
+    if (info && info->ExceptionRecord) {
+        const void* at = info->ExceptionRecord->ExceptionAddress; HMODULE mod = nullptr; char name[MAX_PATH] = "?";
+        if (GetModuleHandleExA(GET_MODULE_HANDLE_EX_FLAG_FROM_ADDRESS | GET_MODULE_HANDLE_EX_FLAG_UNCHANGED_REFCOUNT, static_cast<LPCSTR>(at), &mod) && mod) {
+            GetModuleFileNameA(mod, name, sizeof name); const char* slash = strrchr(name, '\\'); memmove(name, slash ? slash + 1 : name, strlen(slash ? slash + 1 : name) + 1);
+        }
+        const unsigned long long off = reinterpret_cast<unsigned long long>(at) - reinterpret_cast<unsigned long long>(mod);
+        if (code == EXCEPTION_ACCESS_VIOLATION && info->ExceptionRecord->NumberParameters >= 2)
+            snprintf(where, sizeof where, " at %s+0x%llx (%s address 0x%llx)", name, off, info->ExceptionRecord->ExceptionInformation[0] ? "writing" : "reading", static_cast<unsigned long long>(info->ExceptionRecord->ExceptionInformation[1]));
+        else snprintf(where, sizeof where, " at %s+0x%llx", name, off);
+    }
+    Log("%s upscaler: exception 0x%08x%s, in the step \"%s\"", kUpscalerName, code, where, g_link.Step());
     char text[64]; snprintf(text, sizeof text, "exception 0x%08x in the DLSS scaler", code);
     SwitchOff(text);
     return true;
 }
 bool ScalerGuarded(ID3D11DeviceContext* ctx, uint32_t x, uint32_t y, uint32_t z) {   // no objects here: __try cannot unwind them
-    __try { return ScalerPass(ctx, x, y, z); } __except (ScalerFault(GetExceptionCode()) ? EXCEPTION_EXECUTE_HANDLER : EXCEPTION_CONTINUE_SEARCH) { t_ownWork = false; return false; }
+    __try { return ScalerPass(ctx, x, y, z); } __except (ScalerFault(GetExceptionInformation()) ? EXCEPTION_EXECUTE_HANDLER : EXCEPTION_CONTINUE_SEARCH) { t_ownWork = false; return false; }
 }
 void ScalerPresent(IDXGISwapChain* sc) {
     std::lock_guard<std::mutex> lock(g_frameMutex);
     if (g_linkDevice) g_link.PresentCopy(sc);
 }
 void ScalerPresentGuarded(IDXGISwapChain* sc) {   // no objects here: __try cannot unwind them
-    __try { ScalerPresent(sc); } __except (ScalerFault(GetExceptionCode()) ? EXCEPTION_EXECUTE_HANDLER : EXCEPTION_CONTINUE_SEARCH) {}
+    __try { ScalerPresent(sc); } __except (ScalerFault(GetExceptionInformation()) ? EXCEPTION_EXECUTE_HANDLER : EXCEPTION_CONTINUE_SEARCH) {}
 }
 // The corner square after a hotkey (the same as Neural Rendering's compose pass draws: green the upscaled picture, red the original, amber
 // the split), drawn into Lossless Scaling's back buffer at Present, so the Before / after hotkey says which is which in every mode.
@@ -1478,7 +1492,7 @@ void ScalerMarker(IDXGISwapChain* sc) {
     back->Release();
 }
 void ScalerMarkerGuarded(IDXGISwapChain* sc) {   // no objects here: __try cannot unwind them
-    __try { ScalerMarker(sc); } __except (ScalerFault(GetExceptionCode()) ? EXCEPTION_EXECUTE_HANDLER : EXCEPTION_CONTINUE_SEARCH) {}
+    __try { ScalerMarker(sc); } __except (ScalerFault(GetExceptionInformation()) ? EXCEPTION_EXECUTE_HANDLER : EXCEPTION_CONTINUE_SEARCH) {}
 }
 } // namespace
 

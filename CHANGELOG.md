@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+- **A fault in the upscaler's pass says where it was.** The log line for an exception in the DLSS scaler ("DISABLED: exception 0x...") now also gives the module and offset (and what an access violation touched) and the step the
+  pass was at, so a report of one can be found in the code; the offline test host prints the same for a crash on any thread.
 - **"Record what is shown" keeps the middle 1920x1080 of each presented frame, and the card says when the recorder is the problem.** The owner's first recordings of what is shown (4K, HDR, frame generation x2) kept 84 of 247 frames
   and compressed to more than their raw size: a 4K HDR frame is 66 MB and every presented frame is copied. The middle of the frame at full size (an even offset) is kept instead, a quarter of the data, which a card in use can
   copy; a flicker shows in the middle as well as anywhere. And "What stands out" now says "Recording is on ... it is the first thing to rule out when frames are uneven" (a problem when they are, a note when they are not): the same
