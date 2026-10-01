@@ -102,6 +102,14 @@ int main() {
     host.values["saturation"] = "9"; host.values["passes"] = "-4"; host.values["debugView"] = "12";
     Loaded wild = LoadSettings(&host, "DLSS5NR01");
     Check("values edited out of range in the file are kept to their range", Same(wild.config.p.saturation, 2.0f) && wild.config.p.passes == 1 && wild.config.p.debugView == 5);
+    {   // how often the model runs: one by default, kept to 1..4, and it round trips
+        Check("the model runs on every frame by default", Config().modelEvery == 1 && LoadSettings(&host, "DLSS5NR01").config.modelEvery == 1);
+        Config m; m.modelEvery = 3; SaveSettings(&host, "DLSS5NR01", m, {});
+        Check("how often the model runs is kept in the settings", LoadSettings(&host, "DLSS5NR01").config.modelEvery == 3);
+        host.values["modelEvery"] = "9"; Check("...and kept to 1 to 4", LoadSettings(&host, "DLSS5NR01").config.modelEvery == 4);
+        host.values["modelEvery"] = "0"; Check("...from 1", LoadSettings(&host, "DLSS5NR01").config.modelEvery == 1);
+        host.values["modelEvery"] = "1";
+    }
     {   // the upscalers' settings per game
         Config u; u.p.sharpen = 0.4f; u.scalerStability = 0.3f; u.scalerEdges = 0.6f; u.dlaaPreset = 13; u.motionSource = 1;
         KeepForGame(u, "falloutnv.exe");

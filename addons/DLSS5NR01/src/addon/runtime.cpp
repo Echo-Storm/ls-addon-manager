@@ -351,11 +351,15 @@ void AfterHandOver(bool started, float ceiling, const AutoQuality::Settings& aut
             Log("auto: model resolution %.2f -> %.2f (model %.1f ms, budget %.1f ms%s)", s.from, s.to, s.modelMs, autoSettings.budgetMs * g_auto.Pressure(), g_auto.Pressure() < 0.99f ? ", tightened: the game's frames are slow" : "");
         }
         if (autoSettings.on) stable = g_auto.StableScale(now, 30000);
-        const int every = autoSettings.on ? g_auto.RunEvery() : 1;
+        int manualEvery; { std::lock_guard<std::mutex> lock(g_settingsMutex); manualEvery = g_config.modelEvery; }   // the setting "Run the model": every Nth real frame; auto quality may ask for more
+        const int autoEvery = autoSettings.on ? g_auto.RunEvery() : 1;
+        const int every = std::max(autoEvery, manualEvery);
         if (every != g_bridge.RunEvery()) {
             g_bridge.SetRunEvery(every);
             nr::trace::Add(nr::trace::kAuto, 0, every, 0);
-            Log("auto: the model now runs on %s (the game's frames are %s%s)", every == 1 ? "every frame" : every == 2 ? "every 2nd frame" : "every 3rd frame", every == 1 ? "steady again" : "still slow at the lowest model resolution", "");
+            const char* what = every == 1 ? "every frame" : every == 2 ? "every 2nd frame" : every == 3 ? "every 3rd frame" : "every 4th frame";
+            if (autoEvery >= manualEvery) Log("auto: the model now runs on %s (the game's frames are %s%s)", what, every == 1 ? "steady again" : "still slow at the lowest model resolution", "");
+            else Log("the model now runs on %s (the setting Run the model)", what);
         }
         }
         static uint64_t lastSavedAt = 0;

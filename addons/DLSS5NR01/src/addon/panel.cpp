@@ -609,6 +609,12 @@ void DrawPanel() {
         }
         }
         {
+            static const char* const everyNames[] = { "On every frame", "On every 2nd frame", "On every 3rd frame", "On every 4th frame" };
+            int every = std::clamp(c.modelEvery, 1, 4) - 1;
+            if (ImGui::Combo("Run the model", &every, everyNames, 4)) { c.modelEvery = every + 1; changed = true; }
+            Tip("How often the model runs on the game's real frames. The model's cost is mostly fixed (about 3 ms a run on a fast card, whatever the model resolution), so running it on every 2nd frame takes about half of it back: the frames in between are shown with the last result moved along the motion, as the frames frame generation makes already are. Measured offline on four recordings of World of Warcraft: a result two frames old, moved along the motion, is 0.04 to 0.23 levels (of 255) further from the frame's own result than one frame old, against a result that is 4 to 8 levels big. Auto quality may ask for more on top of this.");
+        }
+        {
             const NrStats& st = g_engine.Stats();
             if (g_bridge.Width()) {
                 float mp = (float)st.workW * (float)st.workH / 1e6f; double iv = g_bridge.IntervalMs();

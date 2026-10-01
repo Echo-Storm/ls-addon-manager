@@ -189,10 +189,11 @@ int main(int argc, char** argv) {
     if (!inE || !deltaE || !motionE || !copiedE || !usedE || !doneE) { printf("the engine could not open the shared resources\n"); return 4; }
     printf("%ls: %ux%u, %d frames from %d; the model at %ux%u (scale %.2f), smoothing %.2f, %u pass(es)\n", Wide(argv[1]).c_str(), W, H, count, first, dw, dh, params.workingScale, params.deltaSmooth, params.passes);
 
-    struct Score { int frame; double steady, still, moving, p95 = 0, lag, plain; std::vector<uint8_t> src, pic; };
+    struct Score { int frame; double steady, still, moving, p95 = 0, lag, plain, lag1n = 0, lag2 = 0, mag = 0; std::vector<uint8_t> src, pic; };
     std::vector<Score> scores;
     std::vector<uint8_t> px, frame, framePrev, pic, picPrev;
-    std::vector<float> d, dPrev, mv, mvPrev;
+    std::vector<float> d, dPrev, mv, mvPrev, dPrev2, mvPrev2;
+    double sumLag1n = 0, sumLag2 = 0, sumMag = 0; int nStale = 0;
     // dump=file (with smooth=0): every frame's still-pixel mask (1 where the game's frame did not change) and the model's own change there, as half floats, for tools/nr_filter_lab.py
     FILE* dumpFile = nullptr;
     if (const std::string dumpPath = ArgText(argc, argv, "dump"); !dumpPath.empty()) {
@@ -201,6 +202,7 @@ int main(int argc, char** argv) {
     }
     std::vector<uint8_t> heat; int heatFrame = -1;    double sumSteady = 0, sumStill = 0, sumMoving = 0, sumP95 = 0, sumLag = 0, sumPlain = 0; int n = 0;
     std::vector<double> lightShift;   // per frame: the model's mean change of the picture's brightness (levels of 255): lighting pumping
+    double modelMsSum = 0, wholeMsSum = 0; int modelRuns = 0;
     for (int i = 0; i < count; ++i) {
         if (!rec.Read(first + i, px) || !ToRgba8(h, px, frame)) { printf("frame %d could not be read\n", first + i); return 3; }
         { uint8_t* m = nullptr; upload->Map(0, nullptr, reinterpret_cast<void**>(&m));
@@ -222,6 +224,7 @@ int main(int argc, char** argv) {
         const bool ran = eng.Run(inE, deltaE, copiedE, static_cast<uint64_t>(i) + 1, usedE, static_cast<uint64_t>(i) + 1, doneE, static_cast<uint64_t>(i) + 1, i == 0, motionE);
         if (!ran) { printf("  frame %d: the model did not run\n", first + i); continue; }
         queue->Wait(done, static_cast<uint64_t>(i) + 1);
+        if (i >= 6 && eng.Stats().nrMs > 0) { modelMsSum += eng.Stats().nrMs; wholeMsSum += eng.Stats().totalMs; ++modelRuns; }   // (the engine reports the run before's times; after the first few runs the card is warm)
         alloc->Reset(); list->Reset(alloc, nullptr);
         barrier(delta, D3D12_RESOURCE_STATE_COMMON, D3D12_RESOURCE_STATE_COPY_SOURCE);
         D3D12_TEXTURE_COPY_LOCATION rt{ readback, D3D12_TEXTURE_COPY_TYPE_PLACED_FOOTPRINT }; rt.PlacedFootprint = dFp;
@@ -307,6 +310,27 @@ int main(int argc, char** argv) {
                 lagSum += lagMax * 255.0; plainSum += plainMax * 255.0; ++lagN;
             }
             s.lag = lagSum / lagN; s.plain = plainSum / lagN;
+            // The model run on every 2nd real frame: this frame shown with the result of two runs back, moved by that run's motion and by the run before's (nearest sample: a measure, not the
+            // picture), against this frame's own delta, beside the one-run-back result measured the same way, and how big the delta itself is (all in levels of 255, the largest of the three channels)
+            if (!dPrev2.empty()) {
+                double lag1Sum = 0, lag2Sum = 0, magSum = 0; size_t n2 = 0;
+                for (uint32_t y = 2; y < dh - 2; y += 4) for (uint32_t x = 2; x < dw - 2; x += 4) {
+                    const size_t k = static_cast<size_t>(y) * dw + x;
+                    const float s1x = std::clamp(x + mvPrev[k * 2], 0.0f, dw - 1.0f), s1y = std::clamp(y + mvPrev[k * 2 + 1], 0.0f, dh - 1.0f);
+                    const size_t k1 = static_cast<size_t>(s1y) * dw + static_cast<size_t>(s1x);
+                    const float s2x = std::clamp(s1x + mvPrev2[k1 * 2], 0.0f, dw - 1.0f), s2y = std::clamp(s1y + mvPrev2[k1 * 2 + 1], 0.0f, dh - 1.0f);
+                    const size_t k2 = static_cast<size_t>(s2y) * dw + static_cast<size_t>(s2x);
+                    double e1 = 0, e2 = 0, mag = 0;
+                    for (int c = 0; c < 3; ++c) {
+                        e1 = std::max(e1, double(std::fabs(dPrev[k1 * 4 + c] - d[k * 4 + c])));
+                        e2 = std::max(e2, double(std::fabs(dPrev2[k2 * 4 + c] - d[k * 4 + c])));
+                        mag = std::max(mag, double(std::fabs(d[k * 4 + c])));
+                    }
+                    lag1Sum += e1 * 255.0; lag2Sum += e2 * 255.0; magSum += mag * 255.0; ++n2;
+                }
+                s.lag1n = lag1Sum / n2; s.lag2 = lag2Sum / n2; s.mag = magSum / n2;
+                if (i >= 4) { sumLag1n += s.lag1n; sumLag2 += s.lag2; sumMag += s.mag; ++nStale; }
+            }
         }
         printf("  frame %4d  steady %5.2f dB   delta change: where the game is still %5.2f levels, along the motion %5.2f levels (%.0f %% of the picture matched)\n", s.frame, s.steady, s.still, s.moving, usedShare * 100.0);
         if (s.steady < 99) printf("             the live path (this frame shown with the run before's delta moved by its motion): %5.2f levels off this frame's own delta; not moved: %5.2f\n", s.lag, s.plain);
@@ -317,11 +341,14 @@ int main(int argc, char** argv) {
             auto best = std::min_element(scores.begin(), scores.end(), [](const Score& a, const Score& b) { return (a.src.empty() ? 1e9 : a.still) < (b.src.empty() ? 1e9 : b.still); });
             best->src.clear(); best->src.shrink_to_fit(); best->pic.clear(); best->pic.shrink_to_fit();
         }
+        dPrev2 = dPrev; mvPrev2 = mvPrev;
         framePrev = frame; picPrev = pic; dPrev = d; mvPrev = mv;
     }
     if (dumpFile) fclose(dumpFile);
+    if (modelRuns) printf("model GPU time on an idle card, %d runs after the first 6: the model %.2f ms, the whole run (copies, motion, model) %.2f ms\n", modelRuns, modelMsSum / modelRuns, wholeMsSum / modelRuns);
     { const uint64_t vramAfter = nr::ProcessVideoMemoryMb(ad.AdapterLuid); printf("video memory: this program holds %llu MB; Neural Rendering and its textures added %llu MB (from %llu MB before it started)\n", (unsigned long long)vramAfter, (unsigned long long)(vramAfter - std::min(vramAfter, vramBefore)), (unsigned long long)vramBefore); }
     if (n) printf("average over %d frames (after the first 4): steady %.2f dB, delta change where the game is still %.2f levels of 255, along the motion %.2f (the worst 5 %% of blocks: %.2f); the live path %.2f (not moved: %.2f)\n", n, sumSteady / n, sumStill / n, sumMoving / n, sumP95 / n, sumLag / n, sumPlain / n);
+    if (nStale) printf("how old a result may be (levels of 255, against the frame's own delta, moved along the motion): one run back %.2f, two runs back (the model on every 2nd real frame) %.2f; the delta itself is %.2f levels big on average\n", sumLag1n / nStale, sumLag2 / nStale, sumMag / nStale);
     if (lightShift.size() > 6) {   // how much the model brightens or darkens the whole picture, and how that moves from frame to frame
         double mean = 0, var = 0, jump = 0, jumpMax = 0; const size_t from = 4;
         for (size_t f = from; f < lightShift.size(); ++f) mean += lightShift[f];

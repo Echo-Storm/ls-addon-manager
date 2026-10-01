@@ -192,6 +192,18 @@ def scenario_bars(ctx, res, text, frame):
     res.check("...and the model's change is composed", bool(comp) and max(int(c) for c in comp) > 20, ', '.join(comp[-3:]))
 
 
+def scenario_every2(ctx, res, text, frame):
+    # the setting "Run the model" at every 2nd frame: the addon says so, and the model runs on about half the real frames (the frames between are shown with its last result)
+    res.check('the addon puts the model on every 2nd frame', 'the model now runs on every 2nd frame (the setting Run the model)' in text)
+    m = re.findall(r'tap #(\d+): .*? runs (\d+) skipped', text)
+    if m:
+        taps, runs = int(m[-1][0]), int(m[-1][1])
+        res.check('the model runs on about half of the real frames', taps >= 40 and 0.35 <= runs / taps <= 0.65, '%d runs in %d taps' % (runs, taps))
+    else:
+        res.check('the model runs on about half of the real frames', False, 'no tap line in the log')
+    res.check('compose applied', 'COMPOSE APPLIED' in text)
+
+
 def scenario_base(ctx, res, text, frame):
     res.check('compose applied', 'COMPOSE APPLIED' in text)
     mc = motion_counts(text)
@@ -556,6 +568,7 @@ def scenario_selftest(ctx, res, text, frame):
 # name, config overrides, checker
 SCENARIOS = [
     ('base', ['presentMode=0'], scenario_base),   # present mode off: with frame generation off the old result must go (present_mode tests it on)
+    ('every2', ['presentMode=0', 'modelEvery=2'], scenario_every2),   # the setting Run the model: every 2nd real frame
     ('present_mode', ['offframes=150'], scenario_present_mode),   # frame generation off for 6 s: the model takes the presented frames
     ('present_wait', ['offframes=150', 'presentWait=1'], scenario_present_mode),   # the same, each frame waiting for its own result
     ('hdr_scrgb', ['offframes=150', 'hdr=scrgb'], scenario_hdr),   # ...then the presented frames HDR: 16-bit float scRGB

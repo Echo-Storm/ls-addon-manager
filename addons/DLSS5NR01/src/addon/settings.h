@@ -66,6 +66,7 @@ struct Config {
     std::string screenshotFolder;        // empty: Pictures\Lossless Scaling
     bool autoQuality = false;            // lower the model resolution when the model runs over its time budget (auto_quality.h)
     float autoBudgetMs = 5.0f, autoFloor = 0.25f;
+    int modelEvery = 1;                  // the model runs on every Nth real frame (1..4), the frames between are shown with its last result moved along the motion; auto quality may ask for more
     float autoScaleLast = 0.0f;   // the model resolution auto quality settled at last time (0: none yet): where it starts
     bool gameAuto = true;                // switch to a program's look when it takes focus
     std::vector<std::pair<std::string, std::string>> games;   // lower-case exe name, look name

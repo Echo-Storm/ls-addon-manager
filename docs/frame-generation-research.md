@@ -491,3 +491,20 @@ cost about 0.7), 2.6 ms less for each real frame at x2, near 10 % of a 28 ms fra
 Wired live as a test option (2026-10-01): "Lighter upscaling of generated frames (test)", off by default; the generated-frame pass the tap already recognises says which NIS pass shows a generated frame (`FrameTap::TakeGenerated`), the flag travels with the job to the engine's thread, the warp is the frame's number since the real one times the step. The host scenario `scaler_light` runs it. What it needed, kept for the record: (1) to know which presented picture is the real one (the capture pass sees the real frame; LS presents the generated frame before or after it, to be found out) and to carry a cheap flag with each queued run to the
 engine's thread (`SetCheapNext` is a flag for the next run, enough for the offline loop); (2) the estimator to be left to the real frames and `SetPresentStep` set to the time ratio (runtime.cpp `PresentStepFraction`);
 (3) the owner's eyes on a calm scene and a fast one, which no number replaces. An option "Lighter upscaling with frame generation", off by default, once it has been seen live.
+
+## How old a Neural Rendering result may be (2026-10-01)
+
+The model's cost is mostly fixed, so the way to spend less of it is to run it less often. Two data points for the cost (the owner's logs, a 4070 Ti SUPER under the game's load): 3.3 ms mean (p95 5.0) at a 480x272 model input, and 8.5 ms at 1912x1080 (backlog, an earlier session): about 3 ms plus 2.7 ms a megapixel, so Auto quality's floor (0.25) is already near the fixed part. Offline timings on an idle card
+say nothing here (the clocks stay at 210 MHz and a run takes 28 to 37 ms), so the cost is read from live logs.
+
+What running every 2nd real frame costs in the picture, measured with `nr_nreval` (scale 0.25, smoothing 0.8, 46 frames of each of four World of Warcraft recordings, 4K frames): the frame's own delta against the delta of one run back and of two runs back, each moved along the motion (nearest sample), in levels of 255
+(the largest of the three channels), and how big the delta is:
+
+| recording | one run back | two runs back | the delta itself |
+|---|---|---|---|
+| 2026-10-01 08-53-26 | 0.06 | 0.10 | 3.88 |
+| 2026-10-01 08-54-30 | 0.49 | 0.62 | 5.79 |
+| 2026-10-01 14-47-12 | 0.26 | 0.42 | 8.00 |
+| 2026-09-30 11-46-23 | 1.20 | 1.43 | 8.29 |
+
+Going from one run back to two adds 0.04 to 0.23 levels, 1 to 3 % of the delta. The setting "Run the model" (every frame, every 2nd, 3rd, 4th; `modelEvery`) uses it; the default stays every frame until the owner has seen it live. Not measured: what the eye sees on a cut or a fast turn (the stale cutoff, offset more than 3 plus the run interval, still applies).

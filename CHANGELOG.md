@@ -1,5 +1,13 @@
 # Changelog
 
+## Unreleased
+
+- **Neural Rendering: a setting "Run the model" (on every frame, every 2nd, 3rd or 4th real frame).** The owner's NR runs too heavy on their card, with Auto quality already at its floor: the model's cost is mostly fixed (from their logs about 3 ms a run whether the
+  model sees 480x272 or more; the 8.5 ms the backlog records at 1912x1080 fits "about 3 ms plus 2.7 ms a megapixel"), so a lower resolution gives little and running it less often gives most. The frames between runs are shown with the last result moved along the motion, as the generated
+  frames already are. Measured offline on four recordings (`nr_nreval`, new line "how old a result may be"): the model's change is 4 to 8 levels of 255 big on average; a result two runs old, moved along the motion, is 0.04 to 0.23 levels further from the frame's own result than one run old (0.10 to 1.43 against 0.06 to 1.20), about 1 to 3 % of the change.
+  Every 2nd frame should take about 1.6 ms back from each real frame at 58 real frames a second. Off by default (every frame); Auto quality may still ask for more on top. Host scenario `every2`; settings test.
+- **`nr_nreval` prints how old a result may be and the model's GPU time.** (The time is only trustworthy under load: on an idle card the clocks stay low and a run takes ten times as long as in a game.)
+
 ## 0.9.27 (2026-10-01)
 
 **The upscalers start on a 3440x1440 screen** (issue #13, a second report). Checked on the test host with the geometry from the reporter's log, not yet in a game.
