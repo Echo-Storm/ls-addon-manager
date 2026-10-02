@@ -595,6 +595,14 @@ void DrawPanel() {
             Tip("The model time to stay within. Half the frame time is a good start: 8 ms at 60 fps, 5 ms at 100 fps.");
             changed |= SL("Lowest model resolution", &c.autoFloor, 0.25f, 1.0f, "%.2f x the frame");
             Tip("Auto never goes below this, even when the model still runs over the budget.");
+            changed |= ImGui::Checkbox("Keep the graphics card under a limit", &c.gpuLimit);
+            Tip("When the card's load stays at or above the limit for a few seconds, auto quality treats it like slow game frames: it lowers the model resolution, does not raise it again for a minute, and at the lowest resolution runs the model on every 2nd or 3rd frame. It lets go once the load has been 8 points under the limit for 10 seconds. It only trims the model's share of the card: a game that fills the card on its own needs a frame rate limit in the game or the driver. NVIDIA cards only (the load is read through the driver).");
+            if (c.gpuLimit) {
+                changed |= SL("Limit", &c.gpuLimitPercent, 80.0f, 100.0f, "%.0f %%");
+                const unsigned load = g_gpuPercent.load();
+                if (load > 0) { bool over; { std::lock_guard<std::mutex> lock(g_autoMutex); over = g_auto.GpuOver(); } ImGui::TextWrapped("The card is at %u %% now.%s", load, over ? " Over the limit: the model is being trimmed." : ""); }
+                else ImGui::TextDisabled("The card reads as idle, or its load has not been read yet (it is read once a second while the model runs).");
+            }
             float scale, avg; std::deque<AutoQuality::Step> history;
             { std::lock_guard<std::mutex> lock(g_autoMutex); scale = g_auto.Scale(); avg = g_auto.AverageMs(); history = g_auto.History(); }
             if (scale <= 0) ImGui::TextDisabled("Auto starts with the model's first run.");

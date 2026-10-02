@@ -315,7 +315,7 @@ void Tap(ID3D11DeviceContext* ctx, uint32_t x, uint32_t y, uint32_t z) {
 
     NrParams p; float watchdogMs; bool lsFirst; AutoQuality::Settings autoSettings; float autoSeed;
     { std::lock_guard<std::mutex> lock(g_settingsMutex); p = g_config.p; watchdogMs = g_config.watchdogMs; lsFirst = g_config.lsFirst; autoSeed = g_config.autoScaleLast;
-      autoSettings = { g_config.autoQuality && g_config.model == 0, g_config.autoBudgetMs, g_config.autoFloor }; }   // DLAA works on the whole frame
+      autoSettings = { g_config.autoQuality && g_config.model == 0, g_config.autoBudgetMs, g_config.autoFloor, g_config.gpuLimit ? g_config.gpuLimitPercent : 0.0f }; }   // DLAA works on the whole frame
     const float ceiling = p.workingScale;
     if (autoSettings.on) { std::lock_guard<std::mutex> lock(g_autoMutex); g_auto.Seed(autoSeed); if (g_auto.Scale() > 0) p.workingScale = std::min(ceiling, g_auto.Scale()); }   // (from the scale it settled at last time, not a ramp down from the person's)
     g_bridge.SetLsGpuPriority(lsFirst ? 7 : 0);
@@ -345,10 +345,16 @@ void AfterHandOver(bool started, float ceiling, const AutoQuality::Settings& aut
         float stable = 0;   // the scale it has held for 30 s with the model in budget: kept, so the next session starts there
         const uint64_t now = GetTickCount64();
         { std::lock_guard<std::mutex> lock(g_autoMutex);
-        if (g_auto.Update(now, st.nrMs, static_cast<float>(g_bridge.LastIntervalMs()), ceiling, autoSettings) && !g_auto.History().empty() && g_auto.History().back().atMs == now) {
+        static uint64_t gpuAt = 0; static unsigned gpuNow = 0;   // the card's load, read once a second, only while the limit is asked for
+        if (autoSettings.gpuLimit > 0 && now - gpuAt >= 1000) {
+            gpuAt = now; std::string card; { std::lock_guard<std::mutex> lock(g_textMutex); card = g_cardName; }
+            gpuNow = g_gpuLoad.Percent(now, card); g_gpuPercent = gpuNow;
+            if (!g_gpuLoad.Available() && !g_gpuLoadLogged) { g_gpuLoadLogged = true; Log("graphics card limit: the load cannot be read (%s); the limit does nothing", g_gpuLoad.Why().c_str()); }
+        } else if (autoSettings.gpuLimit <= 0) { gpuNow = 0; g_gpuPercent = 0; }
+        if (g_auto.Update(now, st.nrMs, static_cast<float>(g_bridge.LastIntervalMs()), ceiling, autoSettings, gpuNow) && !g_auto.History().empty() && g_auto.History().back().atMs == now) {
             const AutoQuality::Step& s = g_auto.History().back();
             nr::trace::Add(nr::trace::kAuto, static_cast<int32_t>(s.to * 100.0f + 0.5f), g_bridge.RunEvery(), static_cast<int32_t>(s.modelMs * 100.0f));
-            Log("auto: model resolution %.2f -> %.2f (model %.1f ms, budget %.1f ms%s)", s.from, s.to, s.modelMs, autoSettings.budgetMs * g_auto.Pressure(), g_auto.Pressure() < 0.99f ? ", tightened: the game's frames are slow" : "");
+            Log("auto: model resolution %.2f -> %.2f (model %.1f ms, budget %.1f ms%s)", s.from, s.to, s.modelMs, autoSettings.budgetMs * g_auto.Pressure(), g_auto.Pressure() < 0.99f ? (g_auto.GpuOver() ? ", tightened: the graphics card is over its limit" : ", tightened: the game's frames are slow") : "");
         }
         if (autoSettings.on) stable = g_auto.StableScale(now, 30000);
         int manualEvery; { std::lock_guard<std::mutex> lock(g_settingsMutex); manualEvery = g_config.modelEvery; }   // the setting "Run the model": every Nth real frame; auto quality may ask for more
@@ -632,7 +638,7 @@ void PresentTap(IDXGISwapChain* sc) {   // under g_frameMutex, on the presenting
           std::lock_guard<std::mutex> lock(g_textMutex); g_frameText = text; }
         NrParams p; float watchdogMs; bool lsFirst; AutoQuality::Settings autoSettings; float autoSeed;
         { std::lock_guard<std::mutex> lock(g_settingsMutex); p = g_config.p; watchdogMs = g_config.watchdogMs; lsFirst = g_config.lsFirst; autoSeed = g_config.autoScaleLast;
-          autoSettings = { g_config.autoQuality && g_config.model == 0, g_config.autoBudgetMs, g_config.autoFloor }; }
+          autoSettings = { g_config.autoQuality && g_config.model == 0, g_config.autoBudgetMs, g_config.autoFloor, g_config.gpuLimit ? g_config.gpuLimitPercent : 0.0f }; }
         const float fit = frame.Width > kPresentWidth ? kPresentWidth / static_cast<float>(frame.Width) : 1.0f;
         const float ceiling = p.workingScale * fit;
         p.workingScale = ceiling;

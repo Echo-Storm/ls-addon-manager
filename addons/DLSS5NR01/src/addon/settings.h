@@ -67,6 +67,9 @@ struct Config {
     bool autoQuality = true;             // lower the model resolution when the model runs over its time budget (auto_quality.h)
     float autoBudgetMs = 6.0f, autoFloor = 0.6f;
     int modelEvery = 2;                  // the model runs on every Nth real frame (1..4), the frames between are shown with its last result moved along the motion; auto quality may ask for more
+    bool gpuLimit = false;               // auto quality also keeps the graphics card's load under gpuLimitPercent (gpu_load.h, auto_quality.h)
+    float gpuLimitPercent = 95.0f;       // 80..100
+    int defaultsVersion = 1;             // the version of the defaults a file was written under (a new Config is under the current ones): 1 = those of 0.9.28 (every 2nd frame); an older file gets them once
     float autoScaleLast = 0.0f;   // the model resolution auto quality settled at last time (0: none yet): where it starts
     bool gameAuto = true;                // switch to a program's look when it takes focus
     std::vector<std::pair<std::string, std::string>> games;   // lower-case exe name, look name

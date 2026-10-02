@@ -16,12 +16,12 @@ static float ModelMs(float scale, float load) { return load * (2.7f + 1.8f * (25
 struct Run { int changes = 0; uint64_t shortestGap = ~0ull; float lowest = 9, highest = 0; };
 
 // `seconds` of frames at 60 per second; `load` scales the model's time (a busier scene, a hotter card).
-static Run Simulate(nr::AutoQuality& a, uint64_t& now, int seconds, float ceiling, const nr::AutoQuality::Settings& s, float load, float frameMs = 16.7f) {
+static Run Simulate(nr::AutoQuality& a, uint64_t& now, int seconds, float ceiling, const nr::AutoQuality::Settings& s, float load, float frameMs = 16.7f, unsigned gpu = 0) {
     Run r; uint64_t last = 0;
     for (int i = 0; i < seconds * 60; ++i) {
         now += 17;
         const float scale = a.Scale() > 0 ? a.Scale() : ceiling;
-        if (a.Update(now, ModelMs(scale, load), frameMs, ceiling, s)) {
+        if (a.Update(now, ModelMs(scale, load), frameMs, ceiling, s, gpu)) {
             ++r.changes;
             if (last) r.shortestGap = std::min<uint64_t>(r.shortestGap, now - last);
             last = now;
@@ -163,6 +163,44 @@ int main() {
         const AutoQuality::Settings off{ false, 1.0f, 0.25f };
         Simulate(a, now, 30, 0.6f, off, 1.0f, 30.0f);
         Check("auto quality off: the model always runs on every frame", a.RunEvery() == 1);
+    }
+
+    printf("== keeping the card under a limit\n");
+    {
+        AutoQuality a; uint64_t now = 0;
+        const AutoQuality::Settings s{ true, 12.0f, 0.4f, 95.0f };   // a budget the model fits at 1.0 (9.3 ms)
+        Simulate(a, now, 60, 1.0f, s, 1.0f, 16.7f, 80);
+        const float before = a.Scale();
+        Check("under the limit it changes nothing", before == 1.0f && !a.GpuOver(), "scale " + std::to_string(before));
+        Simulate(a, now, 2, 1.0f, s, 1.0f, 16.7f, 99);
+        Check("a card over the limit for less than 3 s is not yet pressure", !a.GpuOver());
+        Simulate(a, now, 30, 1.0f, s, 1.0f, 16.7f, 99);
+        snprintf(text, sizeof text, "scale %.2f -> %.2f, pressure %.2f", before, a.Scale(), a.Pressure());
+        Check("over the limit for a while it counts as pressure and the resolution comes down", a.GpuOver() && a.Pressure() < 0.7f && a.Scale() < before - 0.05f, text);
+        const float lowered = a.Scale();
+        Simulate(a, now, 20, 1.0f, s, 1.0f, 16.7f, 92);
+        Check("a load just under the limit (not 8 points under) keeps it", a.GpuOver());
+        Simulate(a, now, 15, 1.0f, s, 1.0f, 16.7f, 70);
+        Check("8 points under the limit for 10 s lets go", !a.GpuOver() && a.Pressure() > 0.99f);
+        Simulate(a, now, 240, 1.0f, s, 1.0f, 16.7f, 70);
+        snprintf(text, sizeof text, "scale %.2f -> %.2f", lowered, a.Scale());
+        Check("and the resolution goes back up in time", a.Scale() > lowered + 0.05f, text);
+    }
+    {
+        AutoQuality a; uint64_t now = 0;
+        const AutoQuality::Settings s{ true, 5.0f, 0.4f, 95.0f };   // the model takes more than the budget even at the floor
+        Simulate(a, now, 120, 1.0f, s, 1.0f, 16.7f, 99);
+        Check("at the floor with the card over its limit the model runs less often", a.Scale() <= 0.4f + 0.001f && a.RunEvery() >= 2, "scale " + std::to_string(a.Scale()) + ", every " + std::to_string(a.RunEvery()));
+    }
+    {
+        AutoQuality a; uint64_t now = 0;
+        const AutoQuality::Settings s{ true, 12.0f, 0.4f, 95.0f };
+        Simulate(a, now, 90, 1.0f, s, 1.0f, 16.7f, 0);   // 0: the load is not known (no NVML)
+        Check("a load that is not known changes nothing", a.Scale() == 1.0f && !a.GpuOver());
+        const AutoQuality::Settings noLimit{ true, 12.0f, 0.4f, 0.0f };
+        AutoQuality b; uint64_t t2 = 0;
+        Simulate(b, t2, 90, 1.0f, noLimit, 1.0f, 16.7f, 100);
+        Check("without the limit asked for, a busy card changes nothing", b.Scale() == 1.0f && !b.GpuOver());
     }
 
     printf("\n%s\n", g_failed ? "AUTO QUALITY TEST FAILED" : "AUTO QUALITY TEST PASSED");

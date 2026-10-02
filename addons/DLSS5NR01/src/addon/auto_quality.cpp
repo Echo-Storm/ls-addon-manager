@@ -8,6 +8,8 @@ namespace {
 constexpr float kStep = 0.05f;
 constexpr uint64_t kOverFor = 3000, kUnderFor = 10000, kDownPause = 5000, kUpPause = 20000, kPressureHold = 60000;
 constexpr float kPauseFrameMs = 100.0f;
+constexpr uint64_t kGpuOverFor = 3000, kGpuCoolFor = 10000;
+constexpr float kGpuPressure = 0.6f, kGpuMargin = 8.0f;   // the share of the budget left while the card is over its limit; how far under the limit it must get to be let go
 constexpr float kPressureFrom = 1.25f;   // the frame time this far over its best counts as pressure
 constexpr float kAim = 0.92f;            // aim a little under the budget, so the next measurement does not land just over it
 constexpr float kMaxDrop = 0.5f;         // never more than halve the scale in one change (the estimate is a model, not a measurement)
@@ -38,13 +40,14 @@ bool AutoQuality::Change(uint64_t nowMs, float to) {
     return true;
 }
 
-bool AutoQuality::Update(uint64_t nowMs, float modelMs, float frameIntervalMs, float ceiling, const Settings& s) {
+bool AutoQuality::Update(uint64_t nowMs, float modelMs, float frameIntervalMs, float ceiling, const Settings& s, unsigned gpuPercent) {
     const float floor = std::min(s.floor, ceiling);
     if (!s.on || m_scale <= 0 || m_scale > ceiling) {   // off, the first time, or the person lowered their own setting below it
         const bool changed = m_scale != ceiling && m_scale > 0 && s.on;
         m_scale = ceiling;
         m_overSince = m_underSince = 0;
         m_settled = false; m_every = 1; m_heavySince = m_calmSince = 0; m_resumedAt = 0; m_holdMs = 30000;
+        m_gpuOver = false; m_gpuHotSince = m_gpuCoolSince = 0;
         if (!s.on) { m_avgMs = 0; return false; }
         return changed;
     }
@@ -61,6 +64,20 @@ bool AutoQuality::Update(uint64_t nowMs, float modelMs, float frameIntervalMs, f
         m_pressure = pressed ? std::max(0.4f, m_frameBase / m_frameAvg) : 1.0f;
         if (pressed) m_noRaiseUntil = nowMs + kPressureHold;
     }
+    // the card's load against the limit asked for: over it for a while is pressure like slow frames; a load that is not known (0) changes nothing
+    if (s.gpuLimit <= 0) { m_gpuOver = false; m_gpuHotSince = m_gpuCoolSince = 0; }
+    else if (gpuPercent > 0) {
+        if (gpuPercent >= s.gpuLimit) {
+            m_gpuCoolSince = 0;
+            if (!m_gpuHotSince) m_gpuHotSince = nowMs;
+            if (nowMs - m_gpuHotSince >= kGpuOverFor) m_gpuOver = true;
+        } else if (gpuPercent + kGpuMargin <= s.gpuLimit) {
+            m_gpuHotSince = 0;
+            if (!m_gpuCoolSince) m_gpuCoolSince = nowMs;
+            if (nowMs - m_gpuCoolSince >= kGpuCoolFor) m_gpuOver = false;
+        } else m_gpuHotSince = m_gpuCoolSince = 0;   // in between: as it was
+    }
+    if (m_gpuOver) { m_pressure = std::min(m_pressure, kGpuPressure); m_noRaiseUntil = std::max(m_noRaiseUntil, nowMs + kPressureHold); }
     const float budget = s.budgetMs * m_pressure;
 
     // at the floor with the game's frames still slow: the model runs on every 2nd (then 3rd) frame; back to every frame after the game has been calm for a while

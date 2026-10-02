@@ -10,6 +10,7 @@
 #include "addon/auto_quality.h"
 #include "addon/compose11.h"
 #include "addon/diagnosis.h"
+#include "addon/gpu_load.h"
 #include "addon/frame_tap.h"
 #include "addon/requirements.h"
 #include "addon/product.h"
@@ -62,6 +63,9 @@ extern std::atomic<bool> g_showHud;         // outline the protected areas on sc
 // Auto quality: changed by the frame path, read by the panel (both briefly, under g_autoMutex).
 extern std::mutex g_autoMutex;
 extern AutoQuality g_auto;
+extern nr::GpuLoad g_gpuLoad;                 // the card's load for the limit (frame path only)
+extern std::atomic<unsigned> g_gpuPercent;    // its last reading, for the panel (0: not read)
+extern bool g_gpuLoadLogged;
 
 extern std::mutex g_textMutex;
 extern std::vector<nr::diag::Finding> g_findings;   // what the panel's "What is wrong" card shows (diagnosis.h), refreshed with the frame-time window

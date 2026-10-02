@@ -113,6 +113,26 @@ int main() {
         Check("a saved config without the setting takes the default (every 2nd frame)", LoadSettings(&host, "DLSS5NR01").config.modelEvery == 2);
         host.values["modelEvery"] = "1";
     }
+    {   // 0.9.28 saved a 1 into configs that never had the setting: a file under no defaults version gets the default once; a 1 chosen after that stays
+        host.values["modelEvery"] = "1"; host.values.erase("defaultsVersion");
+        Check("a 1 from a file written before the defaults' version becomes the default (the 0.9.28 upgrade)", LoadSettings(&host, "DLSS5NR01").config.modelEvery == 2);
+        host.values["modelEvery"] = "1"; host.values["defaultsVersion"] = "1";
+        Check("...but a 1 in a file under the current version is a choice and stays", LoadSettings(&host, "DLSS5NR01").config.modelEvery == 1);
+        host.values["modelEvery"] = "3"; host.values.erase("defaultsVersion");
+        Check("...and a 3 is never touched", LoadSettings(&host, "DLSS5NR01").config.modelEvery == 3);
+        Config m = LoadSettings(&host, "DLSS5NR01").config; m.modelEvery = 1; SaveSettings(&host, "DLSS5NR01", m, {});
+        Check("a 1 chosen and saved stays after the next load", LoadSettings(&host, "DLSS5NR01").config.modelEvery == 1);
+        host.values["modelEvery"] = "2"; host.values["defaultsVersion"] = "1";
+    }
+    {   // keeping the card under a limit
+        Check("the card limit is off by default, at 95 %", !Config().gpuLimit && Same(Config().gpuLimitPercent, 95.0f));
+        Config g; g.gpuLimit = true; g.gpuLimitPercent = 90.0f; SaveSettings(&host, "DLSS5NR01", g, {});
+        const Config back2 = LoadSettings(&host, "DLSS5NR01").config;
+        Check("the card limit round trips", back2.gpuLimit && Same(back2.gpuLimitPercent, 90.0f));
+        host.values["gpuLimitPercent"] = "10"; Check("...and is kept to 80 to 100", Same(LoadSettings(&host, "DLSS5NR01").config.gpuLimitPercent, 80.0f));
+        host.values["gpuLimitPercent"] = "500"; Check("...from above", Same(LoadSettings(&host, "DLSS5NR01").config.gpuLimitPercent, 100.0f));
+        host.values["gpuLimit"] = "0"; host.values["gpuLimitPercent"] = "95";
+    }
     {   // the upscalers' settings per game
         Config u; u.p.sharpen = 0.4f; u.scalerStability = 0.3f; u.scalerEdges = 0.6f; u.dlaaPreset = 13; u.motionSource = 1;
         KeepForGame(u, "falloutnv.exe");

@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.9.30 (2026-10-02)
+
+- **Neural Rendering: "Keep the graphics card under a limit" (under Auto, off by default, 95 % unless moved).** A reporter with an RTX 4090 at 99 % load in WoW (their own overlay) had the problem go away when they limited the card to 95 %; the log showed the model waiting about 4 ms behind the game's work. With the box ticked, auto quality reads the card's load once a second (NVML, NVIDIA cards only; `gpu_load.cpp`) and, when it stays at or above the limit for 3 s, treats it like slow game frames: the budget shrinks to 60 %, the resolution comes down, it does not go back up for a minute, and at the lowest resolution the model runs on every 2nd or 3rd frame. It lets go after 10 s at 8 points under the limit. It only takes the model's share off the card: a game that fills the card alone still needs a frame rate limit. `nr_autotest` covers it, `nr_gpuloadtest` reads the sensor.
+- **Neural Rendering: every install gets "Run the model every 2nd frame", including one that ran 0.9.28.** 0.9.29 fixed a config that never had the setting, but 0.9.28 itself had loaded such a config as "every frame" and saved that back, so those kept it. A saved 1 from a file written before the defaults' version (a new key, `defaultsVersion`) now becomes 2, once; a 1 chosen after that stays. `nr_settingstest` covers it.
+
 ## 0.9.29 (2026-10-02)
 
 - **Neural Rendering: a config saved by an older build now takes the new default of "Run the model" (every 2nd frame).** 0.9.28 made every 2nd frame the default, but a saved settings file that did not have the setting yet (every upgrade from an older build) loaded it as "every frame" from a fixed fallback in `settings.cpp`; only a fresh install got the default. The fallback follows the default now, and `nr_settingstest` covers a config without the key. A saved choice of the setting is kept.
