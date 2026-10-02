@@ -4,9 +4,9 @@
 #   * refuses while Lossless Scaling itself is running (it holds the DLLs open), unless -StopLS is given AND the game is not running;
 #   * backs the old file up into <LS folder>\backups\ (never deletes) with a timestamp before replacing it;
 #   * host: if Lossless.dll is still Lossless Scaling's own, it is renamed Lossless_original.dll first (the manager needs it there).
-#   powershell -File deploy.ps1 -What host|nr|dlaa|fsr|xess|all [-StopLS] [-LsDir '<Lossless Scaling folder>']   (or set the LS_DIR environment variable) [-Game WowB]
+#   powershell -File deploy.ps1 -What host|nr|dlaa|fsr|xess|vsr|upscalers|all [-StopLS] [-LsDir '<Lossless Scaling folder>']   (or set the LS_DIR environment variable) [-Game WowB]
 param(
-    [Parameter(Mandatory = $true)][ValidateSet('host', 'nr', 'dlaa', 'fsr', 'xess', 'vsr', 'all')][string]$What,
+    [Parameter(Mandatory = $true)][ValidateSet('host', 'nr', 'dlaa', 'fsr', 'xess', 'vsr', 'upscalers', 'all')][string]$What,
     [switch]$StopLS,
     [string]$LsDir = $(if ($env:LS_DIR) { $env:LS_DIR } else { 'C:\Program Files (x86)\Steam\steamapps\common\Lossless Scaling' }),
     [string]$Game = 'WowB'
@@ -42,7 +42,8 @@ if ($ls) {
     Stop-Process -Id $ls.Id; Start-Sleep 2
 }
 $stamp = Get-Date -Format 'yyyyMMdd-HHmmss'
-$names = if ($What -eq 'all') { @('host', 'nr', 'dlaa', 'fsr', 'xess') } else { @($What) }
+# upscalers: every upscaler addon for a side-by-side test (DLSS, FSR, XeSS and the VSR prototype), Neural Rendering and the host left as they are
+$names = if ($What -eq 'all') { @('host', 'nr', 'dlaa', 'fsr', 'xess') } elseif ($What -eq 'upscalers') { @('dlaa', 'fsr', 'xess', 'vsr') } else { @($What) }
 foreach ($n in $names) {
     $it = $items[$n]
     if (-not (Test-Path $it.Src)) { Write-Host "[$n] not built: $($it.Src)"; continue }

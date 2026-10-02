@@ -113,6 +113,18 @@ int main() {
         Check("a saved config without the setting takes the default (every 2nd frame)", LoadSettings(&host, "DLSS5NR01").config.modelEvery == 2);
         host.values["modelEvery"] = "1";
     }
+    {   // a new install (nothing saved) must load as the defaults of Config, field by field: 0.9.28 to 0.9.33 loaded Auto quality as off, 5 ms and 0.25 while Config said on, 6 ms and 0.6
+        StandInHost fresh; const Config d; const Config l = LoadSettings(&fresh, "DLSS5NR01").config;
+        Check("a new install has Auto quality on, as the defaults say", l.autoQuality == d.autoQuality && d.autoQuality);
+        Check("...with its time budget of the defaults", Same(l.autoBudgetMs, d.autoBudgetMs));
+        Check("...and its lowest resolution of the defaults", Same(l.autoFloor, d.autoFloor));
+        Check("...Run the model, the card limit and its percent", l.modelEvery == d.modelEvery && l.gpuLimit == d.gpuLimit && Same(l.gpuLimitPercent, d.gpuLimitPercent));
+        Check("...the model's look (resolution ceiling, smoothing, sharpen, dark guard)", Same(l.p.workingScale, d.p.workingScale) && Same(l.p.deltaSmooth, d.p.deltaSmooth) && Same(l.p.sharpen, d.p.sharpen) && Same(l.p.darkGuard, d.p.darkGuard));
+        Check("...the switches", l.enabled == d.enabled && l.hotkeys == d.hotkeys && l.presentMode == d.presentMode && l.freshFlow == d.freshFlow && l.lsFirst == d.lsFirst && l.gameAuto == d.gameAuto &&
+                                 l.scalerGpuWait == d.scalerGpuWait && l.scalerFastMotion == d.scalerFastMotion && l.scalerReuseMotion == d.scalerReuseMotion && l.frameGenGuard == d.frameGenGuard && l.scalerPerGame == d.scalerPerGame);
+        Check("...the numbers", l.dlaaPreset == d.dlaaPreset && l.watchdogMs == d.watchdogMs && Same(l.scalerLeanRest, d.scalerLeanRest) && Same(l.scalerMoveCut, d.scalerMoveCut) && Same(l.scalerSteadySharp, d.scalerSteadySharp) &&
+                                  l.recordBudgetMb == d.recordBudgetMb && Same(l.recordSeconds, d.recordSeconds) && l.keyAB == d.keyAB && l.keyRecord == d.keyRecord && l.defaultsVersion == d.defaultsVersion);
+    }
     {   // 0.9.28 saved a 1 into configs that never had the setting: a file under no defaults version gets the default once; a 1 chosen after that stays
         host.values["modelEvery"] = "1"; host.values.erase("defaultsVersion");
         Check("a 1 from a file written before the defaults' version becomes the default (the 0.9.28 upgrade)", LoadSettings(&host, "DLSS5NR01").config.modelEvery == 2);

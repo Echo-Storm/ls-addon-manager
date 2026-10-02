@@ -1,5 +1,15 @@
 # Changelog
 
+## 0.9.35 (not released)
+
+- **Neural Rendering: a new install now gets the defaults it was meant to (Auto quality on, 6 ms, lowest 0.6).** Releases 0.9.28 to 0.9.34 said so in these notes, but the code that loads the settings fell back to Auto quality **off**, 5 ms and 0.25 for anything never saved, while the model resolution default went up to 1.0: a new install ran the model at the full frame size with nothing to bring it down, which on a card like an RTX 4090 meant the card at 99 % (the player who reported that, and found a 95 % limit fixed it, had very likely hit this). A setting that was saved is kept as it is, so a config written by an affected build still has Auto quality off until it is switched on in the panel. The loader now takes every fallback from the defaults themselves (`Config`), and the settings test checks a new install field by field against them.
+- **The Video Super Resolution test addon is in the package, with the NVIDIA Video Effects SDK files it needs** (`addons/VSRUPSC/vfx/`, about 66 MB: `NVCVImage`, `NVVideoEffects`, `nvngxruntime`, `cudart64_12`, `libcrypto-3-x64`, `nvngx_vsr`, `nvVFXVideoSuperRes`, and NVIDIA's licence documents). It is for testing and is a prototype; a download option for files like these is planned, and NOTICE.md says the terms still need a review. It stays off until switched on and conflicts with the other upscalers.
+- **The auto quality step down at a scale a hair above the floor can no longer go below the floor** (`std::clamp` with its low end above its high end).
+- **The live "keeps up" figure no longer shows a wrong number for a moment** after the model's counters start again (an unsigned difference of two counts that restarted).
+- **Choosing a damaged DLL for a runtime slot** (Runtimes list, Add) no longer reads from a wild address when its export table lies outside its sections; it is refused.
+- **Installing an addon from a folder or zip that fails halfway** no longer leaves a half-filled addon folder that makes the next try say "already installed".
+- `tools/deploy.ps1 -What upscalers` puts the DLSS, FSR, XeSS and VSR addons in the Lossless Scaling folder for a side-by-side test, Neural Rendering left as it is.
+
 ## 0.9.34 (2026-10-02)
 
 - **The XeSS Upscaler is back in the package.** Releases 0.9.28 to 0.9.33 were packaged without it (no `XESSUPSC` folder, no `libxess.dll`; the zip fell from about 117 MB to about 57 MB): Intel's XeSS SDK was missing from the checkout the release is built in, so the addon was not built, and `package.ps1` only printed a line saying so. Nothing in the XeSS code changed; it is built again against the same pinned Intel SDK (3.0.2, `libxess.dll` 2.0.2.68, hashes checked by `tools/fetch_xess_sdk.ps1`). Anyone who installed 0.9.28 to 0.9.33 and uses XeSS should install this one; 0.9.27 and earlier had it.

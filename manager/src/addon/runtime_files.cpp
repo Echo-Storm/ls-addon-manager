@@ -154,7 +154,7 @@ bool ReadDllExports(const std::wstring& path, std::vector<std::string>& names) {
     std::ifstream in(std::filesystem::path(path), std::ios::binary);
     if (!in) return false;
     const std::vector<char> data((std::istreambuf_iterator<char>(in)), std::istreambuf_iterator<char>());
-    auto at = [&](size_t off, size_t n) { return off + n <= data.size() ? data.data() + off : nullptr; };
+    auto at = [&](size_t off, size_t n) { return off <= data.size() && n <= data.size() - off ? data.data() + off : nullptr; };   // (offsetOf's (size_t)-1 for an address outside every section must not wrap around)
     const auto* dos = reinterpret_cast<const IMAGE_DOS_HEADER*>(at(0, sizeof(IMAGE_DOS_HEADER)));
     if (!dos || dos->e_magic != IMAGE_DOS_SIGNATURE) return false;
     const auto* nt = reinterpret_cast<const IMAGE_NT_HEADERS64*>(at((size_t)dos->e_lfanew, sizeof(IMAGE_NT_HEADERS64)));

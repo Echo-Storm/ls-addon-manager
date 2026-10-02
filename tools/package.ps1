@@ -53,10 +53,22 @@ $addons = @(
                   # Microsoft's Direct3D 12 Agility SDK core, beside that runtime: the FSR Upscaler makes its device on it (issue #11; tools\fetch_agility_sdk.ps1)
                   'runtimes\FSR\0dd77d9c\D3D12Core.dll' = "$root\addons\DLSS5NR01\external\agility\D3D12Core.dll";
                   'runtimes\FSR\0dd77d9c\Microsoft-D3D12-LICENSE.txt' = "$root\addons\DLSS5NR01\external\agility\LICENSE.txt" } },
-    # Video Super Resolution (prototype): its own small addon (src\vsr), built only with the user's own NVIDIA Video Effects SDK in external\vfx; work in progress, so only with -IncludeWip.
-    # Nothing of NVIDIA's is in it: the SDK stays in the person's folder.
-    @{ Id = 'VSRUPSC'; Wip = $true; Dir = "$root\addons\DLSS5NR01\products\VSRUPSC"; Bin = "$root\addons\DLSS5NR01\build\Release"; Files = @('VSRUPSC.dll');
-       Extra = @{ 'LICENSE.txt' = "$root\addons\DLSS5NR01\LICENSE" } },
+    # Video Super Resolution (prototype): its own small addon (src\vsr). It is in the package so that people can test it (the owner, 2026-10-02: strip it later, no one can test without it;
+    # a download option for NVIDIA's files is to come). The files of NVIDIA's Video Effects SDK it needs (about 66 MB of the SDK's 1.6 GB, found by taking files out until it stopped working)
+    # go in its vfx folder, where it looks by default (setting vfxDir), with the SDK's licences. Packaging needs the SDK in external\vfx_x64.
+    @{ Id = 'VSRUPSC'; Dir = "$root\addons\DLSS5NR01\products\VSRUPSC"; Bin = "$root\addons\DLSS5NR01\build\Release"; Files = @('VSRUPSC.dll');
+       Extra = @{ 'LICENSE.txt' = "$root\addons\DLSS5NR01\LICENSE";
+                  'vfx\bin\NVCVImage.dll' = "$root\addons\DLSS5NR01\external\vfx_x64\bin\NVCVImage.dll";
+                  'vfx\bin\NVVideoEffects.dll' = "$root\addons\DLSS5NR01\external\vfx_x64\bin\NVVideoEffects.dll";
+                  'vfx\bin\nvngxruntime.dll' = "$root\addons\DLSS5NR01\external\vfx_x64\bin\nvngxruntime.dll";
+                  'vfx\bin\cudart64_12.dll' = "$root\addons\DLSS5NR01\external\vfx_x64\bin\cudart64_12.dll";
+                  'vfx\bin\libcrypto-3-x64.dll' = "$root\addons\DLSS5NR01\external\vfx_x64\bin\libcrypto-3-x64.dll";
+                  'vfx\bin\ThirdPartyLicenses.txt' = "$root\addons\DLSS5NR01\external\vfx_x64\bin\ThirdPartyLicenses.txt";
+                  'vfx\features\nvvfxvideosuperres\bin\nvngx_vsr.dll' = "$root\addons\DLSS5NR01\external\vfx_x64\features\nvvfxvideosuperres\bin\nvngx_vsr.dll";
+                  'vfx\features\nvvfxvideosuperres\bin\nvVFXVideoSuperRes.dll' = "$root\addons\DLSS5NR01\external\vfx_x64\features\nvvfxvideosuperres\bin\nvVFXVideoSuperRes.dll";
+                  'vfx\license\NVIDIA-Software-License-Agreement-2025.05.05.pdf' = "$root\addons\DLSS5NR01\external\vfx_x64\license\NVIDIA-Software-License-Agreement-2025.05.05.pdf";
+                  'vfx\license\product-specific-terms-for-nvidia-ai-products-2025.05.05.pdf' = "$root\addons\DLSS5NR01\external\vfx_x64\license\product-specific-terms-for-nvidia-ai-products-2025.05.05.pdf";
+                  'vfx\license\NVIDIA-Open-Model-License-Agreements-24-10-2025.pdf' = "$root\addons\DLSS5NR01\external\vfx_x64\license\NVIDIA-Open-Model-License-Agreements-24-10-2025.pdf" } },
     # XeSS Upscaler: the same sources again; Intel's XeSS runtime (Intel Simplified Software License, signed by Intel) ships in its xess folder,
     # with Intel's licence next to it, as that licence asks (tools\fetch_xess_sdk.ps1)
     @{ Id = 'XESSUPSC'; Dir = "$root\addons\DLSS5NR01\products\XESSUPSC"; Bin = "$root\addons\DLSS5NR01\build\Release"; Files = @('XESSUPSC.dll');

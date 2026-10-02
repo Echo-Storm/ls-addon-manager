@@ -222,17 +222,20 @@ Loaded LoadSettings(IHost* host, const char* id) {
     s_recorderSeen = { true, c.recordOn, c.recordSeconds, c.recordBudgetMb, c.recordFolder };   // what the other addons are told only when it changes (SaveSettings)
     c.recordSaveAfter = std::max(0, integer("recordSaveAfter", 0));
     c.screenshotFolder = text("screenshotFolder");
-    c.autoQuality = flag("autoQuality", false);
-    c.autoBudgetMs = std::clamp(static_cast<float>(number("autoBudgetMs", 5.0)), 2.0f, 15.0f);
-    c.autoFloor = std::clamp(static_cast<float>(number("autoFloor", 0.25)), 0.25f, 1.0f);
+    // (the fallback of each is the default of Config, never a number written here: 0.9.28 to 0.9.33 fell back to auto off, 5 ms and 0.25 while the defaults were on, 6 ms and 0.6,
+    // so a new install ran the model at its full size with nothing to bring it down)
+    const Config base;
+    c.autoQuality = flag("autoQuality", base.autoQuality);
+    c.autoBudgetMs = std::clamp(static_cast<float>(number("autoBudgetMs", base.autoBudgetMs)), 2.0f, 15.0f);
+    c.autoFloor = std::clamp(static_cast<float>(number("autoFloor", base.autoFloor)), 0.25f, 1.0f);
     c.autoScaleLast = std::clamp(static_cast<float>(number("autoScaleLast", 0.0)), 0.0f, 1.0f);
-    c.modelEvery = std::clamp(static_cast<int>(number("modelEvery", Config().modelEvery)), 1, 4);
-    c.gpuLimit = flag("gpuLimit", false);
-    c.gpuLimitPercent = std::clamp(static_cast<float>(number("gpuLimitPercent", 95.0)), 80.0f, 100.0f);
+    c.modelEvery = std::clamp(static_cast<int>(number("modelEvery", base.modelEvery)), 1, 4);
+    c.gpuLimit = flag("gpuLimit", base.gpuLimit);
+    c.gpuLimitPercent = std::clamp(static_cast<float>(number("gpuLimitPercent", base.gpuLimitPercent)), 80.0f, 100.0f);
     // 0.9.28 made every 2nd frame the default, but that build loaded a file without the setting as 1 and saved it back, so a 1 from a file older than the defaults' version 1
     // is not a choice (nobody could have made it before 0.9.28): it becomes the default, once. The version is saved with the next save; a 1 chosen after that stays.
     c.defaultsVersion = std::max(0, integer("defaultsVersion", 0));
-    if (c.defaultsVersion < 1) { if (c.modelEvery == 1) c.modelEvery = Config().modelEvery; c.defaultsVersion = 1; }
+    if (c.defaultsVersion < 1) { if (c.modelEvery == 1) c.modelEvery = base.modelEvery; c.defaultsVersion = 1; }
     c.gameAuto = flag("gameAuto", true);
     c.scalerPerGame = flag("scalerPerGame", true);
     for (const std::string& exe : SplitList(text("scalerGameList"))) {

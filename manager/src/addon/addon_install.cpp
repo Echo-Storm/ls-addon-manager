@@ -96,7 +96,12 @@ PlaceResult PlaceAddon(const fs::path& src, const fs::path& addonsDir) {
     fs::create_directories(dest, ec);
     fs::copy(srcDir, dest, fs::copy_options::recursive | fs::copy_options::skip_existing, ec);
     cleanup();
-    if (ec) { r.message = "Could not copy the addon: " + ec.message(); return r; }
+    if (ec) {
+        const std::string why = ec.message();
+        fs::remove_all(dest, ec);   // the folder made just above, half filled: a second try would find it and say the addon is already installed
+        r.message = "Could not copy the addon: " + why;
+        return r;
+    }
     r.ok = true; r.dest = dest;
     return r;
 }

@@ -124,6 +124,7 @@ void PublishLive(const NrStats& st) {
     if (now - slowAt >= 200) {   // five times a second is plenty for the rest
         slowAt = now;
         const uint64_t runs = g_bridge.Runs(), skipped = g_bridge.Skipped();
+        if (runs < runsBefore || skipped < skippedBefore) runsBefore = skippedBefore = 0;   // the bridge started again (its counts begin at 0): not a huge unsigned difference
         const uint64_t newRuns = runs - runsBefore, newSkipped = skipped - skippedBefore;
         runsBefore = runs; skippedBefore = skipped;
         if (newRuns + newSkipped) keepUp = 100.0 * newRuns / static_cast<double>(newRuns + newSkipped);
@@ -152,6 +153,7 @@ void UpdateFindings(int frames, float p50, float p95, float p99, const NrStats* 
     if (st) {
         static uint64_t runsBefore = 0, skippedBefore = 0;
         const uint64_t runs = g_bridge.Runs(), skipped = g_bridge.Skipped();
+        if (runs < runsBefore || skipped < skippedBefore) runsBefore = skippedBefore = 0;   // (as in PublishLive)
         const uint64_t newRuns = runs - runsBefore, newSkipped = skipped - skippedBefore;
         runsBefore = runs; skippedBefore = skipped;
         d.model = true; d.modelMs = static_cast<float>(g_avgModelMs); d.startMs = static_cast<float>(st->startMs);

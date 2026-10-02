@@ -105,7 +105,8 @@ bool AutoQuality::Update(uint64_t nowMs, float modelMs, float frameIntervalMs, f
         m_underSince = 0; m_settled = false;
         if (!m_overSince) m_overSince = nowMs;
         if (nowMs - m_overSince < kOverFor || (m_lastChange && nowMs - m_lastChange < kDownPause)) return false;
-        return Change(nowMs, std::clamp(ScaleFor(budget * kAim), std::max(floor, m_scale * kMaxDrop), m_scale - 0.01f));
+        const float lowest = std::max(floor, m_scale * kMaxDrop);   // (a scale a hair above the floor: the step down must not go below it, and std::clamp needs lo <= hi)
+        return Change(nowMs, std::clamp(ScaleFor(budget * kAim), lowest, std::max(lowest, m_scale - 0.01f)));
     }
     m_settled = m_avgMs <= budget * 1.1f;
     if (m_avgMs < budget * 0.7f && m_scale < ceiling - 0.001f) {

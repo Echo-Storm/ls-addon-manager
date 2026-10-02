@@ -48,6 +48,21 @@ int main(int argc, char** argv) {
     Check(!after.empty() && after[0].loaded, "now a tick: the same file, however its path was written");
     if (module) FreeLibrary(module);
 
+    {   // a DLL a person picked by hand that is damaged: the export directory's address lies outside every section (and there are none). It must be refused, not read from a wild pointer.
+        std::string pe(0x200, '\0');
+        IMAGE_DOS_HEADER dos{}; dos.e_magic = IMAGE_DOS_SIGNATURE; dos.e_lfanew = 0x40;
+        IMAGE_NT_HEADERS64 nt{}; nt.Signature = IMAGE_NT_SIGNATURE; nt.FileHeader.Characteristics = IMAGE_FILE_DLL; nt.FileHeader.NumberOfSections = 0;
+        nt.FileHeader.SizeOfOptionalHeader = sizeof nt.OptionalHeader; nt.OptionalHeader.Magic = IMAGE_NT_OPTIONAL_HDR64_MAGIC;
+        nt.OptionalHeader.DataDirectory[IMAGE_DIRECTORY_ENTRY_EXPORT].VirtualAddress = 0x5000; nt.OptionalHeader.DataDirectory[IMAGE_DIRECTORY_ENTRY_EXPORT].Size = 0x100;
+        memcpy(&pe[0], &dos, sizeof dos); memcpy(&pe[0x40], &nt, sizeof nt);
+        const std::wstring bad = dir + L"\\damaged_test.dll";
+        if (FILE* f = _wfopen(bad.c_str(), L"wb")) { fwrite(pe.data(), 1, pe.size(), f); fclose(f); }
+        std::vector<std::string> names;
+        const bool read = ReadDllExports(bad, names);
+        Check(!read, "a DLL whose export directory points outside its sections is refused", read ? "was accepted" : "");
+        DeleteFileW(bad.c_str());
+    }
+
     printf(g_failures ? "\nRUNTIME TEST FAILED (%d)\n" : "\nRUNTIME TEST PASSED\n", g_failures);
     return g_failures ? 1 : 0;
 }
