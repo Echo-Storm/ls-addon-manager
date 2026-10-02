@@ -9,8 +9,11 @@
 // With save=, each mode's output is written as a BMP there (and the input and the truth).
 #include "nvCVImage.h"
 #include "nvVideoEffects.h"
+#include "nvTransferD3D11.h"
 #include "nvVFXVideoSuperRes.h"
 #include <windows.h>
+#include <d3d11.h>
+#include <dxgi.h>
 #include <algorithm>
 #include <chrono>
 #include <cmath>
@@ -157,11 +160,73 @@ static int RunSequence(const std::string& folder, const std::string& models, dou
     return 0;
 }
 
+// ---- the hand-over test (handover=1): what it costs to get a Direct3D 11 frame to VSR (CUDA buffers) and back, which is how a frame of Lossless Scaling would travel.
+// A D3D11 device on the NVIDIA card, an input texture and an output texture (BGRA8), the SDK's own transfers between them and the CUDA buffers the effect works on. Per stage (each waited for)
+// and end to end without waiting in between, against the effect's run alone.
+static void Sync(CUstream stream, NvCVImage& gpuImage) {   // waits for everything queued on the stream: a small corner copied back
+    NvCVImage corner{}, cornerCpu{}; unsigned char pixels[16 * 16 * 4]; NvCVImage_InitView(&corner, &gpuImage, 0, 0, 16, 16);
+    NvCVImage_Init(&cornerCpu, 16, 16, 16 * 4, pixels, NVCV_BGRA, NVCV_U8, NVCV_CHUNKY, NVCV_CPU); NvCVImage_Transfer(&corner, &cornerCpu, 1.0f, stream, nullptr);
+}
+
+static int RunHandover(const Rgba& input, int ow, int oh, int mode, int runs, CUstream stream, const std::string& models) {
+    IDXGIFactory1* factory = nullptr; CreateDXGIFactory1(IID_PPV_ARGS(&factory));
+    IDXGIAdapter1* adapter = nullptr;
+    for (UINT i = 0; factory && factory->EnumAdapters1(i, &adapter) == S_OK; ++i) { DXGI_ADAPTER_DESC1 d; adapter->GetDesc1(&d); if (d.VendorId == 0x10DE) break; adapter->Release(); adapter = nullptr; }
+    if (!adapter) { printf("no NVIDIA adapter\n"); return 1; }
+    DXGI_ADAPTER_DESC1 ad; adapter->GetDesc1(&ad); printf("card: %ls\n", ad.Description);
+    ID3D11Device* dev = nullptr; ID3D11DeviceContext* ctx = nullptr; D3D_FEATURE_LEVEL fl;
+    if (FAILED(D3D11CreateDevice(adapter, D3D_DRIVER_TYPE_UNKNOWN, nullptr, D3D11_CREATE_DEVICE_BGRA_SUPPORT, nullptr, 0, D3D11_SDK_VERSION, &dev, &fl, &ctx))) { printf("D3D11CreateDevice failed\n"); return 1; }
+    const int iw = input.w, ih = input.h;
+    auto makeTex = [&](int w, int h, const void* data) {
+        D3D11_TEXTURE2D_DESC d{}; d.Width = w; d.Height = h; d.MipLevels = 1; d.ArraySize = 1; d.Format = DXGI_FORMAT_B8G8R8A8_UNORM; d.SampleDesc.Count = 1; d.Usage = D3D11_USAGE_DEFAULT;
+        d.BindFlags = D3D11_BIND_SHADER_RESOURCE | D3D11_BIND_RENDER_TARGET | D3D11_BIND_UNORDERED_ACCESS;
+        D3D11_SUBRESOURCE_DATA sd{ data, static_cast<UINT>(w * 4), 0 }; ID3D11Texture2D* t = nullptr; dev->CreateTexture2D(&d, data ? &sd : nullptr, &t); return t; };
+    ID3D11Texture2D* texIn = makeTex(iw, ih, input.px.data()); ID3D11Texture2D* texOut = makeTex(ow, oh, nullptr);
+    if (!texIn || !texOut) { printf("could not make the textures\n"); return 1; }
+    ID3D11Query* done = nullptr; { D3D11_QUERY_DESC q{ D3D11_QUERY_EVENT, 0 }; dev->CreateQuery(&q, &done); }
+    auto d3dWait = [&] { ctx->Flush(); ctx->End(done); BOOL b = FALSE; while (ctx->GetData(done, &b, sizeof b, 0) != S_OK || !b) { b = FALSE; Sleep(0); } };
+
+    NvVFX_Handle fx = nullptr; NvCVImage gIn{}, gOut{}, dIn{}, dOut{};
+    if (const char* e = Check(NvVFX_CreateEffect(NVVFX_FX_VIDEO_SUPER_RES, &fx), "create")) { printf("%s\n", e); return 1; }
+    NvVFX_SetCudaStream(fx, NVVFX_CUDA_STREAM, stream); NvVFX_SetString(fx, NVVFX_MODEL_DIRECTORY, models.c_str()); NvVFX_SetU32(fx, NVVFX_QUALITY_LEVEL, static_cast<unsigned>(mode));
+    NvCVImage_Alloc(&gIn, iw, ih, NVCV_BGRA, NVCV_U8, NVCV_CHUNKY, NVCV_GPU, 1); NvCVImage_Alloc(&gOut, ow, oh, NVCV_BGRA, NVCV_U8, NVCV_CHUNKY, NVCV_GPU, 1);
+    NvVFX_SetImage(fx, NVVFX_INPUT_IMAGE, &gIn); NvVFX_SetImage(fx, NVVFX_OUTPUT_IMAGE, &gOut);
+    if (const char* e = Check(NvVFX_Load(fx), "load")) { printf("%s\n", e); return 1; }
+    if (const char* e = Check(NvCVImage_InitFromD3D11Texture(&dIn, texIn), "InitFromD3D11Texture(in)")) { printf("%s\n", e); return 1; }
+    if (const char* e = Check(NvCVImage_InitFromD3D11Texture(&dOut, texOut), "InitFromD3D11Texture(out)")) { printf("%s\n", e); return 1; }
+    NvCVImage tmpIn{}, tmpOut{};   // (the transfer may want a scratch image of its own; it makes one when it is empty and keeps it)
+    auto now = [] { return std::chrono::steady_clock::now(); };
+    auto ms = [](std::chrono::steady_clock::time_point a, std::chrono::steady_clock::time_point b) { return std::chrono::duration<double, std::milli>(b - a).count(); };
+    double bestUp = 1e9, bestRun = 1e9, bestDown = 1e9, bestAll = 1e9, bestPipe = 1e9; bool ok = true;
+    for (int r = 0; r < runs + 4 && ok; ++r) {
+        const auto t0 = now();
+        if (const char* e = Check(NvCVImage_Transfer(&dIn, &gIn, 1.0f, stream, &tmpIn), "D3D11 to CUDA")) { printf("%s\n", e); ok = false; break; }
+        Sync(stream, gIn); const auto t1 = now();
+        if (const char* e = Check(NvVFX_Run(fx, 0), "run")) { printf("%s\n", e); ok = false; break; }
+        Sync(stream, gOut); const auto t2 = now();
+        if (const char* e = Check(NvCVImage_Transfer(&gOut, &dOut, 1.0f, stream, &tmpOut), "CUDA to D3D11")) { printf("%s\n", e); ok = false; break; }
+        Sync(stream, gOut); d3dWait(); const auto t3 = now();
+        if (r >= 4) { bestUp = std::min(bestUp, ms(t0, t1)); bestRun = std::min(bestRun, ms(t1, t2)); bestDown = std::min(bestDown, ms(t2, t3)); bestAll = std::min(bestAll, ms(t0, t3)); }
+        // the same without waiting in between
+        const auto p0 = now();
+        NvCVImage_Transfer(&dIn, &gIn, 1.0f, stream, &tmpIn); NvVFX_Run(fx, 0); NvCVImage_Transfer(&gOut, &dOut, 1.0f, stream, &tmpOut);
+        Sync(stream, gOut); d3dWait(); const auto p1 = now();
+        if (r >= 4) bestPipe = std::min(bestPipe, ms(p0, p1));
+    }
+    if (ok) {
+        printf("\nD3D11 %dx%d -> %dx%d, mode %d, best of %d (a card that is also doing other things, so a little pessimistic):\n", iw, ih, ow, oh, mode, runs);
+        printf("  D3D11 to CUDA   %6.2f ms\n  VSR run         %6.2f ms\n  CUDA to D3D11   %6.2f ms\n  the three, waited for each   %6.2f ms\n  the three queued together    %6.2f ms   (what a frame would cost)\n", bestUp, bestRun, bestDown, bestAll, bestPipe);
+        printf("  hand-over alone (queued together minus the run): %.2f ms\n", bestPipe - bestRun);
+    }
+    NvVFX_DestroyEffect(fx); NvCVImage_Dealloc(&gIn); NvCVImage_Dealloc(&gOut);
+    return ok ? 0 : 1;
+}
+
 int main(int argc, char** argv) {
     if (argc < 2) { printf("nr_vfxprobe <frame.bmp> [vfx=<SDK folder>] [factor=2] [modes=0,1,2,3,4] [runs=30] [save=<folder>]\nnr_vfxprobe seq=<folder of frame_*.bmp> [vfx=...] [factor=1.5] [modes=0,1,3] [frames=40] [save=<folder>]   (steadiness from frame to frame)\n"); return 2; }
-    std::string vfx = "..\\..\\external\\vfx", save, seq, modes = "0,1,2,3,4"; double factor = 2.0; int runs = 30, maxFrames = 40;
+    std::string vfx = "..\\..\\external\\vfx", save, seq, modes = "0,1,2,3,4"; double factor = 2.0; int runs = 30, maxFrames = 40; bool handover = false;
     for (int i = 1; i < argc; ++i) {
-        if (!strncmp(argv[i], "seq=", 4)) seq = argv[i] + 4; else if (!strncmp(argv[i], "frames=", 7)) maxFrames = std::max(3, atoi(argv[i] + 7));
+        if (!strcmp(argv[i], "handover=1")) handover = true; else if (!strncmp(argv[i], "seq=", 4)) seq = argv[i] + 4; else if (!strncmp(argv[i], "frames=", 7)) maxFrames = std::max(3, atoi(argv[i] + 7));
         else if (!strncmp(argv[i], "vfx=", 4)) vfx = argv[i] + 4; else if (!strncmp(argv[i], "factor=", 7)) factor = atof(argv[i] + 7);
         else if (!strncmp(argv[i], "modes=", 6)) modes = argv[i] + 6; else if (!strncmp(argv[i], "runs=", 5)) runs = std::max(1, atoi(argv[i] + 5)); else if (!strncmp(argv[i], "save=", 5)) save = argv[i] + 5;
     }
@@ -192,6 +257,7 @@ int main(int argc, char** argv) {
     CUstream stream = nullptr;
     if (const char* e = Check(NvVFX_CudaStreamCreate(&stream), "NvVFX_CudaStreamCreate")) { printf("%s\n(is the SDK in %s, with the CUDA runtime beside it and an NVIDIA card?)\n", e, bin.c_str()); return 1; }
 
+    if (handover) return RunHandover(input, truth.w, truth.h, atoi(modes.c_str()), runs, stream, models);
     printf("\n%-5s %-14s %9s %8s %9s\n", "mode", "name", "ms (best)", "PSNR", "detail");
     static const char* names[] = { "VSR_Bicubic", "VSR_Low", "VSR_Medium", "VSR_High", "VSR_Ultra" };
     for (size_t pos = 0; pos < modes.size();) {

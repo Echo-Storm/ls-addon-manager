@@ -177,6 +177,7 @@ set(VFX_DIR ${CMAKE_SOURCE_DIR}/external/vfx CACHE PATH "the NVIDIA Video Effect
 if(EXISTS ${VFX_DIR}/nvvfx/include/nvVideoEffects.h AND EXISTS ${VFX_DIR}/features/nvvfxvideosuperres/include/nvVFXVideoSuperRes.h)
   add_executable(nr_vfxprobe tools/vfx_probe.cpp ${VFX_DIR}/nvvfx/src/nvVideoEffectsProxy.cpp ${VFX_DIR}/nvvfx/src/nvCVImageProxy.cpp)
   target_include_directories(nr_vfxprobe PRIVATE ${VFX_DIR}/nvvfx/include ${VFX_DIR}/features/nvvfxvideosuperres/include)
+  target_link_libraries(nr_vfxprobe PRIVATE d3d11 dxgi)
 endif()
 # nr_gpuloadtest: the card-load sensor of the "Keep the graphics card under a limit" setting, read a few times (tools/gpu_load_test.cpp)
 add_executable(nr_gpuloadtest tools/gpu_load_test.cpp src/addon/gpu_load.cpp)
