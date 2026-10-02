@@ -1,0 +1,18 @@
+# The addon's tests that need no NVIDIA SDK, no graphics card and no game (settings, auto quality, the "what is wrong" rules, the frame trace, the recorder's files), built on their
+# own so that a machine without NVIDIA's DLSS SDK (the GitHub Actions runner, tools\ci.ps1) can run them. The same sources and flags as the targets of the same names in ..\CMakeLists.txt.
+cmake_minimum_required(VERSION 3.20)
+project(DLSS5NR01Tests C CXX)
+set(CMAKE_CXX_STANDARD 17)
+set(CMAKE_MSVC_RUNTIME_LIBRARY "MultiThreaded$<$<CONFIG:Debug>:Debug>")
+add_definitions(-DUNICODE -D_UNICODE -DWIN32_LEAN_AND_MEAN -DNOMINMAX -D_CRT_SECURE_NO_WARNINGS)
+set(A ${CMAKE_SOURCE_DIR}/..)
+add_executable(nr_settingstest ${A}/tools/settings_test.cpp ${A}/src/addon/settings.cpp ${A}/src/addon/screenshot_pixels.cpp)
+target_include_directories(nr_settingstest PRIVATE ${A}/src ${A}/../../manager/sdk/include)
+add_executable(nr_autotest ${A}/tools/auto_test.cpp ${A}/src/addon/auto_quality.cpp)
+target_include_directories(nr_autotest PRIVATE ${A}/src)
+add_executable(nr_diagtest ${A}/tools/diag_test.cpp ${A}/src/addon/diagnosis.cpp)
+target_include_directories(nr_diagtest PRIVATE ${A}/src)
+add_executable(nr_tracetest ${A}/tools/trace_test.cpp ${A}/src/addon/frame_trace.cpp)
+target_include_directories(nr_tracetest PRIVATE ${A}/src)
+add_executable(nr_rectest ${A}/tools/record_test.cpp ${A}/src/addon/lsrec.cpp)
+target_include_directories(nr_rectest PRIVATE ${A}/src)

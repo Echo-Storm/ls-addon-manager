@@ -1,6 +1,6 @@
 # The tests that need neither a GPU nor a game nor NVIDIA's SDK, from a clean checkout: what the GitHub Actions build runs on every push, and what anyone can run to
 # see that a checkout is healthy. It configures and builds what it needs (Dear ImGui and MinHook are fetched at pinned versions), runs the tests, and builds the sample
-# addon the way its README describes. It does not build Neural Rendering (that needs NVIDIA's SDK, which cannot be redistributed) and does not open any window.
+# addon the way its README describes. It does not build Neural Rendering (that needs NVIDIA's SDK, which cannot be redistributed; only the addon's offline tests are built, from addons\DLSS5NR01\tests) and does not open any window.
 #   powershell -File tools\ci.ps1
 $ErrorActionPreference = 'Stop'
 $root = Split-Path $PSScriptRoot -Parent
@@ -36,6 +36,15 @@ Build "$root\installer\build" @('setup_core', 'setup_cli', 'setup_test', 'setup_
 Run 'installer core (fake Lossless Scaling folders)' "$root\installer\build\Release\setup_test.exe"
 Run 'installer file bundle' "$root\installer\build\Release\setup_payload_test.exe"
 Run 'Setup exe, silent mode' 'powershell' @('-NoProfile', '-File', "$root\installer\tests\setup_exe_test.ps1", '-Root', $root, '-NoWindow')
+
+Section 'the addon''s offline tests (settings, auto quality, diagnosis, frame trace, recorder files: no NVIDIA SDK, no card)'
+Configure "$root\addons\DLSS5NR01\tests" "$root\addons\DLSS5NR01\tests\build"
+Build "$root\addons\DLSS5NR01\tests\build" @('nr_settingstest', 'nr_autotest', 'nr_diagtest', 'nr_tracetest', 'nr_rectest')
+Run 'addon settings (a new install loads the defaults, saved settings load back)' "$root\addons\DLSS5NR01\tests\build\Release\nr_settingstest.exe"
+Run 'addon auto quality' "$root\addons\DLSS5NR01\tests\build\Release\nr_autotest.exe"
+Run 'addon what-is-wrong rules' "$root\addons\DLSS5NR01\tests\build\Release\nr_diagtest.exe"
+Run 'addon frame trace' "$root\addons\DLSS5NR01\tests\build\Release\nr_tracetest.exe"
+Run 'addon recorder files' "$root\addons\DLSS5NR01\tests\build\Release\nr_rectest.exe"
 
 Section 'the sample addon, built as its README says'
 Configure "$root\examples\SampleAddon" "$root\examples\SampleAddon\build"
