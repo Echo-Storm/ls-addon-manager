@@ -23,6 +23,7 @@ public:
                                                        // the result is moved along it, `offset` frames on (frame generation off)
         float offset = 0;                              // the presented frame minus d, in real frames
         float intensity = 1, maxDelta = 0.5f, hiProtect = 0.85f; uint32_t debugView = 0; bool isGen = false;
+        float darkGuard = 0.04f;                       // see NrParams: a pixel darker than this takes no positive change; 0 = off
         float ghostGuard = 0;                          // 0 = off: fades the delta where the two motion fields disagree, and with its age
         float sharpen = 0;                             // 0 = off; contrast-adaptive, on the composed frame
         float saturation = 1, vibrance = 0;            // colour: 1 and 0 = unchanged

@@ -1,5 +1,9 @@
 # Changelog
 
+## Unreleased
+
+- **Neural Rendering: the dark guard's range is a setting ("Dark guard", 0.040 by default, 0 to 0.15, 0 = off).** It was fixed at 0.04 in 0.9.28 (the owner looked at 0.02 and 0.04 and chose 0.04). Pixels darker than the value take no positive change from the model, fading in up to it. A wider value takes more of the glow off dark HUD panels at the price of the model's lift in real shadows. `nr_nreval` has `darkguard=` in percent. The edge-aware stretch of the model's result that was tried for the same glow did not help (the glow is the model's own output; handoff/BACKLOG.md), so this is the lever.
+
 ## 0.9.30 (2026-10-02)
 
 - **Neural Rendering: "Keep the graphics card under a limit" (under Auto, off by default, 95 % unless moved).** A reporter with an RTX 4090 at 99 % load in WoW (their own overlay) had the problem go away when they limited the card to 95 %; the log showed the model waiting about 4 ms behind the game's work. With the box ticked, auto quality reads the card's load once a second (NVML, NVIDIA cards only; `gpu_load.cpp`) and, when it stays at or above the limit for 3 s, treats it like slow game frames: the budget shrinks to 60 %, the resolution comes down, it does not go back up for a minute, and at the lowest resolution the model runs on every 2nd or 3rd frame. It lets go after 10 s at 8 points under the limit. It only takes the model's share off the card: a game that fills the card alone still needs a frame rate limit. `nr_autotest` covers it, `nr_gpuloadtest` reads the sensor.

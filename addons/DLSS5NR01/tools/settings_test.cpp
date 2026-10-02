@@ -125,6 +125,8 @@ int main() {
         host.values["modelEvery"] = "2"; host.values["defaultsVersion"] = "1";
     }
     {   // keeping the card under a limit
+        Check("the dark guard is 0.04 by default, kept to 0..0.15, and round trips", Same(NrParams().darkGuard, 0.04f) && Same(Config().p.darkGuard, 0.04f));
+        { Config d; d.p.darkGuard = 0.08f; SaveSettings(&host, "DLSS5NR01", d, {}); Check("...(0.08 saved loads back as 0.08)", Same(LoadSettings(&host, "DLSS5NR01").config.p.darkGuard, 0.08f)); host.values["darkGuard"] = "5"; Check("...(5 is kept to 0.15)", Same(LoadSettings(&host, "DLSS5NR01").config.p.darkGuard, 0.15f)); host.values["darkGuard"] = "0.04"; }
         Check("the card limit is off by default, at 95 %", !Config().gpuLimit && Same(Config().gpuLimitPercent, 95.0f));
         Config g; g.gpuLimit = true; g.gpuLimitPercent = 90.0f; SaveSettings(&host, "DLSS5NR01", g, {});
         const Config back2 = LoadSettings(&host, "DLSS5NR01").config;

@@ -49,7 +49,8 @@ cbuffer Constants : register(b0) {
     float4 hud[6];        // left, top, right, bottom, 0..1
     uint   encoding;      // the frame's: 0 SDR, 1 scRGB, 2 HDR10 (hdr_hlsl.h)
     float  white;         // the SDR white, in nits (HDR only)
-    float2 padA;
+    float  darkGuard;     // 0 off; else the picture value below which a pixel takes no positive change (fading in up to it)
+    float  padA;
     float4 viewport;      // where the frame is drawn in the buffer, in uv: x, y, w, h (0, 0, 1, 1: all of it). Outside it (the bars) nothing is changed
 };
 static const float3 kLuma = float3(0.299, 0.587, 0.114);
@@ -164,8 +165,8 @@ void CSCompose(uint3 id : SV_DispatchThreadID, uint3 gid : SV_GroupID, uint3 gt 
         const float ghost = GhostWeight(flow);
         const float highlightFade = hiProtect < 0.999 ? 1.0 - smoothstep(hiProtect, 1.0, dot(fs, kLuma)) : 1.0;
         // The model's result is smaller than the frame and is stretched over it, so next to a sharp edge (a HUD box on black) it spills onto the black side as a glow, and
-        // as a tint of the black (measured: a green lean, twice as strong at a quarter of the frame as at 0.6). A pixel at or near pure black (under 0.04 of the picture's own view, about 10 of 255) takes no positive change.
-        const float darkFade = smoothstep(0.0, 0.04, max(fs.r, max(fs.g, fs.b)));
+        // as a tint of the black (measured: a green lean, twice as strong at a quarter of the frame as at 0.6). A pixel darker than darkGuard (0.04 of the picture's own view, about 10 of 255, by default) takes no positive change.
+        const float darkFade = darkGuard > 0.0005 ? smoothstep(0.0, darkGuard, max(fs.r, max(fs.g, fs.b))) : 1.0;
         const float3 dFull = clamp(tDelta.SampleLevel(sLinear, uvInD, 0).rgb * ghost * intensity, -maxDelta, maxDelta) * highlightFade;
         const float3 d = lerp(min(dFull, 0.0), dFull, darkFade);
         c = saturate(fs + d);
@@ -239,7 +240,7 @@ struct Constants {
     float gamma, shadows, highlights, grain;
     uint32_t grainSeed; float grainSize; uint32_t hudCount; float hudFeather;
     float hud[6][4];
-    uint32_t encoding; float white; uint32_t pad[2];
+    uint32_t encoding; float white; float darkGuard; uint32_t pad;
     float viewport[4];
 };
 static_assert(offsetof(Constants, gamma) == 80 && offsetof(Constants, hud) == 112 && offsetof(Constants, encoding) == 208 && offsetof(Constants, viewport) == 224 && sizeof(Constants) == 240,
@@ -376,7 +377,7 @@ bool Compose11::Run(ID3D11DeviceContext* ctx, const Args& a) {
     c.saturation = a.saturation; c.vibrance = a.vibrance; c.brightness = a.brightness; c.contrast = a.contrast; c.gamma = a.gamma;
     c.shadows = a.shadows; c.highlights = a.highlights; c.grain = a.grain; c.grainSeed = a.grainSeed; c.grainSize = std::clamp(a.grainSize, 1.0f, 4.0f);
     c.hudCount = std::min(a.hudCount, 6u); c.hudFeather = a.hudFeather; memcpy(c.hud, a.hud, sizeof c.hud);
-    c.encoding = a.encoding; c.white = a.whiteNits > 1.0f ? a.whiteNits : 200.0f;
+    c.darkGuard = std::clamp(a.darkGuard, 0.0f, 0.15f); c.encoding = a.encoding; c.white = a.whiteNits > 1.0f ? a.whiteNits : 200.0f;
     for (int i = 0; i < 4; ++i) c.viewport[i] = a.viewport[i];
     D3D11_MAPPED_SUBRESOURCE mapped{};
     if (SUCCEEDED(ctx->Map(m_constants, 0, D3D11_MAP_WRITE_DISCARD, 0, &mapped))) { memcpy(mapped.pData, &c, sizeof c); ctx->Unmap(m_constants, 0); }

@@ -49,6 +49,7 @@ struct NrParams {
     float composeIntensity = 1.0f;// how much of the delta lands
     float maxDelta = 0.5f;        // limit on |delta|
     float ghostGuard = 0.5f;      // fades the delta where LSFG's two motion fields disagree and as the delta ages; 0 = off
+    float darkGuard = 0.04f;      // a pixel darker than this (the picture's own view, 0..1) takes no positive change from the model, fading in up to it; 0 = off (the glow of a bright HUD box on black, the green lean of black)
     float hiProtect = 0.85f;      // fades the delta as the source brightens from here to white (1 = off)
     float sharpen = 0.5f;         // contrast-adaptive sharpening of the presented frame, 0 = off (0.5 by default since 0.9.28)
     float saturation = 1.0f;      // colour intensity, 1 = unchanged, 0 = grey

@@ -647,6 +647,8 @@ void DrawPanel() {
         Tip("How much of the model's change is added to each presented frame. 1 = exactly what the model made; 0 = none; above 1 exaggerates it.");
         changed |= SL("Ghost guard", &c.p.ghostGuard, 0.0f, 1.0f, c.p.ghostGuard <= 0.001f ? "off" : "%.2f");
         Tip("Stops the faint copy of the previous frame that can trail moving things. The model works on an older frame and its change is moved onto the current one with Lossless Scaling's motion data; where that motion data is unreliable (the edge of a moving object, something just uncovered) the change lands in the wrong place. This fades the change out there, and a little more the older it is, and leaves still and steadily moving areas alone. 0 = off, 0.5 = a good start, 1 = strongest. To see where it acts, set Diagnostic view to Ghost guard: dark areas are faded.");
+        changed |= SL("Dark guard", &c.p.darkGuard, 0.0f, 0.15f, c.p.darkGuard <= 0.0005f ? "off" : "%.3f");
+        Tip("The model brightens dark areas and puts a faint glow around bright things such as a HUD box on a black screen, leaning green on black. Pixels darker than this take none of it (it fades in up to the value; 0.04 is about 10 of 255). Higher removes more of the glow on dark panels, at the price of the model's lift in real shadows; 0 turns it off.");
         changed |= SL("Limit per-pixel change", &c.p.maxDelta, 0.05f, 1.0f);
         Tip("The most any pixel's colour may be changed (0..1 of full range). Lower is safer and subtler; it stops the model from making harsh jumps.");
         changed |= SL("Protect bright areas from", &c.p.hiProtect, 0.5f, 1.0f, c.p.hiProtect >= 0.999f ? "off" : "%.2f");

@@ -785,7 +785,7 @@ void Compose(IDXGISwapChain* sc) {
             }
         }
     }
-    a.intensity = p.composeIntensity; a.maxDelta = p.maxDelta; a.ghostGuard = p.ghostGuard; a.hiProtect = p.hiProtect; a.debugView = p.debugView;
+    a.intensity = p.composeIntensity; a.maxDelta = p.maxDelta; a.ghostGuard = p.ghostGuard; a.darkGuard = p.darkGuard; a.hiProtect = p.hiProtect; a.debugView = p.debugView;
     a.sharpen = p.sharpen; a.saturation = p.saturation; a.vibrance = p.vibrance; a.brightness = p.brightness; a.contrast = p.contrast; a.gamma = p.gamma;
     a.shadows = p.shadows; a.highlights = p.highlights; a.grain = p.grain; a.grainSize = p.grainSize; a.grainSeed = static_cast<uint32_t>(g_presents);
     a.hudCount = p.hudCount; memcpy(a.hud, p.hud, sizeof a.hud); a.hudFeather = p.hudFeather; a.hudShow = g_showHud;

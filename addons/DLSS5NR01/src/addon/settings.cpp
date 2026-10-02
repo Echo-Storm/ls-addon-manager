@@ -38,6 +38,7 @@ const FloatSetting kFloats[] = {
     { "deltaSmooth",      &NrParams::deltaSmooth,      0.0f, 0.95f,  true },
     { "ghostGuard",       &NrParams::ghostGuard,       0.0f, 1.0f,   true },
     { "hudFeather",       &NrParams::hudFeather,       0.0f, 0.05f,  true },
+    { "darkGuard",        &NrParams::darkGuard,        0.0f, 0.15f,  true },
     { "flowUnit",         &NrParams::flowUnit,         0.25f, 16.0f, false },
 };
 const UIntSetting kUInts[] = {
