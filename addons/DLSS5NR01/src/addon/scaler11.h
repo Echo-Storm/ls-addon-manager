@@ -36,6 +36,8 @@ void ReleaseNisPass(NisPass& pass);
 // True when the last FindNisPass call was a NIS pass covering part of its output in a layout that could not be followed (NIS then stays,
 // and the panel says so); false after any other pass.
 bool NisLayoutRefused();
+// Forget what was read of NIS's constants (a device Lossless Scaling has replaced).
+void ResetNisViewports();
 
 class ScalerLink {
 public:

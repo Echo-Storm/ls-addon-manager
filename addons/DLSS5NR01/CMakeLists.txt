@@ -44,7 +44,7 @@ set(XESS_DIR ${CMAKE_SOURCE_DIR}/external/xess)
 set(NR_ADDON_SOURCES
     src/addon/addon.cpp src/addon/runtime.cpp src/addon/panel.cpp src/addon/tasks.cpp src/addon/settings.cpp src/addon/log.cpp
     src/addon/screenshot.cpp src/addon/screenshot_pixels.cpp src/addon/hud_editor.cpp src/addon/auto_quality.cpp src/addon/gpu_load.cpp src/addon/agility.cpp
-    src/addon/bridge.cpp src/addon/frame_tap.cpp src/addon/gpu_timer11.cpp src/addon/frame_trace.cpp src/addon/diagnosis.cpp
+    src/addon/bridge.cpp src/addon/nis_pass.cpp src/addon/frame_tap.cpp src/addon/gpu_timer11.cpp src/addon/frame_trace.cpp src/addon/diagnosis.cpp
     src/addon/present_hook.cpp src/addon/compose11.cpp src/addon/requirements.cpp src/addon/scaler11.cpp src/addon/framegen11.cpp src/addon/hdr.cpp src/addon/lsrec.cpp src/addon/recorder.cpp
     src/engine/nr_engine.cpp
     src/engine/dlaa_model.cpp src/engine/sr_engine.cpp src/engine/flow_estimator.cpp src/engine/fg_engine.cpp
@@ -178,6 +178,11 @@ if(EXISTS ${VFX_DIR}/nvvfx/include/nvVideoEffects.h AND EXISTS ${VFX_DIR}/featur
   add_executable(nr_vfxprobe tools/vfx_probe.cpp ${VFX_DIR}/nvvfx/src/nvVideoEffectsProxy.cpp ${VFX_DIR}/nvvfx/src/nvCVImageProxy.cpp)
   target_include_directories(nr_vfxprobe PRIVATE ${VFX_DIR}/nvvfx/include ${VFX_DIR}/features/nvvfxvideosuperres/include)
   target_link_libraries(nr_vfxprobe PRIVATE d3d11 dxgi)
+  # VSRUPSC: the Video Super Resolution prototype addon (src/vsr/vsr_addon.cpp), built only with the user's own Video Effects SDK
+  add_library(VSRUPSC SHARED src/vsr/vsr_addon.cpp src/addon/nis_pass.cpp src/addon/hdr.cpp ${VFX_DIR}/nvvfx/src/nvVideoEffectsProxy.cpp ${VFX_DIR}/nvvfx/src/nvCVImageProxy.cpp)
+  target_include_directories(VSRUPSC PRIVATE src ${CMAKE_SOURCE_DIR}/../../manager/sdk/include ${VFX_DIR}/nvvfx/include ${VFX_DIR}/features/nvvfxvideosuperres/include)
+  target_link_libraries(VSRUPSC PRIVATE d3d11 dxgi d3dcompiler)
+  set_target_properties(VSRUPSC PROPERTIES PREFIX "" OUTPUT_NAME "VSRUPSC")
 endif()
 # nr_gpuloadtest: the card-load sensor of the "Keep the graphics card under a limit" setting, read a few times (tools/gpu_load_test.cpp)
 add_executable(nr_gpuloadtest tools/gpu_load_test.cpp src/addon/gpu_load.cpp)
