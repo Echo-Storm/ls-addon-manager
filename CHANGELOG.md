@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## 0.9.31 (2026-10-02)
 
 - **The upscalers: two NIS-looking passes in a frame no longer disturb each other (issue #13, 3440x1440 with heavy performance loss on 0.9.27).** The reporter's log (`DLSS4DLAA.log`) shows two dispatches a frame with the same bindings: one with 48 bytes of constants, which the upscaler refuses ("NIS stays"), and the 3440x1441 pass it takes. They shared one reader of NIS's viewports, so each one's turn reset what the other had found: the constants were copied, mapped and logged again every frame (1504 lines in a minute) and the upscaler took the pass only now and then. There is one reader for each device, shape and bound constant buffer now (up to 8). Test host: `nisdecoy=1` adds the second pass, scenario `scaler_crop_3440_decoy`; before the fix that run logged the refusal 260 times and never took the real pass, after it the real pass is taken, the refusal is logged once and the borders stay untouched.
 - **Neural Rendering: the dark guard's range is a setting ("Dark guard", 0.040 by default, 0 to 0.15, 0 = off).** It was fixed at 0.04 in 0.9.28 (the owner looked at 0.02 and 0.04 and chose 0.04). Pixels darker than the value take no positive change from the model, fading in up to it. A wider value takes more of the glow off dark HUD panels at the price of the model's lift in real shadows. `nr_nreval` has `darkguard=` in percent. The edge-aware stretch of the model's result that was tried for the same glow did not help (the glow is the model's own output; handoff/BACKLOG.md), so this is the lever.
