@@ -7,4 +7,7 @@ them for it.
 The FSR Upscaler ships AMD's signed FSR 3.1.4 and uses it unless you choose this one: in LS Addon Manager, the + next to FSR in the
 Runtimes list (bottom left). Switching back is one click there too.
 
+Beside it is Microsoft's Direct3D 12 Agility SDK core (D3D12Core.dll, with Microsoft's licence). When this runtime is chosen, the FSR Upscaler
+makes its Direct3D 12 device on that core, as OptiScaler does with FsrAgilitySDKUpgrade; if Windows already has a core as new, nothing changes.
+
 SHA-256 0dd77d9c78d1ef9bc330cf4697ab3ffe24bc1aa7850e4130263dc922107fbd75

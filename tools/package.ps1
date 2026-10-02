@@ -46,7 +46,10 @@ $addons = @(
                   # the second choice in the manager's Runtimes list: FSR 4.1.1b, OptiScaler's build (tools\fetch_fsr4.ps1)
                   'runtimes\FSR\0dd77d9c\amd_fidelityfx_dx12.dll' = "$root\addons\DLSS5NR01\external\fsr4\amd_fidelityfx_dx12.dll";
                   'runtimes\FSR\0dd77d9c\ABOUT.txt' = "$root\addons\DLSS5NR01\products\FSR3UPSC\FSR4-ABOUT.txt";
-                  'runtimes\FSR\0dd77d9c\LICENSE.txt' = "$root\addons\DLSS5NR01\third_party\ffx4\LICENSE.txt" } },
+                  'runtimes\FSR\0dd77d9c\LICENSE.txt' = "$root\addons\DLSS5NR01\third_party\ffx4\LICENSE.txt";
+                  # Microsoft's Direct3D 12 Agility SDK core, beside that runtime: the FSR Upscaler makes its device on it (issue #11; tools\fetch_agility_sdk.ps1)
+                  'runtimes\FSR\0dd77d9c\D3D12Core.dll' = "$root\addons\DLSS5NR01\external\agility\D3D12Core.dll";
+                  'runtimes\FSR\0dd77d9c\Microsoft-D3D12-LICENSE.txt' = "$root\addons\DLSS5NR01\external\agility\LICENSE.txt" } },
     # XeSS Upscaler: the same sources again; Intel's XeSS runtime (Intel Simplified Software License, signed by Intel) ships in its xess folder,
     # with Intel's licence next to it, as that licence asks (tools\fetch_xess_sdk.ps1)
     @{ Id = 'XESSUPSC'; Dir = "$root\addons\DLSS5NR01\products\XESSUPSC"; Bin = "$root\addons\DLSS5NR01\build\Release"; Files = @('XESSUPSC.dll');

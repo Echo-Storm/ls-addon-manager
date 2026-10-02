@@ -43,7 +43,7 @@ add_dependencies(nr_selftest nr_forwarder)
 set(XESS_DIR ${CMAKE_SOURCE_DIR}/external/xess)
 set(NR_ADDON_SOURCES
     src/addon/addon.cpp src/addon/runtime.cpp src/addon/panel.cpp src/addon/tasks.cpp src/addon/settings.cpp src/addon/log.cpp
-    src/addon/screenshot.cpp src/addon/screenshot_pixels.cpp src/addon/hud_editor.cpp src/addon/auto_quality.cpp src/addon/gpu_load.cpp
+    src/addon/screenshot.cpp src/addon/screenshot_pixels.cpp src/addon/hud_editor.cpp src/addon/auto_quality.cpp src/addon/gpu_load.cpp src/addon/agility.cpp
     src/addon/bridge.cpp src/addon/frame_tap.cpp src/addon/gpu_timer11.cpp src/addon/frame_trace.cpp src/addon/diagnosis.cpp
     src/addon/present_hook.cpp src/addon/compose11.cpp src/addon/requirements.cpp src/addon/scaler11.cpp src/addon/framegen11.cpp src/addon/hdr.cpp src/addon/lsrec.cpp src/addon/recorder.cpp
     src/engine/nr_engine.cpp
@@ -130,7 +130,7 @@ endif()
 add_dependencies(nr_fgeval FSR3UPSC)   # (AMD's runtime, in the build's fsr folder)
 
 # nr_sreval: an upscaler scored offline on a recording (tools/sr_eval.cpp): each frame shrunk and upscaled back by the addon's own engine
-add_executable(nr_sreval tools/sr_eval.cpp src/addon/lsrec.cpp src/engine/sr_engine.cpp src/engine/flow_estimator.cpp)
+add_executable(nr_sreval tools/sr_eval.cpp src/addon/lsrec.cpp src/addon/agility.cpp src/engine/sr_engine.cpp src/engine/flow_estimator.cpp)
 target_include_directories(nr_sreval PRIVATE ${CMAKE_SOURCE_DIR}/src ${NGX_DIR}/include ${CMAKE_SOURCE_DIR}/third_party/ffx/include ${XESS_DIR}/inc)
 target_link_libraries(nr_sreval PRIVATE ${NGX_LIB} d3d12 dxgi d3dcompiler shell32)
 add_dependencies(nr_sreval FSR3UPSC)   # (AMD's runtime, in the build's fsr folder)
@@ -168,6 +168,10 @@ add_executable(nr_settingstest tools/settings_test.cpp src/addon/settings.cpp sr
 target_include_directories(nr_settingstest PRIVATE src ${CMAKE_SOURCE_DIR}/../../manager/sdk/include)
 
 # ---- offline test of auto quality (a simulated model)
+# nr_agilitytest: does the Agility SDK core in a folder become the process's Direct3D 12 core (tools/agility_test.cpp)
+add_executable(nr_agilitytest tools/agility_test.cpp src/addon/agility.cpp)
+target_include_directories(nr_agilitytest PRIVATE src)
+target_link_libraries(nr_agilitytest PRIVATE d3d12 dxgi version)
 # nr_gpuloadtest: the card-load sensor of the "Keep the graphics card under a limit" setting, read a few times (tools/gpu_load_test.cpp)
 add_executable(nr_gpuloadtest tools/gpu_load_test.cpp src/addon/gpu_load.cpp)
 target_include_directories(nr_gpuloadtest PRIVATE src)

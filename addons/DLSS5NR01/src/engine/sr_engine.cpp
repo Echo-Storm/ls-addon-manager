@@ -1,4 +1,5 @@
 #include "engine/sr_engine.h"
+#include "addon/agility.h"
 #include "engine/ngx_users.h"
 #include "engine/ngx_paths.h"
 #include "engine/hdr_hlsl.h"
@@ -461,7 +462,15 @@ bool SrEngine::Init(const LUID& card, const std::wstring& dataPath, const std::w
     }
     factory->Release();
     if (!adapter) { Fail("no graphics card with LUID %08x:%08x", card.HighPart, card.LowPart); return false; }
-    const HRESULT hr = D3D12CreateDevice(adapter, D3D_FEATURE_LEVEL_11_0, IID_PPV_ARGS(&m_dev));
+    // A runtime of someone else's (the FSR 4 INT8 build) that has D3D12Core.dll beside it gets a device on that Direct3D 12 core (issue #11); the shipped FSR 3.1.4 has none, so it is not touched.
+    HRESULT hr = E_FAIL;
+    if (backend == Backend::Fsr) {
+        std::string say;
+        if (nr::CreateDeviceOnAgility(runtimeDir, adapter, D3D_FEATURE_LEVEL_11_0, IID_PPV_ARGS(&m_dev), say)) hr = S_OK;
+        else if (GetFileAttributesW((runtimeDir + L"\\D3D12Core.dll").c_str()) != INVALID_FILE_ATTRIBUTES) Log("FSR upscaler: %s: Windows' Direct3D 12 runs instead", say.c_str());
+        if (SUCCEEDED(hr)) Log("FSR upscaler: %s", say.c_str());
+    }
+    if (FAILED(hr)) hr = D3D12CreateDevice(adapter, D3D_FEATURE_LEVEL_11_0, IID_PPV_ARGS(&m_dev));
     adapter->Release();
     if (FAILED(hr)) { Fail("D3D12CreateDevice 0x%08x", (unsigned)hr); return false; }
 

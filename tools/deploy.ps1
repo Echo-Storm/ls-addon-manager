@@ -24,6 +24,8 @@ $items = @{
                   @{ Src = "$root\addons\DLSS5NR01\external\fsr4\amd_fidelityfx_dx12.dll"; Rel = 'runtimes\FSR\0dd77d9c\amd_fidelityfx_dx12.dll' },
                   @{ Src = "$root\addons\DLSS5NR01\products\FSR3UPSC\FSR4-ABOUT.txt"; Rel = 'runtimes\FSR\0dd77d9c\ABOUT.txt' },
                   @{ Src = "$root\addons\DLSS5NR01\third_party\ffx4\LICENSE.txt"; Rel = 'runtimes\FSR\0dd77d9c\LICENSE.txt' },
+                  @{ Src = "$root\addons\DLSS5NR01\external\agility\D3D12Core.dll"; Rel = 'runtimes\FSR\0dd77d9c\D3D12Core.dll' },
+                  @{ Src = "$root\addons\DLSS5NR01\external\agility\LICENSE.txt"; Rel = 'runtimes\FSR\0dd77d9c\Microsoft-D3D12-LICENSE.txt' },
                   @{ Src = "$root\addons\DLSS5NR01\third_party\ffx\LICENSE.txt"; Rel = 'AMD-FidelityFX-LICENSE.txt' },
                   @{ Src = "$root\addons\DLSS5NR01\LICENSE"; Rel = 'LICENSE.txt' }) }
     xess     = @{ Src = "$root\addons\DLSS5NR01\build\Release\XESSUPSC.dll"; Dst = "$LsDir\addons\XESSUPSC\XESSUPSC.dll"; Extra = @("$root\addons\DLSS5NR01\products\XESSUPSC\addon.json", "$root\addons\DLSS5NR01\products\XESSUPSC\icon.svg",
