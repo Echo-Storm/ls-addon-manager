@@ -109,6 +109,9 @@ int main() {
         host.values["modelEvery"] = "9"; Check("...and kept to 1 to 4", LoadSettings(&host, "DLSS5NR01").config.modelEvery == 4);
         host.values["modelEvery"] = "0"; Check("...from 1", LoadSettings(&host, "DLSS5NR01").config.modelEvery == 1);
         host.values["modelEvery"] = "1";
+        host.values.erase("modelEvery");   // a config saved before the setting existed (an upgrade): the default, not a stale 1
+        Check("a saved config without the setting takes the default (every 2nd frame)", LoadSettings(&host, "DLSS5NR01").config.modelEvery == 2);
+        host.values["modelEvery"] = "1";
     }
     {   // the upscalers' settings per game
         Config u; u.p.sharpen = 0.4f; u.scalerStability = 0.3f; u.scalerEdges = 0.6f; u.dlaaPreset = 13; u.motionSource = 1;

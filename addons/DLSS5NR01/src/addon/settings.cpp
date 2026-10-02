@@ -225,7 +225,7 @@ Loaded LoadSettings(IHost* host, const char* id) {
     c.autoBudgetMs = std::clamp(static_cast<float>(number("autoBudgetMs", 5.0)), 2.0f, 15.0f);
     c.autoFloor = std::clamp(static_cast<float>(number("autoFloor", 0.25)), 0.25f, 1.0f);
     c.autoScaleLast = std::clamp(static_cast<float>(number("autoScaleLast", 0.0)), 0.0f, 1.0f);
-    c.modelEvery = std::clamp(static_cast<int>(number("modelEvery", 1.0)), 1, 4);
+    c.modelEvery = std::clamp(static_cast<int>(number("modelEvery", Config().modelEvery)), 1, 4);
     c.gameAuto = flag("gameAuto", true);
     c.scalerPerGame = flag("scalerPerGame", true);
     for (const std::string& exe : SplitList(text("scalerGameList"))) {
