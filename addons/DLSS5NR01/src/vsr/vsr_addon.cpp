@@ -232,22 +232,46 @@ ID3D11Texture2D* MakeTex(ID3D11Device* dev, uint32_t w, uint32_t h) {
 
 const char* NvError(NvCV_Status s, const char* what) { static char t[200]; snprintf(t, sizeof t, "%s: %s (%d)", what, NvCV_GetErrorStringFromCode(s), static_cast<int>(s)); return t; }
 
+// The text of a setting is UTF-8; Windows wants wide characters, and the SDK's own functions an ANSI path (the short 8.3 name when the folder has letters outside the code page).
+std::wstring WideOf(const std::string& u) {
+    if (u.empty()) return {};
+    std::wstring w(u.size() + 1, L'\0');
+    const int n = MultiByteToWideChar(CP_UTF8, 0, u.c_str(), static_cast<int>(u.size()), w.data(), static_cast<int>(w.size()));
+    w.resize(n > 0 ? n : 0);
+    return w;
+}
+std::string AnsiPathOf(const std::string& utf8) {
+    const std::wstring w = WideOf(utf8);
+    bool plain = true; for (wchar_t c : w) if (c > 126 || c < 32) plain = false;
+    if (plain) return utf8;
+    wchar_t shortPath[MAX_PATH * 2] = {};
+    const DWORD n = GetShortPathNameW(w.c_str(), shortPath, static_cast<DWORD>(sizeof shortPath / sizeof shortPath[0]));
+    if (n == 0 || n >= sizeof shortPath / sizeof shortPath[0]) return utf8;
+    std::string out; for (const wchar_t* c = shortPath; *c; ++c) out += *c > 126 ? '?' : static_cast<char>(*c);
+    return out;
+}
+
 bool LoadSdk() {
     if (g_sdkLoaded) return true;
     std::string vfx = g_vfxDir;
     for (char& c : vfx) if (c == '/') c = '\\';
     while (!vfx.empty() && vfx.back() == '\\') vfx.pop_back();
-    const std::string bin = vfx + "\\bin";
-    for (const char* dll : { "NVCVImage.dll", "NVVideoEffects.dll" }) {
-        if (!LoadLibraryExA((bin + "\\" + dll).c_str(), nullptr, LOAD_WITH_ALTERED_SEARCH_PATH)) { Problem("cannot load %s\\%s (Windows error %lu; is vfxDir the x64 Video Effects SDK, with CUDA 13 support in the driver?)", bin.c_str(), dll, GetLastError()); return false; }
+    const std::string bin = vfx + "\\bin", feature = vfx + "\\features\\nvvfxvideosuperres\\bin";
+    for (const wchar_t* dll : { L"NVCVImage.dll", L"NVVideoEffects.dll" }) {
+        if (!LoadLibraryExW((WideOf(bin) + L"\\" + dll).c_str(), nullptr, LOAD_WITH_ALTERED_SEARCH_PATH)) {
+            const DWORD e = GetLastError();
+            const char* hint = e == 126 ? "a file it needs was not found: the NVIDIA driver's nvcuda.dll (is an NVIDIA driver installed, and is this the NVIDIA card?) or the Visual C++ runtime" :
+                               e == 193 ? "the file is not 64-bit (the x64 Video Effects SDK is needed)" : e == 2 || e == 3 ? "the file is not there (is the SDK folder right?)" :
+                               e == 5 ? "access was refused (antivirus, or the folder's permissions)" : "";
+            Problem("cannot load %s\\%ls (Windows error %lu%s%s)", bin.c_str(), dll, e, *hint ? ": " : "", hint);
+            return false;
+        }
     }
-    static std::string binStatic; binStatic = bin; g_nvVFXSDKPath = binStatic.data();
-    SetDllDirectoryA(bin.c_str());   // (the SDK's proxies load the rest by name)
-    for (const std::string& d : { bin, vfx + "\\features\\nvvfxvideosuperres\\bin" }) {   // (and for a process that limits where DLLs are searched for: Windows keeps these for LoadLibrary by name)
-        std::wstring w(d.begin(), d.end()); AddDllDirectory(w.c_str());
-    }
+    static std::string binStatic; binStatic = AnsiPathOf(bin); g_nvVFXSDKPath = binStatic.data();
+    SetDllDirectoryW(WideOf(bin).c_str());   // (the SDK's proxies load the rest by name)
+    for (const std::string& d : { bin, feature }) AddDllDirectory(WideOf(d).c_str());   // (and for a process that limits where DLLs are searched for: Windows keeps these for LoadLibrary by name)
     _putenv_s("NV_VIDEO_EFFECTS_PATH", "USE_APP_PATH");
-    { const char* old = getenv("PATH"); const std::string path = bin + ";" + vfx + "\\features\\nvvfxvideosuperres\\bin;" + (old ? old : ""); _putenv_s("PATH", path.c_str()); }
+    { const wchar_t* old = _wgetenv(L"PATH"); const std::wstring path = WideOf(bin) + L";" + WideOf(feature) + L";" + (old ? old : L""); _wputenv_s(L"PATH", path.c_str()); }
     g_sdkLoaded = true;
     Log("the Video Effects SDK in %s is loaded", vfx.c_str());
     return true;
@@ -276,7 +300,7 @@ bool Fit(ID3D11Device* dev, uint32_t inW, uint32_t inH, uint32_t outW, uint32_t 
     NvCV_Status s = NvVFX_CreateEffect(NVVFX_FX_VIDEO_SUPER_RES, &g_chain.fx);
     if (s != NVCV_SUCCESS) { Problem("%s", NvError(s, "NvVFX_CreateEffect(VideoSuperRes) (is the VideoSuperRes feature installed?)")); g_chain.ReleaseSizes(); return false; }
     NvVFX_SetCudaStream(g_chain.fx, NVVFX_CUDA_STREAM, g_chain.stream);
-    const std::string models = g_vfxDir + "\\bin\\models"; NvVFX_SetString(g_chain.fx, NVVFX_MODEL_DIRECTORY, models.c_str());
+    const std::string models = AnsiPathOf(g_vfxDir) + "\\bin\\models"; NvVFX_SetString(g_chain.fx, NVVFX_MODEL_DIRECTORY, models.c_str());
     NvVFX_SetU32(g_chain.fx, NVVFX_QUALITY_LEVEL, static_cast<unsigned>(EffQuality()));
     if ((s = NvCVImage_Alloc(&g_chain.gIn, inW, inH, NVCV_RGBA, NVCV_U8, NVCV_CHUNKY, NVCV_GPU, 1)) != NVCV_SUCCESS || (s = NvCVImage_Alloc(&g_chain.gOut, outW, outH, NVCV_RGBA, NVCV_U8, NVCV_CHUNKY, NVCV_GPU, 1)) != NVCV_SUCCESS) { Problem("%s", NvError(s, "the CUDA buffers")); g_chain.ReleaseSizes(); return false; }
     NvVFX_SetImage(g_chain.fx, NVVFX_INPUT_IMAGE, &g_chain.gIn); NvVFX_SetImage(g_chain.fx, NVVFX_OUTPUT_IMAGE, &g_chain.gOut);
