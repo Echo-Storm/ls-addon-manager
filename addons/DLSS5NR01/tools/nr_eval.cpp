@@ -259,7 +259,7 @@ int main(int argc, char** argv) {
             float dd[3]; SampleDelta(d, dw, dh, x, y, W, H, dd);
             const size_t o = (static_cast<size_t>(y) * W + x) * 4;
             // (compose11's dark guard: a pixel at or near pure black takes no positive change; darkguard=0 shows the picture without it)
-            const float top = std::max(frame[o], std::max(frame[o + 1], frame[o + 2])) / 255.0f, t = std::clamp(top / 0.02f, 0.0f, 1.0f);
+            const float top = std::max(frame[o], std::max(frame[o + 1], frame[o + 2])) / 255.0f, t = std::clamp(top / 0.04f, 0.0f, 1.0f);
             const float darkFade = darkGuard ? t * t * (3.0f - 2.0f * t) : 1.0f;
             for (int c = 0; c < 3; ++c) {
                 const float full = std::clamp(dd[c] * params.composeIntensity, -maxDelta, maxDelta), dl = std::min(full, 0.0f) + (full - std::min(full, 0.0f)) * darkFade;
