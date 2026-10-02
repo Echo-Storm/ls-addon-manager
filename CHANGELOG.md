@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## 0.9.29 (2026-10-02)
 
 - **Neural Rendering: a config saved by an older build now takes the new default of "Run the model" (every 2nd frame).** 0.9.28 made every 2nd frame the default, but a saved settings file that did not have the setting yet (every upgrade from an older build) loaded it as "every frame" from a fixed fallback in `settings.cpp`; only a fresh install got the default. The fallback follows the default now, and `nr_settingstest` covers a config without the key. A saved choice of the setting is kept.
 
