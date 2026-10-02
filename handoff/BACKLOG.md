@@ -3,6 +3,12 @@
 Everything worth doing that is not done yet, so nothing is lost between sessions. Newest context first within each group. Update it when an
 item is done (move it to the changelog) or when a new one comes up. Dates are when the item was noted.
 
+## Neural Rendering: the glow beside bright UI (2026-10-01)
+
+- **Done: the dark guard** (compose11, commit d956b1f): a pixel near pure black takes no positive change. Owner, live: "significantly better".
+- **Tried and dropped: an edge-aware stretch of the model's result** (weights of the four nearest delta pixels by how much the frame at each looks like this pixel, with the point guide and with the block average). It cost about 0.5 ms per presented frame (compose 1.40 -> 1.92 ms at 4K HDR) and changed nothing: the strip beside the box stayed at G 0.87 of 255 at model scale 0.25 and 0.47 at 0.6. The probe (`nr_nreval piclog=1`, temporary, not kept) shows why: in pure-black blocks the model's own green change is about 1.2 levels of 255 two to seven blocks from the bright content and 0.14 far from it, so the glow is what the model outputs around bright things, not the stretch smearing it. Do not retry stretching tricks for this.
+- **Open: dark, not pure black, neighbours.** The guard's range is 0.02 of the picture's own view. A wider or softer range (0.05 to 0.1) would take more of the glow off dark HUD panels at the price of the model's lift in real shadows; it wants a live look, so it should be a setting (or tried at two values) rather than a guess.
+
 ## Known, rare (2026-10-01)
 
 - **A fault inside NVIDIA's driver in the HDR upscaler host scenarios**: `scaler_hdr_scrgb`, run with three others side by side, ended with an access violation in `nvwgf2umx.dll` (a null read) about once in 20 to 60 runs (5 in roughly
