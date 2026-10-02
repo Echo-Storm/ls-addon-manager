@@ -233,11 +233,16 @@ static int Flicker(int argc, char** argv) {
     return 0;
 }
 
+int Video(int argc, char** argv); int VideoCheck(int argc, char** argv); int Unvideo(int argc, char** argv);   // (lsrec_video.cpp)
+
 int main(int argc, char** argv) {
     if (argc >= 3 && !strcmp(argv[1], "info")) return Info(argv[2]);
     if (argc >= 3 && !strcmp(argv[1], "flicker")) return Flicker(argc, argv);
     if (argc >= 4 && !strcmp(argv[1], "export")) return Export(argc, argv);
     if (argc >= 6 && !strcmp(argv[1], "make")) return Make(argc, argv);
-    printf("nr_lsrec info <file.lsrec>\nnr_lsrec export <file.lsrec> <folder> [every=N] [first=N] [count=N]\nnr_lsrec make <file.lsrec> <width> <height> <frames> [fps=N] [hdr=1]\n");
+    if (argc >= 4 && !strcmp(argv[1], "video")) return Video(argc, argv);
+    if (argc >= 4 && !strcmp(argv[1], "videocheck")) return VideoCheck(argc, argv);
+    if (argc >= 4 && !strcmp(argv[1], "unvideo")) return Unvideo(argc, argv);
+    printf("nr_lsrec info <file.lsrec>\nnr_lsrec export <file.lsrec> <folder> [every=N] [first=N] [count=N]\nnr_lsrec make <file.lsrec> <width> <height> <frames> [fps=N] [hdr=1]\nnr_lsrec video <file.lsrec> <out.mkv> [codec=ffv1|x264] [preset=slow] [verify=1]\nnr_lsrec videocheck <file.lsrec> <in.mkv>\nnr_lsrec unvideo <in.mkv> <out.lsrec>\n");
     return 1;
 }
