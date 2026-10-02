@@ -84,6 +84,13 @@ static const char* Check(NvCV_Status s, const char* what) { if (s == NVCV_SUCCES
 // ---- the sequence test (seq=<folder of frame_*.bmp>): does the upscaler keep steady from one frame to the next?
 // Each frame is the truth: shrunk by `factor` to make the input, upscaled back, and the result compared with the one before. Where the game's own picture did not change (at most 3 levels), the
 // result must not change either: that is the shimmer ("still"). Over the whole picture the change of the result should be the change of the truth: its difference is the error of the change ("moving").
+static Rgba Crop(const Rgba& s, const int* roi) {   // roi: x, y, w, h (w == 0: the whole picture)
+    if (!roi || roi[2] <= 0) return s;
+    Rgba o; o.w = std::min(roi[2], s.w - roi[0]); o.h = std::min(roi[3], s.h - roi[1]); o.px.resize(static_cast<size_t>(o.w) * o.h * 4);
+    for (int y = 0; y < o.h; ++y) memcpy(&o.px[static_cast<size_t>(y) * o.w * 4], &s.px[(static_cast<size_t>(roi[1] + y) * s.w + roi[0]) * 4], static_cast<size_t>(o.w) * 4);
+    return o;
+}
+
 struct SeqScore { double still = 0, moving = 0, psnr = 0, detail = 0, ms = 0; int pairs = 0, frames = 0; };
 
 static std::vector<std::string> ListFrames(const std::string& folder) {
@@ -108,7 +115,7 @@ static void Pair(const Rgba& truth, const Rgba& truthPrev, const Rgba& out, cons
     s.moving += moving / n;
 }
 
-static int RunSequence(const std::string& folder, const std::string& models, double factor, const std::string& modes, int maxFrames, CUstream stream, const std::string& save) {
+static int RunSequence(const std::string& folder, const std::string& models, double factor, const std::string& modes, int maxFrames, CUstream stream, const std::string& save, const int* roi) {
     const std::vector<std::string> files = ListFrames(folder);
     if (files.size() < 3) { printf("no frame_*.bmp (at least 3) in %s\n", folder.c_str()); return 2; }
     const int count = std::min<int>(maxFrames, static_cast<int>(files.size()));
@@ -118,6 +125,8 @@ static int RunSequence(const std::string& folder, const std::string& models, dou
     for (int i = 0; i < count; ++i) { if (!ReadBmp(files[i].c_str(), truth[i])) { printf("cannot read %s\n", files[i].c_str()); return 2; } }
     const int ow = truth[0].w, oh = truth[0].h, iw = std::max(64, static_cast<int>(ow / factor + 0.5)), ih = std::max(64, static_cast<int>(oh / factor + 0.5));
     for (int i = 0; i < count; ++i) input[i] = BoxShrink(truth[i], iw, ih);
+    std::vector<Rgba> truthRoi(count); for (int i = 0; i < count; ++i) truthRoi[i] = Crop(truth[i], roi);
+    if (roi && roi[2] > 0) printf("scored in the region %d,%d %dx%d\n", roi[0], roi[1], roi[2], roi[3]);
     printf("%d frames, truth %dx%d, input %dx%d (factor %.2f)\n", count, ow, oh, iw, ih, factor);
     SeqScore game;   // the game's own shimmer where its picture is still, for scale: how much the truth itself changes there (at most 3 by the definition) is not shown; its detail is the reference
     double truthDetail = 0; for (int i = 0; i < count; ++i) truthDetail += Detail(truth[i]); truthDetail /= count;
@@ -132,7 +141,7 @@ static int RunSequence(const std::string& folder, const std::string& models, dou
         if (const char* e = Check(NvCVImage_Alloc(&dstGpu, ow, oh, NVCV_BGRA, NVCV_U8, NVCV_CHUNKY, NVCV_GPU, 1), "alloc output")) { fail(e); continue; }
         NvVFX_SetImage(fx, NVVFX_INPUT_IMAGE, &srcGpu); NvVFX_SetImage(fx, NVVFX_OUTPUT_IMAGE, &dstGpu);
         if (const char* e = Check(NvVFX_Load(fx), "load")) { fail(e); continue; }
-        SeqScore sc; Rgba out, outPrev; out.w = ow; out.h = oh; out.px.assign(static_cast<size_t>(ow) * oh * 4, 0); bool ok = true;
+        SeqScore sc; Rgba out, outPrevC; out.w = ow; out.h = oh; out.px.assign(static_cast<size_t>(ow) * oh * 4, 0); bool ok = true;
         for (int i = 0; i < count && ok; ++i) {
             NvCVImage_Init(&srcCpu, iw, ih, iw * 4, input[i].px.data(), NVCV_BGRA, NVCV_U8, NVCV_CHUNKY, NVCV_CPU);
             NvCVImage_Init(&dstCpu, ow, oh, ow * 4, out.px.data(), NVCV_BGRA, NVCV_U8, NVCV_CHUNKY, NVCV_CPU);
@@ -144,10 +153,11 @@ static int RunSequence(const std::string& folder, const std::string& models, dou
             const double ms = std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - t0).count();
             if (const char* e = Check(NvCVImage_Transfer(&dstGpu, &dstCpu, 1.0f, stream, nullptr), "download")) { fail(e); ok = false; break; }
             if (i >= 2) sc.ms += ms;   // (the first runs warm the card up)
-            sc.psnr += Psnr(truth[i], out); sc.detail += Detail(out) / std::max(1e-9, Detail(truth[i])); ++sc.frames;
-            if (i > 0) Pair(truth[i], truth[i - 1], out, outPrev, sc);
+            const Rgba outC = Crop(out, roi); const Rgba& truthC = truthRoi[i];   // (the scores are of the region asked for; the effect ran on the whole picture)
+            sc.psnr += Psnr(truthC, outC); sc.detail += Detail(outC) / std::max(1e-9, Detail(truthC)); ++sc.frames;
+            if (i > 0) Pair(truthC, truthRoi[i - 1], outC, outPrevC, sc);
             if (!save.empty() && (i == count / 2 || i == count / 2 - 1)) WriteBmp(save + "\\seq_mode" + std::to_string(mode) + "_" + std::to_string(i) + ".bmp", out);
-            outPrev = out;
+            outPrevC = outC;
         }
         if (!ok) continue;
         const int timed = std::max(1, count - 2);
@@ -224,9 +234,9 @@ static int RunHandover(const Rgba& input, int ow, int oh, int mode, int runs, CU
 
 int main(int argc, char** argv) {
     if (argc < 2) { printf("nr_vfxprobe <frame.bmp> [vfx=<SDK folder>] [factor=2] [modes=0,1,2,3,4] [runs=30] [save=<folder>]\nnr_vfxprobe seq=<folder of frame_*.bmp> [vfx=...] [factor=1.5] [modes=0,1,3] [frames=40] [save=<folder>]   (steadiness from frame to frame)\n"); return 2; }
-    std::string vfx = "..\\..\\external\\vfx", save, seq, modes = "0,1,2,3,4"; double factor = 2.0; int runs = 30, maxFrames = 40; bool handover = false;
+    std::string vfx = "..\\..\\external\\vfx", save, seq, modes = "0,1,2,3,4"; double factor = 2.0; int runs = 30, maxFrames = 40, roi[4] = { 0, 0, 0, 0 }; bool handover = false;
     for (int i = 1; i < argc; ++i) {
-        if (!strcmp(argv[i], "handover=1")) handover = true; else if (!strncmp(argv[i], "seq=", 4)) seq = argv[i] + 4; else if (!strncmp(argv[i], "frames=", 7)) maxFrames = std::max(3, atoi(argv[i] + 7));
+        if (!strcmp(argv[i], "handover=1")) handover = true; else if (!strncmp(argv[i], "seq=", 4)) seq = argv[i] + 4; else if (!strncmp(argv[i], "frames=", 7)) maxFrames = std::max(3, atoi(argv[i] + 7)); else if (!strncmp(argv[i], "roi=", 4)) sscanf_s(argv[i] + 4, "%d,%d,%d,%d", &roi[0], &roi[1], &roi[2], &roi[3]);
         else if (!strncmp(argv[i], "vfx=", 4)) vfx = argv[i] + 4; else if (!strncmp(argv[i], "factor=", 7)) factor = atof(argv[i] + 7);
         else if (!strncmp(argv[i], "modes=", 6)) modes = argv[i] + 6; else if (!strncmp(argv[i], "runs=", 5)) runs = std::max(1, atoi(argv[i] + 5)); else if (!strncmp(argv[i], "save=", 5)) save = argv[i] + 5;
     }
@@ -245,7 +255,7 @@ int main(int argc, char** argv) {
         CUstream st = nullptr;
         if (const char* e = Check(NvVFX_CudaStreamCreate(&st), "NvVFX_CudaStreamCreate")) { printf("%s\n", e); return 1; }
         if (!save.empty()) CreateDirectoryA(save.c_str(), nullptr);
-        const int r = RunSequence(seq, models, factor, modes, maxFrames, st, save); NvVFX_CudaStreamDestroy(st); return r;
+        const int r = RunSequence(seq, models, factor, modes, maxFrames, st, save, roi); NvVFX_CudaStreamDestroy(st); return r;
     }
     Rgba truth; if (!ReadBmp(argv[1], truth)) { printf("cannot read %s (a 24 or 32 bit BMP)\n", argv[1]); return 2; }
     const int iw = std::max(64, static_cast<int>(truth.w / factor + 0.5)), ih = std::max(64, static_cast<int>(truth.h / factor + 0.5));
