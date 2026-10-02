@@ -199,7 +199,7 @@ Install by hand (Lossless Scaling 3.2.2.0 was the tested version)
    Guide: https://github.com/Echo-Storm/ls-addon-manager/blob/main/addons/DLSS5NR01/docs/upscalers.md
 7. Video Super Resolution (prototype, for testing) is the fourth of them: NVIDIA's RTX Video Super Resolution in place of NIS, for a picture that is still. It is included with the
    NVIDIA Video Effects SDK files it needs (in addons/VSRUPSC/vfx), needs an NVIDIA RTX card and arrives switched off like the others. Ctrl+Shift+F9 steps through ways of drawing
-   it and NIS, with a label in the corner, for comparing. A download option for NVIDIA's files is planned; NOTICE.md says where they stand.
+   it and NIS, with a label in the corner, for comparing. From 1.0 NVIDIA's files will not be provided: you will need your own copy of the SDK, or a download you start yourself (NOTICE.md).
 
 Updating: close Lossless Scaling, extract the new release's files (step 3) and copy them over the old ones. Your settings (addons\config.json) carry over.
 From 0.1.0: Neural Rendering is now addons\DLSS5NR01 (it was addons\LSP-NeuralRender) and its saved settings and looks move to the new name by themselves
