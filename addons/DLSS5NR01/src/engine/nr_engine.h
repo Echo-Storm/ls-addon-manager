@@ -40,17 +40,17 @@ struct NrParams {
     float flowUnit = 2.0f;        // one flow unit is 1/flowUnit of a flow-texture pixel (measured 2.0 on Lossless Scaling 3.x)
 
     // the model's side
-    float workingScale = 0.35f;   // the frame is shrunk by this before the model sees it: the one setting that decides the cost
+    float workingScale = 1.0f;   // the frame is shrunk by this before the model sees it: the one setting that decides the cost (the ceiling for auto quality, on by default since 0.9.28)
     uint32_t passes = 1;          // model runs per frame (1..4), each taking the one before's result as its colour
     float smoothStable = 0.0f;    // where the frame itself is unchanged, the smoothing's history weight goes up to this (at least deltaSmooth; 0: derived from deltaSmooth, 1 - (1 - deltaSmooth) / 4, at most 0.97)
-    float deltaSmooth = 0.7f;     // blend of the previous delta (moved along the motion) into the new one, 0 = off, below 1 (on since 0.9.14: the model flickers in motion; 0.4 the owner's pick live, 0.6 too much)
+    float deltaSmooth = 0.5f;     // blend of the previous delta (moved along the motion) into the new one, 0 = off, below 1 (on since 0.9.14: the model flickers in motion; 0.4 the owner's pick live, 0.6 too much)
 
     // the compose, on the D3D11 side when a frame is presented (compose11)
     float composeIntensity = 1.0f;// how much of the delta lands
     float maxDelta = 0.5f;        // limit on |delta|
     float ghostGuard = 0.5f;      // fades the delta where LSFG's two motion fields disagree and as the delta ages; 0 = off
     float hiProtect = 0.85f;      // fades the delta as the source brightens from here to white (1 = off)
-    float sharpen = 0.0f;         // contrast-adaptive sharpening of the presented frame, 0 = off
+    float sharpen = 0.5f;         // contrast-adaptive sharpening of the presented frame, 0 = off (0.5 by default since 0.9.28)
     float saturation = 1.0f;      // colour intensity, 1 = unchanged, 0 = grey
     float vibrance = 0.0f;        // extra saturation for muted colours only, 0 = off
     float brightness = 0.0f;      // added to every channel (encoded 0..1 values), 0 = unchanged

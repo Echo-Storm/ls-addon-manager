@@ -103,7 +103,7 @@ int main() {
     Loaded wild = LoadSettings(&host, "DLSS5NR01");
     Check("values edited out of range in the file are kept to their range", Same(wild.config.p.saturation, 2.0f) && wild.config.p.passes == 1 && wild.config.p.debugView == 5);
     {   // how often the model runs: one by default, kept to 1..4, and it round trips
-        Check("the model runs on every frame by default", Config().modelEvery == 1 && LoadSettings(&host, "DLSS5NR01").config.modelEvery == 1);
+        Check("the model runs on every 2nd frame by default (since 0.9.28)", Config().modelEvery == 2 && LoadSettings(&host, "DLSS5NR01").config.modelEvery == 2);
         Config m; m.modelEvery = 3; SaveSettings(&host, "DLSS5NR01", m, {});
         Check("how often the model runs is kept in the settings", LoadSettings(&host, "DLSS5NR01").config.modelEvery == 3);
         host.values["modelEvery"] = "9"; Check("...and kept to 1 to 4", LoadSettings(&host, "DLSS5NR01").config.modelEvery == 4);
