@@ -327,7 +327,11 @@ void ReadConfig() {
 
 // One NIS pass: the frame goes through VSR into the pass's output. False: nothing was done (NIS then runs).
 bool RunVsr(ID3D11DeviceContext* ctx, const nr::NisPass& pass) {
-    if (pass.outW <= pass.inW && pass.outH <= pass.inH) return false;   // 1:1 or smaller: not an upscale (VSR scales up)
+    if (pass.outW <= pass.inW && pass.outH <= pass.inH) {   // 1:1 or smaller: not an upscale (VSR scales up)
+        static bool said = false;
+        if (!said) { said = true; Problem("VSR waits: the picture Lossless Scaling scales is %ux%u and goes out at %ux%u, which is not an enlargement. Run the game in a window smaller than the screen (for example 2560x1440 on a 4K screen).", pass.inW, pass.inH, pass.outW, pass.outH); }
+        return false;
+    }
     if (pass.inW < 64 || pass.inH < 64) return false;
     ID3D11Device* dev = nullptr; ctx->GetDevice(&dev); if (dev) dev->Release();   // (only compared and used on this thread, while the context lives)
     if (!dev) return false;
