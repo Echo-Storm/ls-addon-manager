@@ -576,7 +576,7 @@ def scenario_selftest(ctx, res, text, frame):
 # name, config overrides, checker
 # Video Super Resolution (the prototype addon VSRUPSC, tools of the user's own NVIDIA Video Effects SDK): only run when the addon is built and the SDK is there (VFX_DIR, or external/vfx_x64)
 VFX_DIR = os.environ.get('VFX_DIR') or os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), 'addons', 'DLSS5NR01', 'external', 'vfx_x64')
-NEEDS_VFX = {'vsr', 'vsr_4_3', 'vsr_move', 'vsr_nogate'}
+NEEDS_VFX = {'vsr', 'vsr_4_3', 'vsr_move', 'vsr_nogate', 'vsr_fade', 'vsr_fade_nogate'}
 
 
 def scenario_vsr(ctx, res, text, frame):
@@ -592,6 +592,18 @@ def scenario_vsr_move(ctx, res, text, frame):
     res.check('no exception or failure in the VSR chain', 'raised exception' not in text and 'FAULT' not in text and 'the VSR chain' not in text)
 
 
+def scenario_vsr_fade(ctx, res, text, frame):
+    # a change of 2 levels a pass, far below the gate's threshold for one pass: the motion memory adds it up, and NIS's picture (the test's fake is magenta) is kept
+    m = re.search(r"([0-9.]+)% of the output is the fake NIS pass's magenta", text)
+    res.check("a slow change, added up over passes, counts as motion (NIS's picture kept)", m is not None and float(m.group(1)) > 80.0, (m.group(1) + ' % NIS') if m else 'no check-nis line')
+    res.check('no exception or failure in the VSR chain', 'raised exception' not in text and 'FAULT' not in text and 'the VSR chain' not in text)
+
+
+def scenario_vsr_fade_nogate(ctx, res, text, frame):
+    m = re.search(r"([0-9.]+)% of the output is the fake NIS pass's magenta", text)
+    res.check("with the gate off the slow change gets VSR's picture", m is not None and float(m.group(1)) < 1.0, (m.group(1) + ' % NIS') if m else 'no check-nis line')
+
+
 def scenario_vsr_viewport(ctx, res, text, frame):
     scenario_vsr(ctx, res, text, frame)
     vp = re.search(r'\[check-vp\] .*?: (\d+) pixels of the borders lit', text)
@@ -602,6 +614,8 @@ SCENARIOS = [
     ('vsr', ['addon=VSRUPSC.dll', 'nis=1', 'nisbgra=1', 'nisnoflow=1', 'enabled=1', 'quality=1', 'vfxDir=' + VFX_DIR], scenario_vsr),
     ('vsr_move', ['addon=VSRUPSC.dll', 'nis=1', 'nisbgra=1', 'nisnoflow=1', 'nismove=1', 'enabled=1', 'quality=1', 'vfxDir=' + VFX_DIR], scenario_vsr_move),
     ('vsr_nogate', ['addon=VSRUPSC.dll', 'nis=1', 'nisbgra=1', 'nisnoflow=1', 'nismove=1', 'motionGate=0', 'enabled=1', 'quality=1', 'vfxDir=' + VFX_DIR], scenario_vsr),   # the gate off: VSR everywhere, also on what moves
+    ('vsr_fade', ['addon=VSRUPSC.dll', 'nis=1', 'nisbgra=1', 'nisnoflow=1', 'nisfade=1', 'enabled=1', 'quality=1', 'vfxDir=' + VFX_DIR], scenario_vsr_fade),
+    ('vsr_fade_nogate', ['addon=VSRUPSC.dll', 'nis=1', 'nisbgra=1', 'nisnoflow=1', 'nisfade=1', 'motionGate=0', 'enabled=1', 'quality=1', 'vfxDir=' + VFX_DIR], scenario_vsr_fade_nogate),
     ('vsr_4_3', ['addon=VSRUPSC.dll', 'nis=1', 'nisbgra=1', 'nisnoflow=1', 'nisvp=1', 'nisW=960', 'nisH=720', 'nisScale=1.5', 'enabled=1', 'quality=1', 'vfxDir=' + VFX_DIR], scenario_vsr_viewport),
 
     ('base', ['presentMode=0'], scenario_base),   # present mode off: with frame generation off the old result must go (present_mode tests it on)

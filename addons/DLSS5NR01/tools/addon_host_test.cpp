@@ -129,6 +129,16 @@ static void FillMoving(ID3D11DeviceContext* ctx, ID3D11Texture2D* t, UINT w, UIN
     std::vector<uint32_t> px(w * h); for (UINT y = 0; y < h; ++y) for (UINT x = 0; x < w; ++x) px[y * w + x] = MovingPixel((int)x, (int)y, frame);
     ctx->UpdateSubresource(t, 0, nullptr, px.data(), w * 4, 0);
 }
+// nisfade=1: the pattern gets brighter by 2 levels at every frame (and drops back every 100): a change too small to see from one pass to the next, which a gate that only looks at two passes counts as still
+static void FillFade(ID3D11DeviceContext* ctx, ID3D11Texture2D* t, UINT w, UINT h, int frame) {
+    const uint32_t add = (uint32_t)(2 * (frame % 100));
+    std::vector<uint32_t> px(w * h); for (UINT y = 0; y < h; ++y) for (UINT x = 0; x < w; ++x) {
+        const uint32_t p = Pattern(x, y, w, h); uint32_t o = p & 0xFF000000u;
+        for (int sh = 0; sh < 24; sh += 8) o |= std::min<uint32_t>(255u, ((p >> sh) & 0xFFu) / 2 + add) << sh;
+        px[y * w + x] = o;
+    }
+    ctx->UpdateSubresource(t, 0, nullptr, px.data(), w * 4, 0);
+}
 static void Fill(ID3D11DeviceContext* ctx, ID3D11Texture2D* t, UINT w, UINT h) {   // gradient + stripes so NR has something to look at
     std::vector<uint32_t> px(w * h); for (UINT y = 0; y < h; ++y) for (UINT x = 0; x < w; ++x) px[y * w + x] = Pattern(x, y, w, h);
     ctx->UpdateSubresource(t, 0, nullptr, px.data(), w * 4, 0);
@@ -280,7 +290,7 @@ int main(int argc, char** argv) {
     FakeHost host; host.cfg["snippetPath"] = argc > 3 ? argv[3] : "C:\\Program Files (x86)\\Steam\\steamapps\\common\\Lossless Scaling\\nvngx_dlssnr.dll";
     for (int i = 4; i < argc; ++i) {   // extra key=value pairs override addon config (workingScale=0.5 debugView=3 ...)
         const char* eq = strchr(argv[i], '='); if (!eq) continue;
-        if (!strncmp(argv[i], "shot", 4) || !strncmp(argv[i], "nisnoflow", 9) || !strncmp(argv[i], "nisbgra", 7) || !strncmp(argv[i], "nismove", 7) || !strncmp(argv[i], "nisW", 4) || !strncmp(argv[i], "nisH", 4) || !strncmp(argv[i], "nisScale", 8) || !strncmp(argv[i], "nisvp", 5) || !strncmp(argv[i], "nisdecoy", 8) || !strncmp(argv[i], "nisedge", 7) || !strncmp(argv[i], "nisline", 7) || !strncmp(argv[i], "unload", 6) || !strncmp(argv[i], "nisgap", 6) || !strncmp(argv[i], "nisswitch", 9) || !strncmp(argv[i], "gpuload", 7) || !strncmp(argv[i], "offframes", 9) || !strncmp(argv[i], "devflags", 8) || !strncmp(argv[i], "second", 6) || !strncmp(argv[i], "flowsplit", 9) || !strncmp(argv[i], "exitmode", 8) || !strncmp(argv[i], "sectionsOpen", 12) || !strncmp(argv[i], "hdr=", 4) || !strncmp(argv[i], "replay", 6) || !strncmp(argv[i], "warp", 4) || !strncmp(argv[i], "nishdr", 6)) continue;   // the host's own keys
+        if (!strncmp(argv[i], "shot", 4) || !strncmp(argv[i], "nisnoflow", 9) || !strncmp(argv[i], "nisbgra", 7) || !strncmp(argv[i], "nismove", 7) || !strncmp(argv[i], "nisW", 4) || !strncmp(argv[i], "nisH", 4) || !strncmp(argv[i], "nisScale", 8) || !strncmp(argv[i], "nisvp", 5) || !strncmp(argv[i], "nisdecoy", 8) || !strncmp(argv[i], "nisfade", 7) || !strncmp(argv[i], "nisedge", 7) || !strncmp(argv[i], "nisline", 7) || !strncmp(argv[i], "unload", 6) || !strncmp(argv[i], "nisgap", 6) || !strncmp(argv[i], "nisswitch", 9) || !strncmp(argv[i], "gpuload", 7) || !strncmp(argv[i], "offframes", 9) || !strncmp(argv[i], "devflags", 8) || !strncmp(argv[i], "second", 6) || !strncmp(argv[i], "flowsplit", 9) || !strncmp(argv[i], "exitmode", 8) || !strncmp(argv[i], "sectionsOpen", 12) || !strncmp(argv[i], "hdr=", 4) || !strncmp(argv[i], "replay", 6) || !strncmp(argv[i], "warp", 4) || !strncmp(argv[i], "nishdr", 6)) continue;   // the host's own keys
         host.cfg[std::string(argv[i], (size_t)(eq - argv[i]))] = eq + 1; printf("cfg %.*s = %s\n", (int)(eq - argv[i]), argv[i], eq + 1);
     }
     // a 10-bit frame is HDR10 only when the display runs in HDR, and the test's display may not: the addon is told so, as a user can
@@ -518,6 +528,7 @@ int main(int argc, char** argv) {
             dc->CSSetUnorderedAccessViews(0, 1, nullu, nullptr); dc->CSSetShaderResources(0, 3, nulls);
         };
         bool nisGen = false;   // nisgen=1: a generated-frame pass (two full frames and the flow in, a full frame out) before the first of the two NIS passes, as LSFG draws it
+        bool nisFade = false; for (int i = 4; i < argc; ++i) if (!strcmp(argv[i], "nisfade=1")) nisFade = true;
         bool nisNoFlow = false, nisMove = false;   // nisnoflow=1: frame generation off, so no capture or flow passes, only NIS; nismove=1: the picture slides
         for (int i = 4; i < argc; ++i) { if (!strcmp(argv[i], "nisnoflow=1")) nisNoFlow = true; if (!strcmp(argv[i], "nismove=1")) nisMove = true; if (!strcmp(argv[i], "nisgen=1")) nisGen = true; }
         // nisswitch=<key>=<value>: that setting changes at frame 75, and the run goes on for 325 frames more, so a runtime that starts
@@ -532,6 +543,7 @@ int main(int argc, char** argv) {
         for (int fr = 0; fr < kFrames; ++fr) {
             if (fr == kSwitchAt && !switchKey.empty()) { host.cfg[switchKey] = switchValue; printf("[hosttest] frame %d: %s = %s\n", fr, switchKey.c_str(), switchValue.c_str()); }
             if (nisMove) FillMoving(dc, nisIn, NW, NH, fr);
+            if (nisFade) FillFade(dc, nisIn, NW, NH, fr);
             if (nisLine) fillLine(fr);
             if (nisNoFlow) { nisPass(); std::this_thread::sleep_for(std::chrono::milliseconds(16)); if (fr % 30 == 0) frame("nis"); else emptyFrame(); continue; }
             Fill(dc, cur, W, H);

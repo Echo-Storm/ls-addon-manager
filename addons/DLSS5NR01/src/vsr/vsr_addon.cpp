@@ -46,7 +46,9 @@ bool g_enabled = false, g_failed = false, g_sdkLoaded = false;
 uint64_t g_configAt = 0;
 int g_quality = 1;                // 1 Low .. 4 Ultra (VSR_Bicubic is 0)
 bool g_gate = true;               // VSR only where the frame did not change from the pass before; NIS's picture elsewhere
-float g_gateLow = 0.012f, g_gateHigh = 0.05f;   // the change (of the 8-bit SDR view, 0..1) that still counts as still, and the one that counts as moving
+float g_gateLow = 0.012f, g_gateHigh = 0.05f;
+int g_vsrIntervalMs = 20;        // VSR runs at most this often while gated: where the picture is still its last result is still right (0: at every pass)
+constexpr float kMotionDecay = 0.85f;   // the share of the motion memory kept from one pass to the next   // the change (of the 8-bit SDR view, 0..1) that still counts as still, and the one that counts as moving
 // What the pre-dispatch callback leaves for the post-dispatch one (the same NIS pass, one after the other on the render thread)
 struct Pending { bool valid = false; uint32_t inW = 0, inH = 0, outW = 0, outH = 0, outX = 0, outY = 0, enc = 0; float white = 200.0f; } g_pending;
 std::string g_vfxDir;
@@ -121,13 +123,28 @@ void CSPlace(uint3 id : SV_DispatchThreadID) {
 }
 )HLSL";
 
+// The motion memory: per input pixel, what changed from the pass before added to a fading share of what was there. With frame generation consecutive passes are only a third of a real step apart,
+// so a slow movement changes a pass by less than any threshold; remembered over a few passes it adds up to the movement it is.
+const char* const kMotionHlsl = R"HLSL(
+Texture2D<float4>   tNow  : register(t0);
+Texture2D<float4>   tPrev : register(t1);
+Texture2D<float>    tOld  : register(t2);
+RWTexture2D<float>  uNew  : register(u0);
+cbuffer C : register(b0) { uint2 size; float decay; float gain; };
+[numthreads(8, 8, 1)]
+void CSMotion(uint3 id : SV_DispatchThreadID) {
+    if (id.x >= size.x || id.y >= size.y) return;
+    const float3 d = abs(tNow.Load(int3(id.xy, 0)).rgb - tPrev.Load(int3(id.xy, 0)).rgb);
+    uNew[id.xy] = saturate(tOld.Load(int3(id.xy, 0)) * decay + max(d.r, max(d.g, d.b)) * gain);
+}
+)HLSL";
+
 // The blend (the motion gate): NIS has drawn its picture; this puts VSR's over it where the frame did not change from the pass before (a 3x3 neighbourhood of the input pixel, so the edge of
 // something that moves is kept clear of it), and leaves NIS's where it did. VSR sees one frame at a time and blurs and shifts colour on what moves; NIS does not.
 const char* const kBlendHlsl = R"HLSL(
 Texture2D<float4>   tNis  : register(t0);   // NIS's picture (the output viewport's part, copied to 0,0)
 Texture2D<float4>   tVsr  : register(t1);   // VSR's picture (8-bit, the SDR view)
-Texture2D<float4>   tNow  : register(t2);   // this pass's input (8-bit, the SDR view)
-Texture2D<float4>   tPrev : register(t3);   // the pass before's
+Texture2D<float>    tMot  : register(t2);   // the motion memory at the input's size (kMotionHlsl)
 RWTexture2D<float4> uOut  : register(u0);   // NIS's output, written at the viewport's corner
 cbuffer C : register(b0) { uint2 origin; uint2 size; uint2 inSize; uint encoding; float white; float lo; float hi; float2 pad; };
 [numthreads(8, 8, 1)]
@@ -138,8 +155,7 @@ void CSBlend(uint3 id : SV_DispatchThreadID) {
     [unroll] for (int j = -1; j <= 1; ++j) {
         [unroll] for (int i = -1; i <= 1; ++i) {
             const int2 q = clamp(ip + int2(i, j), int2(0, 0), int2(inSize) - 1);
-            const float3 d = abs(tNow.Load(int3(q, 0)).rgb - tPrev.Load(int3(q, 0)).rgb);
-            diff = max(diff, max(d.r, max(d.g, d.b)));
+            diff = max(diff, tMot.Load(int3(q, 0)));
         }
     }
     const float wv = 1.0 - smoothstep(lo, hi, diff);   // 1: still, VSR's picture; 0: it moves, NIS's
@@ -161,6 +177,9 @@ struct Chain {
     ID3D11ComputeShader* grab = nullptr, * place = nullptr, * blend = nullptr; ID3D11Buffer* grabCb = nullptr, * placeCb = nullptr, * blendCb = nullptr;
     ID3D11Texture2D* texPrev = nullptr, * scratch = nullptr; ID3D11ShaderResourceView* inSrv = nullptr, * prevSrv = nullptr, * scratchSrv = nullptr;   // the motion gate: the pass before's input, and NIS's picture copied
     uint32_t scratchW = 0, scratchH = 0; DXGI_FORMAT scratchFmt = DXGI_FORMAT_UNKNOWN; bool havePrev = false;
+    ID3D11ComputeShader* motion = nullptr; ID3D11Buffer* motionCb = nullptr;   // the motion memory: two textures in turn
+    ID3D11Texture2D* texMot[2] = {}; ID3D11ShaderResourceView* motSrv[2] = {}; ID3D11UnorderedAccessView* motUav[2] = {}; int motIdx = 0;
+    std::chrono::steady_clock::time_point lastRun{}; bool outValid = false;   // when VSR last ran, and whether texOut holds a result of it
     ID3D11Texture2D* texIn = nullptr, * texOut = nullptr; ID3D11UnorderedAccessView* inUav = nullptr; ID3D11ShaderResourceView* outSrv = nullptr;
     uint32_t inW = 0, inH = 0, outW = 0, outH = 0; int quality = -1;
     NvVFX_Handle fx = nullptr; NvCVImage gIn{}, gOut{}, dIn{}, dOut{}; CUstream stream = nullptr;
@@ -171,9 +190,10 @@ struct Chain {
         NvCVImage_Dealloc(&gIn); NvCVImage_Dealloc(&gOut); gIn = {}; gOut = {}; dIn = {}; dOut = {};
         SafeRelease(inUav); SafeRelease(outSrv); SafeRelease(texIn); SafeRelease(texOut);
         SafeRelease(inSrv); SafeRelease(prevSrv); SafeRelease(texPrev); SafeRelease(scratchSrv); SafeRelease(scratch); scratchW = scratchH = 0; havePrev = false;
+        for (int i = 0; i < 2; ++i) { SafeRelease(motSrv[i]); SafeRelease(motUav[i]); SafeRelease(texMot[i]); } motIdx = 0; outValid = false;
         inW = inH = outW = outH = 0; quality = -1; effectLoaded = false;
     }
-    void Release() { ReleaseSizes(); SafeRelease(grab); SafeRelease(place); SafeRelease(blend); SafeRelease(grabCb); SafeRelease(placeCb); SafeRelease(blendCb); dev = nullptr; }
+    void Release() { ReleaseSizes(); SafeRelease(grab); SafeRelease(place); SafeRelease(blend); SafeRelease(motion); SafeRelease(grabCb); SafeRelease(placeCb); SafeRelease(blendCb); SafeRelease(motionCb); dev = nullptr; }
 };
 // (made after the SDK is loaded, never as a global: NvCVImage's constructors call the SDK's loader stub, which keeps its first failure for good if it is asked before the folder is known)
 Chain* g_chainPtr = nullptr;
@@ -227,8 +247,8 @@ bool Fit(ID3D11Device* dev, uint32_t inW, uint32_t inH, uint32_t outW, uint32_t 
     Chain& g_chain = ChainRef();
     if (g_chain.dev != dev) { g_chain.Release(); g_chain.dev = dev; }
     if (!g_chain.grab) {
-        g_chain.grabCb = MakeCb(dev, 16); g_chain.placeCb = MakeCb(dev, 32); g_chain.blendCb = MakeCb(dev, 48);
-        if (!g_chain.grabCb || !g_chain.placeCb || !g_chain.blendCb || !CompileShader(dev, kGrabHlsl, "CSGrab", &g_chain.grab) || !CompileShader(dev, kPlaceHlsl, "CSPlace", &g_chain.place) || !CompileShader(dev, kBlendHlsl, "CSBlend", &g_chain.blend)) { Problem("the shaders could not be made"); return false; }
+        g_chain.grabCb = MakeCb(dev, 16); g_chain.placeCb = MakeCb(dev, 32); g_chain.blendCb = MakeCb(dev, 48); g_chain.motionCb = MakeCb(dev, 16);
+        if (!g_chain.grabCb || !g_chain.placeCb || !g_chain.blendCb || !g_chain.motionCb || !CompileShader(dev, kGrabHlsl, "CSGrab", &g_chain.grab) || !CompileShader(dev, kPlaceHlsl, "CSPlace", &g_chain.place) || !CompileShader(dev, kBlendHlsl, "CSBlend", &g_chain.blend) || !CompileShader(dev, kMotionHlsl, "CSMotion", &g_chain.motion)) { Problem("the shaders could not be made"); return false; }
     }
     if (g_chain.inW == inW && g_chain.inH == inH && g_chain.outW == outW && g_chain.outH == outH && g_chain.quality == g_quality && g_chain.effectLoaded) return true;
     g_chain.ReleaseSizes();
@@ -238,6 +258,10 @@ bool Fit(ID3D11Device* dev, uint32_t inW, uint32_t inH, uint32_t outW, uint32_t 
     if (!g_chain.texIn || !g_chain.texOut || !g_chain.texPrev) { Problem("the textures could not be made (%ux%u, %ux%u)", inW, inH, outW, outH); g_chain.ReleaseSizes(); return false; }
     if (FAILED(dev->CreateUnorderedAccessView(g_chain.texIn, nullptr, &g_chain.inUav)) || FAILED(dev->CreateShaderResourceView(g_chain.texOut, nullptr, &g_chain.outSrv)) ||
         FAILED(dev->CreateShaderResourceView(g_chain.texIn, nullptr, &g_chain.inSrv)) || FAILED(dev->CreateShaderResourceView(g_chain.texPrev, nullptr, &g_chain.prevSrv))) { Problem("the views could not be made"); g_chain.ReleaseSizes(); return false; }
+    for (int i = 0; i < 2; ++i) {   // the motion memory: one 16-bit channel at the input's size, two in turn, cleared
+        D3D11_TEXTURE2D_DESC d{}; d.Width = inW; d.Height = inH; d.MipLevels = 1; d.ArraySize = 1; d.Format = DXGI_FORMAT_R16_FLOAT; d.SampleDesc.Count = 1; d.Usage = D3D11_USAGE_DEFAULT; d.BindFlags = D3D11_BIND_SHADER_RESOURCE | D3D11_BIND_UNORDERED_ACCESS;
+        if (FAILED(dev->CreateTexture2D(&d, nullptr, &g_chain.texMot[i])) || FAILED(dev->CreateShaderResourceView(g_chain.texMot[i], nullptr, &g_chain.motSrv[i])) || FAILED(dev->CreateUnorderedAccessView(g_chain.texMot[i], nullptr, &g_chain.motUav[i]))) { Problem("the motion memory could not be made"); g_chain.ReleaseSizes(); return false; }
+    }
     NvCV_Status s = NvVFX_CreateEffect(NVVFX_FX_VIDEO_SUPER_RES, &g_chain.fx);
     if (s != NVCV_SUCCESS) { Problem("%s", NvError(s, "NvVFX_CreateEffect(VideoSuperRes) (is the VideoSuperRes feature installed?)")); g_chain.ReleaseSizes(); return false; }
     NvVFX_SetCudaStream(g_chain.fx, NVVFX_CUDA_STREAM, g_chain.stream);
@@ -260,6 +284,7 @@ void ReadConfig() {
     g_quality = std::clamp(atoi(g_host->GetConfig(kId, "quality", "1")), 0, 23);
     g_vfxDir = g_host->GetConfig(kId, "vfxDir", "");
     g_gate = atoi(g_host->GetConfig(kId, "motionGate", "1")) != 0;
+    g_vsrIntervalMs = std::clamp(atoi(g_host->GetConfig(kId, "vsrIntervalMs", "20")), 0, 200);
     g_gateLow = std::clamp(static_cast<float>(atof(g_host->GetConfig(kId, "gateLow", "0.012"))), 0.0f, 0.5f);
     g_gateHigh = std::clamp(static_cast<float>(atof(g_host->GetConfig(kId, "gateHigh", "0.05"))), g_gateLow + 0.002f, 1.0f);
     if (g_vfxDir.empty()) g_vfxDir = Narrow(g_addonDir) + "\\vfx";
@@ -292,13 +317,18 @@ bool RunVsr(ID3D11DeviceContext* ctx, const nr::NisPass& pass) {
     ID3D11ShaderResourceView* noSrv = nullptr; ID3D11UnorderedAccessView* noUav = nullptr;
     ctx->CSSetShaderResources(0, 1, &noSrv); ctx->CSSetUnorderedAccessViews(0, 1, &noUav, nullptr);
 
-    // 2. the SDK: texture to CUDA, VSR, CUDA to texture
+    // 2. the SDK: texture to CUDA, VSR, CUDA to texture. Gated, VSR runs at most every vsrIntervalMs: the picture is used only where it is still, and there its last result is still right.
+    const auto runNow = std::chrono::steady_clock::now();
+    const bool due = !g_gate || !g_chain.outValid || g_vsrIntervalMs <= 0 || std::chrono::duration<double, std::milli>(runNow - g_chain.lastRun).count() >= g_vsrIntervalMs;
+    if (due) {
     NvCV_Status s = NvCVImage_Transfer(&g_chain.dIn, &g_chain.gIn, 1.0f, g_chain.stream, nullptr);
     if (s == NVCV_SUCCESS) s = NvVFX_Run(g_chain.fx, 0);
     if (s == NVCV_SUCCESS) s = NvCVImage_Transfer(&g_chain.gOut, &g_chain.dOut, 1.0f, g_chain.stream, nullptr);
     if (s != NVCV_SUCCESS) { Problem("%s", NvError(s, "the VSR chain")); g_failed = true; return false; }
     { NvCVImage corner{}, cornerCpu{}; unsigned char px[16 * 16 * 4]; NvCVImage_InitView(&corner, &g_chain.gOut, 0, 0, 16, 16);   // (waits for the stream)
       NvCVImage_Init(&cornerCpu, 16, 16, 16 * 4, px, NVCV_RGBA, NVCV_U8, NVCV_CHUNKY, NVCV_CPU); NvCVImage_Transfer(&corner, &cornerCpu, 1.0f, g_chain.stream, nullptr); }
+    g_chain.outValid = true; g_chain.lastRun = runNow;
+    }
 
     const bool gated = g_gate;
     if (gated) {   // NIS runs as usual; the blend after it (OnPostPass) puts VSR's picture over it where the frame is still
@@ -361,16 +391,29 @@ void RunBlend(ID3D11DeviceContext* ctx) {
     const D3D11_BOX box{ p.outX, p.outY, 0, p.outX + p.outW, p.outY + p.outH, 1 };
     ctx->CopySubresourceRegion(g_chain.scratch, 0, 0, 0, 0, tex, 0, &box);
     tex->Release();
-    if (!g_chain.havePrev) { ctx->CopyResource(g_chain.texPrev, g_chain.texIn); g_chain.havePrev = true; }   // (the first pass has nothing before it: it counts as still)
+    if (!g_chain.havePrev) {   // (the first pass has nothing before it: it counts as still, and the motion memory starts empty)
+        ctx->CopyResource(g_chain.texPrev, g_chain.texIn); g_chain.havePrev = true;
+        const float zero[4] = {}; for (int i = 0; i < 2; ++i) ctx->ClearUnorderedAccessViewFloat(g_chain.motUav[i], zero);
+    }   // (the first pass has nothing before it: it counts as still)
     { D3D11_MAPPED_SUBRESOURCE m{}; if (FAILED(ctx->Map(g_chain.blendCb, 0, D3D11_MAP_WRITE_DISCARD, 0, &m))) return;
       uint32_t* c = static_cast<uint32_t*>(m.pData); c[0] = p.outX; c[1] = p.outY; c[2] = p.outW; c[3] = p.outH; c[4] = p.inW; c[5] = p.inH; c[6] = p.enc;
       memcpy(&c[7], &p.white, 4); memcpy(&c[8], &g_gateLow, 4); memcpy(&c[9], &g_gateHigh, 4); c[10] = c[11] = 0; ctx->Unmap(g_chain.blendCb, 0); }
-    ID3D11ShaderResourceView* srvs[4] = { g_chain.scratchSrv, g_chain.outSrv, g_chain.inSrv, g_chain.prevSrv };
-    ctx->CSSetShader(g_chain.blend, nullptr, 0); ctx->CSSetConstantBuffers(0, 1, &g_chain.blendCb);
-    ctx->CSSetShaderResources(0, 4, srvs); ctx->CSSetUnorderedAccessViews(0, 1, &outUav, nullptr);
-    ctx->Dispatch((p.outW + 7) / 8, (p.outH + 7) / 8, 1);
+    // the motion memory first (at the input's size): what changed from the pass before, added to a fading share of what was there
+    { D3D11_MAPPED_SUBRESOURCE m{}; if (FAILED(ctx->Map(g_chain.motionCb, 0, D3D11_MAP_WRITE_DISCARD, 0, &m))) return;
+      uint32_t* c = static_cast<uint32_t*>(m.pData); c[0] = p.inW; c[1] = p.inH; const float decay = kMotionDecay, gain = 1.0f; memcpy(&c[2], &decay, 4); memcpy(&c[3], &gain, 4); ctx->Unmap(g_chain.motionCb, 0); }
+    const int cur = g_chain.motIdx, next = 1 - cur;
+    ID3D11ShaderResourceView* mSrvs[3] = { g_chain.inSrv, g_chain.prevSrv, g_chain.motSrv[cur] };
+    ctx->CSSetShader(g_chain.motion, nullptr, 0); ctx->CSSetConstantBuffers(0, 1, &g_chain.motionCb);
+    ctx->CSSetShaderResources(0, 3, mSrvs); ctx->CSSetUnorderedAccessViews(0, 1, &g_chain.motUav[next], nullptr);
+    ctx->Dispatch((p.inW + 7) / 8, (p.inH + 7) / 8, 1);
     ID3D11ShaderResourceView* noSrvs[4] = {}; ID3D11UnorderedAccessView* noUav = nullptr;
-    ctx->CSSetShaderResources(0, 4, noSrvs); ctx->CSSetUnorderedAccessViews(0, 1, &noUav, nullptr);
+    ctx->CSSetShaderResources(0, 3, noSrvs); ctx->CSSetUnorderedAccessViews(0, 1, &noUav, nullptr);
+    g_chain.motIdx = next;
+    ID3D11ShaderResourceView* srvs[3] = { g_chain.scratchSrv, g_chain.outSrv, g_chain.motSrv[next] };
+    ctx->CSSetShader(g_chain.blend, nullptr, 0); ctx->CSSetConstantBuffers(0, 1, &g_chain.blendCb);
+    ctx->CSSetShaderResources(0, 3, srvs); ctx->CSSetUnorderedAccessViews(0, 1, &outUav, nullptr);
+    ctx->Dispatch((p.outW + 7) / 8, (p.outH + 7) / 8, 1);
+    ctx->CSSetShaderResources(0, 3, noSrvs); ctx->CSSetUnorderedAccessViews(0, 1, &noUav, nullptr);
     ctx->CopyResource(g_chain.texPrev, g_chain.texIn);   // this pass's input is the next one's "before"
 }
 
@@ -461,6 +504,12 @@ EAM_EXPORT void AddonRenderSettings() {
         ImGui::SetNextItemWidth(220);
         if (ImGui::SliderFloat("Motion sensitivity", &hi, 0.02f, 0.15f, "%.3f")) { char a[24], b[24]; snprintf(a, sizeof a, "%.4f", hi); snprintf(b, sizeof b, "%.4f", hi * 0.24f); g_host->SetConfig(kId, "gateHigh", a); g_host->SetConfig(kId, "gateLow", b); g_host->SaveConfig(); g_configAt = 0; g_gateHigh = hi; g_gateLow = hi * 0.24f; }
         if (ImGui::IsItemHovered()) ImGui::SetTooltip("How much a pixel has to change from one frame to the next to count as moving. Lower: VSR gives way to NIS sooner; higher: VSR stays on through slower movement. 0.050 is the start.");
+    }
+    if (g_gate) {
+        int ms = g_vsrIntervalMs;
+        ImGui::SetNextItemWidth(220);
+        if (ImGui::SliderInt("Run VSR at most every", &ms, 0, 60, ms == 0 ? "every frame" : "%d ms")) { char a[16]; snprintf(a, sizeof a, "%d", ms); g_host->SetConfig(kId, "vsrIntervalMs", a); g_host->SaveConfig(); g_configAt = 0; g_vsrIntervalMs = ms; }
+        if (ImGui::IsItemHovered()) ImGui::SetTooltip("Where the picture is still, VSR's last result is still right, so it does not have to run for every frame Lossless Scaling presents (with frame generation that is several a real frame). 20 ms saves about two thirds of its cost; 0 runs it every time.");
     }
     static char folder[520]; static bool folderInit = false;
     if (!folderInit) { strncpy_s(folder, g_vfxDir.c_str(), sizeof folder - 1); folderInit = true; }

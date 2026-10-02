@@ -42,6 +42,13 @@ in motion. With **Only where the picture is still** (the setting `motionGate`), 
 whole picture again. **Motion sensitivity** (`gateHigh`, 0.05; `gateLow` is a quarter of it) is how much a pixel has to change to count as moving. The price is NIS's dispatch, a copy of its picture and the blend (a few tenths of a 
 millisecond) on top of VSR's run, which still runs on every frame.
 
+### Motion memory and the run interval
+
+The first live test of the gate (2026-10-02, WoW, frame generation x3, 118 passes a second at 3.8 to 4 ms of VSR each) said "better, but it still blurs a little in motion". With frame generation consecutive passes are only a third of a real step apart,
+so a slow movement changes a pass by less than any threshold. The gate now keeps a **motion memory** per input pixel (the change from the pass before added to 85 % of what was remembered): slow movement adds up to the movement
+it is, and a still pixel stays at zero. And VSR no longer runs on every pass: where the picture is still its last result is still right, so it runs **at most every 20 ms** (`vsrIntervalMs`, 0 = every pass; the panel has the slider), which cuts its
+cost to about a third. Test host: `vsr_fade` (a change of 2 levels a pass, far below one pass's threshold, keeps NIS) and `vsr_fade_nogate`.
+
 ## Safety
 
 - Any failure hands the pass back to NIS and says why in the panel and the log.
