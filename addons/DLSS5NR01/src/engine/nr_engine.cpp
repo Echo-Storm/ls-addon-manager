@@ -448,6 +448,7 @@ void NrEngine::ReadTimes(int slot) {
     if (FAILED(m_timestampReadback->Map(0, &range, reinterpret_cast<void**>(&mapped)))) return;
     const uint64_t* t = mapped + slot * 4;
     const double msPerTick = 1000.0 / static_cast<double>(m_timestampFreq);
+    if (!m_timestampFreq || !(t[0] <= t[1] && t[1] <= t[2] && t[2] <= t[3])) { const D3D12_RANGE none{ 0, 0 }; m_timestampReadback->Unmap(0, &none); return; }   // (timestamps that go backwards or were never written would give a model time of billions of milliseconds, which the watchdog takes for a stuck model; the engine of the upscalers checks the same)
     m_stats.nrMs = static_cast<double>(t[2] - t[1]) * msPerTick;
     m_stats.totalMs = static_cast<double>(t[3] - t[0]) * msPerTick;
     uint64_t gpuNow = 0, cpuNow = 0; LARGE_INTEGER qpcFreq; QueryPerformanceFrequency(&qpcFreq);

@@ -1,5 +1,9 @@
 # Changelog
 
+## Unreleased
+
+- **Neural Rendering: a model time read from GPU timestamps that go backwards (or were never written) is ignored.** It would have shown as billions of milliseconds, which the watchdog takes for a stuck model (the upscalers' engine already checked).
+
 ## 0.9.35 (2026-10-02)
 
 - **Neural Rendering: a new install now gets the defaults it was meant to (Auto quality on, 6 ms, lowest 0.6).** Releases 0.9.28 to 0.9.34 said so in these notes, but the code that loads the settings fell back to Auto quality **off**, 5 ms and 0.25 for anything never saved, while the model resolution default went up to 1.0: a new install ran the model at the full frame size with nothing to bring it down, which on a card like an RTX 4090 meant the card at 99 % (the player who reported that, and found a 95 % limit fixed it, had very likely hit this). A config that an affected build wrote (exactly Auto quality off, 5 ms and 0.25, which the wrong fallback saved back; it is also what builds before 0.9.28 started with) is taken as the defaults never having been chosen: Auto quality goes on, once, with 6 ms and 0.6. Switched off again afterwards it stays off, and an off with a budget or floor of your own is never touched; every other saved setting is kept. The loader now takes every fallback from the defaults themselves (`Config`), and the settings test checks a new install field by field against them.
