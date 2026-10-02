@@ -236,6 +236,12 @@ Loaded LoadSettings(IHost* host, const char* id) {
     // is not a choice (nobody could have made it before 0.9.28): it becomes the default, once. The version is saved with the next save; a 1 chosen after that stays.
     c.defaultsVersion = std::max(0, integer("defaultsVersion", 0));
     if (c.defaultsVersion < 1) { if (c.modelEvery == 1) c.modelEvery = base.modelEvery; c.defaultsVersion = 1; }
+    // Version 2 (0.9.35): 0.9.28 to 0.9.34 loaded a file without the Auto quality settings as off, 5 ms and 0.25 and saved that back, so a new install never had the defaults. Exactly that trio is taken
+    // as the defaults never having been chosen (it is also what older builds started with): Auto quality on, once. Switched off again afterwards it stays off (the version is saved).
+    if (c.defaultsVersion < 2) {
+        if (!c.autoQuality && c.autoBudgetMs == 5.0f && c.autoFloor == 0.25f) { c.autoQuality = base.autoQuality; c.autoBudgetMs = base.autoBudgetMs; c.autoFloor = base.autoFloor; }
+        c.defaultsVersion = 2;
+    }
     c.gameAuto = flag("gameAuto", true);
     c.scalerPerGame = flag("scalerPerGame", true);
     for (const std::string& exe : SplitList(text("scalerGameList"))) {

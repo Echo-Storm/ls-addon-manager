@@ -14,9 +14,10 @@ Around them, the manager installs and switches addons, shows the machine's load 
 updates itself. It is free, MIT-licensed and unofficial: not affiliated with the Lossless Scaling developers. Read the [disclaimer](DISCLAIMER.md) before installing.
 
 [![build](https://github.com/Echo-Storm/ls-addon-manager/actions/workflows/build.yml/badge.svg)](https://github.com/Echo-Storm/ls-addon-manager/actions/workflows/build.yml)
-&nbsp; **0.9.34**, on the way to 1.0 ([roadmap](ROADMAP.md)) &nbsp;·&nbsp; Lossless Scaling 3.2.2.0 &nbsp;·&nbsp; Windows 10 or 11, x64
+&nbsp; **0.9.35**, on the way to 1.0 ([roadmap](ROADMAP.md)) &nbsp;·&nbsp; Lossless Scaling 3.2.2.0 &nbsp;·&nbsp; Windows 10 or 11, x64
 
 > [!TIP]
+> **New in 0.9.35: Neural Rendering's Auto quality is on for new installs again** (0.9.28 to 0.9.34 loaded it as off, so a new install ran the model at full size), a test copy of the Video Super Resolution addon, and a few smaller fixes.
 > **New in 0.9.34: the XeSS Upscaler is back in the package** (0.9.28 to 0.9.33 went out without it; nothing in it changed).
 > **New in 0.9.33: the upscalers on a 3440x1440 screen, second try** (the extra pass Lossless Scaling draws no longer pushes the real one out; issue #13), and the source of a prototype Video Super Resolution addon.
 > **New in 0.9.26: fixes for issues #11, #12 and #13** (a runtime that crashed Lossless Scaling is not tried again; the compatibility report says more and the panel says whether your model file is a build seen working; Neural Rendering on an ultrawide screen), **a card that says when the recorder is the problem** (recording what is shown now keeps the middle 1920x1080), and **Auto quality no longer cycles** between every frame and every 2nd or 3rd. The test option **Lighter upscaling of generated frames** is safe to try.

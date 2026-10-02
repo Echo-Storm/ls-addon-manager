@@ -125,6 +125,18 @@ int main() {
         Check("...the numbers", l.dlaaPreset == d.dlaaPreset && l.watchdogMs == d.watchdogMs && Same(l.scalerLeanRest, d.scalerLeanRest) && Same(l.scalerMoveCut, d.scalerMoveCut) && Same(l.scalerSteadySharp, d.scalerSteadySharp) &&
                                   l.recordBudgetMb == d.recordBudgetMb && Same(l.recordSeconds, d.recordSeconds) && l.keyAB == d.keyAB && l.keyRecord == d.keyRecord && l.defaultsVersion == d.defaultsVersion);
     }
+    {   // a config saved by 0.9.28 to 0.9.34 on a new install: Auto quality off, 5 ms, 0.25 (the loader's own wrong fallback saved back): becomes the defaults once
+        StandInHost h; h.values["autoQuality"] = "0"; h.values["autoBudgetMs"] = "5"; h.values["autoFloor"] = "0.25"; h.values["defaultsVersion"] = "1";
+        Config l = LoadSettings(&h, "DLSS5NR01").config;
+        Check("the trio a new install of 0.9.28 to 0.9.34 saved becomes Auto quality on, 6 ms, 0.6", l.autoQuality && Same(l.autoBudgetMs, 6.0f) && Same(l.autoFloor, 0.6f) && l.defaultsVersion == 2);
+        SaveSettings(&h, "DLSS5NR01", l, {}); h.values["autoQuality"] = "0";   // switched off by hand afterwards
+        Check("...and Auto quality switched off after that stays off", !LoadSettings(&h, "DLSS5NR01").config.autoQuality);
+        StandInHost kept; kept.values["autoQuality"] = "0"; kept.values["autoBudgetMs"] = "8"; kept.values["defaultsVersion"] = "1";
+        Check("an off with a budget of the person's own is a choice and is kept", !LoadSettings(&kept, "DLSS5NR01").config.autoQuality);
+        StandInHost on; on.values["autoQuality"] = "1"; on.values["autoBudgetMs"] = "5"; on.values["autoFloor"] = "0.25";
+        Config o = LoadSettings(&on, "DLSS5NR01").config;
+        Check("Auto quality that is on keeps its own budget and floor", o.autoQuality && Same(o.autoBudgetMs, 5.0f) && Same(o.autoFloor, 0.25f));
+    }
     {   // 0.9.28 saved a 1 into configs that never had the setting: a file under no defaults version gets the default once; a 1 chosen after that stays
         host.values["modelEvery"] = "1"; host.values.erase("defaultsVersion");
         Check("a 1 from a file written before the defaults' version becomes the default (the 0.9.28 upgrade)", LoadSettings(&host, "DLSS5NR01").config.modelEvery == 2);
