@@ -445,6 +445,11 @@ bool OnPass(uint32_t x, uint32_t y, uint32_t z, void*) {
     if (!marked) { marked = true; FILE* f = nullptr; if (_wfopen_s(&f, TrialMarker().c_str(), L"wb") == 0 && f) { fputs("running", f); fclose(f); } }   // (found at the next start: the last session did not end well)
     const bool done = GuardedRun(ctx, pass, &code);
     if (code) { Problem("the VSR chain raised exception 0x%08lx: VSR stays off until Lossless Scaling restarts", code); g_failed = true; }
+    // The marker means "VSR is being tried": Lossless Scaling ends without calling AddonShutdown, so a close is not what clears it. About five seconds of good passes do (as the runtime trial of the other upscalers
+    // does after ten seconds of frames); a crash before that leaves it, and VSR stays off at the next start.
+    static int goodPasses = 0;
+    static const int trialPasses = std::max(1, atoi(g_host->GetConfig(kId, "trialPasses", "600")));   // (a setting only so that the test host, with its 260 passes, can reach it)
+    if (!code && (done || g_pending.valid) && ++goodPasses == trialPasses) DeleteFileW(TrialMarker().c_str());
     nr::ReleaseNisPass(pass);
     return done;
 }
