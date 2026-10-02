@@ -404,7 +404,7 @@ void ReadConfig() {
     const uint64_t now = NowMs();
     if (g_configAt && now - g_configAt < 1000) return;
     g_configAt = now;
-    g_enabled = atoi(g_host->GetConfig(kId, "enabled", "0")) != 0;
+    g_enabled = atoi(g_host->GetConfig(kId, "enabled", "1")) != 0;   // (the addon is loaded only once its switch in the manager is on: a second switch that starts off would be a trap for someone testing it)
     g_quality = std::clamp(atoi(g_host->GetConfig(kId, "quality", "1")), 0, 23);
     g_vfxDir = g_host->GetConfig(kId, "vfxDir", "");
     g_gate = atoi(g_host->GetConfig(kId, "motionGate", "1")) != 0;

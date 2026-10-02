@@ -2,7 +2,7 @@
   "name": "Video Super Resolution (prototype)",
   "version": "0.9.35",
   "author": "Echo-Storm",
-  "description": "A prototype. Off until you switch it on. Upscales with NVIDIA's RTX Video Super Resolution in place of Lossless Scaling's NIS scaler: a trained network that sharpens the picture one frame at a time, which suits still scenes, menus, interface text and video. It runs on NVIDIA's Video Effects SDK (x64, Video Super Resolution feature): the files it needs are in this test package, in its vfx folder, but from 1.0 they will not be provided (you will need your own copy of the SDK, or a download you start yourself); a different SDK folder can be set in its panel. Choose NIS as the Scaling Type and run the game in a window smaller than the screen. Only one upscaler works at a time.",
+  "description": "A prototype. Off until you switch it on. Upscales with NVIDIA's RTX Video Super Resolution in place of Lossless Scaling's NIS scaler: a trained network that sharpens the picture one frame at a time, which suits still scenes, menus, interface text and video. It needs your own NVIDIA Video Effects SDK (x64, with the Video Super Resolution feature): nothing of NVIDIA's is included. Choose NIS as the Scaling Type and run the game in a window smaller than the screen. Only one upscaler works at a time.",
   "min_host_version": "1.2.0",
   "dependencies": [],
   "conflicts": [
