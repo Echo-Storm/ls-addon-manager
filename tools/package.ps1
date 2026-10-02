@@ -194,9 +194,12 @@ Install by hand (Lossless Scaling 3.2.2.0 was the tested version)
    If you used the old separate ReShade or Windowed addon folders, the manager ignores them; you can remove them.
 6. The DLSS Upscaler (NVIDIA RTX), the FSR Upscaler (any DirectX 12 graphics card) and the XeSS Upscaler (Shader Model 6.4) take the place of Lossless Scaling's NIS
    scaler with DLSS or FSR 3, using motion they measure from the frames. They arrive switched off: switch one on in the addon list (only
-   one of the two runs at a time), choose NIS as the Scaling Type in Lossless Scaling, and run the game in a window smaller than the
+   one of the upscalers runs at a time), choose NIS as the Scaling Type in Lossless Scaling, and run the game in a window smaller than the
    screen (for example 2560x1440 on a 4K screen); at the screen's own size they anti-alias. 4:3 windows work too.
    Guide: https://github.com/Echo-Storm/ls-addon-manager/blob/main/addons/DLSS5NR01/docs/upscalers.md
+7. Video Super Resolution (prototype, for testing) is the fourth of them: NVIDIA's RTX Video Super Resolution in place of NIS, for a picture that is still. It is included with the
+   NVIDIA Video Effects SDK files it needs (in addons/VSRUPSC/vfx), needs an NVIDIA RTX card and arrives switched off like the others. Ctrl+Shift+F9 steps through ways of drawing
+   it and NIS, with a label in the corner, for comparing. A download option for NVIDIA's files is planned; NOTICE.md says where they stand.
 
 Updating: close Lossless Scaling, extract the new release's files (step 3) and copy them over the old ones. Your settings (addons\config.json) carry over.
 From 0.1.0: Neural Rendering is now addons\DLSS5NR01 (it was addons\LSP-NeuralRender) and its saved settings and looks move to the new name by themselves

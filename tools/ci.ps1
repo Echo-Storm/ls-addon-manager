@@ -22,6 +22,15 @@ function Run($name, $exe, $testArgs = @()) {
     if ($LASTEXITCODE -ne 0) { $script:failed += $name; Write-Host "FAILED: $name (exit $LASTEXITCODE)" }
 }
 
+Section 'one version everywhere'
+$release = (Select-String -Path "$root\manager\sdk\include\eam\version.h" -Pattern 'EAM_VERSION_STRING "([^"]+)"').Matches[0].Groups[1].Value
+if ((Select-String -Path "$root\manager\CMakeLists.txt" -Pattern 'project\(LSAddonManager VERSION ([0-9.]+)\)').Matches[0].Groups[1].Value -ne $release) { $failed += 'manager CMakeLists version'; Write-Host "manager\CMakeLists.txt is not $release" }
+foreach ($manifest in @("$root\addons\DLSS5NR01\addon.json") + @(Get-ChildItem "$root\addons\DLSS5NR01\products\*\addon.json" | ForEach-Object FullName)) {
+    $version = (Get-Content $manifest -Raw | ConvertFrom-Json).version
+    if ($version -ne $release) { $failed += "version of $manifest"; Write-Host "$manifest says $version, the release is $release" }
+}
+Write-Host "  the release is $release"
+
 Section 'the manager and its tests'
 Configure "$root\manager" "$root\manager\build"
 Build "$root\manager\build" @('Lossless', 'eam_installtest', 'eam_coretest', 'eam_updatetest', 'eam_sampletest')
