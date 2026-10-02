@@ -172,6 +172,12 @@ target_include_directories(nr_settingstest PRIVATE src ${CMAKE_SOURCE_DIR}/../..
 add_executable(nr_agilitytest tools/agility_test.cpp src/addon/agility.cpp)
 target_include_directories(nr_agilitytest PRIVATE src)
 target_link_libraries(nr_agilitytest PRIVATE d3d12 dxgi version)
+# nr_vfxprobe: NVIDIA's RTX Video Super Resolution as the Video Effects SDK exposes it, tried on one frame (tools/vfx_probe.cpp). The SDK is the user's own download (external/vfx, or -DVFX_DIR=<folder>); without it the tool is not built
+set(VFX_DIR ${CMAKE_SOURCE_DIR}/external/vfx CACHE PATH "the NVIDIA Video Effects SDK folder (optional)")
+if(EXISTS ${VFX_DIR}/nvvfx/include/nvVideoEffects.h AND EXISTS ${VFX_DIR}/features/nvvfxvideosuperres/include/nvVFXVideoSuperRes.h)
+  add_executable(nr_vfxprobe tools/vfx_probe.cpp ${VFX_DIR}/nvvfx/src/nvVideoEffectsProxy.cpp ${VFX_DIR}/nvvfx/src/nvCVImageProxy.cpp)
+  target_include_directories(nr_vfxprobe PRIVATE ${VFX_DIR}/nvvfx/include ${VFX_DIR}/features/nvvfxvideosuperres/include)
+endif()
 # nr_gpuloadtest: the card-load sensor of the "Keep the graphics card under a limit" setting, read a few times (tools/gpu_load_test.cpp)
 add_executable(nr_gpuloadtest tools/gpu_load_test.cpp src/addon/gpu_load.cpp)
 target_include_directories(nr_gpuloadtest PRIVATE src)
