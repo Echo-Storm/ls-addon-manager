@@ -123,7 +123,7 @@ void Start(IHost* host, ImGuiContext* ctx, void* allocFunc, void* freeFunc, void
         compare::Register(kCompareMode, kCompareName, kCompareColour);
         compare::SetCapture(static_cast<uint32_t>(std::max(0, atoi(host->GetConfig(kAddonId, "compareEveryMs", "5000")))), static_cast<uint32_t>(std::max(1, atoi(host->GetConfig(kAddonId, "compareBurstMs", "100")))),
                             static_cast<uint32_t>(std::max(0, atoi(host->GetConfig(kAddonId, "compareSettleMs", "1500")))));
-        const int start = atoi(host->GetConfig(kAddonId, "compareStart", "-1"));   // (for the test host, which cannot press the key)
+        const int start = atoi(host->GetConfig(kAddonId, "compareMode", "-1"));   // (for the test host, which cannot press the key)
         if (start >= 0) compare::StartIn(start);
     }
     if (!kScalerAddon) ScanRequirements();   // Neural Rendering's model file, helper and self-test; DLAA's runtime ships with it

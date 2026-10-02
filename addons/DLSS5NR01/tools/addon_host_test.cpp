@@ -562,6 +562,7 @@ int main(int argc, char** argv) {
         D3D11_TEXTURE2D_DESC sd{}; nisOut->GetDesc(&sd); sd.Usage = D3D11_USAGE_STAGING; sd.BindFlags = 0; sd.CPUAccessFlags = D3D11_CPU_ACCESS_READ;
         ID3D11Texture2D* st = nullptr; dev->CreateTexture2D(&sd, nullptr, &st);
         std::vector<uint8_t> nisDumpPx; for (int i = 4; i < argc; ++i) if (!strcmp(argv[i], "nisdump=1")) nisDumpPx.assign((size_t)VW * VH * 3, 0);
+        uint64_t labelN = 0; double labelSum[3] = {};   // the comparison's label (addon/compare.cpp): its dark box, 24 levels, after the corner square and 12 pixels in, 4 down
         uint64_t magenta = 0, borderLit = 0, edgePixels = 0, linePixels = 0; double sum[3] = {}, want[3] = {}, detail = 0, edgeError = 0, lineError[3] = {};   // detail: the average step between neighbouring pixels (sharpening raises it)
         double moveError[3] = {};   // nismove: how far the picture is from the moving picture of the last three frames (the one shown is a frame late)
         if (st) {
@@ -574,6 +575,7 @@ int main(int argc, char** argv) {
                     if (!inside) { if (px[0] | px[1] | px[2]) ++borderLit; continue; }   // Lossless Scaling's borders: nothing may be drawn there
                     const UINT x = ox - OX, y = oy - OY;   // within the viewport, as NIS's picture
                     if (px[0] == 255 && px[1] == 0 && px[2] == 255) ++magenta;
+                    { const UINT lx = std::max(12u, VW / 150u) + 12 + 1, ly = 4 + 1; if (x >= lx && x < lx + 3 && y >= ly && y < ly + 3) { for (int c = 0; c < 3; ++c) labelSum[c] += px[c]; ++labelN; } }   // (inside the label's padding, which is the dark box)
                     if (!nisDumpPx.empty()) { const size_t o = ((size_t)y * VW + x) * 3; nisDumpPx[o] = px[2]; nisDumpPx[o + 1] = px[1]; nisDumpPx[o + 2] = px[0]; }
                     if (nisLine) {   // near the line (within 4 frame pixels of it in any of the last three frames): off the true picture of each
                         const double u = (x + 0.5) / NS, v = (y + 0.5) / NS;
@@ -636,6 +638,8 @@ int main(int argc, char** argv) {
         }
         printf("[check-nis] %ux%u -> %ux%u: %.2f%% of the output is the fake NIS pass's magenta, average colour off by %.2f levels, detail %.3f (%s)\n", NW, NH, VW, VH,
                100.0 * magenta / (double(VW) * VH), worst, detail / (3.0 * (VW - 1) * VH), replaced ? "DLSS REPLACED NIS" : "NIS KEPT");
+        if (labelN) printf("[check-label] the box where the comparison's label goes is %.0f, %.0f, %.0f (%s)\n", labelSum[0] / labelN, labelSum[1] / labelN, labelSum[2] / labelN,
+                           std::abs(labelSum[0] / labelN - 24) < 3 && std::abs(labelSum[1] / labelN - 24) < 3 && std::abs(labelSum[2] / labelN - 24) < 3 ? "LABELLED" : "NO LABEL");
         if (nisVp) printf("[check-vp] %ux%u at %u,%u of a %ux%u output: %llu pixels of the borders lit (%s)\n", VW, VH, OX, OY, OW, OH, (unsigned long long)borderLit,
                           borderLit == 0 ? "BORDERS KEPT" : "BORDERS DRAWN OVER");
         for (auto* v : nisSrvs) v->Release();

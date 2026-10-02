@@ -568,6 +568,33 @@ def scenario_pair(ctx, res, text, frame):
     res.check('Neural Rendering works on the frames as usual', 'COMPOSE APPLIED' in text and frame is not None and np.abs(frame - ctx['pat']).mean() > 0.3)
 
 
+def label_drawn(text):
+    # the host looks at the NIS pass's output for the comparison's label (a dark box of 24 levels, from 24 pixels in and 4 down)
+    return 'LABELLED' in text
+
+
+def scenario_compare_nis(ctx, res, text, frame):
+    # two upscalers loaded, the comparison on NIS: neither upscales, and the label is on NIS's picture
+    res.check('neither upscaler takes the NIS pass', 'NIS KEPT' in text and 'REPLACED NIS' not in text)
+    res.check('...and the label is on the picture', label_drawn(text))
+    res.check('...with no failure', 'FAULT' not in text and 'exception 0x' not in text)
+
+
+def scenario_compare_fsr(ctx, res, text, frame):
+    # the comparison on FSR: FSR upscales, DLSS (loaded as well) stays out of it
+    res.check('FSR takes the NIS pass', 'REPLACED NIS' in text and re.search(r'FSR scaler: \d+ frames upscaled', text) is not None)
+    res.check('...and DLSS does not', re.search(r'DLSS scaler: \d+ frames upscaled', text) is None)
+    res.check('...with the label on the picture', label_drawn(text))
+    res.check('...and no failure', 'FAULT' not in text and 'exception 0x' not in text)
+
+
+def scenario_compare_off(ctx, res, text, frame):
+    # no comparison, two upscalers loaded: the lowest (DLSS) upscales, the other waits; no label
+    res.check('DLSS takes the NIS pass', 'REPLACED NIS' in text and re.search(r'DLSS scaler: \d+ frames upscaled', text) is not None)
+    res.check('...and FSR does not', re.search(r'FSR scaler: \d+ frames upscaled', text) is None)
+    res.check('...with no label', not label_drawn(text))
+
+
 def scenario_selftest(ctx, res, text, frame):
     # the addon's own 'Test compatibility' path (started at start-up by the selfTestOnStart switch): nr_selftest.exe runs the model in its own process
     res.check('the addon ran the compatibility test and it passed with this model', 'compatibility test on' in text and ': passed (PASS)' in text)
@@ -681,6 +708,9 @@ SCENARIOS = [
     ('scaler_unload', ['addon=DLSS4DLAA.dll', 'nis=1', 'nisbgra=1', 'nisnoflow=1', 'unload=1'], scenario_unload),   # switched off while running, then a new device
     ('fsr_unload', ['addon=FSR3UPSC.dll', 'nis=1', 'nisbgra=1', 'nisnoflow=1', 'unload=1'], scenario_unload),
     ('pair', ['second=DLSS4DLAA.dll'], scenario_pair),
+    ('compare_off', ['addon=DLSS4DLAA.dll', 'second=FSR3UPSC.dll', 'nis=1', 'nisbgra=1', 'nisnoflow=1'], scenario_compare_off),
+    ('compare_nis', ['addon=DLSS4DLAA.dll', 'second=FSR3UPSC.dll', 'nis=1', 'nisbgra=1', 'nisnoflow=1', 'compareMode=0'], scenario_compare_nis),
+    ('compare_fsr', ['addon=DLSS4DLAA.dll', 'second=FSR3UPSC.dll', 'nis=1', 'nisbgra=1', 'nisnoflow=1', 'compareMode=2'], scenario_compare_fsr),
     ('exit_abrupt', ['exitmode=abrupt'], scenario_none),   # the process ends with the addon loaded and no AddonShutdown, as Lossless Scaling does
     ('ui_shot', ['shot=@OUT@/ui_nr_panel.bmp', 'snapshotOnStart=1', 'hud=0,0,0.3,0.17/0.86,0,1,0.24', 'deltaSmooth=0.3', 'grain=0.2', 'shadows=0.2', 'presetNames=Night raid|Bright zone', 'preset.Night raid=shadows=0.4;grain=0.15', 'preset.Bright zone=highlights=-0.3;sharpen=0.2'], scenario_none),
 ]
@@ -718,6 +748,7 @@ def area_of(name):
     if name == 'record_replay': return 'record'
     if name == 'selftest': return 'selftest'
     if name in ('pair', 'exit_abrupt', 'ui_shot'): return 'addon'
+    if name.startswith('compare'): return 'compare'
     return 'nr'
 
 
@@ -729,6 +760,7 @@ AREA_FILES = {   # regular expressions on the changed paths (forward slashes), u
     'record':   r'src/addon/(recorder|lsrec)|tools/lsrec_tool',
     'selftest': r'src/selftest/|src/addon/requirements',
     'addon':    r'src/addon/(panel|hud_editor|screenshot)',
+    'compare':  r'src/addon/(compare|scaler11)|src/vsr/',
 }
 EVERYTHING = r'src/addon/(addon|settings|state|runtime|log|product|hdr)\.|src/engine/hdr_hlsl|src/forwarder/|CMakeLists|tools/addon_host_test|^tools/run_hosttest_matrix'
 

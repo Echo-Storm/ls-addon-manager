@@ -194,13 +194,14 @@ void Recorder::Shutdown() {
     if (m_saver.joinable()) m_saver.join();
 }
 
-bool Recorder::Save(const std::wstring& folder, const std::string& game) {
+bool Recorder::Save(const std::wstring& folder, const std::string& game, bool clear) {
     if (m_saving.exchange(true)) return false;
     std::vector<std::shared_ptr<lsrec::Frame>> frames;
     lsrec::FileHeader header;
     {
         std::lock_guard<std::mutex> lock(m_keepMutex);
         frames.assign(m_kept.begin(), m_kept.end());
+        if (clear && !frames.empty()) { m_kept.clear(); m_keptBytes = 0; }
         header.width = m_w; header.height = m_h; header.format = m_viewFmt; header.bytesPerPixel = m_bpp; header.source = m_source; header.content = m_content;
     }
     if (frames.empty()) {

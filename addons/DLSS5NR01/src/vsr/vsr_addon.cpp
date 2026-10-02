@@ -495,7 +495,7 @@ EAM_EXPORT void AddonInitialize(IHost* host, ImGuiContext* ctx, void* allocFunc,
     g_failed = false; g_sdkLoaded = false; g_configAt = 0;
     ReadConfig();
     compare::Register(compare::kVsrGated, "VSR GATED", 0xB050D0); compare::Register(compare::kVsrAlways, "VSR ALWAYS", 0x30B0B0);   // (addon/compare.h)
-    { const int start = atoi(host->GetConfig(kId, "compareStart", "-1")); if (start >= 0) compare::StartIn(start); }   // (for the test host, which cannot press the key)
+    { const int start = atoi(host->GetConfig(kId, "compareMode", "-1")); if (start >= 0) compare::StartIn(start); }   // (for the test host, which cannot press the key)
     if (GetFileAttributesW(TrialMarker().c_str()) != INVALID_FILE_ATTRIBUTES) {
         g_failed = true;
         Log("the last session did not end normally with VSR running (running.txt is in the addon folder): VSR stays off. Delete that file to try again.");

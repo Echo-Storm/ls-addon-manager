@@ -34,7 +34,8 @@ public:
     void Forget();
     void Shutdown();   // the end: the threads stop (Forget first)
     // Writes what is held to folder\<game>_<date>.lsrec on a thread of its own. False when there is nothing to save or a save is running.
-    bool Save(const std::wstring& folder, const std::string& game);
+    // clear: the frames saved are taken out of the ring (the comparison of the upscalers saves one mode's frames, and the next mode starts empty)
+    bool Save(const std::wstring& folder, const std::string& game, bool clear = false);
 
     struct Status { bool on = false; double seconds = 0; uint32_t frames = 0; uint64_t bytes = 0; uint64_t missed = 0; uint32_t w = 0, h = 0; bool saving = false; };
     Status GetStatus() const;

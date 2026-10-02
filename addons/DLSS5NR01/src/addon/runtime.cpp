@@ -849,7 +849,7 @@ void CompareSegments() {
     if (game.size() > 4 && game.compare(game.size() - 4, 4, ".exe") == 0) game.resize(game.size() - 4);
     game += std::string("-") + compare::Name(was);
     for (char& c : game) if (c == ' ') c = '_';
-    const bool saved = g_recorder.Save(RecordFolder(), game);
+    const bool saved = g_recorder.Save(RecordFolder(), game, true);
     Log("compare: %s ended; its recording %s (%s)", compare::Name(was), saved ? "is being saved" : "was not saved", saved ? game.c_str() : "nothing recorded, or a save is running");
 }
 
