@@ -290,7 +290,7 @@ int main(int argc, char** argv) {
     FakeHost host; host.cfg["snippetPath"] = argc > 3 ? argv[3] : "C:\\Program Files (x86)\\Steam\\steamapps\\common\\Lossless Scaling\\nvngx_dlssnr.dll";
     for (int i = 4; i < argc; ++i) {   // extra key=value pairs override addon config (workingScale=0.5 debugView=3 ...)
         const char* eq = strchr(argv[i], '='); if (!eq) continue;
-        if (!strncmp(argv[i], "shot", 4) || !strncmp(argv[i], "nisnoflow", 9) || !strncmp(argv[i], "nisbgra", 7) || !strncmp(argv[i], "nismove", 7) || !strncmp(argv[i], "nisW", 4) || !strncmp(argv[i], "nisH", 4) || !strncmp(argv[i], "nisScale", 8) || !strncmp(argv[i], "nisvp", 5) || !strncmp(argv[i], "nisdecoy", 8) || !strncmp(argv[i], "nisfade", 7) || !strncmp(argv[i], "nisedge", 7) || !strncmp(argv[i], "nisline", 7) || !strncmp(argv[i], "unload", 6) || !strncmp(argv[i], "nisgap", 6) || !strncmp(argv[i], "nisswitch", 9) || !strncmp(argv[i], "gpuload", 7) || !strncmp(argv[i], "offframes", 9) || !strncmp(argv[i], "devflags", 8) || !strncmp(argv[i], "second", 6) || !strncmp(argv[i], "flowsplit", 9) || !strncmp(argv[i], "exitmode", 8) || !strncmp(argv[i], "sectionsOpen", 12) || !strncmp(argv[i], "hdr=", 4) || !strncmp(argv[i], "replay", 6) || !strncmp(argv[i], "warp", 4) || !strncmp(argv[i], "nishdr", 6)) continue;   // the host's own keys
+        if (!strncmp(argv[i], "shot", 4) || !strncmp(argv[i], "nisnoflow", 9) || !strncmp(argv[i], "nisbgra", 7) || !strncmp(argv[i], "nismove", 7) || !strncmp(argv[i], "nisW", 4) || !strncmp(argv[i], "nisH", 4) || !strncmp(argv[i], "nisScale", 8) || !strncmp(argv[i], "nisvp", 5) || !strncmp(argv[i], "nisdecoy", 8) || !strncmp(argv[i], "nisfade", 7) || !strncmp(argv[i], "nisdump", 7) || !strncmp(argv[i], "nisedge", 7) || !strncmp(argv[i], "nisline", 7) || !strncmp(argv[i], "unload", 6) || !strncmp(argv[i], "nisgap", 6) || !strncmp(argv[i], "nisswitch", 9) || !strncmp(argv[i], "gpuload", 7) || !strncmp(argv[i], "offframes", 9) || !strncmp(argv[i], "devflags", 8) || !strncmp(argv[i], "second", 6) || !strncmp(argv[i], "flowsplit", 9) || !strncmp(argv[i], "exitmode", 8) || !strncmp(argv[i], "sectionsOpen", 12) || !strncmp(argv[i], "hdr=", 4) || !strncmp(argv[i], "replay", 6) || !strncmp(argv[i], "warp", 4) || !strncmp(argv[i], "nishdr", 6)) continue;   // the host's own keys
         host.cfg[std::string(argv[i], (size_t)(eq - argv[i]))] = eq + 1; printf("cfg %.*s = %s\n", (int)(eq - argv[i]), argv[i], eq + 1);
     }
     // a 10-bit frame is HDR10 only when the display runs in HDR, and the test's display may not: the addon is told so, as a user can
@@ -561,6 +561,7 @@ int main(int argc, char** argv) {
         // read the output back: how much of it is the fake pass's magenta, and how close its average colour is to the frame's
         D3D11_TEXTURE2D_DESC sd{}; nisOut->GetDesc(&sd); sd.Usage = D3D11_USAGE_STAGING; sd.BindFlags = 0; sd.CPUAccessFlags = D3D11_CPU_ACCESS_READ;
         ID3D11Texture2D* st = nullptr; dev->CreateTexture2D(&sd, nullptr, &st);
+        std::vector<uint8_t> nisDumpPx; for (int i = 4; i < argc; ++i) if (!strcmp(argv[i], "nisdump=1")) nisDumpPx.assign((size_t)VW * VH * 3, 0);
         uint64_t magenta = 0, borderLit = 0, edgePixels = 0, linePixels = 0; double sum[3] = {}, want[3] = {}, detail = 0, edgeError = 0, lineError[3] = {};   // detail: the average step between neighbouring pixels (sharpening raises it)
         double moveError[3] = {};   // nismove: how far the picture is from the moving picture of the last three frames (the one shown is a frame late)
         if (st) {
@@ -573,6 +574,7 @@ int main(int argc, char** argv) {
                     if (!inside) { if (px[0] | px[1] | px[2]) ++borderLit; continue; }   // Lossless Scaling's borders: nothing may be drawn there
                     const UINT x = ox - OX, y = oy - OY;   // within the viewport, as NIS's picture
                     if (px[0] == 255 && px[1] == 0 && px[2] == 255) ++magenta;
+                    if (!nisDumpPx.empty()) { const size_t o = ((size_t)y * VW + x) * 3; nisDumpPx[o] = px[2]; nisDumpPx[o + 1] = px[1]; nisDumpPx[o + 2] = px[0]; }
                     if (nisLine) {   // near the line (within 4 frame pixels of it in any of the last three frames): off the true picture of each
                         const double u = (x + 0.5) / NS, v = (y + 0.5) / NS;
                         bool nearLine = false;
@@ -626,6 +628,12 @@ int main(int argc, char** argv) {
         double worst = 0;
         for (int c = 0; c < 3; ++c) worst = std::max(worst, std::abs(sum[c] / (double(VW) * VH) - want[c] / (double(NW) * NH)));
         const bool replaced = magenta < (uint64_t)VW * VH / 100 && worst < 6.0;
+        if (!nisDumpPx.empty()) {   // nisdump=1: the output viewport as nis_out.bmp (24 bit)
+            FILE* fp = fopen("nis_out.bmp", "wb");
+            if (fp) { const UINT rowBytes = (VW * 3 + 3) & ~3u; BITMAPFILEHEADER fh{}; BITMAPINFOHEADER ih{}; fh.bfType = 0x4D42; fh.bfOffBits = sizeof fh + sizeof ih; fh.bfSize = fh.bfOffBits + rowBytes * VH;
+                ih.biSize = sizeof ih; ih.biWidth = VW; ih.biHeight = VH; ih.biPlanes = 1; ih.biBitCount = 24; fwrite(&fh, 1, sizeof fh, fp); fwrite(&ih, 1, sizeof ih, fp);
+                std::vector<uint8_t> line(rowBytes); for (UINT y = VH; y-- > 0;) { memcpy(line.data(), &nisDumpPx[(size_t)y * VW * 3], VW * 3); fwrite(line.data(), 1, rowBytes, fp); } fclose(fp); }
+        }
         printf("[check-nis] %ux%u -> %ux%u: %.2f%% of the output is the fake NIS pass's magenta, average colour off by %.2f levels, detail %.3f (%s)\n", NW, NH, VW, VH,
                100.0 * magenta / (double(VW) * VH), worst, detail / (3.0 * (VW - 1) * VH), replaced ? "DLSS REPLACED NIS" : "NIS KEPT");
         if (nisVp) printf("[check-vp] %ux%u at %u,%u of a %ux%u output: %llu pixels of the borders lit (%s)\n", VW, VH, OX, OY, OW, OH, (unsigned long long)borderLit,

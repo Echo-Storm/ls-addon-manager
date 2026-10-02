@@ -582,7 +582,7 @@ NEEDS_VFX = {'vsr', 'vsr_4_3', 'vsr_move', 'vsr_nogate', 'vsr_fade', 'vsr_fade_n
 def scenario_vsr(ctx, res, text, frame):
     res.check('the Video Super Resolution addon takes the NIS pass', 'DLSS REPLACED NIS' in text)
     res.check('no exception or failure in the VSR chain', 'raised exception' not in text and 'FAULT' not in text and 'VSRUPSC: cannot load' not in text and 'the VSR chain' not in text)
-    m = re.search(r'VSR quality \d+, \d+x\d+ to \d+x\d+: ([0-9.]+) ms a frame', text)
+    m = re.search(r'VSR quality \d+(?: everywhere)?, \d+x\d+ to \d+x\d+: ([0-9.]+) ms a frame', text)
     res.check('a frame costs under 8 ms on the render thread', m is not None and float(m.group(1)) < 8.0, (m.group(1) + ' ms') if m else 'no status line')
 
 
