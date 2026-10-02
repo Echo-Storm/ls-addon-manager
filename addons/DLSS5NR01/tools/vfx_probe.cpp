@@ -129,6 +129,12 @@ int main(int argc, char** argv) {
         for (int r = 0; r < runs + 3; ++r) {
             const auto t0 = std::chrono::steady_clock::now();
             if (const char* e = Check(NvVFX_Run(fx, 0), "NvVFX_Run")) { fail(e); ok = false; break; }
+            {   // Run may return before the card has finished: a small corner copied back on the same stream waits for it
+                NvCVImage corner{}, cornerCpu{}; unsigned char pixels[16 * 16 * 4];
+                NvCVImage_InitView(&corner, &dstGpu, 0, 0, 16, 16);
+                NvCVImage_Init(&cornerCpu, 16, 16, 16 * 4, pixels, NVCV_BGRA, NVCV_U8, NVCV_CHUNKY, NVCV_CPU);
+                NvCVImage_Transfer(&corner, &cornerCpu, 1.0f, stream, nullptr);
+            }
             const double ms = std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - t0).count();
             if (r >= 3) best = std::min(best, ms);   // (the first runs warm the card and the model up)
         }
