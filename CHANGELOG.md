@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## 0.9.36 (2026-10-02)
 
 - **Video Super Resolution (prototype): switching the addon on in the manager is enough.** It had a second switch of its own (the setting `enabled`, off by default) that a person trying it would not know about; that setting now starts on, and can still turn it off.
 - **The build on GitHub (and `tools/ci.ps1`) now runs the addon's offline tests** (settings, auto quality, the what-is-wrong rules, the frame trace, the recorder's files), built on their own from `addons/DLSS5NR01/tests`: the addons themselves need NVIDIA's SDK, so before this nothing of the addon was compiled or tested there, and a settings default that disagreed with the loader (0.9.28 to 0.9.34) went unseen.
