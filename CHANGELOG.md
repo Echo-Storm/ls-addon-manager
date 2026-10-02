@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.9.34 (2026-10-02)
+
+- **The XeSS Upscaler is back in the package.** Releases 0.9.28 to 0.9.33 were packaged without it (no `XESSUPSC` folder, no `libxess.dll`; the zip fell from about 117 MB to about 57 MB): Intel's XeSS SDK was missing from the checkout the release is built in, so the addon was not built, and `package.ps1` only printed a line saying so. Nothing in the XeSS code changed; it is built again against the same pinned Intel SDK (3.0.2, `libxess.dll` 2.0.2.68, hashes checked by `tools/fetch_xess_sdk.ps1`). Anyone who installed 0.9.28 to 0.9.33 and uses XeSS should install this one; 0.9.27 and earlier had it.
+- **`package.ps1` stops when an addon is not built** (or one of its extra files is missing) instead of printing a note and carrying on; `-AllowMissing` packages without it for a test build.
+
 ## 0.9.33 (2026-10-02)
 
 - **The upscalers on a 3440x1440 screen, second try (issue #13, still broken on 0.9.32).** The reporter's new log shows the refused 48-byte NIS-looking pass many times a second and the real pass read again about every second. Lossless Scaling makes a new constants buffer for that pass at every frame, and the readers of NIS's viewports (one for each pass, in 0.9.31) were keyed by the buffer's address: every frame made a new one, and after eight the real pass's was pushed out and had to be read again (the upscaler then falls back to NIS until it is). They are keyed by the buffer's size now, and a reader that is known good is never pushed out for one that was refused. Test host: `nisdecoy=2` gives the other pass a new buffer at every frame, scenario `scaler_crop_3440_decoy2`; before the fix that run logged 236 refusals and read the real pass 30 times, after it 2 and 2 (one for each device).

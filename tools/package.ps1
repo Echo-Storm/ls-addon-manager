@@ -3,10 +3,13 @@
 # writes them out for installing by hand (since 0.9.12; the zip held every file twice before).
 # The DLSSNR model is never packaged. NVIDIA's NGX library is linked into Neural Rendering and ships under NVIDIA's licence (NOTICE.md), with
 # NVIDIA-LICENSE.txt beside it. Neural Rendering is left out (with a note) when it did not build; work-in-progress addons unless -IncludeWip.
-#   powershell -File tools\package.ps1 [-Version 0.7.0] [-SkipBuild]
+#   powershell -File tools\package.ps1 [-Version 0.7.0] [-SkipBuild] [-AllowMissing]
+# An addon that is not built (or whose extra files are missing) STOPS the packaging, because a release without it goes out silently (XESSUPSC was
+# left out of 0.9.28 to 0.9.33 that way); -AllowMissing packages without it anyway, for a test build.
 param(
     [string]$Version = '',
     [switch]$SkipBuild,
+    [switch]$AllowMissing,
     [switch]$IncludeWip   # also package addons marked work in progress (none are now)
 )
 $ErrorActionPreference = 'Stop'
@@ -64,7 +67,8 @@ $included = @(); $skipped = @()
 foreach ($a in $addons) {
     if ($a.Wip -and -not $IncludeWip) { Write-Host "$($a.Id) is work in progress: not packaged (-IncludeWip packages it)."; continue }
     $missing = @($a.Files | Where-Object { -not (Test-Path "$($a.Bin)\$_") })
-    if ($missing.Count) { $skipped += $a.Id; continue }
+    if ($a.Extra) { $missing += @($a.Extra.Values | Where-Object { -not (Test-Path $_) }) }
+    if ($missing.Count) { Write-Host "$($a.Id): missing $($missing -join ', ')"; $skipped += $a.Id; continue }
     $dst = "$stage\addons\$($a.Id)"
     New-Item -ItemType Directory -Force $dst | Out-Null
     foreach ($f in $a.Files) { Copy-Item "$($a.Bin)\$f" $dst }
@@ -74,6 +78,7 @@ foreach ($a in $addons) {
     if ($a.Extra) { foreach ($extra in $a.Extra.Keys) { Need $a.Extra[$extra] "$extra for $($a.Id) (run tools\$(if ($a.Id -eq 'FSR3UPSC') { 'fetch_ffx_sdk.ps1' } elseif ($a.Id -eq 'XESSUPSC') { 'fetch_xess_sdk.ps1' } else { 'fetch_ngx_sdk.ps1' }))"; New-Item -ItemType Directory -Force (Split-Path "$dst\$extra") | Out-Null; Copy-Item $a.Extra[$extra] "$dst\$extra" } }
     $included += $a.Id
 }
+if ($skipped.Count -and -not $AllowMissing) { throw "not built, so not in the package: $($skipped -join ', '). Build it (XeSS: tools\fetch_xess_sdk.ps1 then cmake --build ... --target XESSUPSC), or pass -AllowMissing for a test package." }
 if (-not ($included -contains 'DLSS5NR01')) { Write-Host 'Neural Rendering did not build: it is not in this package.' }
 
 # The single-file installer: the files above (only the ones that get installed) are packed into a bundle that becomes a resource of Setup.exe.
