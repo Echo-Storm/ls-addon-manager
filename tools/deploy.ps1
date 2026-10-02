@@ -6,7 +6,7 @@
 #   * host: if Lossless.dll is still Lossless Scaling's own, it is renamed Lossless_original.dll first (the manager needs it there).
 #   powershell -File deploy.ps1 -What host|nr|dlaa|fsr|xess|all [-StopLS] [-LsDir '<Lossless Scaling folder>']   (or set the LS_DIR environment variable) [-Game WowB]
 param(
-    [Parameter(Mandatory = $true)][ValidateSet('host', 'nr', 'dlaa', 'fsr', 'xess', 'all')][string]$What,
+    [Parameter(Mandatory = $true)][ValidateSet('host', 'nr', 'dlaa', 'fsr', 'xess', 'vsr', 'all')][string]$What,
     [switch]$StopLS,
     [string]$LsDir = $(if ($env:LS_DIR) { $env:LS_DIR } else { 'C:\Program Files (x86)\Steam\steamapps\common\Lossless Scaling' }),
     [string]$Game = 'WowB'
@@ -28,6 +28,7 @@ $items = @{
                   @{ Src = "$root\addons\DLSS5NR01\external\agility\LICENSE.txt"; Rel = 'runtimes\FSR\0dd77d9c\Microsoft-D3D12-LICENSE.txt' },
                   @{ Src = "$root\addons\DLSS5NR01\third_party\ffx\LICENSE.txt"; Rel = 'AMD-FidelityFX-LICENSE.txt' },
                   @{ Src = "$root\addons\DLSS5NR01\LICENSE"; Rel = 'LICENSE.txt' }) }
+    vsr      = @{ Src = "$root\addons\DLSS5NR01\build\Release\VSRUPSC.dll"; Dst = "$LsDir\addons\VSRUPSC\VSRUPSC.dll"; Extra = @("$root\addons\DLSS5NR01\products\VSRUPSC\addon.json", "$root\addons\DLSS5NR01\products\VSRUPSC\icon.svg") }   # (the prototype; 'all' leaves it out)
     xess     = @{ Src = "$root\addons\DLSS5NR01\build\Release\XESSUPSC.dll"; Dst = "$LsDir\addons\XESSUPSC\XESSUPSC.dll"; Extra = @("$root\addons\DLSS5NR01\products\XESSUPSC\addon.json", "$root\addons\DLSS5NR01\products\XESSUPSC\icon.svg",
                   @{ Src = "$root\addons\DLSS5NR01\build\Release\xess\libxess.dll"; Rel = 'xess\libxess.dll' },
                   @{ Src = "$root\addons\DLSS5NR01\external\xess\LICENSE.txt"; Rel = 'Intel-XeSS-LICENSE.txt' },

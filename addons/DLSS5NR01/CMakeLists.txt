@@ -179,8 +179,9 @@ if(EXISTS ${VFX_DIR}/nvvfx/include/nvVideoEffects.h AND EXISTS ${VFX_DIR}/featur
   target_include_directories(nr_vfxprobe PRIVATE ${VFX_DIR}/nvvfx/include ${VFX_DIR}/features/nvvfxvideosuperres/include)
   target_link_libraries(nr_vfxprobe PRIVATE d3d11 dxgi)
   # VSRUPSC: the Video Super Resolution prototype addon (src/vsr/vsr_addon.cpp), built only with the user's own Video Effects SDK
-  add_library(VSRUPSC SHARED src/vsr/vsr_addon.cpp src/addon/nis_pass.cpp src/addon/hdr.cpp ${VFX_DIR}/nvvfx/src/nvVideoEffectsProxy.cpp ${VFX_DIR}/nvvfx/src/nvCVImageProxy.cpp)
-  target_include_directories(VSRUPSC PRIVATE src ${CMAKE_SOURCE_DIR}/../../manager/sdk/include ${VFX_DIR}/nvvfx/include ${VFX_DIR}/features/nvvfxvideosuperres/include)
+  add_library(VSRUPSC SHARED src/vsr/vsr_addon.cpp src/addon/nis_pass.cpp src/addon/hdr.cpp ${VFX_DIR}/nvvfx/src/nvVideoEffectsProxy.cpp ${VFX_DIR}/nvvfx/src/nvCVImageProxy.cpp
+    ${imgui_SOURCE_DIR}/imgui.cpp ${imgui_SOURCE_DIR}/imgui_draw.cpp ${imgui_SOURCE_DIR}/imgui_tables.cpp ${imgui_SOURCE_DIR}/imgui_widgets.cpp)
+  target_include_directories(VSRUPSC PRIVATE src ${imgui_SOURCE_DIR} ${CMAKE_SOURCE_DIR}/../../manager/sdk/include ${VFX_DIR}/nvvfx/include ${VFX_DIR}/features/nvvfxvideosuperres/include)
   target_link_libraries(VSRUPSC PRIVATE d3d11 dxgi d3dcompiler)
   set_target_properties(VSRUPSC PROPERTIES PREFIX "" OUTPUT_NAME "VSRUPSC")
 endif()

@@ -11,6 +11,8 @@
 // NVIDIA's SDK is the person's own download (its licence): nothing of it is in this repository or shipped.
 #include <eam/addon_exports.h>
 #include <eam/events.h>
+#include <imgui.h>
+#include <eam/widgets.h>
 #include "addon/scaler11.h"
 #include "addon/hdr.h"
 #include "engine/hdr_hlsl.h"
@@ -27,6 +29,7 @@
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
+#include <mutex>
 #include <string>
 
 char* g_nvVFXSDKPath = nullptr;   // (the SDK's proxy asks for it: where NVVideoEffects.dll is)
@@ -44,9 +47,18 @@ uint64_t g_configAt = 0;
 int g_quality = 1;                // 1 Low .. 4 Ultra (VSR_Bicubic is 0)
 std::string g_vfxDir;
 
+std::mutex g_textMutex;
+std::string g_notice, g_liveStatus;   // for the panel: the last thing that went wrong, and the live line
+
 void Log(const char* fmt, ...) {
     char text[600]; va_list a; va_start(a, fmt); vsnprintf(text, sizeof text, fmt, a); va_end(a);
     if (g_host) g_host->Log(EAM_LOG_INFO, (std::string(kId) + ": " + text).c_str());
+}
+// A line that says why VSR is not running: logged, and shown in the panel.
+void Problem(const char* fmt, ...) {
+    char text[600]; va_list a; va_start(a, fmt); vsnprintf(text, sizeof text, fmt, a); va_end(a);
+    if (g_host) g_host->Log(EAM_LOG_WARN, (std::string(kId) + ": " + text).c_str());
+    std::lock_guard<std::mutex> lock(g_textMutex); g_notice = text;
 }
 
 template <class T> void SafeRelease(T*& p) { if (p) { p->Release(); p = nullptr; } }
@@ -155,7 +167,7 @@ bool LoadSdk() {
     while (!vfx.empty() && vfx.back() == '\\') vfx.pop_back();
     const std::string bin = vfx + "\\bin";
     for (const char* dll : { "NVCVImage.dll", "NVVideoEffects.dll" }) {
-        if (!LoadLibraryExA((bin + "\\" + dll).c_str(), nullptr, LOAD_WITH_ALTERED_SEARCH_PATH)) { Log("cannot load %s\\%s (Windows error %lu; is vfxDir the x64 Video Effects SDK, with CUDA 13 support in the driver?)", bin.c_str(), dll, GetLastError()); return false; }
+        if (!LoadLibraryExA((bin + "\\" + dll).c_str(), nullptr, LOAD_WITH_ALTERED_SEARCH_PATH)) { Problem("cannot load %s\\%s (Windows error %lu; is vfxDir the x64 Video Effects SDK, with CUDA 13 support in the driver?)", bin.c_str(), dll, GetLastError()); return false; }
     }
     static std::string binStatic; binStatic = bin; g_nvVFXSDKPath = binStatic.data();
     SetDllDirectoryA(bin.c_str());   // (the SDK's proxies load the rest by name)
@@ -175,24 +187,24 @@ bool Fit(ID3D11Device* dev, uint32_t inW, uint32_t inH, uint32_t outW, uint32_t 
     if (g_chain.dev != dev) { g_chain.Release(); g_chain.dev = dev; }
     if (!g_chain.grab) {
         g_chain.grabCb = MakeCb(dev, 16); g_chain.placeCb = MakeCb(dev, 32);
-        if (!g_chain.grabCb || !g_chain.placeCb || !CompileShader(dev, kGrabHlsl, "CSGrab", &g_chain.grab) || !CompileShader(dev, kPlaceHlsl, "CSPlace", &g_chain.place)) { Log("the shaders could not be made"); return false; }
+        if (!g_chain.grabCb || !g_chain.placeCb || !CompileShader(dev, kGrabHlsl, "CSGrab", &g_chain.grab) || !CompileShader(dev, kPlaceHlsl, "CSPlace", &g_chain.place)) { Problem("the shaders could not be made"); return false; }
     }
     if (g_chain.inW == inW && g_chain.inH == inH && g_chain.outW == outW && g_chain.outH == outH && g_chain.quality == g_quality && g_chain.effectLoaded) return true;
     g_chain.ReleaseSizes();
     const auto t0 = std::chrono::steady_clock::now();
-    if (!g_chain.stream) { if (NvCV_Status s = NvVFX_CudaStreamCreate(&g_chain.stream)) { Log("%s", NvError(s, "NvVFX_CudaStreamCreate")); return false; } }
+    if (!g_chain.stream) { if (NvCV_Status s = NvVFX_CudaStreamCreate(&g_chain.stream)) { Problem("%s", NvError(s, "NvVFX_CudaStreamCreate")); return false; } }
     g_chain.texIn = MakeTex(dev, inW, inH); g_chain.texOut = MakeTex(dev, outW, outH);
-    if (!g_chain.texIn || !g_chain.texOut) { Log("the textures could not be made (%ux%u, %ux%u)", inW, inH, outW, outH); g_chain.ReleaseSizes(); return false; }
-    if (FAILED(dev->CreateUnorderedAccessView(g_chain.texIn, nullptr, &g_chain.inUav)) || FAILED(dev->CreateShaderResourceView(g_chain.texOut, nullptr, &g_chain.outSrv))) { Log("the views could not be made"); g_chain.ReleaseSizes(); return false; }
+    if (!g_chain.texIn || !g_chain.texOut) { Problem("the textures could not be made (%ux%u, %ux%u)", inW, inH, outW, outH); g_chain.ReleaseSizes(); return false; }
+    if (FAILED(dev->CreateUnorderedAccessView(g_chain.texIn, nullptr, &g_chain.inUav)) || FAILED(dev->CreateShaderResourceView(g_chain.texOut, nullptr, &g_chain.outSrv))) { Problem("the views could not be made"); g_chain.ReleaseSizes(); return false; }
     NvCV_Status s = NvVFX_CreateEffect(NVVFX_FX_VIDEO_SUPER_RES, &g_chain.fx);
-    if (s != NVCV_SUCCESS) { Log("%s", NvError(s, "NvVFX_CreateEffect(VideoSuperRes) (is the VideoSuperRes feature installed?)")); g_chain.ReleaseSizes(); return false; }
+    if (s != NVCV_SUCCESS) { Problem("%s", NvError(s, "NvVFX_CreateEffect(VideoSuperRes) (is the VideoSuperRes feature installed?)")); g_chain.ReleaseSizes(); return false; }
     NvVFX_SetCudaStream(g_chain.fx, NVVFX_CUDA_STREAM, g_chain.stream);
     const std::string models = g_vfxDir + "\\bin\\models"; NvVFX_SetString(g_chain.fx, NVVFX_MODEL_DIRECTORY, models.c_str());
     NvVFX_SetU32(g_chain.fx, NVVFX_QUALITY_LEVEL, static_cast<unsigned>(g_quality));
-    if ((s = NvCVImage_Alloc(&g_chain.gIn, inW, inH, NVCV_RGBA, NVCV_U8, NVCV_CHUNKY, NVCV_GPU, 1)) != NVCV_SUCCESS || (s = NvCVImage_Alloc(&g_chain.gOut, outW, outH, NVCV_RGBA, NVCV_U8, NVCV_CHUNKY, NVCV_GPU, 1)) != NVCV_SUCCESS) { Log("%s", NvError(s, "the CUDA buffers")); g_chain.ReleaseSizes(); return false; }
+    if ((s = NvCVImage_Alloc(&g_chain.gIn, inW, inH, NVCV_RGBA, NVCV_U8, NVCV_CHUNKY, NVCV_GPU, 1)) != NVCV_SUCCESS || (s = NvCVImage_Alloc(&g_chain.gOut, outW, outH, NVCV_RGBA, NVCV_U8, NVCV_CHUNKY, NVCV_GPU, 1)) != NVCV_SUCCESS) { Problem("%s", NvError(s, "the CUDA buffers")); g_chain.ReleaseSizes(); return false; }
     NvVFX_SetImage(g_chain.fx, NVVFX_INPUT_IMAGE, &g_chain.gIn); NvVFX_SetImage(g_chain.fx, NVVFX_OUTPUT_IMAGE, &g_chain.gOut);
-    if ((s = NvVFX_Load(g_chain.fx)) != NVCV_SUCCESS) { Log("%s", NvError(s, "NvVFX_Load")); g_chain.ReleaseSizes(); return false; }
-    if ((s = NvCVImage_InitFromD3D11Texture(&g_chain.dIn, g_chain.texIn)) != NVCV_SUCCESS || (s = NvCVImage_InitFromD3D11Texture(&g_chain.dOut, g_chain.texOut)) != NVCV_SUCCESS) { Log("%s", NvError(s, "InitFromD3D11Texture")); g_chain.ReleaseSizes(); return false; }
+    if ((s = NvVFX_Load(g_chain.fx)) != NVCV_SUCCESS) { Problem("%s", NvError(s, "NvVFX_Load")); g_chain.ReleaseSizes(); return false; }
+    if ((s = NvCVImage_InitFromD3D11Texture(&g_chain.dIn, g_chain.texIn)) != NVCV_SUCCESS || (s = NvCVImage_InitFromD3D11Texture(&g_chain.dOut, g_chain.texOut)) != NVCV_SUCCESS) { Problem("%s", NvError(s, "InitFromD3D11Texture")); g_chain.ReleaseSizes(); return false; }
     g_chain.inW = inW; g_chain.inH = inH; g_chain.outW = outW; g_chain.outH = outH; g_chain.quality = g_quality; g_chain.effectLoaded = true;
     Log("VSR quality %d for %ux%u to %ux%u is ready (%.0f ms to build)", g_quality, inW, inH, outW, outH, std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - t0).count());
     return true;
@@ -239,7 +251,7 @@ bool RunVsr(ID3D11DeviceContext* ctx, const nr::NisPass& pass) {
     NvCV_Status s = NvCVImage_Transfer(&g_chain.dIn, &g_chain.gIn, 1.0f, g_chain.stream, nullptr);
     if (s == NVCV_SUCCESS) s = NvVFX_Run(g_chain.fx, 0);
     if (s == NVCV_SUCCESS) s = NvCVImage_Transfer(&g_chain.gOut, &g_chain.dOut, 1.0f, g_chain.stream, nullptr);
-    if (s != NVCV_SUCCESS) { Log("%s", NvError(s, "the VSR chain")); g_failed = true; return false; }
+    if (s != NVCV_SUCCESS) { Problem("%s", NvError(s, "the VSR chain")); g_failed = true; return false; }
     { NvCVImage corner{}, cornerCpu{}; unsigned char px[16 * 16 * 4]; NvCVImage_InitView(&corner, &g_chain.gOut, 0, 0, 16, 16);   // (waits for the stream)
       NvCVImage_Init(&cornerCpu, 16, 16, 16 * 4, px, NVCV_RGBA, NVCV_U8, NVCV_CHUNKY, NVCV_CPU); NvCVImage_Transfer(&corner, &cornerCpu, 1.0f, g_chain.stream, nullptr); }
 
@@ -257,7 +269,7 @@ bool RunVsr(ID3D11DeviceContext* ctx, const nr::NisPass& pass) {
     if (now - g_chain.statusAt > 1000 && g_chain.n) {
         g_chain.statusAt = now;
         char t[160]; snprintf(t, sizeof t, "VSR quality %d, %ux%u to %ux%u: %.1f ms a frame on the render thread (%d frames)", g_quality, pass.inW, pass.inH, pass.outW, pass.outH, g_chain.sumMs / g_chain.n, g_chain.n);
-        g_host->SetStatus(kId, t, 1);
+        g_host->SetStatus(kId, t, 1); { std::lock_guard<std::mutex> lock(g_textMutex); g_liveStatus = t; g_notice.clear(); }
         if (g_chain.n >= 300) { Log("%s", t); g_chain.sumMs = 0; g_chain.n = 0; }
     }
     return true;
@@ -282,7 +294,7 @@ bool OnPass(uint32_t x, uint32_t y, uint32_t z, void*) {
     static bool marked = false;
     if (!marked) { marked = true; FILE* f = nullptr; if (_wfopen_s(&f, TrialMarker().c_str(), L"wb") == 0 && f) { fputs("running", f); fclose(f); } }   // (found at the next start: the last session did not end well)
     const bool done = GuardedRun(ctx, pass, &code);
-    if (code) { Log("the VSR chain raised exception 0x%08lx: VSR stays off until Lossless Scaling restarts", code); g_failed = true; }
+    if (code) { Problem("the VSR chain raised exception 0x%08lx: VSR stays off until Lossless Scaling restarts", code); g_failed = true; }
     nr::ReleaseNisPass(pass);
     return done;
 }
@@ -294,7 +306,10 @@ void OnDeviceEvent(uint32_t, const void*, uint32_t, void*) {
 
 }   // namespace
 
-EAM_EXPORT void AddonInitialize(IHost* host, ImGuiContext*, void*, void*, void*) {
+EAM_EXPORT void AddonInitialize(IHost* host, ImGuiContext* ctx, void* allocFunc, void* freeFunc, void* userData) {
+    ImGui::SetCurrentContext(ctx);
+    ImGui::SetAllocatorFunctions(reinterpret_cast<ImGuiMemAllocFunc>(allocFunc), reinterpret_cast<ImGuiMemFreeFunc>(freeFunc), userData);
+    eam::ui::InitAddonImGui();
     g_host = host;
     HMODULE self = nullptr;
     GetModuleHandleExW(GET_MODULE_HANDLE_EX_FLAG_FROM_ADDRESS | GET_MODULE_HANDLE_EX_FLAG_UNCHANGED_REFCOUNT, reinterpret_cast<LPCWSTR>(&AddonInitialize), &self);
@@ -320,8 +335,35 @@ EAM_EXPORT void AddonShutdown() {
     g_host = nullptr;
 }
 
-EAM_EXPORT void AddonRenderSettings() {}   // (no panel in the prototype: the settings are config.json keys, the status line shows what it does)
-EAM_EXPORT uint32_t GetAddonCapabilities() { return EAM_CAP_D3D11_DEVICE_ACCESS | EAM_CAP_DISPATCH_HOOK; }
+EAM_EXPORT void AddonRenderSettings() {
+    ReadConfig();
+    ImGui::TextWrapped("Prototype. NVIDIA's RTX Video Super Resolution, from your own copy of the NVIDIA Video Effects SDK, in place of Lossless Scaling's NIS scaling: a trained network that sharpens the picture it upscales, one frame at a time. Nothing of NVIDIA's comes with this addon.");
+    ImGui::Spacing();
+    bool enabled = g_enabled;
+    if (ImGui::Checkbox("Use Video Super Resolution", &enabled)) { g_host->SetConfig(kId, "enabled", enabled ? "1" : "0"); g_host->SaveConfig(); g_configAt = 0; g_enabled = enabled; }
+    if (ImGui::IsItemHovered()) ImGui::SetTooltip("On, the addon takes Lossless Scaling's NIS pass and puts VSR's picture in its place. Off, nothing changes.");
+    static const char* kQualities[] = { "Bicubic (no AI, to compare)", "Low (recommended)", "Medium", "High", "Ultra" };
+    int q = std::clamp(g_quality, 0, 4);
+    if (g_quality <= 4 && ImGui::Combo("Quality", &q, kQualities, 5)) { char t[16]; snprintf(t, sizeof t, "%d", q); g_host->SetConfig(kId, "quality", t); g_host->SaveConfig(); g_configAt = 0; g_quality = q; }
+    if (ImGui::IsItemHovered()) ImGui::SetTooltip("Low and Medium cost 2 to 3 ms a frame at 4K and look as good as High and Ultra in the tests; High and Ultra cost 6 to 8 ms and shimmer more.");
+    static char folder[520]; static bool folderInit = false;
+    if (!folderInit) { strncpy_s(folder, g_vfxDir.c_str(), sizeof folder - 1); folderInit = true; }
+    ImGui::SetNextItemWidth(-1);
+    if (ImGui::InputText("##vfxdir", folder, sizeof folder, ImGuiInputTextFlags_EnterReturnsTrue) || ImGui::IsItemDeactivatedAfterEdit()) { g_host->SetConfig(kId, "vfxDir", folder); g_host->SaveConfig(); g_configAt = 0; }
+    ImGui::TextDisabled("The folder of your NVIDIA Video Effects SDK (x64), with the Video Super Resolution feature installed. A change of folder takes effect after Lossless Scaling restarts.");
+    ImGui::Spacing();
+    { std::lock_guard<std::mutex> lock(g_textMutex);
+      if (!g_liveStatus.empty()) ImGui::TextWrapped("%s", g_liveStatus.c_str());
+      else ImGui::TextDisabled(g_enabled ? "Waiting for a NIS pass (choose NIS as the Scaling Type, and a window smaller than the screen)." : "Off.");
+      if (!g_notice.empty()) ImGui::TextColored(ImVec4(0.95f, 0.65f, 0.2f, 1.0f), "%s", g_notice.c_str()); }
+    if (g_failed && ImGui::Button("Try again")) {
+        if (GetFileAttributesW(TrialMarker().c_str()) != INVALID_FILE_ATTRIBUTES) DeleteFileW(TrialMarker().c_str());
+        g_failed = false; { std::lock_guard<std::mutex> lock(g_textMutex); g_notice.clear(); }
+    }
+    ImGui::Spacing();
+    ImGui::TextDisabled("Works with: NIS as the Scaling Type, the game in a window smaller than the screen. It replaces the DLSS, FSR and XeSS upscalers (only one can take the NIS pass). A frame is 2 to 4 ms of the render thread at 4K; the picture is as steady as bicubic plus about a quarter more shimmer.");
+}
+EAM_EXPORT uint32_t GetAddonCapabilities() { return EAM_CAP_HAS_SETTINGS | EAM_CAP_D3D11_DEVICE_ACCESS | EAM_CAP_DISPATCH_HOOK; }
 EAM_EXPORT const char* GetAddonName() { return kName; }
 EAM_EXPORT const char* GetAddonVersion() { return kVersion; }
 EAM_EXPORT const char* GetAddonAuthor() { return "Echo-Storm"; }

@@ -50,6 +50,10 @@ $addons = @(
                   # Microsoft's Direct3D 12 Agility SDK core, beside that runtime: the FSR Upscaler makes its device on it (issue #11; tools\fetch_agility_sdk.ps1)
                   'runtimes\FSR\0dd77d9c\D3D12Core.dll' = "$root\addons\DLSS5NR01\external\agility\D3D12Core.dll";
                   'runtimes\FSR\0dd77d9c\Microsoft-D3D12-LICENSE.txt' = "$root\addons\DLSS5NR01\external\agility\LICENSE.txt" } },
+    # Video Super Resolution (prototype): its own small addon (src\vsr), built only with the user's own NVIDIA Video Effects SDK in external\vfx; work in progress, so only with -IncludeWip.
+    # Nothing of NVIDIA's is in it: the SDK stays in the person's folder.
+    @{ Id = 'VSRUPSC'; Wip = $true; Dir = "$root\addons\DLSS5NR01\products\VSRUPSC"; Bin = "$root\addons\DLSS5NR01\build\Release"; Files = @('VSRUPSC.dll');
+       Extra = @{ 'LICENSE.txt' = "$root\addons\DLSS5NR01\LICENSE" } },
     # XeSS Upscaler: the same sources again; Intel's XeSS runtime (Intel Simplified Software License, signed by Intel) ships in its xess folder,
     # with Intel's licence next to it, as that licence asks (tools\fetch_xess_sdk.ps1)
     @{ Id = 'XESSUPSC'; Dir = "$root\addons\DLSS5NR01\products\XESSUPSC"; Bin = "$root\addons\DLSS5NR01\build\Release"; Files = @('XESSUPSC.dll');

@@ -574,7 +574,28 @@ def scenario_selftest(ctx, res, text, frame):
 
 
 # name, config overrides, checker
+# Video Super Resolution (the prototype addon VSRUPSC, tools of the user's own NVIDIA Video Effects SDK): only run when the addon is built and the SDK is there (VFX_DIR, or external/vfx_x64)
+VFX_DIR = os.environ.get('VFX_DIR') or os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), 'addons', 'DLSS5NR01', 'external', 'vfx_x64')
+NEEDS_VFX = {'vsr', 'vsr_4_3'}
+
+
+def scenario_vsr(ctx, res, text, frame):
+    res.check('the Video Super Resolution addon takes the NIS pass', 'DLSS REPLACED NIS' in text)
+    res.check('no exception or failure in the VSR chain', 'raised exception' not in text and 'FAULT' not in text and 'VSRUPSC: cannot load' not in text and 'the VSR chain' not in text)
+    m = re.search(r'VSR quality \d+, \d+x\d+ to \d+x\d+: ([0-9.]+) ms a frame', text)
+    res.check('a frame costs under 8 ms on the render thread', m is not None and float(m.group(1)) < 8.0, (m.group(1) + ' ms') if m else 'no status line')
+
+
+def scenario_vsr_viewport(ctx, res, text, frame):
+    scenario_vsr(ctx, res, text, frame)
+    vp = re.search(r'\[check-vp\] .*?: (\d+) pixels of the borders lit', text)
+    res.check("...and leaves Lossless Scaling's borders as they are", vp is not None and int(vp.group(1)) == 0, vp.group(0)[11:] if vp else 'no check-vp line')
+
+
 SCENARIOS = [
+    ('vsr', ['addon=VSRUPSC.dll', 'nis=1', 'nisbgra=1', 'nisnoflow=1', 'enabled=1', 'quality=1', 'vfxDir=' + VFX_DIR], scenario_vsr),
+    ('vsr_4_3', ['addon=VSRUPSC.dll', 'nis=1', 'nisbgra=1', 'nisnoflow=1', 'nisvp=1', 'nisW=960', 'nisH=720', 'nisScale=1.5', 'enabled=1', 'quality=1', 'vfxDir=' + VFX_DIR], scenario_vsr_viewport),
+
     ('base', ['presentMode=0'], scenario_base),   # present mode off: with frame generation off the old result must go (present_mode tests it on)
     ('every2', ['presentMode=0', 'modelEvery=2'], scenario_every2),   # the setting Run the model: every 2nd real frame
     ('present_mode', ['offframes=150'], scenario_present_mode),   # frame generation off for 6 s: the model takes the presented frames
@@ -795,6 +816,9 @@ def main():
     except OSError: pass
     for name, keys, checker in SCENARIOS:
         if only and name not in only and name != 'base':
+            continue
+        if name in NEEDS_VFX and not (os.path.exists(os.path.join(a.nr, 'VSRUPSC.dll')) and os.path.isdir(VFX_DIR)):
+            if name in named: print('%s needs VSRUPSC.dll in %s and the Video Effects SDK in %s (VFX_DIR)' % (name, a.nr, VFX_DIR))
             continue
         if name in RETIRED and name not in named and not a.retired:
             continue
