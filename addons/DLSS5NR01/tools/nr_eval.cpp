@@ -1,7 +1,7 @@
 // nr_nreval: runs Neural Rendering's model (the addon's own NrEngine, with the user's nvngx_dlssnr.dll) on a recording and scores the flicker it adds.
 //
 //   nr_nreval <recording.lsrec> <output folder> [first=N] [count=N] [scale=50] [smooth=40] [passes=1] [intensity=100] [model=<path to nvngx_dlssnr.dll>]
-//             [lsdir=<Lossless Scaling folder>] [show=N] [maxdelta=50] [still=3] [stable=N] [dump=file] [lightlog=1]
+//             [lsdir=<Lossless Scaling folder>] [show=N] [maxdelta=50] [still=3] [stable=N] [dump=file] [lightlog=1] [piclog=1]
 //
 // The picture shown is the game's frame plus the model's change (its "delta", at the working size, stretched to the frame's and clamped to
 // maxdelta percent), as the addon's compose adds it. Per frame, against the frame before:
@@ -263,6 +263,16 @@ int main(int argc, char** argv) {
         { double sf = 0, sp = 0; for (size_t k = 0; k + 3 < frame.size(); k += 4) { sf += frame[k] + frame[k + 1] + frame[k + 2]; sp += pic[k] + pic[k + 1] + pic[k + 2]; }
           lightShift.push_back((sp - sf) / (3.0 * (frame.size() / 4)));
           if (Arg(argc, argv, "lightlog", 0)) printf("  frame %4d  light shift %.3f levels\n", first + i, lightShift.back()); }
+        // piclog=1: where the game's frame is black, the colour the compose would show (a lift or a tint of the black), and the first and last frame as pictures
+        if (Arg(argc, argv, "piclog", 0)) {
+            double sum[3] = {}; size_t black = 0;
+            for (size_t k = 0; k + 3 < frame.size(); k += 4) {
+                if (frame[k] > 2 || frame[k + 1] > 2 || frame[k + 2] > 2) continue;
+                ++black; for (int c = 0; c < 3; ++c) sum[c] += pic[k + c];
+            }
+            if (black) printf("  frame %4d  black pixels (%.0f %%) shown as R %.2f G %.2f B %.2f of 255\n", first + i, 100.0 * black / (frame.size() / 4), sum[0] / black, sum[1] / black, sum[2] / black);
+            if (i == 0 || i == count - 1) { wchar_t name[64]; swprintf(name, 64, L"\\pic_frame%05d.bmp", first + i); WriteBmp(outDir + name, { &frame, &pic }, W, H); }
+        }
         Score s; s.frame = first + i; s.steady = 99; s.still = 0; s.moving = 0; s.lag = 0; s.plain = 0; double usedShare = 0;
         if (i > 0 && !framePrev.empty()) {
             s.steady = PsnrTemporal(pic, picPrev, frame, framePrev);
