@@ -53,7 +53,14 @@ struct FakeHost : IHost {
         for (size_t i = 0; i < pres.size();) if (pres[i].module == module) pres.erase(pres.begin() + i); else ++i;
         if (cb) pres.push_back({ module, cb, ud });
     }
-    void SetPostDispatchCallback(EamPostDispatchCallback, void*) override {}
+    struct Post { HMODULE module; EamPostDispatchCallback cb; void* ud; };
+    std::vector<Post> posts;
+    void SetPostDispatchCallback(EamPostDispatchCallback cb, void* ud) override {
+        HMODULE module = nullptr;
+        GetModuleHandleExW(GET_MODULE_HANDLE_EX_FLAG_FROM_ADDRESS | GET_MODULE_HANDLE_EX_FLAG_UNCHANGED_REFCOUNT, (LPCWSTR)_ReturnAddress(), &module);
+        for (size_t i = 0; i < posts.size();) if (posts[i].module == module) posts.erase(posts.begin() + i); else ++i;
+        if (cb) posts.push_back({ module, cb, ud });
+    }
     void* GetCurrentComputeShader() override { return nullptr; }
     uint32_t GetDispatchCount() override { return dispatches; }
     void* GetDispatchingContext() override { return dispatching; }
@@ -78,8 +85,11 @@ struct FakeHost : IHost {
         bool skip = false;
         for (const Pre& p : pres) skip = p.cb(x, y, z, p.ud) || skip;
         longestCallMs = std::max(longestCallMs, std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - t0).count());
+        if (!skip) {   // as the manager does: the original pass, then the post callbacks (the context still known inside them)
+            c->Dispatch(x, y, z);
+            for (const Post& p : posts) p.cb(x, y, z, p.ud);
+        }
         dispatching = nullptr;
-        if (!skip) c->Dispatch(x, y, z);
     }
     // live status and metrics, recorded so the run can check that the addon reports them
     std::map<std::string, int> metricCount; std::map<std::string, double> metricLast; std::string status; int statusLevel = -1; int statusCalls = 0;

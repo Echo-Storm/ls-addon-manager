@@ -45,6 +45,10 @@ std::wstring g_addonDir;
 bool g_enabled = false, g_failed = false, g_sdkLoaded = false;
 uint64_t g_configAt = 0;
 int g_quality = 1;                // 1 Low .. 4 Ultra (VSR_Bicubic is 0)
+bool g_gate = true;               // VSR only where the frame did not change from the pass before; NIS's picture elsewhere
+float g_gateLow = 0.012f, g_gateHigh = 0.05f;   // the change (of the 8-bit SDR view, 0..1) that still counts as still, and the one that counts as moving
+// What the pre-dispatch callback leaves for the post-dispatch one (the same NIS pass, one after the other on the render thread)
+struct Pending { bool valid = false; uint32_t inW = 0, inH = 0, outW = 0, outH = 0, outX = 0, outY = 0, enc = 0; float white = 200.0f; } g_pending;
 std::string g_vfxDir;
 
 std::mutex g_textMutex;
@@ -117,10 +121,46 @@ void CSPlace(uint3 id : SV_DispatchThreadID) {
 }
 )HLSL";
 
+// The blend (the motion gate): NIS has drawn its picture; this puts VSR's over it where the frame did not change from the pass before (a 3x3 neighbourhood of the input pixel, so the edge of
+// something that moves is kept clear of it), and leaves NIS's where it did. VSR sees one frame at a time and blurs and shifts colour on what moves; NIS does not.
+const char* const kBlendHlsl = R"HLSL(
+Texture2D<float4>   tNis  : register(t0);   // NIS's picture (the output viewport's part, copied to 0,0)
+Texture2D<float4>   tVsr  : register(t1);   // VSR's picture (8-bit, the SDR view)
+Texture2D<float4>   tNow  : register(t2);   // this pass's input (8-bit, the SDR view)
+Texture2D<float4>   tPrev : register(t3);   // the pass before's
+RWTexture2D<float4> uOut  : register(u0);   // NIS's output, written at the viewport's corner
+cbuffer C : register(b0) { uint2 origin; uint2 size; uint2 inSize; uint encoding; float white; float lo; float hi; float2 pad; };
+[numthreads(8, 8, 1)]
+void CSBlend(uint3 id : SV_DispatchThreadID) {
+    if (id.x >= size.x || id.y >= size.y) return;
+    const int2 ip = int2((float2(id.xy) + 0.5) * float2(inSize) / float2(size));
+    float diff = 0.0;
+    [unroll] for (int j = -1; j <= 1; ++j) {
+        [unroll] for (int i = -1; i <= 1; ++i) {
+            const int2 q = clamp(ip + int2(i, j), int2(0, 0), int2(inSize) - 1);
+            const float3 d = abs(tNow.Load(int3(q, 0)).rgb - tPrev.Load(int3(q, 0)).rgb);
+            diff = max(diff, max(d.r, max(d.g, d.b)));
+        }
+    }
+    const float wv = 1.0 - smoothstep(lo, hi, diff);   // 1: still, VSR's picture; 0: it moves, NIS's
+    const float4 nis = tNis.Load(int3(id.xy, 0));
+    const float3 vsr = saturate(tVsr.Load(int3(id.xy, 0)).rgb);
+    float3 outc;
+    if (encoding == 0u) outc = lerp(nis.rgb, vsr, wv);
+    else {   // HDR: the change goes onto NIS's light, so what is left as NIS drew it (wv = 0) is exactly that
+        const float3 vN = ToSdr(nis.rgb, encoding, white), vB = lerp(vN, vsr, wv);
+        outc = FromLight(ApplyViewChange(max(ToLight(nis.rgb, encoding, white), 0.0), vN, vB), encoding, white);
+    }
+    uOut[id.xy + origin] = float4(outc, nis.a);
+}
+)HLSL";
+
 // Everything made on one of Lossless Scaling's devices (it makes more than one, and replaces them): the shaders, the textures the SDK's transfers use, and the effect for these sizes.
 struct Chain {
     ID3D11Device* dev = nullptr;   // only compared
-    ID3D11ComputeShader* grab = nullptr, * place = nullptr; ID3D11Buffer* grabCb = nullptr, * placeCb = nullptr;
+    ID3D11ComputeShader* grab = nullptr, * place = nullptr, * blend = nullptr; ID3D11Buffer* grabCb = nullptr, * placeCb = nullptr, * blendCb = nullptr;
+    ID3D11Texture2D* texPrev = nullptr, * scratch = nullptr; ID3D11ShaderResourceView* inSrv = nullptr, * prevSrv = nullptr, * scratchSrv = nullptr;   // the motion gate: the pass before's input, and NIS's picture copied
+    uint32_t scratchW = 0, scratchH = 0; DXGI_FORMAT scratchFmt = DXGI_FORMAT_UNKNOWN; bool havePrev = false;
     ID3D11Texture2D* texIn = nullptr, * texOut = nullptr; ID3D11UnorderedAccessView* inUav = nullptr; ID3D11ShaderResourceView* outSrv = nullptr;
     uint32_t inW = 0, inH = 0, outW = 0, outH = 0; int quality = -1;
     NvVFX_Handle fx = nullptr; NvCVImage gIn{}, gOut{}, dIn{}, dOut{}; CUstream stream = nullptr;
@@ -130,9 +170,10 @@ struct Chain {
         if (fx) { NvVFX_DestroyEffect(fx); fx = nullptr; }
         NvCVImage_Dealloc(&gIn); NvCVImage_Dealloc(&gOut); gIn = {}; gOut = {}; dIn = {}; dOut = {};
         SafeRelease(inUav); SafeRelease(outSrv); SafeRelease(texIn); SafeRelease(texOut);
+        SafeRelease(inSrv); SafeRelease(prevSrv); SafeRelease(texPrev); SafeRelease(scratchSrv); SafeRelease(scratch); scratchW = scratchH = 0; havePrev = false;
         inW = inH = outW = outH = 0; quality = -1; effectLoaded = false;
     }
-    void Release() { ReleaseSizes(); SafeRelease(grab); SafeRelease(place); SafeRelease(grabCb); SafeRelease(placeCb); dev = nullptr; }
+    void Release() { ReleaseSizes(); SafeRelease(grab); SafeRelease(place); SafeRelease(blend); SafeRelease(grabCb); SafeRelease(placeCb); SafeRelease(blendCb); dev = nullptr; }
 };
 // (made after the SDK is loaded, never as a global: NvCVImage's constructors call the SDK's loader stub, which keeps its first failure for good if it is asked before the folder is known)
 Chain* g_chainPtr = nullptr;
@@ -186,16 +227,17 @@ bool Fit(ID3D11Device* dev, uint32_t inW, uint32_t inH, uint32_t outW, uint32_t 
     Chain& g_chain = ChainRef();
     if (g_chain.dev != dev) { g_chain.Release(); g_chain.dev = dev; }
     if (!g_chain.grab) {
-        g_chain.grabCb = MakeCb(dev, 16); g_chain.placeCb = MakeCb(dev, 32);
-        if (!g_chain.grabCb || !g_chain.placeCb || !CompileShader(dev, kGrabHlsl, "CSGrab", &g_chain.grab) || !CompileShader(dev, kPlaceHlsl, "CSPlace", &g_chain.place)) { Problem("the shaders could not be made"); return false; }
+        g_chain.grabCb = MakeCb(dev, 16); g_chain.placeCb = MakeCb(dev, 32); g_chain.blendCb = MakeCb(dev, 48);
+        if (!g_chain.grabCb || !g_chain.placeCb || !g_chain.blendCb || !CompileShader(dev, kGrabHlsl, "CSGrab", &g_chain.grab) || !CompileShader(dev, kPlaceHlsl, "CSPlace", &g_chain.place) || !CompileShader(dev, kBlendHlsl, "CSBlend", &g_chain.blend)) { Problem("the shaders could not be made"); return false; }
     }
     if (g_chain.inW == inW && g_chain.inH == inH && g_chain.outW == outW && g_chain.outH == outH && g_chain.quality == g_quality && g_chain.effectLoaded) return true;
     g_chain.ReleaseSizes();
     const auto t0 = std::chrono::steady_clock::now();
     if (!g_chain.stream) { if (NvCV_Status s = NvVFX_CudaStreamCreate(&g_chain.stream)) { Problem("%s", NvError(s, "NvVFX_CudaStreamCreate")); return false; } }
-    g_chain.texIn = MakeTex(dev, inW, inH); g_chain.texOut = MakeTex(dev, outW, outH);
-    if (!g_chain.texIn || !g_chain.texOut) { Problem("the textures could not be made (%ux%u, %ux%u)", inW, inH, outW, outH); g_chain.ReleaseSizes(); return false; }
-    if (FAILED(dev->CreateUnorderedAccessView(g_chain.texIn, nullptr, &g_chain.inUav)) || FAILED(dev->CreateShaderResourceView(g_chain.texOut, nullptr, &g_chain.outSrv))) { Problem("the views could not be made"); g_chain.ReleaseSizes(); return false; }
+    g_chain.texIn = MakeTex(dev, inW, inH); g_chain.texOut = MakeTex(dev, outW, outH); g_chain.texPrev = MakeTex(dev, inW, inH);
+    if (!g_chain.texIn || !g_chain.texOut || !g_chain.texPrev) { Problem("the textures could not be made (%ux%u, %ux%u)", inW, inH, outW, outH); g_chain.ReleaseSizes(); return false; }
+    if (FAILED(dev->CreateUnorderedAccessView(g_chain.texIn, nullptr, &g_chain.inUav)) || FAILED(dev->CreateShaderResourceView(g_chain.texOut, nullptr, &g_chain.outSrv)) ||
+        FAILED(dev->CreateShaderResourceView(g_chain.texIn, nullptr, &g_chain.inSrv)) || FAILED(dev->CreateShaderResourceView(g_chain.texPrev, nullptr, &g_chain.prevSrv))) { Problem("the views could not be made"); g_chain.ReleaseSizes(); return false; }
     NvCV_Status s = NvVFX_CreateEffect(NVVFX_FX_VIDEO_SUPER_RES, &g_chain.fx);
     if (s != NVCV_SUCCESS) { Problem("%s", NvError(s, "NvVFX_CreateEffect(VideoSuperRes) (is the VideoSuperRes feature installed?)")); g_chain.ReleaseSizes(); return false; }
     NvVFX_SetCudaStream(g_chain.fx, NVVFX_CUDA_STREAM, g_chain.stream);
@@ -217,6 +259,9 @@ void ReadConfig() {
     g_enabled = atoi(g_host->GetConfig(kId, "enabled", "0")) != 0;
     g_quality = std::clamp(atoi(g_host->GetConfig(kId, "quality", "1")), 0, 23);
     g_vfxDir = g_host->GetConfig(kId, "vfxDir", "");
+    g_gate = atoi(g_host->GetConfig(kId, "motionGate", "1")) != 0;
+    g_gateLow = std::clamp(static_cast<float>(atof(g_host->GetConfig(kId, "gateLow", "0.012"))), 0.0f, 0.5f);
+    g_gateHigh = std::clamp(static_cast<float>(atof(g_host->GetConfig(kId, "gateHigh", "0.05"))), g_gateLow + 0.002f, 1.0f);
     if (g_vfxDir.empty()) g_vfxDir = Narrow(g_addonDir) + "\\vfx";
 }
 
@@ -255,6 +300,10 @@ bool RunVsr(ID3D11DeviceContext* ctx, const nr::NisPass& pass) {
     { NvCVImage corner{}, cornerCpu{}; unsigned char px[16 * 16 * 4]; NvCVImage_InitView(&corner, &g_chain.gOut, 0, 0, 16, 16);   // (waits for the stream)
       NvCVImage_Init(&cornerCpu, 16, 16, 16 * 4, px, NVCV_RGBA, NVCV_U8, NVCV_CHUNKY, NVCV_CPU); NvCVImage_Transfer(&corner, &cornerCpu, 1.0f, g_chain.stream, nullptr); }
 
+    const bool gated = g_gate;
+    if (gated) {   // NIS runs as usual; the blend after it (OnPostPass) puts VSR's picture over it where the frame is still
+        g_pending = { true, pass.inW, pass.inH, pass.outW, pass.outH, pass.outX, pass.outY, static_cast<uint32_t>(enc), white };
+    } else {
     // 3. the place
     { D3D11_MAPPED_SUBRESOURCE m{}; if (FAILED(ctx->Map(g_chain.placeCb, 0, D3D11_MAP_WRITE_DISCARD, 0, &m))) return false;
       uint32_t* c = static_cast<uint32_t*>(m.pData); c[0] = pass.outX; c[1] = pass.outY; c[2] = pass.outW; c[3] = pass.outH; c[4] = static_cast<uint32_t>(enc); float w = white; memcpy(&c[5], &w, 4); c[6] = c[7] = 0; ctx->Unmap(g_chain.placeCb, 0); }
@@ -262,6 +311,7 @@ bool RunVsr(ID3D11DeviceContext* ctx, const nr::NisPass& pass) {
     ctx->CSSetShaderResources(0, 1, &g_chain.outSrv); ctx->CSSetUnorderedAccessViews(0, 1, &outUav, nullptr);
     ctx->Dispatch((pass.outW + 7) / 8, (pass.outH + 7) / 8, 1);
     ctx->CSSetShaderResources(0, 1, &noSrv); ctx->CSSetUnorderedAccessViews(0, 1, &noUav, nullptr);
+    }
 
     const double ms = std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - t0).count();
     g_chain.sumMs += ms; ++g_chain.n;
@@ -272,7 +322,7 @@ bool RunVsr(ID3D11DeviceContext* ctx, const nr::NisPass& pass) {
         g_host->SetStatus(kId, t, 1); { std::lock_guard<std::mutex> lock(g_textMutex); g_liveStatus = t; g_notice.clear(); }
         if (g_chain.n >= 300) { Log("%s", t); g_chain.sumMs = 0; g_chain.n = 0; }
     }
-    return true;
+    return !gated;   // gated: NIS still runs
 }
 
 bool GuardedRun(ID3D11DeviceContext* ctx, const nr::NisPass& pass, DWORD* code) {   // (no objects with destructors here: __try needs that)
@@ -281,6 +331,63 @@ bool GuardedRun(ID3D11DeviceContext* ctx, const nr::NisPass& pass, DWORD* code) 
 }
 
 std::wstring TrialMarker() { return g_addonDir + L"\\running.txt"; }
+
+// After NIS has drawn its picture: VSR's over it where the frame is still (kBlendHlsl). NIS's picture is copied first (the blend reads it and writes the same output).
+void RunBlend(ID3D11DeviceContext* ctx) {
+    const Pending p = g_pending; g_pending.valid = false;
+    if (!g_chainPtr) return;
+    Chain& g_chain = *g_chainPtr;
+    if (!g_chain.effectLoaded || g_chain.inW != p.inW || g_chain.inH != p.inH || g_chain.outW != p.outW || g_chain.outH != p.outH || !g_chain.blend) return;
+    ID3D11Device* dev = nullptr; ctx->GetDevice(&dev); if (dev) dev->Release();
+    if (!dev || dev != g_chain.dev) return;
+    SavedBindings saved(ctx);
+    ID3D11UnorderedAccessView* outUav = saved.uavs[0];
+    if (!outUav) return;
+    D3D11_UNORDERED_ACCESS_VIEW_DESC ud{}; outUav->GetDesc(&ud);
+    ID3D11Resource* res = nullptr; outUav->GetResource(&res);
+    ID3D11Texture2D* tex = nullptr; if (res) { res->QueryInterface(IID_PPV_ARGS(&tex)); res->Release(); }
+    if (!tex) return;
+    D3D11_TEXTURE2D_DESC rd{}; tex->GetDesc(&rd);
+    const DXGI_FORMAT viewFmt = ud.Format != DXGI_FORMAT_UNKNOWN ? ud.Format : rd.Format;
+    if (!g_chain.scratch || g_chain.scratchW != p.outW || g_chain.scratchH != p.outH || g_chain.scratchFmt != rd.Format) {
+        SafeRelease(g_chain.scratchSrv); SafeRelease(g_chain.scratch);
+        D3D11_TEXTURE2D_DESC d{}; d.Width = p.outW; d.Height = p.outH; d.MipLevels = 1; d.ArraySize = 1; d.Format = rd.Format; d.SampleDesc.Count = 1; d.Usage = D3D11_USAGE_DEFAULT; d.BindFlags = D3D11_BIND_SHADER_RESOURCE;
+        D3D11_SHADER_RESOURCE_VIEW_DESC sv{}; sv.Format = viewFmt; sv.ViewDimension = D3D11_SRV_DIMENSION_TEXTURE2D; sv.Texture2D.MipLevels = 1;
+        if (FAILED(dev->CreateTexture2D(&d, nullptr, &g_chain.scratch)) || FAILED(dev->CreateShaderResourceView(g_chain.scratch, &sv, &g_chain.scratchSrv))) {
+            tex->Release(); Problem("the blend's copy of NIS's picture could not be made (format %d): VSR stays off", static_cast<int>(rd.Format)); g_failed = true; return;
+        }
+        g_chain.scratchW = p.outW; g_chain.scratchH = p.outH; g_chain.scratchFmt = rd.Format;
+    }
+    const D3D11_BOX box{ p.outX, p.outY, 0, p.outX + p.outW, p.outY + p.outH, 1 };
+    ctx->CopySubresourceRegion(g_chain.scratch, 0, 0, 0, 0, tex, 0, &box);
+    tex->Release();
+    if (!g_chain.havePrev) { ctx->CopyResource(g_chain.texPrev, g_chain.texIn); g_chain.havePrev = true; }   // (the first pass has nothing before it: it counts as still)
+    { D3D11_MAPPED_SUBRESOURCE m{}; if (FAILED(ctx->Map(g_chain.blendCb, 0, D3D11_MAP_WRITE_DISCARD, 0, &m))) return;
+      uint32_t* c = static_cast<uint32_t*>(m.pData); c[0] = p.outX; c[1] = p.outY; c[2] = p.outW; c[3] = p.outH; c[4] = p.inW; c[5] = p.inH; c[6] = p.enc;
+      memcpy(&c[7], &p.white, 4); memcpy(&c[8], &g_gateLow, 4); memcpy(&c[9], &g_gateHigh, 4); c[10] = c[11] = 0; ctx->Unmap(g_chain.blendCb, 0); }
+    ID3D11ShaderResourceView* srvs[4] = { g_chain.scratchSrv, g_chain.outSrv, g_chain.inSrv, g_chain.prevSrv };
+    ctx->CSSetShader(g_chain.blend, nullptr, 0); ctx->CSSetConstantBuffers(0, 1, &g_chain.blendCb);
+    ctx->CSSetShaderResources(0, 4, srvs); ctx->CSSetUnorderedAccessViews(0, 1, &outUav, nullptr);
+    ctx->Dispatch((p.outW + 7) / 8, (p.outH + 7) / 8, 1);
+    ID3D11ShaderResourceView* noSrvs[4] = {}; ID3D11UnorderedAccessView* noUav = nullptr;
+    ctx->CSSetShaderResources(0, 4, noSrvs); ctx->CSSetUnorderedAccessViews(0, 1, &noUav, nullptr);
+    ctx->CopyResource(g_chain.texPrev, g_chain.texIn);   // this pass's input is the next one's "before"
+}
+
+bool GuardedBlend(ID3D11DeviceContext* ctx, DWORD* code) {   // (no objects with destructors here: __try needs that)
+    __try { RunBlend(ctx); return true; }
+    __except (*code = GetExceptionCode(), EXCEPTION_EXECUTE_HANDLER) { return false; }
+}
+
+void OnPostPass(uint32_t, uint32_t, uint32_t, void*) {
+    if (!g_pending.valid) return;
+    if (g_failed) { g_pending.valid = false; return; }
+    auto* ctx = static_cast<ID3D11DeviceContext*>(g_host->GetDispatchingContext());
+    if (!ctx) { g_pending.valid = false; return; }
+    DWORD code = 0;
+    GuardedBlend(ctx, &code);
+    if (code) { Problem("the blend raised exception 0x%08lx: VSR stays off until Lossless Scaling restarts", code); g_failed = true; g_pending.valid = false; }
+}
 
 bool OnPass(uint32_t x, uint32_t y, uint32_t z, void*) {
     if (g_failed) return false;
@@ -322,14 +429,14 @@ EAM_EXPORT void AddonInitialize(IHost* host, ImGuiContext* ctx, void* allocFunc,
     }
     host->SubscribeEvent(EAM_EVENT_D3D11_DEVICE_READY, OnDeviceEvent, nullptr);
     host->SubscribeEvent(EAM_EVENT_D3D11_DEVICE_CHANGED, OnDeviceEvent, nullptr);
-    if (host->GetHostVersion() >= 0x010100) host->SetPreDispatchCallback(OnPass, nullptr);
+    if (host->GetHostVersion() >= 0x010100) { host->SetPreDispatchCallback(OnPass, nullptr); host->SetPostDispatchCallback(OnPostPass, nullptr); }
     else { g_failed = true; Log("needs LS Addon Manager with addon API 1.1 or newer"); }
     Log("%s %s initialised (enabled %d, quality %d, SDK folder %s)", kName, kVersion, g_enabled ? 1 : 0, g_quality, g_vfxDir.c_str());
     host->SetStatus(kId, g_enabled ? "Prototype: on, waits for a NIS pass" : "Prototype: off (set enabled to 1)", 0);
 }
 
 EAM_EXPORT void AddonShutdown() {
-    if (g_host) { g_host->SetPreDispatchCallback(nullptr, nullptr); g_host->UnsubscribeEvent(EAM_EVENT_D3D11_DEVICE_READY, OnDeviceEvent); g_host->UnsubscribeEvent(EAM_EVENT_D3D11_DEVICE_CHANGED, OnDeviceEvent); }
+    if (g_host) { g_host->SetPreDispatchCallback(nullptr, nullptr); g_host->SetPostDispatchCallback(nullptr, nullptr); g_host->UnsubscribeEvent(EAM_EVENT_D3D11_DEVICE_READY, OnDeviceEvent); g_host->UnsubscribeEvent(EAM_EVENT_D3D11_DEVICE_CHANGED, OnDeviceEvent); }
     if (g_chainPtr) { g_chainPtr->Release(); if (g_chainPtr->stream) { NvVFX_CudaStreamDestroy(g_chainPtr->stream); g_chainPtr->stream = nullptr; } }
     DeleteFileW(TrialMarker().c_str());   // a normal close: the marker is not a crash
     g_host = nullptr;
@@ -346,6 +453,15 @@ EAM_EXPORT void AddonRenderSettings() {
     int q = std::clamp(g_quality, 0, 4);
     if (g_quality <= 4 && ImGui::Combo("Quality", &q, kQualities, 5)) { char t[16]; snprintf(t, sizeof t, "%d", q); g_host->SetConfig(kId, "quality", t); g_host->SaveConfig(); g_configAt = 0; g_quality = q; }
     if (ImGui::IsItemHovered()) ImGui::SetTooltip("Low and Medium cost 2 to 3 ms a frame at 4K and look as good as High and Ultra in the tests; High and Ultra cost 6 to 8 ms and shimmer more.");
+    bool gate = g_gate;
+    if (ImGui::Checkbox("Only where the picture is still", &gate)) { g_host->SetConfig(kId, "motionGate", gate ? "1" : "0"); g_host->SaveConfig(); g_configAt = 0; g_gate = gate; }
+    if (ImGui::IsItemHovered()) ImGui::SetTooltip("VSR looks at one frame at a time, so on what moves it blurs and shifts colour. With this on, Lossless Scaling's own NIS picture is kept wherever the frame changes from the one before, and VSR's is used where it does not (the interface, a standing character, a still camera). Recommended.");
+    if (g_gate) {
+        float hi = g_gateHigh;
+        ImGui::SetNextItemWidth(220);
+        if (ImGui::SliderFloat("Motion sensitivity", &hi, 0.02f, 0.15f, "%.3f")) { char a[24], b[24]; snprintf(a, sizeof a, "%.4f", hi); snprintf(b, sizeof b, "%.4f", hi * 0.24f); g_host->SetConfig(kId, "gateHigh", a); g_host->SetConfig(kId, "gateLow", b); g_host->SaveConfig(); g_configAt = 0; g_gateHigh = hi; g_gateLow = hi * 0.24f; }
+        if (ImGui::IsItemHovered()) ImGui::SetTooltip("How much a pixel has to change from one frame to the next to count as moving. Lower: VSR gives way to NIS sooner; higher: VSR stays on through slower movement. 0.050 is the start.");
+    }
     static char folder[520]; static bool folderInit = false;
     if (!folderInit) { strncpy_s(folder, g_vfxDir.c_str(), sizeof folder - 1); folderInit = true; }
     ImGui::SetNextItemWidth(-1);

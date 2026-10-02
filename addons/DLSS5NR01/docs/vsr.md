@@ -34,6 +34,14 @@ Low is the mode: Medium to Ultra shimmer more and keep no more detail. The hand-
 Scaling's render thread**, on every frame the NIS pass is dispatched for (real and generated), so with frame generation x3 that is three runs per real frame. See `handoff/BACKLOG.md` for the plan (real frames only,
 a motion gate, a device of its own) and what is not measured.
 
+## The motion gate (on by default)
+
+The first live test (2026-10-02, WoW on an RTX 4070 Ti SUPER) found what the tests suggested: VSR sharpens a still picture, and on what moves it blurs and shifts colour, so it was about on a level with FSR or XeSS 
+in motion. With **Only where the picture is still** (the setting `motionGate`), Lossless Scaling's NIS runs as usual and VSR's picture is blended over it only where the frame did not change from the pass before 
+(a 3x3 neighbourhood of the input pixel, so the edge of something that moves stays NIS). The interface and a standing character keep VSR while the world moves around them; when the camera stops, VSR takes over the 
+whole picture again. **Motion sensitivity** (`gateHigh`, 0.05; `gateLow` is a quarter of it) is how much a pixel has to change to count as moving. The price is NIS's dispatch, a copy of its picture and the blend (a few tenths of a 
+millisecond) on top of VSR's run, which still runs on every frame.
+
 ## Safety
 
 - Any failure hands the pass back to NIS and says why in the panel and the log.
