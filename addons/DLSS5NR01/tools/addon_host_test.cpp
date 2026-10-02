@@ -270,7 +270,7 @@ int main(int argc, char** argv) {
     FakeHost host; host.cfg["snippetPath"] = argc > 3 ? argv[3] : "C:\\Program Files (x86)\\Steam\\steamapps\\common\\Lossless Scaling\\nvngx_dlssnr.dll";
     for (int i = 4; i < argc; ++i) {   // extra key=value pairs override addon config (workingScale=0.5 debugView=3 ...)
         const char* eq = strchr(argv[i], '='); if (!eq) continue;
-        if (!strncmp(argv[i], "shot", 4) || !strncmp(argv[i], "nisnoflow", 9) || !strncmp(argv[i], "nisbgra", 7) || !strncmp(argv[i], "nismove", 7) || !strncmp(argv[i], "nisW", 4) || !strncmp(argv[i], "nisH", 4) || !strncmp(argv[i], "nisScale", 8) || !strncmp(argv[i], "nisvp", 5) || !strncmp(argv[i], "nisedge", 7) || !strncmp(argv[i], "nisline", 7) || !strncmp(argv[i], "unload", 6) || !strncmp(argv[i], "nisgap", 6) || !strncmp(argv[i], "nisswitch", 9) || !strncmp(argv[i], "gpuload", 7) || !strncmp(argv[i], "offframes", 9) || !strncmp(argv[i], "devflags", 8) || !strncmp(argv[i], "second", 6) || !strncmp(argv[i], "flowsplit", 9) || !strncmp(argv[i], "exitmode", 8) || !strncmp(argv[i], "sectionsOpen", 12) || !strncmp(argv[i], "hdr=", 4) || !strncmp(argv[i], "replay", 6) || !strncmp(argv[i], "warp", 4) || !strncmp(argv[i], "nishdr", 6)) continue;   // the host's own keys
+        if (!strncmp(argv[i], "shot", 4) || !strncmp(argv[i], "nisnoflow", 9) || !strncmp(argv[i], "nisbgra", 7) || !strncmp(argv[i], "nismove", 7) || !strncmp(argv[i], "nisW", 4) || !strncmp(argv[i], "nisH", 4) || !strncmp(argv[i], "nisScale", 8) || !strncmp(argv[i], "nisvp", 5) || !strncmp(argv[i], "nisdecoy", 8) || !strncmp(argv[i], "nisedge", 7) || !strncmp(argv[i], "nisline", 7) || !strncmp(argv[i], "unload", 6) || !strncmp(argv[i], "nisgap", 6) || !strncmp(argv[i], "nisswitch", 9) || !strncmp(argv[i], "gpuload", 7) || !strncmp(argv[i], "offframes", 9) || !strncmp(argv[i], "devflags", 8) || !strncmp(argv[i], "second", 6) || !strncmp(argv[i], "flowsplit", 9) || !strncmp(argv[i], "exitmode", 8) || !strncmp(argv[i], "sectionsOpen", 12) || !strncmp(argv[i], "hdr=", 4) || !strncmp(argv[i], "replay", 6) || !strncmp(argv[i], "warp", 4) || !strncmp(argv[i], "nishdr", 6)) continue;   // the host's own keys
         host.cfg[std::string(argv[i], (size_t)(eq - argv[i]))] = eq + 1; printf("cfg %.*s = %s\n", (int)(eq - argv[i]), argv[i], eq + 1);
     }
     // a 10-bit frame is HDR10 only when the display runs in HDR, and the test's display may not: the addon is told so, as a user can
@@ -481,7 +481,20 @@ int main(int argc, char** argv) {
                                     " [loop] for(uint i=0;i<" + std::to_string(gpuLoad * 1000) + "u;++i) v=sin(v*1.0001+0.1); o[id.xy]=v; }";
             csLoad = MakeCS(dev, src.c_str()); loadTex = MakeTex(dev, 256, 256, DXGI_FORMAT_R16G16B16A16_FLOAT, true); uLoad = uav(loadTex);
         }
+        // nisdecoy=1: before each NIS pass another with the same bindings but 48 bytes of constants and one group fewer across (as the log of the reporter of issue #13 shows at 3440x1440:
+        // two passes a frame that both look like NIS to the addon, one of which it must refuse without disturbing what it knows of the other)
+        bool nisDecoy = false; for (int i = 4; i < argc; ++i) if (!strcmp(argv[i], "nisdecoy=1")) nisDecoy = true;
+        ID3D11Buffer* decoyCb = nullptr;
+        if (nisDecoy) { D3D11_BUFFER_DESC bd{}; bd.ByteWidth = 48; bd.Usage = D3D11_USAGE_DEFAULT; bd.BindFlags = D3D11_BIND_CONSTANT_BUFFER; dev->CreateBuffer(&bd, nullptr, &decoyCb); }
         auto nisPass = [&](bool real = true) {
+            if (decoyCb) {
+                ID3D11ShaderResourceView* decoySrvs[3] = { nisSrvs[0], nisSrvs[1], nisSrvs[2] };
+                dc->CSSetShaderResources(0, 3, decoySrvs); dc->CSSetUnorderedAccessViews(0, 1, &uNisOut, nullptr); dc->CSSetShader(csNis, nullptr, 0);
+                dc->CSSetConstantBuffers(0, 1, &decoyCb);
+                host.Dispatch(dc, (VW + 31) / 32 - 1, (VH + 23) / 24, 1);
+                ID3D11Buffer* noCb0 = nullptr; dc->CSSetConstantBuffers(0, 1, &noCb0);
+                dc->CSSetUnorderedAccessViews(0, 1, nullu, nullptr); dc->CSSetShaderResources(0, 3, nulls);
+            }
             if (csLoad) {   // the game's frame, on the same GPU
                 dc->CSSetUnorderedAccessViews(0, 1, &uLoad, nullptr); dc->CSSetShader(csLoad, nullptr, 0); dc->Dispatch(32, 32, 1);
                 dc->CSSetUnorderedAccessViews(0, 1, nullu, nullptr);

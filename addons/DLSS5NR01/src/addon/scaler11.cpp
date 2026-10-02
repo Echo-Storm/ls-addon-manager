@@ -119,9 +119,14 @@ struct ViewportReader {
     Key key{}; int state = 0;         // 0 nothing, 1 a copy in flight, 2 known good, 3 known unusable
     NisConfigView cfg{};
     uint32_t tries = 0;
-    void Reset() { if (staging) staging->Release(); staging = nullptr; dev = nullptr; state = 0; tries = 0; }
+    const void* cbId = nullptr; uint32_t cbBytes = 0;   // the constant buffer the pass had bound (only compared): another pass with the same bindings has another buffer
+    void Reset() { if (staging) staging->Release(); staging = nullptr; dev = nullptr; state = 0; tries = 0; cbId = nullptr; cbBytes = 0; }
 };
-ViewportReader g_viewports;
+// One reader for each pass that looks like NIS: by device, shape and constant buffer. A single one was disturbed by a second NIS-looking pass in the same frame (issue #13, a
+// 3440x1440 screen: one pass with 48 bytes of constants that is refused, one that is taken): each one's turn reset what the other had found, so the constants were read and
+// logged again every frame and the upscaler took the pass only now and then.
+std::vector<ViewportReader> g_viewports;
+int g_lastViewportState = 0;   // the state of the reader the last pass used
 
 // True with the viewports filled in, once known; false meanwhile (NIS runs as usual) and for a layout that does not fit.
 bool ResolveViewports(ID3D11DeviceContext* ctx, const D3D11_TEXTURE2D_DESC& in, const D3D11_TEXTURE2D_DESC& o, uint32_t x, uint32_t y, NisPass& pass,
@@ -129,8 +134,19 @@ bool ResolveViewports(ID3D11DeviceContext* ctx, const D3D11_TEXTURE2D_DESC& in, 
     ID3D11Device* dev = nullptr; ctx->GetDevice(&dev);
     if (dev) dev->Release();   // only compared
     const ViewportReader::Key key{ in.Width, in.Height, o.Width, o.Height, x, y };
-    ViewportReader& r = g_viewports;
-    if (r.dev != dev || !(r.key == key)) { r.Reset(); r.dev = dev; r.key = key; }
+    ID3D11Buffer* bound = nullptr; ctx->CSGetConstantBuffers(0, 1, &bound);
+    D3D11_BUFFER_DESC boundDesc{}; if (bound) bound->GetDesc(&boundDesc);
+    const void* const boundId = bound; const uint32_t boundBytes = boundDesc.ByteWidth;
+    if (bound) bound->Release();   // only compared
+    ViewportReader* found = nullptr;
+    for (ViewportReader& e : g_viewports) if (e.dev == dev && e.key == key && e.cbId == boundId && e.cbBytes == boundBytes) { found = &e; break; }
+    if (!found) {
+        if (g_viewports.size() >= 8) { g_viewports.front().Reset(); g_viewports.erase(g_viewports.begin()); }   // (the oldest goes)
+        g_viewports.push_back(ViewportReader{}); found = &g_viewports.back();
+        found->dev = dev; found->key = key; found->cbId = boundId; found->cbBytes = boundBytes;
+    }
+    ViewportReader& r = *found;
+    struct KeepState { ViewportReader& r; ~KeepState() { g_lastViewportState = r.state; } } keepState{ r };
     auto say = [&](const char* fmt, auto... args) { if (log) { char text[400]; snprintf(text, sizeof text, fmt, args...); log(text); } };
     if (r.state == 0) {
         if (++r.tries > 3) { r.state = 3; return false; }
@@ -197,7 +213,7 @@ bool FindNisPass(ID3D11DeviceContext* ctx, uint32_t x, uint32_t y, uint32_t z, N
     SafeRelease(uav); SafeRelease(res[1]); SafeRelease(res[2]);
     // NIS's bindings with a dispatch over less than the output: a window of another shape, scaled into part of the screen
     const bool part = nis && !whole && x <= (o.Width + 31) / 32 && y <= (o.Height + 23) / 24 && ResolveViewports(ctx, in, o, x, y, pass, log);
-    g_lastRefused = nis && !whole && !part && g_viewports.state == 3;   // this very pass (not a verdict kept from another window shape)
+    g_lastRefused = nis && !whole && !part && g_lastViewportState == 3;   // this very pass (not a verdict kept from another window shape)
     if (!whole && !part) { SafeRelease(res[0]); SafeRelease(out); pass = {}; return false; }
     pass.in = res[0]; pass.out = out; pass.inFmt = in.Format; pass.outFmt = o.Format;
     if (whole) { pass.inW = in.Width; pass.inH = in.Height; pass.outW = o.Width; pass.outH = o.Height; }
@@ -312,7 +328,8 @@ void ScalerLink::Shutdown() {
     SafeRelease(m_place); SafeRelease(m_placeConstants); SafeRelease(m_placeUav); m_placeTarget = nullptr;
     for (int i = 0; i < kOut; ++i) { SafeRelease(m_outSrv[i]); m_outSrvFor[i] = nullptr; }
     m_loggedEncoding = ~0u;
-    g_viewports.Reset();   // read again on the next device
+    for (ViewportReader& e : g_viewports) e.Reset();   // read again on the next device
+    g_viewports.clear();
     for (auto& t : m_in) t.Release();
     for (auto& t : m_out) t.Release();
     for (auto& t : m_flow) t.Release();

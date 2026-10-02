@@ -382,6 +382,14 @@ def scenario_viewport(ctx, res, text, frame, name='DLSS'):
     res.check("...and leaves Lossless Scaling's borders as they are", vp is not None and int(vp.group(1)) == 0, vp.group(0)[11:] if vp else 'no check-vp line')
 
 
+def scenario_viewport_decoy(ctx, res, text, frame):
+    # issue 13 again (3440x1440): a second pass a frame that looks like NIS (48 bytes of constants, one group fewer across) is refused; it must not disturb the real one, whose
+    # constants are read once, not every frame (before 0.9.31: one reader for both, 260 lines in this run and the real pass never taken)
+    scenario_viewport(ctx, res, text, frame)
+    lines = text.count("NIS pass on part of its output")
+    res.check("the NIS-looking passes are read once each, not every frame", lines <= 8, "%d lines" % lines)
+
+
 def scenario_fsr_viewport(ctx, res, text, frame):
     scenario_viewport(ctx, res, text, frame, 'FSR 3')
 
@@ -607,6 +615,7 @@ SCENARIOS = [
     ('scaler_not_nvidia', ['addon=DLSS4DLAA.dll', 'nis=1', 'nisbgra=1', 'nisnoflow=1', 'warp=1'], scenario_scaler_not_nvidia),
     ('scaler_4_3', ['addon=DLSS4DLAA.dll', 'nis=1', 'nisbgra=1', 'nisnoflow=1', 'nisvp=1', 'nisW=960', 'nisH=720', 'nisScale=1.5'], scenario_viewport),   # 4:3 on 16:9
     ('scaler_crop_3440', ['addon=DLSS4DLAA.dll', 'nis=1', 'nisbgra=1', 'nisnoflow=1', 'nisvp=1', 'nisW=1920', 'nisH=1081', 'nisScale=0.999'], scenario_viewport),   # issue 13: a 3440x1441 window drawn into 3438x1440 (a shrink of 0.06 %): taken as 1:1, the edges trimmed
+    ('scaler_crop_3440_decoy', ['addon=DLSS4DLAA.dll', 'nis=1', 'nisbgra=1', 'nisnoflow=1', 'nisvp=1', 'nisW=1920', 'nisH=1081', 'nisScale=0.999', 'nisdecoy=1'], scenario_viewport_decoy),   # issue 13: two NIS-looking passes a frame
     ('fsr_4_3', ['addon=FSR3UPSC.dll', 'nis=1', 'nisbgra=1', 'nisnoflow=1', 'nisvp=1', 'nisW=960', 'nisH=720', 'nisScale=1.5'], scenario_fsr_viewport),
     ('scaler_stable', ['addon=DLSS4DLAA.dll', 'nis=1', 'nisbgra=1', 'nisnoflow=1', 'nismove=1', 'scalerStability=1'], scenario_stable),   # stability at 1 on the slide
     ('dlaa_4k_move', ['addon=DLSS4DLAA.dll', 'nis=1', 'nisbgra=1', 'nisnoflow=1', 'nismove=1', 'nisW=3840', 'nisH=2160', 'nisScale=1'], scenario_move_4k),   # DLAA at 4K on the sliding picture: the estimate's cost
