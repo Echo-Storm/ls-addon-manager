@@ -8,8 +8,10 @@
 #include "addon/present_hook.h"
 #include "addon/hud_editor.h"
 #include "addon/screenshot.h"
+#include "addon/compare.h"
 #include "imgui.h"
 #include <eam/widgets.h>
+#include <algorithm>
 #include <windows.h>
 
 namespace nr {
@@ -117,6 +119,13 @@ void Start(IHost* host, ImGuiContext* ctx, void* allocFunc, void* freeFunc, void
     g_compare = loaded.compareStart; g_splitPos = loaded.splitStart;
     ApplyTapRoles();
     PublishRuntimeForOthers();
+    if (kScalerAddon) {   // the comparison of the upscalers (compare.h): this addon's place in it, and how a recording of each mode is taken
+        compare::Register(kCompareMode, kCompareName, kCompareColour);
+        compare::SetCapture(static_cast<uint32_t>(std::max(0, atoi(host->GetConfig(kAddonId, "compareEveryMs", "5000")))), static_cast<uint32_t>(std::max(1, atoi(host->GetConfig(kAddonId, "compareBurstMs", "100")))),
+                            static_cast<uint32_t>(std::max(0, atoi(host->GetConfig(kAddonId, "compareSettleMs", "1500")))));
+        const int start = atoi(host->GetConfig(kAddonId, "compareStart", "-1"));   // (for the test host, which cannot press the key)
+        if (start >= 0) compare::StartIn(start);
+    }
     if (!kScalerAddon) ScanRequirements();   // Neural Rendering's model file, helper and self-test; DLAA's runtime ships with it
     // a switch for the offline test host: run the compatibility test without a click
     if (std::string(host->GetConfig(kAddonId, "selfTestOnStart", "0")) == "1") RunSelfTest();
@@ -169,7 +178,7 @@ EAM_EXPORT void AddonShutdown() {
         g_host->UnsubscribeEvent(EAM_EVENT_D3D11_DEVICE_CHANGED, OnDeviceEvent);
     }
     ReleaseFrames();
-    if (kScalerAddon) StopScaler();
+    if (kScalerAddon) { compare::Unregister(kCompareMode); StopScaler(); }
     PresentHook::Uninstall();
     DropHudSnapshot();
     for (int i = 0; i < 3000 && g_engineStarting; ++i) Sleep(10);   // a model that is loading is let finish

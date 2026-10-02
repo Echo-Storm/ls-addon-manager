@@ -60,6 +60,10 @@ inline constexpr const wchar_t* kRuntimeFileW = kXessScaler ? L"libxess.dll" : k
 inline constexpr const char* kRuntimeKey = kXessScaler ? "xessRuntime" : kFsrScaler ? "fsrRuntime" : "dlssRuntime";
 inline constexpr const wchar_t* kRuntimeListW = kXessScaler ? L"XeSS" : kFsrScaler ? L"FSR" : L"DLSS";   // runtimes\<this>
 inline constexpr const char* kRuntimeVendor = kXessScaler ? "Intel" : kFsrScaler ? "AMD" : "NVIDIA";
+// Its place in the comparison of the upscalers (compare.h): DLSS 1, FSR 2, XeSS 3; the name and colour of its label
+inline constexpr int kCompareMode = kXessScaler ? 3 : kFsrScaler ? 2 : 1;
+inline constexpr const char* kCompareName = kXessScaler ? "XESS" : kFsrScaler ? "FSR" : "DLSS";
+inline constexpr unsigned kCompareColour = kXessScaler ? 0x3070E0u : kFsrScaler ? 0xE0A020u : 0x30B050u;
 
 // Another addon of the family, by id: its name, for "... is on" messages.
 inline const char* ProductNameOf(const char* id) {

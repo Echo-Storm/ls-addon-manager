@@ -17,6 +17,7 @@
 #include "addon/framegen11.h"
 #include "addon/screenshot.h"
 #include "addon/scaler11.h"
+#include "addon/compare.h"
 #include "addon/hdr.h"
 #include "engine/sr_engine.h"
 #include "engine/ngx_paths.h"
@@ -217,6 +218,8 @@ void LogProgress(const NrStats& st) {
 }
 
 std::atomic<bool> g_lastPassGenerated{ false };   // the last NIS pass showed a generated frame
+// The comparison of the upscalers (compare.h): when NIS is the mode shown, this addon (if it is the lowest loaded) labels NIS's picture right after NIS drew it
+struct ComparePending { bool valid = false; uint32_t x = 0, y = 0, w = 0, h = 0, enc = 0; float white = 200.0f; } g_comparePending;
 std::atomic<IDXGISwapChain*> g_fgChain{ nullptr };   // Lossless Scaling's output swap chain as NIS's back buffer names it (the upscalers' frame generation)
 void OnPresent(IDXGISwapChain* sc, UINT sync, UINT flags);
 void Compose(IDXGISwapChain* sc);
@@ -821,6 +824,8 @@ void PresentGuarded(IDXGISwapChain* sc) {   // no objects here: __try cannot unw
 void RecordShownFrame(IDXGISwapChain* sc) {
     bool on, shown, ownFrameGen; { std::lock_guard<std::mutex> lock(g_settingsMutex); on = g_config.recordOn; shown = g_config.recordShown; ownFrameGen = kFrameGen && g_config.frameGen; }
     if (!on || !shown || ownFrameGen) return;
+    if (compare::Active()) { if (!compare::Records(kCompareMode) || !compare::BurstOpen()) return; }   // comparing: one addon records, in bursts, whichever mode is shown (CompareSegments saves each mode's)
+    else if (!compare::MyTurn(kCompareMode, kCompareMode)) return;   // (several upscalers loaded: the one that acts records)
     ID3D11Texture2D* back = nullptr;
     if (FAILED(sc->GetBuffer(0, IID_PPV_ARGS(&back))) || !back) return;
     ID3D11Device* dev = nullptr; back->GetDevice(&dev);
@@ -829,6 +834,23 @@ void RecordShownFrame(IDXGISwapChain* sc) {
     if (ctx) ctx->Release();
     if (dev) dev->Release();
     back->Release();
+}
+
+// While comparing, each mode's bursts are saved as a recording of their own when the mode changes (named <game>-<mode>), so that every mode can be looked at by itself.
+void CompareSegments() {
+    static int recording = -1;
+    const int now = compare::Records(kCompareMode) ? compare::Current() : -1;
+    if (now == recording) return;
+    const int was = recording; recording = now;
+    if (was < 0) return;
+    bool on; { std::lock_guard<std::mutex> lock(g_settingsMutex); on = g_config.recordOn; }
+    if (!on) return;
+    std::string game; { std::lock_guard<std::mutex> lock(g_textMutex); game = g_focusExe; }
+    if (game.size() > 4 && game.compare(game.size() - 4, 4, ".exe") == 0) game.resize(game.size() - 4);
+    game += std::string("-") + compare::Name(was);
+    for (char& c : game) if (c == ' ') c = '_';
+    const bool saved = g_recorder.Save(RecordFolder(), game);
+    Log("compare: %s ended; its recording %s (%s)", compare::Name(was), saved ? "is being saved" : "was not saved", saved ? game.c_str() : "nothing recorded, or a save is running");
 }
 
 void OnPresent(IDXGISwapChain* sc, UINT sync, UINT flags) {
@@ -845,6 +867,7 @@ void OnPresent(IDXGISwapChain* sc, UINT sync, UINT flags) {
     nr::trace::Add(nr::trace::kPresent, static_cast<int32_t>((reinterpret_cast<uintptr_t>(sc) >> 4) & 0x7fffffff), static_cast<int32_t>(flags), static_cast<int32_t>(sync));
     if (kScalerAddon) {
         ScalerPresentGuarded(sc);
+        CompareSegments();
         if (sc == g_fgChain.load(std::memory_order_acquire)) RecordShownFrame(sc);   // (before the corner square)
         ScalerMarkerGuarded(sc);   // the corner square after a hotkey
         bool frameGen; { std::lock_guard<std::mutex> lock(g_settingsMutex); frameGen = g_config.frameGen; }
@@ -1321,6 +1344,9 @@ bool ScalerPass(ID3D11DeviceContext* ctx, uint32_t x, uint32_t y, uint32_t z) {
     if ((g_nisSeen & 63u) == 1) FollowScalerGame(pass.inW, pass.inH);
     g_scaleInW = pass.inW; g_scaleInH = pass.inH; g_scaleOutW = pass.outW; g_scaleOutH = pass.outH;
     ReadHotkeys();
+    compare::Poll();
+    const bool myTurn = compare::MyTurn(kCompareMode, kCompareMode);   // (always, unless several upscalers are loaded together)
+    { static bool wasMine = true; if (myTurn && !wasMine) g_resetRequested = true; wasMine = myTurn; }   // (back from another mode: its history is not the picture before)
     bool replaced = false;
     ID3D11Device* dev = nullptr; ctx->GetDevice(&dev);
     if (!g_srStarting && dev) {
@@ -1346,7 +1372,7 @@ bool ScalerPass(ID3D11DeviceContext* ctx, uint32_t x, uint32_t y, uint32_t z) {
             if (!PresentHook::Installed() && !PresentHook::Install(dev, OnPresent, [](const char* m) { Log("%s", m); }))
                 Log("%s upscaler: could not hook Present; no corner square after a hotkey%s", kUpscalerName,
                     handoffMode == static_cast<int>(ScalerLink::Handoff::AtPresent) || frameGenOn ? ", and the picture cannot go over NIS's there" : "");
-            if (g_linkDevice == dev && g_compare.load() != 2) {   // "original only" lets NIS run, for comparing
+            if (g_linkDevice == dev && g_compare.load() != 2 && myTurn) {   // "original only" lets NIS run, for comparing
                 NrParams p; unsigned preset; int handoff, motion; bool gpuWait, steadyFast, shapes, easu, reuseMotion, lightGen; float stability, edges, leanFrom, leanRest, steadySharp, moveCut;
                 { std::lock_guard<std::mutex> settings(g_settingsMutex); p = g_config.p; preset = g_config.dlaaPreset; handoff = g_config.scalerHandoff; motion = g_config.motionSource;
                   gpuWait = g_config.scalerGpuWait; stability = g_config.scalerStability; edges = g_config.scalerEdges; steadyFast = g_config.scalerFastMotion; shapes = g_config.motionShapes; leanFrom = g_config.scalerLeanFrom; easu = g_config.leanEasu; leanRest = g_config.scalerLeanRest; steadySharp = g_config.scalerSteadySharp; moveCut = g_config.scalerMoveCut; reuseMotion = g_config.scalerReuseMotion; lightGen = g_config.scalerLightGen; }
@@ -1438,6 +1464,19 @@ bool ScalerPass(ID3D11DeviceContext* ctx, uint32_t x, uint32_t y, uint32_t z) {
             } else if (g_linkDevice != dev) {
                 SetScalerBlocked("it is ready but could not be connected to Lossless Scaling's device. The Logs tab says why.");
             }
+        }
+    }
+    {   // the comparison of the upscalers (compare.h): the label, and the output chain the recording watches
+        const bool label = compare::WantsLabel(kCompareMode, kCompareMode), records = compare::Records(kCompareMode);
+        const uint32_t ox = pass.Partial() ? pass.outX : 0, oy = pass.Partial() ? pass.outY : 0;
+        if (label && replaced) compare::DrawLabel(ctx, ox, oy, pass.outW, pass.outH, g_link.Encoding(), g_link.White());
+        else if (dev && !replaced && (label || records)) {   // another mode's picture, or NIS's own: the label goes on after it (OnPostPass)
+            IDXGISwapChain* chain = nullptr; IDXGISurface* surface = nullptr;
+            if (pass.out && SUCCEEDED(pass.out->QueryInterface(IID_PPV_ARGS(&surface)))) { if (FAILED(surface->GetParent(IID_PPV_ARGS(&chain)))) chain = nullptr; surface->Release(); }
+            float white = 200.0f; const nr::FrameEncoding e = FrameEncodingOf(pass.inFmt, chain, &white, dev);
+            g_fgChain.store(chain, std::memory_order_release);   // (only compared with: the output chain the recording of what is shown watches)
+            if (chain) chain->Release();
+            if (label) g_comparePending = { true, ox, oy, pass.outW, pass.outH, static_cast<uint32_t>(e), white };
         }
     }
     if (dev) dev->Release();
@@ -1573,6 +1612,10 @@ void StopScaler() {
 
 // After each of Lossless Scaling's passes (the upscalers only): NIS's half of a before / after pair, taken right after NIS wrote it.
 void OnPostPass(uint32_t, uint32_t, uint32_t, void*) {
+    if (kScalerAddon && g_comparePending.valid) {   // NIS's picture, labelled
+        const ComparePending p = g_comparePending; g_comparePending.valid = false;
+        if (auto* const ctx = static_cast<ID3D11DeviceContext*>(g_host ? g_host->GetDispatchingContext() : nullptr)) compare::DrawLabel(ctx, p.x, p.y, p.w, p.h, p.enc, p.white);
+    }
     if (!kScalerAddon || g_pairStep != 3) return;
     auto* const ctx = static_cast<ID3D11DeviceContext*>(g_host ? g_host->GetDispatchingContext() : nullptr);
     std::lock_guard<std::mutex> lock(g_frameMutex);

@@ -15,6 +15,7 @@
 #include <eam/widgets.h>
 #include "addon/scaler11.h"
 #include "addon/hdr.h"
+#include "addon/compare.h"
 #include "engine/hdr_hlsl.h"
 #include "nvCVImage.h"
 #include "nvVideoEffects.h"
@@ -53,34 +54,11 @@ constexpr float kMotionDecay = 0.85f;   // the share of the motion memory kept f
 // What the pre-dispatch callback leaves for the post-dispatch one (the same NIS pass, one after the other on the render thread)
 struct Pending { bool valid = false; uint32_t inW = 0, inH = 0, outW = 0, outH = 0, outX = 0, outY = 0, enc = 0; float white = 200.0f; bool labelOnly = false; } g_pending;   // labelOnly: NIS only, the compare mode just wants its label drawn
 
-// ---- compare mode (temporary, for judging VSR by eye): a key cycles through a few ways of drawing the same picture, and a label in the corner says which one is on.
-struct CycleState { bool vsr; int quality; bool gate; const char* text; uint32_t rgb; };   // vsr false: Lossless Scaling's own NIS; rgb: the colour of the square beside the label
-bool g_cycleOn = false;           // the key has been pressed: the cycle decides, and the label shows
-int g_cycleIdx = 0, g_cycleKey = 0x78;   // 0x78: F9, with Ctrl and Shift
-bool g_keyWas = false, g_showLabel = false;
-std::vector<CycleState> g_cycle;
-const CycleState& CycleNow() { return g_cycle[static_cast<size_t>(g_cycleIdx) % g_cycle.size()]; }
-bool EffVsr() { return !g_cycleOn || CycleNow().vsr; }
-int EffQuality() { return g_cycleOn && CycleNow().vsr ? CycleNow().quality : g_quality; }
-bool EffGate() { return g_cycleOn && CycleNow().vsr ? CycleNow().gate : g_gate; }
-// The letters of the setting "cycle" (default "n,g,a,h"): n NIS only, g VSR Low gated, a VSR Low everywhere, m VSR Medium gated, h VSR High gated, u VSR Ultra gated, b VSR bicubic (no AI) everywhere
-void ParseCycle(const std::string& letters) {
-    g_cycle.clear();
-    for (char c : letters) {
-        switch (c) {
-        case 'n': g_cycle.push_back({ false, 0, false, "NIS", 0xD03030 }); break;
-        case 'g': g_cycle.push_back({ true, 1, true, "VSR LOW GATED", 0x30B050 }); break;
-        case 'a': g_cycle.push_back({ true, 1, false, "VSR LOW ALWAYS", 0x3070E0 }); break;
-        case 'm': g_cycle.push_back({ true, 2, true, "VSR MEDIUM GATED", 0x30B0B0 }); break;
-        case 'h': g_cycle.push_back({ true, 3, true, "VSR HIGH GATED", 0xE0A020 }); break;
-        case 'u': g_cycle.push_back({ true, 4, true, "VSR ULTRA GATED", 0xB050D0 }); break;
-        case 'b': g_cycle.push_back({ true, 0, false, "BICUBIC ALWAYS", 0x909090 }); break;
-        default: break;
-        }
-    }
-    if (g_cycle.empty()) { g_cycle.push_back({ false, 0, false, "NIS", 0xD03030 }); g_cycle.push_back({ true, 1, true, "VSR LOW GATED", 0x30B050 }); }
-    if (g_cycleIdx >= static_cast<int>(g_cycle.size())) g_cycleIdx = 0;
-}
+// ---- the comparison of the upscalers (addon/compare.h): this addon has two modes in it, VSR gated and VSR everywhere. Outside the comparison the setting motionGate decides.
+bool EffVsr() { return compare::MyTurn(compare::kVsrGated, compare::kVsrAlways); }
+int EffQuality() { return g_quality; }
+bool EffGate() { return compare::Active() ? compare::Current() == compare::kVsrGated : g_gate; }
+bool LabelHere() { return compare::WantsLabel(compare::kVsrGated, compare::kVsrAlways); }
 std::string g_vfxDir;
 
 std::mutex g_textMutex;
@@ -250,99 +228,6 @@ ID3D11Texture2D* MakeTex(ID3D11Device* dev, uint32_t w, uint32_t h) {
 }
 
 
-// ---- the label: a coloured square and the name of what is on, in a 5x7 letter font, drawn into the output's top left (after the corner square the other addons draw)
-const uint8_t kFont5x7[][5] = {   // columns, the top row is the lowest bit; ' ', then A..Z, 0..9, '+', '-'
-    { 0x00, 0x00, 0x00, 0x00, 0x00 },
-    { 0x7E, 0x11, 0x11, 0x11, 0x7E }, { 0x7F, 0x49, 0x49, 0x49, 0x36 }, { 0x3E, 0x41, 0x41, 0x41, 0x22 }, { 0x7F, 0x41, 0x41, 0x22, 0x1C }, { 0x7F, 0x49, 0x49, 0x49, 0x41 },
-    { 0x7F, 0x09, 0x09, 0x09, 0x01 }, { 0x3E, 0x41, 0x49, 0x49, 0x7A }, { 0x7F, 0x08, 0x08, 0x08, 0x7F }, { 0x00, 0x41, 0x7F, 0x41, 0x00 }, { 0x20, 0x40, 0x41, 0x3F, 0x01 },
-    { 0x7F, 0x08, 0x14, 0x22, 0x41 }, { 0x7F, 0x40, 0x40, 0x40, 0x40 }, { 0x7F, 0x02, 0x0C, 0x02, 0x7F }, { 0x7F, 0x04, 0x08, 0x10, 0x7F }, { 0x3E, 0x41, 0x41, 0x41, 0x3E },
-    { 0x7F, 0x09, 0x09, 0x09, 0x06 }, { 0x3E, 0x41, 0x51, 0x21, 0x5E }, { 0x7F, 0x09, 0x19, 0x29, 0x46 }, { 0x46, 0x49, 0x49, 0x49, 0x31 }, { 0x01, 0x01, 0x7F, 0x01, 0x01 },
-    { 0x3F, 0x40, 0x40, 0x40, 0x3F }, { 0x1F, 0x20, 0x40, 0x20, 0x1F }, { 0x3F, 0x40, 0x38, 0x40, 0x3F }, { 0x63, 0x14, 0x08, 0x14, 0x63 }, { 0x07, 0x08, 0x70, 0x08, 0x07 },
-    { 0x61, 0x51, 0x49, 0x45, 0x43 },
-    { 0x3E, 0x51, 0x49, 0x45, 0x3E }, { 0x00, 0x42, 0x7F, 0x40, 0x00 }, { 0x42, 0x61, 0x51, 0x49, 0x46 }, { 0x21, 0x41, 0x45, 0x4B, 0x31 }, { 0x18, 0x14, 0x12, 0x7F, 0x10 },
-    { 0x27, 0x45, 0x45, 0x45, 0x39 }, { 0x3C, 0x4A, 0x49, 0x49, 0x30 }, { 0x01, 0x71, 0x09, 0x05, 0x03 }, { 0x36, 0x49, 0x49, 0x49, 0x36 }, { 0x06, 0x49, 0x49, 0x29, 0x1E },
-    { 0x08, 0x08, 0x3E, 0x08, 0x08 }, { 0x08, 0x08, 0x08, 0x08, 0x08 },
-};
-int GlyphOf(char c) { if (c >= 'A' && c <= 'Z') return 1 + (c - 'A'); if (c >= '0' && c <= '9') return 27 + (c - '0'); if (c == '+') return 37; if (c == '-') return 38; return 0; }
-
-const char* const kLabelHlsl = R"HLSL(
-Texture2D<float4>   tLabel : register(t0);
-RWTexture2D<float4> uOut   : register(u0);
-cbuffer C : register(b0) { uint2 origin; uint2 size; uint encoding; float white; float2 unused; };
-[numthreads(8, 8, 1)]
-void CSLabel(uint3 id : SV_DispatchThreadID) {
-    if (id.x >= size.x || id.y >= size.y) return;
-    const float4 p = tLabel.Load(int3(id.xy, 0));
-    uOut[id.xy + origin] = float4(FromSdr(p.rgb, encoding, white), 1.0);
-}
-)HLSL";
-
-struct LabelGfx {   // no SDK objects in it (a global may not hold NvCVImage): it works before the SDK is loaded, and with VSR off
-    ID3D11Device* dev = nullptr; ID3D11ComputeShader* cs = nullptr; ID3D11Buffer* cb = nullptr; ID3D11Texture2D* tex = nullptr; ID3D11ShaderResourceView* srv = nullptr;
-    uint32_t w = 0, h = 0; int key = -1;
-    void Release() { SafeRelease(srv); SafeRelease(tex); SafeRelease(cb); SafeRelease(cs); dev = nullptr; w = h = 0; key = -1; }
-} g_label;
-
-// The picture of the label for this text: a dark box, the colour square, the text in white, `scale` pixels to a font pixel.
-std::vector<uint32_t> LabelImage(const char* text, uint32_t rgb, int scale, uint32_t& w, uint32_t& h) {
-    const int pad = 2 * scale, sq = 7 * scale, gap = 2 * scale, n = static_cast<int>(strlen(text));
-    w = static_cast<uint32_t>(pad + sq + gap + n * 6 * scale + pad); h = static_cast<uint32_t>(7 * scale + 2 * pad);
-    const uint32_t bg = 0xFF181818u, fg = 0xFFFFFFFFu, square = 0xFF000000u | ((rgb & 0xFF) << 16) | (rgb & 0xFF00) | ((rgb >> 16) & 0xFF);   // (in memory R, G, B, A)
-    std::vector<uint32_t> px(static_cast<size_t>(w) * h, bg);
-    for (int y = 0; y < sq; ++y) for (int x = 0; x < sq; ++x) px[static_cast<size_t>(pad + y) * w + pad + x] = square;
-    for (int i = 0; i < n; ++i) {
-        const uint8_t* col = kFont5x7[GlyphOf(text[i])];
-        for (int cx = 0; cx < 5; ++cx) for (int cy = 0; cy < 7; ++cy) if (col[cx] & (1 << cy))
-            for (int dy = 0; dy < scale; ++dy) for (int dx = 0; dx < scale; ++dx)
-                px[static_cast<size_t>(pad + cy * scale + dy) * w + pad + sq + gap + (i * 6 + cx) * scale + dx] = fg;
-    }
-    return px;
-}
-
-// Draws the label into the NIS pass's output (the view outUav) at the output viewport's top left. Nothing when the compare mode is off.
-void DrawLabel(ID3D11DeviceContext* ctx, ID3D11UnorderedAccessView* outUav, uint32_t outX, uint32_t outY, uint32_t outW, uint32_t outH, uint32_t enc, float white) {
-    if (!g_cycleOn && !g_showLabel) return;
-    ID3D11Device* dev = nullptr; ctx->GetDevice(&dev); if (dev) dev->Release();
-    if (!dev || !outUav) return;
-    if (g_label.dev != dev) {
-        g_label.Release(); g_label.dev = dev; g_label.cb = MakeCb(dev, 32);
-        if (!g_label.cb || !CompileShader(dev, kLabelHlsl, "CSLabel", &g_label.cs)) { g_label.Release(); return; }
-    }
-    const CycleState& st = g_cycleOn ? CycleNow() : g_cycle[1 < g_cycle.size() ? 1 : 0];
-    const char* text = g_cycleOn ? st.text : "VSR";
-    const int scale = std::clamp(static_cast<int>(outW / 800), 2, 8);
-    const int key = (g_cycleOn ? g_cycleIdx : 99) * 16 + scale;
-    if (key != g_label.key || !g_label.tex) {
-        uint32_t w = 0, h = 0; const std::vector<uint32_t> px = LabelImage(text, g_cycleOn ? st.rgb : 0x30B050, scale, w, h);
-        SafeRelease(g_label.srv); SafeRelease(g_label.tex);
-        D3D11_TEXTURE2D_DESC d{}; d.Width = w; d.Height = h; d.MipLevels = 1; d.ArraySize = 1; d.Format = DXGI_FORMAT_R8G8B8A8_UNORM; d.SampleDesc.Count = 1; d.Usage = D3D11_USAGE_DEFAULT; d.BindFlags = D3D11_BIND_SHADER_RESOURCE;
-        const D3D11_SUBRESOURCE_DATA init{ px.data(), w * 4, 0 };
-        if (FAILED(dev->CreateTexture2D(&d, &init, &g_label.tex)) || FAILED(dev->CreateShaderResourceView(g_label.tex, nullptr, &g_label.srv))) { SafeRelease(g_label.srv); SafeRelease(g_label.tex); return; }
-        g_label.w = w; g_label.h = h; g_label.key = key;
-    }
-    const uint32_t square = std::max(12u, outW / 150u);   // the corner square the other addons draw: the label starts after it
-    const uint32_t ox = outX + square + 12, oy = outY + 4;
-    if (ox + g_label.w > outX + outW || oy + g_label.h > outY + outH) return;
-    { D3D11_MAPPED_SUBRESOURCE m{}; if (FAILED(ctx->Map(g_label.cb, 0, D3D11_MAP_WRITE_DISCARD, 0, &m))) return;
-      uint32_t* c = static_cast<uint32_t*>(m.pData); c[0] = ox; c[1] = oy; c[2] = g_label.w; c[3] = g_label.h; c[4] = enc; memcpy(&c[5], &white, 4); c[6] = c[7] = 0; ctx->Unmap(g_label.cb, 0); }
-    ctx->CSSetShader(g_label.cs, nullptr, 0); ctx->CSSetConstantBuffers(0, 1, &g_label.cb);
-    ctx->CSSetShaderResources(0, 1, &g_label.srv); ctx->CSSetUnorderedAccessViews(0, 1, &outUav, nullptr);
-    ctx->Dispatch((g_label.w + 7) / 8, (g_label.h + 7) / 8, 1);
-    ID3D11ShaderResourceView* noSrv = nullptr; ID3D11UnorderedAccessView* noUav = nullptr;
-    ctx->CSSetShaderResources(0, 1, &noSrv); ctx->CSSetUnorderedAccessViews(0, 1, &noUav, nullptr);
-}
-
-// The key (Ctrl+Shift+F9 unless the setting cycleKey says another virtual-key code): to the next way of drawing; the first press starts the cycle at the first.
-void PollCycleKey() {
-    const bool down = (GetAsyncKeyState(VK_CONTROL) & 0x8000) && (GetAsyncKeyState(VK_SHIFT) & 0x8000) && (GetAsyncKeyState(g_cycleKey) & 0x8000);
-    if (down && !g_keyWas) {
-        if (!g_cycleOn) { g_cycleOn = true; g_cycleIdx = 0; } else g_cycleIdx = (g_cycleIdx + 1) % static_cast<int>(g_cycle.size());
-        Log("compare: %s", CycleNow().text);
-        std::lock_guard<std::mutex> lock(g_textMutex); g_liveStatus = std::string("Comparing: ") + CycleNow().text;
-    }
-    g_keyWas = down;
-}
-
 const char* NvError(NvCV_Status s, const char* what) { static char t[200]; snprintf(t, sizeof t, "%s: %s (%d)", what, NvCV_GetErrorStringFromCode(s), static_cast<int>(s)); return t; }
 
 bool LoadSdk() {
@@ -408,9 +293,6 @@ void ReadConfig() {
     g_quality = std::clamp(atoi(g_host->GetConfig(kId, "quality", "1")), 0, 23);
     g_vfxDir = g_host->GetConfig(kId, "vfxDir", "");
     g_gate = atoi(g_host->GetConfig(kId, "motionGate", "1")) != 0;
-    g_cycleKey = std::clamp(atoi(g_host->GetConfig(kId, "cycleKey", "120")), 1, 254);
-    g_showLabel = atoi(g_host->GetConfig(kId, "showLabel", "0")) != 0;
-    { static std::string lastCycle; const std::string c = g_host->GetConfig(kId, "cycle", "n,g,a,h"); if (c != lastCycle || g_cycle.empty()) { lastCycle = c; ParseCycle(c); } }
     g_vsrIntervalMs = std::clamp(atoi(g_host->GetConfig(kId, "vsrIntervalMs", "20")), 0, 200);
     g_gateLow = std::clamp(static_cast<float>(atof(g_host->GetConfig(kId, "gateLow", "0.012"))), 0.0f, 0.5f);
     g_gateHigh = std::clamp(static_cast<float>(atof(g_host->GetConfig(kId, "gateHigh", "0.05"))), g_gateLow + 0.002f, 1.0f);
@@ -467,8 +349,8 @@ bool RunVsr(ID3D11DeviceContext* ctx, const nr::NisPass& pass) {
     ctx->CSSetShader(g_chain.place, nullptr, 0); ctx->CSSetConstantBuffers(0, 1, &g_chain.placeCb);
     ctx->CSSetShaderResources(0, 1, &g_chain.outSrv); ctx->CSSetUnorderedAccessViews(0, 1, &outUav, nullptr);
     ctx->Dispatch((pass.outW + 7) / 8, (pass.outH + 7) / 8, 1);
+    if (LabelHere()) compare::DrawLabel(ctx, pass.outX, pass.outY, pass.outW, pass.outH, static_cast<uint32_t>(enc), white);   // (the output is still bound as u0)
     ctx->CSSetShaderResources(0, 1, &noSrv); ctx->CSSetUnorderedAccessViews(0, 1, &noUav, nullptr);
-    DrawLabel(ctx, outUav, pass.outX, pass.outY, pass.outW, pass.outH, static_cast<uint32_t>(enc), white);
     }
 
     const double ms = std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - t0).count();
@@ -493,9 +375,8 @@ std::wstring TrialMarker() { return g_addonDir + L"\\running.txt"; }
 // After NIS has drawn its picture: VSR's over it where the frame is still (kBlendHlsl). NIS's picture is copied first (the blend reads it and writes the same output).
 void RunBlend(ID3D11DeviceContext* ctx) {
     const Pending p = g_pending; g_pending.valid = false;
-    if (p.labelOnly) {   // NIS only (the compare mode): its picture stays, the label goes on it
-        SavedBindings saved(ctx);
-        DrawLabel(ctx, saved.uavs[0], p.outX, p.outY, p.outW, p.outH, p.enc, p.white);
+    if (p.labelOnly) {   // NIS's picture is the one shown (the comparison): it stays, the label goes on it (NIS's output is still bound as u0)
+        compare::DrawLabel(ctx, p.outX, p.outY, p.outW, p.outH, p.enc, p.white);
         return;
     }
     if (!g_chainPtr) return;
@@ -546,8 +427,8 @@ void RunBlend(ID3D11DeviceContext* ctx) {
     ctx->CSSetShader(g_chain.blend, nullptr, 0); ctx->CSSetConstantBuffers(0, 1, &g_chain.blendCb);
     ctx->CSSetShaderResources(0, 3, srvs); ctx->CSSetUnorderedAccessViews(0, 1, &outUav, nullptr);
     ctx->Dispatch((p.outW + 7) / 8, (p.outH + 7) / 8, 1);
+    if (LabelHere()) compare::DrawLabel(ctx, p.outX, p.outY, p.outW, p.outH, p.enc, p.white);
     ctx->CSSetShaderResources(0, 3, noSrvs); ctx->CSSetUnorderedAccessViews(0, 1, &noUav, nullptr);
-    DrawLabel(ctx, outUav, p.outX, p.outY, p.outW, p.outH, p.enc, p.white);
     ctx->CopyResource(g_chain.texPrev, g_chain.texIn);   // this pass's input is the next one's "before"
 }
 
@@ -570,12 +451,13 @@ bool OnPass(uint32_t x, uint32_t y, uint32_t z, void*) {
     if (g_failed) return false;
     ReadConfig();
     if (!g_enabled) return false;
-    PollCycleKey();
+    compare::Poll();
     auto* ctx = static_cast<ID3D11DeviceContext*>(g_host->GetDispatchingContext());
     if (!ctx) return false;
     nr::NisPass pass;
     if (!nr::FindNisPass(ctx, x, y, z, pass, [](const char* t) { Log("%s", t); })) return false;
-    if (!EffVsr()) {   // the compare mode asks for NIS alone: nothing of VSR runs; the label is drawn after NIS (OnPostPass)
+    if (!EffVsr()) {   // another mode's turn (or NIS's): nothing of VSR runs; when this is the addon that labels, the label is drawn after NIS (OnPostPass)
+        if (!compare::WantsLabel(compare::kVsrGated, compare::kVsrAlways)) { nr::ReleaseNisPass(pass); return false; }
         const nr::DisplayHdr display = nr::QueryDisplayHdr(nullptr, [&] { ID3D11Device* d = nullptr; ctx->GetDevice(&d); if (d) d->Release(); return d; }());
         g_pending = { true, pass.inW, pass.inH, pass.outW, pass.outH, pass.outX, pass.outY, static_cast<uint32_t>(nr::EncodingOf(pass.inFmt, 0, display.hdr)), display.whiteNits, true };
         nr::ReleaseNisPass(pass);
@@ -612,7 +494,8 @@ EAM_EXPORT void AddonInitialize(IHost* host, ImGuiContext* ctx, void* allocFunc,
     g_addonDir = FolderOf(self);
     g_failed = false; g_sdkLoaded = false; g_configAt = 0;
     ReadConfig();
-    { const int start = atoi(host->GetConfig(kId, "cycleStart", "-1")); if (start >= 0 && !g_cycle.empty()) { g_cycleOn = true; g_cycleIdx = start % static_cast<int>(g_cycle.size()); } }   // (for the test host, which cannot press the key)
+    compare::Register(compare::kVsrGated, "VSR GATED", 0xB050D0); compare::Register(compare::kVsrAlways, "VSR ALWAYS", 0x30B0B0);   // (addon/compare.h)
+    { const int start = atoi(host->GetConfig(kId, "compareStart", "-1")); if (start >= 0) compare::StartIn(start); }   // (for the test host, which cannot press the key)
     if (GetFileAttributesW(TrialMarker().c_str()) != INVALID_FILE_ATTRIBUTES) {
         g_failed = true;
         Log("the last session did not end normally with VSR running (running.txt is in the addon folder): VSR stays off. Delete that file to try again.");
@@ -628,6 +511,7 @@ EAM_EXPORT void AddonInitialize(IHost* host, ImGuiContext* ctx, void* allocFunc,
 EAM_EXPORT void AddonShutdown() {
     if (g_host) { g_host->SetPreDispatchCallback(nullptr, nullptr); g_host->SetPostDispatchCallback(nullptr, nullptr); g_host->UnsubscribeEvent(EAM_EVENT_D3D11_DEVICE_READY, OnDeviceEvent); g_host->UnsubscribeEvent(EAM_EVENT_D3D11_DEVICE_CHANGED, OnDeviceEvent); }
     if (g_chainPtr) { g_chainPtr->Release(); if (g_chainPtr->stream) { NvVFX_CudaStreamDestroy(g_chainPtr->stream); g_chainPtr->stream = nullptr; } }
+    compare::Unregister(compare::kVsrGated); compare::Unregister(compare::kVsrAlways);
     DeleteFileW(TrialMarker().c_str());   // a normal close: the marker is not a crash
     g_host = nullptr;
 }
@@ -673,8 +557,8 @@ EAM_EXPORT void AddonRenderSettings() {
         g_failed = false; { std::lock_guard<std::mutex> lock(g_textMutex); g_notice.clear(); }
     }
     ImGui::Spacing();
-    ImGui::TextWrapped("Compare by eye: Ctrl+Shift+F9 (the setting cycleKey, a virtual-key code) steps through the ways of drawing the same picture, and a label with a coloured square in the top left says which is on: NIS alone (red), VSR Low gated (green), VSR Low everywhere (blue), VSR High gated (amber). The setting cycle picks them (letters n g a m h u b, default n,g,a,h), showLabel=1 shows the label always. The first press starts the cycle; changing between qualities takes about a second.");
-    if (g_cycleOn) ImGui::TextColored(ImVec4(0.7f, 0.9f, 0.5f, 1.0f), "Comparing now: %s", CycleNow().text);
+    ImGui::TextWrapped("Compare by eye: Ctrl+Shift+F9 steps through Lossless Scaling's NIS and every upscaler addon that is loaded (DLSS, FSR, XeSS, this one gated and everywhere), then off; a label with a coloured square in the top left says which is on. Needs the other addons switched on at the same time (a test copy of the manager lifts their conflicts).");
+    if (compare::Active()) ImGui::TextColored(ImVec4(0.7f, 0.9f, 0.5f, 1.0f), "Comparing now: %s", compare::Name(compare::Current()));
     ImGui::Spacing();
     ImGui::TextDisabled("Works with: NIS as the Scaling Type, the game in a window smaller than the screen. It replaces the DLSS, FSR and XeSS upscalers (only one can take the NIS pass). A frame is 2 to 4 ms of the render thread at 4K; the picture is as steady as bicubic plus about a quarter more shimmer.");
 }
