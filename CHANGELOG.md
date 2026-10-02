@@ -1,5 +1,11 @@
 # Changelog
 
+## Unreleased
+
+- **Comparing the upscalers: Ctrl+Shift+F9** steps through Lossless Scaling's NIS, then DLSS, FSR, XeSS and Video Super Resolution (gated and everywhere) for the upscalers that are loaded together, then off; a label with a coloured square in the top left names the one drawing, one addon at a time. With the recorder on (Record what is shown) the output is recorded in short bursts, a few frames every five seconds, and each mode's frames are saved as a recording of their own when the mode changes (named <game>-<mode>); every change is written to `logs/compare_timeline.csv`. While no comparison runs and several upscalers are loaded, only the first of DLSS, FSR, XeSS and VSR upscales. `tools/deploy.ps1 -What upscalers -LiftConflicts` puts them in the Lossless Scaling folder together.
+- **Recordings after the fact:** `tools/pack_recordings.ps1` compresses saved recordings without loss, either with Zstandard (a third of the size for HDR recordings, in seconds) or as FFV1 video through ffmpeg, checked frame for frame against the recording (`nr_lsrec video`, `videocheck`, `unvideo`), and expands them again.
+- **Video Super Resolution (prototype): when it stays off because the last session ended while it was being tried, the panel now says so and why**, and Try again switches it on (it was only in the log).
+
 ## 0.9.36 (2026-10-02)
 
 - **Video Super Resolution (prototype): switching the addon on in the manager is enough.** It had a second switch of its own (the setting `enabled`, off by default) that a person trying it would not know about; that setting now starts on, and can still turn it off.
