@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## 0.9.32 (2026-10-02)
 
 - **FSR Upscaler, FSR 4 INT8 runtime: the device is made on Microsoft's Direct3D 12 Agility SDK core (issue #11, an RX 6600 XT where that runtime closed Lossless Scaling and works in OptiScaler with `FsrAgilitySDKUpgrade`).** The runtime's folder now holds `D3D12Core.dll` (1.619.6, signed by Microsoft, with its licence; `tools/fetch_agility_sdk.ps1`), and when that runtime is the one chosen the addon makes its Direct3D 12 device through `ID3D12DeviceFactory` on it (`agility.cpp`); only that device is affected, not the rest of the process, and any failure falls back to the plain device with a line in the log. Windows uses the newer of its own core and ours (this machine has 616 built in, so a 616 core changed nothing here; 619 is loaded), so a Windows that is already as new does nothing different. **Not confirmed on the reporter's card: it is a lead from them, the cause is still a guess.** The shipped FSR 3.1.4 runtime is untouched. `nr_agilitytest` makes a device on the folder's core and checks that it works and that the core is the one loaded.
 
