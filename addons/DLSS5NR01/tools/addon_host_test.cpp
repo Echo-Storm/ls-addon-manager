@@ -493,10 +493,11 @@ int main(int argc, char** argv) {
         }
         // nisdecoy=1: before each NIS pass another with the same bindings but 48 bytes of constants and one group fewer across (as the log of the reporter of issue #13 shows at 3440x1440:
         // two passes a frame that both look like NIS to the addon, one of which it must refuse without disturbing what it knows of the other)
-        bool nisDecoy = false; for (int i = 4; i < argc; ++i) if (!strcmp(argv[i], "nisdecoy=1")) nisDecoy = true;
+        bool nisDecoy = false, nisDecoyFresh = false; for (int i = 4; i < argc; ++i) { if (!strcmp(argv[i], "nisdecoy=1")) nisDecoy = true; if (!strcmp(argv[i], "nisdecoy=2")) nisDecoy = nisDecoyFresh = true; }   // nisdecoy=2: a new constant buffer for the decoy at every frame (issue #13 again: Lossless Scaling does)
         ID3D11Buffer* decoyCb = nullptr;
         if (nisDecoy) { D3D11_BUFFER_DESC bd{}; bd.ByteWidth = 48; bd.Usage = D3D11_USAGE_DEFAULT; bd.BindFlags = D3D11_BIND_CONSTANT_BUFFER; dev->CreateBuffer(&bd, nullptr, &decoyCb); }
         auto nisPass = [&](bool real = true) {
+            if (decoyCb && nisDecoyFresh) { decoyCb->Release(); decoyCb = nullptr; D3D11_BUFFER_DESC bd{}; bd.ByteWidth = 48; bd.Usage = D3D11_USAGE_DEFAULT; bd.BindFlags = D3D11_BIND_CONSTANT_BUFFER; dev->CreateBuffer(&bd, nullptr, &decoyCb); }
             if (decoyCb) {
                 ID3D11ShaderResourceView* decoySrvs[3] = { nisSrvs[0], nisSrvs[1], nisSrvs[2] };
                 dc->CSSetShaderResources(0, 3, decoySrvs); dc->CSSetUnorderedAccessViews(0, 1, &uNisOut, nullptr); dc->CSSetShader(csNis, nullptr, 0);

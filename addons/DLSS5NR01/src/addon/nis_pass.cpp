@@ -43,8 +43,8 @@ struct ViewportReader {
     Key key{}; int state = 0;         // 0 nothing, 1 a copy in flight, 2 known good, 3 known unusable
     NisConfigView cfg{};
     uint32_t tries = 0;
-    const void* cbId = nullptr; uint32_t cbBytes = 0;   // the constant buffer the pass had bound (only compared): another pass with the same bindings has another buffer
-    void Reset() { if (staging) staging->Release(); staging = nullptr; dev = nullptr; state = 0; tries = 0; cbId = nullptr; cbBytes = 0; }
+    uint32_t cbBytes = 0;   // the size of the constant buffer the pass had bound: another pass with the same bindings has constants of another size (not the buffer's address: Lossless Scaling makes a new one at every frame for the 48-byte pass, issue #13)
+    void Reset() { if (staging) staging->Release(); staging = nullptr; dev = nullptr; state = 0; tries = 0; cbBytes = 0; }
 };
 // One reader for each pass that looks like NIS: by device, shape and constant buffer. A single one was disturbed by a second NIS-looking pass in the same frame (issue #13, a
 // 3440x1440 screen: one pass with 48 bytes of constants that is refused, one that is taken): each one's turn reset what the other had found, so the constants were read and
@@ -60,14 +60,17 @@ bool ResolveViewports(ID3D11DeviceContext* ctx, const D3D11_TEXTURE2D_DESC& in, 
     const ViewportReader::Key key{ in.Width, in.Height, o.Width, o.Height, x, y };
     ID3D11Buffer* bound = nullptr; ctx->CSGetConstantBuffers(0, 1, &bound);
     D3D11_BUFFER_DESC boundDesc{}; if (bound) bound->GetDesc(&boundDesc);
-    const void* const boundId = bound; const uint32_t boundBytes = boundDesc.ByteWidth;
+    const uint32_t boundBytes = boundDesc.ByteWidth;
     if (bound) bound->Release();   // only compared
     ViewportReader* found = nullptr;
-    for (ViewportReader& e : g_viewports) if (e.dev == dev && e.key == key && e.cbId == boundId && e.cbBytes == boundBytes) { found = &e; break; }
+    for (ViewportReader& e : g_viewports) if (e.dev == dev && e.key == key && e.cbBytes == boundBytes) { found = &e; break; }
     if (!found) {
-        if (g_viewports.size() >= 8) { g_viewports.front().Reset(); g_viewports.erase(g_viewports.begin()); }   // (the oldest goes)
+        if (g_viewports.size() >= 8) {   // the oldest goes, one that was refused or is still being read before one that is known good
+            size_t victim = 0; for (size_t i = 0; i < g_viewports.size(); ++i) if (g_viewports[i].state != 2) { victim = i; break; }
+            g_viewports[victim].Reset(); g_viewports.erase(g_viewports.begin() + victim);
+        }
         g_viewports.push_back(ViewportReader{}); found = &g_viewports.back();
-        found->dev = dev; found->key = key; found->cbId = boundId; found->cbBytes = boundBytes;
+        found->dev = dev; found->key = key; found->cbBytes = boundBytes;
     }
     ViewportReader& r = *found;
     struct KeepState { ViewportReader& r; ~KeepState() { g_lastViewportState = r.state; } } keepState{ r };

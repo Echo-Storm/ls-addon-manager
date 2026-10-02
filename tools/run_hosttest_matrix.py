@@ -645,6 +645,7 @@ SCENARIOS = [
     ('scaler_4_3', ['addon=DLSS4DLAA.dll', 'nis=1', 'nisbgra=1', 'nisnoflow=1', 'nisvp=1', 'nisW=960', 'nisH=720', 'nisScale=1.5'], scenario_viewport),   # 4:3 on 16:9
     ('scaler_crop_3440', ['addon=DLSS4DLAA.dll', 'nis=1', 'nisbgra=1', 'nisnoflow=1', 'nisvp=1', 'nisW=1920', 'nisH=1081', 'nisScale=0.999'], scenario_viewport),   # issue 13: a 3440x1441 window drawn into 3438x1440 (a shrink of 0.06 %): taken as 1:1, the edges trimmed
     ('scaler_crop_3440_decoy', ['addon=DLSS4DLAA.dll', 'nis=1', 'nisbgra=1', 'nisnoflow=1', 'nisvp=1', 'nisW=1920', 'nisH=1081', 'nisScale=0.999', 'nisdecoy=1'], scenario_viewport_decoy),   # issue 13: two NIS-looking passes a frame
+    ('scaler_crop_3440_decoy2', ['addon=DLSS4DLAA.dll', 'nis=1', 'nisbgra=1', 'nisnoflow=1', 'nisvp=1', 'nisW=1920', 'nisH=1081', 'nisScale=0.999', 'nisdecoy=2'], scenario_viewport_decoy),   # issue 13 again: the other pass gets a new constant buffer at every frame
     ('fsr_4_3', ['addon=FSR3UPSC.dll', 'nis=1', 'nisbgra=1', 'nisnoflow=1', 'nisvp=1', 'nisW=960', 'nisH=720', 'nisScale=1.5'], scenario_fsr_viewport),
     ('scaler_stable', ['addon=DLSS4DLAA.dll', 'nis=1', 'nisbgra=1', 'nisnoflow=1', 'nismove=1', 'scalerStability=1'], scenario_stable),   # stability at 1 on the slide
     ('dlaa_4k_move', ['addon=DLSS4DLAA.dll', 'nis=1', 'nisbgra=1', 'nisnoflow=1', 'nismove=1', 'nisW=3840', 'nisH=2160', 'nisScale=1'], scenario_move_4k),   # DLAA at 4K on the sliding picture: the estimate's cost
