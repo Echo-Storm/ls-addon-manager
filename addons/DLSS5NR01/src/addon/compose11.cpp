@@ -163,7 +163,11 @@ void CSCompose(uint3 id : SV_DispatchThreadID, uint3 gid : SV_GroupID, uint3 gt 
         }
         const float ghost = GhostWeight(flow);
         const float highlightFade = hiProtect < 0.999 ? 1.0 - smoothstep(hiProtect, 1.0, dot(fs, kLuma)) : 1.0;
-        const float3 d = clamp(tDelta.SampleLevel(sLinear, uvInD, 0).rgb * ghost * intensity, -maxDelta, maxDelta) * highlightFade;
+        // The model's result is smaller than the frame and is stretched over it, so next to a sharp edge (a HUD box on black) it spills onto the black side as a glow, and
+        // as a tint of the black (measured: a green lean, twice as strong at a quarter of the frame as at 0.6). A pixel at or near pure black takes no positive change.
+        const float darkFade = smoothstep(0.0, 0.02, max(fs.r, max(fs.g, fs.b)));
+        const float3 dFull = clamp(tDelta.SampleLevel(sLinear, uvInD, 0).rgb * ghost * intensity, -maxDelta, maxDelta) * highlightFade;
+        const float3 d = lerp(min(dFull, 0.0), dFull, darkFade);
         c = saturate(fs + d);
         if (plain) {
             if (useTile) {   // the delta is smooth, so the neighbours take the centre's delta rather than more flow and delta reads; their views come from the tile

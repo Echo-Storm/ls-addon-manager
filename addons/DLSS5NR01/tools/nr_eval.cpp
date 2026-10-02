@@ -1,7 +1,7 @@
 // nr_nreval: runs Neural Rendering's model (the addon's own NrEngine, with the user's nvngx_dlssnr.dll) on a recording and scores the flicker it adds.
 //
 //   nr_nreval <recording.lsrec> <output folder> [first=N] [count=N] [scale=50] [smooth=40] [passes=1] [intensity=100] [model=<path to nvngx_dlssnr.dll>]
-//             [lsdir=<Lossless Scaling folder>] [show=N] [maxdelta=50] [still=3] [stable=N] [dump=file] [lightlog=1] [piclog=1]
+//             [lsdir=<Lossless Scaling folder>] [show=N] [maxdelta=50] [still=3] [stable=N] [dump=file] [lightlog=1] [piclog=1] [darkguard=0]
 //
 // The picture shown is the game's frame plus the model's change (its "delta", at the working size, stretched to the frame's and clamped to
 // maxdelta percent), as the addon's compose adds it. Per frame, against the frame before:
@@ -254,10 +254,17 @@ int main(int argc, char** argv) {
 
         // the picture the compose would show: the frame plus the delta (stretched, limited), saturated
         pic.resize(frame.size());
+        const bool darkGuard = Arg(argc, argv, "darkguard", 1) != 0;
         for (uint32_t y = 0; y < H; ++y) for (uint32_t x = 0; x < W; ++x) {
             float dd[3]; SampleDelta(d, dw, dh, x, y, W, H, dd);
             const size_t o = (static_cast<size_t>(y) * W + x) * 4;
-            for (int c = 0; c < 3; ++c) pic[o + c] = static_cast<uint8_t>(std::clamp(frame[o + c] / 255.0f + std::clamp(dd[c] * params.composeIntensity, -maxDelta, maxDelta), 0.0f, 1.0f) * 255.0f + 0.5f);
+            // (compose11's dark guard: a pixel at or near pure black takes no positive change; darkguard=0 shows the picture without it)
+            const float top = std::max(frame[o], std::max(frame[o + 1], frame[o + 2])) / 255.0f, t = std::clamp(top / 0.02f, 0.0f, 1.0f);
+            const float darkFade = darkGuard ? t * t * (3.0f - 2.0f * t) : 1.0f;
+            for (int c = 0; c < 3; ++c) {
+                const float full = std::clamp(dd[c] * params.composeIntensity, -maxDelta, maxDelta), dl = std::min(full, 0.0f) + (full - std::min(full, 0.0f)) * darkFade;
+                pic[o + c] = static_cast<uint8_t>(std::clamp(frame[o + c] / 255.0f + dl, 0.0f, 1.0f) * 255.0f + 0.5f);
+            }
             pic[o + 3] = 255;
         }
         { double sf = 0, sp = 0; for (size_t k = 0; k + 3 < frame.size(); k += 4) { sf += frame[k] + frame[k + 1] + frame[k + 2]; sp += pic[k] + pic[k + 1] + pic[k + 2]; }
