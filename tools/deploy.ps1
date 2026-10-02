@@ -4,10 +4,11 @@
 #   * refuses while Lossless Scaling itself is running (it holds the DLLs open), unless -StopLS is given AND the game is not running;
 #   * backs the old file up into <LS folder>\backups\ (never deletes) with a timestamp before replacing it;
 #   * host: if Lossless.dll is still Lossless Scaling's own, it is renamed Lossless_original.dll first (the manager needs it there).
-#   powershell -File deploy.ps1 -What host|nr|dlaa|fsr|xess|vsr|upscalers|all [-StopLS] [-LsDir '<Lossless Scaling folder>']   (or set the LS_DIR environment variable) [-Game WowB]
+#   powershell -File deploy.ps1 -What host|nr|dlaa|fsr|xess|vsr|upscalers|all [-StopLS] [-LiftConflicts] [-LsDir '<Lossless Scaling folder>']   (or set the LS_DIR environment variable) [-Game WowB]
 param(
     [Parameter(Mandatory = $true)][ValidateSet('host', 'nr', 'dlaa', 'fsr', 'xess', 'vsr', 'upscalers', 'all')][string]$What,
     [switch]$StopLS,
+    [switch]$LiftConflicts,   # with the upscalers: empties "conflicts" in the deployed addon.json files, so that DLSS, FSR, XeSS and VSR can all be switched on for the comparison (Ctrl+Shift+F9)
     [string]$LsDir = $(if ($env:LS_DIR) { $env:LS_DIR } else { 'C:\Program Files (x86)\Steam\steamapps\common\Lossless Scaling' }),
     [string]$Game = 'WowB'
 )
@@ -81,6 +82,15 @@ foreach ($n in $names) {
 }
 # ReShade passthrough and Windowed mode are built into the manager now. If the old standalone addon folders are still in addons\, move them
 # aside (never delete): the manager ignores them, but there is no reason to leave them.
+if ($LiftConflicts) {
+    foreach ($id in 'DLSS4DLAA', 'FSR3UPSC', 'XESSUPSC', 'VSRUPSC') {
+        $manifest = "$LsDir\addons\$id\addon.json"
+        if (-not (Test-Path $manifest)) { continue }
+        $text = [IO.File]::ReadAllText($manifest)
+        $lifted = [regex]::Replace($text, '(?s)"conflicts"\s*:\s*\[.*?\]', '"conflicts": []')
+        if ($lifted -ne $text) { [IO.File]::WriteAllText($manifest, $lifted); Write-Host "[$id] conflicts lifted in $manifest" }
+    }
+}
 if ($names -contains 'host') {
     foreach ($old in 'LSP-ReShade', 'LSP-Windowed') {
         $from = "$LsDir\addons\$old"
