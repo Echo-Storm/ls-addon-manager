@@ -588,6 +588,14 @@ def scenario_compare_fsr(ctx, res, text, frame):
     res.check('...and no failure', 'FAULT' not in text and 'exception 0x' not in text)
 
 
+def scenario_compare_vsr(ctx, res, text, frame):
+    # DLSS and VSR loaded together, the comparison on VSR everywhere: VSR takes the NIS pass, DLSS stays out, and the label is on the picture
+    res.check('VSR takes the NIS pass', 'REPLACED NIS' in text)
+    res.check('...and DLSS does not', re.search(r'DLSS scaler: \d+ frames upscaled', text) is None)
+    res.check('...with the label on the picture', label_drawn(text))
+    res.check('...and no failure in the VSR chain', 'raised exception' not in text and 'FAULT' not in text and 'the VSR chain' not in text)
+
+
 def scenario_compare_off(ctx, res, text, frame):
     # no comparison, two upscalers loaded: the lowest (DLSS) upscales, the other waits; no label
     res.check('DLSS takes the NIS pass', 'REPLACED NIS' in text and re.search(r'DLSS scaler: \d+ frames upscaled', text) is not None)
@@ -603,7 +611,7 @@ def scenario_selftest(ctx, res, text, frame):
 # name, config overrides, checker
 # Video Super Resolution (the prototype addon VSRUPSC, tools of the user's own NVIDIA Video Effects SDK): only run when the addon is built and the SDK is there (VFX_DIR, or external/vfx_x64)
 VFX_DIR = os.environ.get('VFX_DIR') or os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), 'addons', 'DLSS5NR01', 'external', 'vfx_x64')
-NEEDS_VFX = {'vsr', 'vsr_4_3', 'vsr_move', 'vsr_nogate', 'vsr_fade', 'vsr_fade_nogate'}
+NEEDS_VFX = {'vsr', 'vsr_4_3', 'vsr_move', 'vsr_nogate', 'vsr_fade', 'vsr_fade_nogate', 'compare_vsr'}
 
 
 def scenario_vsr(ctx, res, text, frame):
@@ -710,6 +718,7 @@ SCENARIOS = [
     ('pair', ['second=DLSS4DLAA.dll'], scenario_pair),
     ('compare_off', ['addon=DLSS4DLAA.dll', 'second=FSR3UPSC.dll', 'nis=1', 'nisbgra=1', 'nisnoflow=1'], scenario_compare_off),
     ('compare_nis', ['addon=DLSS4DLAA.dll', 'second=FSR3UPSC.dll', 'nis=1', 'nisbgra=1', 'nisnoflow=1', 'compareMode=0'], scenario_compare_nis),
+    ('compare_vsr', ['addon=DLSS4DLAA.dll', 'second=VSRUPSC.dll', 'nis=1', 'nisbgra=1', 'nisnoflow=1', 'compareMode=5', 'enabled=1', 'quality=1', 'vfxDir=' + VFX_DIR], scenario_compare_vsr),
     ('compare_fsr', ['addon=DLSS4DLAA.dll', 'second=FSR3UPSC.dll', 'nis=1', 'nisbgra=1', 'nisnoflow=1', 'compareMode=2'], scenario_compare_fsr),
     ('exit_abrupt', ['exitmode=abrupt'], scenario_none),   # the process ends with the addon loaded and no AddonShutdown, as Lossless Scaling does
     ('ui_shot', ['shot=@OUT@/ui_nr_panel.bmp', 'snapshotOnStart=1', 'hud=0,0,0.3,0.17/0.86,0,1,0.24', 'deltaSmooth=0.3', 'grain=0.2', 'shadows=0.2', 'presetNames=Night raid|Bright zone', 'preset.Night raid=shadows=0.4;grain=0.15', 'preset.Bright zone=highlights=-0.3;sharpen=0.2'], scenario_none),

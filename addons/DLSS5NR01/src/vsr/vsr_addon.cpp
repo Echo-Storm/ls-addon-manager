@@ -34,6 +34,8 @@
 #include <string>
 #include <vector>
 
+namespace compare = nr::compare;
+
 char* g_nvVFXSDKPath = nullptr;   // (the SDK's proxy asks for it: where NVVideoEffects.dll is)
 
 namespace {
@@ -499,6 +501,7 @@ EAM_EXPORT void AddonInitialize(IHost* host, ImGuiContext* ctx, void* allocFunc,
     if (GetFileAttributesW(TrialMarker().c_str()) != INVALID_FILE_ATTRIBUTES) {
         g_failed = true;
         Log("the last session did not end normally with VSR running (running.txt is in the addon folder): VSR stays off. Delete that file to try again.");
+        Problem("VSR is off: the last session did not end normally while VSR was being tried (a file running.txt is in this addon's folder; Lossless Scaling closed, or crashed, within the first few seconds). Press Try again to switch it on.");
     }
     host->SubscribeEvent(EAM_EVENT_D3D11_DEVICE_READY, OnDeviceEvent, nullptr);
     host->SubscribeEvent(EAM_EVENT_D3D11_DEVICE_CHANGED, OnDeviceEvent, nullptr);
