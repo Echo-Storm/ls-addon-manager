@@ -26,6 +26,7 @@ struct Shared {
     char name[kModes][24];
 };
 constexpr LONG kMagic = 0x43504D31;
+constexpr uint64_t kNoticeMs = 8000;   // how long the test notice stays under the label after a press (TEMPORARY, for the test of the comparison)
 
 Shared* g_shared = nullptr;
 HANDLE g_mapping = nullptr;
@@ -173,8 +174,9 @@ const uint8_t kFont5x7[][5] = {   // columns, the top row is the lowest bit; ' '
     { 0x3E, 0x51, 0x49, 0x45, 0x3E }, { 0x00, 0x42, 0x7F, 0x40, 0x00 }, { 0x42, 0x61, 0x51, 0x49, 0x46 }, { 0x21, 0x41, 0x45, 0x4B, 0x31 }, { 0x18, 0x14, 0x12, 0x7F, 0x10 },
     { 0x27, 0x45, 0x45, 0x45, 0x39 }, { 0x3C, 0x4A, 0x49, 0x49, 0x30 }, { 0x01, 0x71, 0x09, 0x05, 0x03 }, { 0x36, 0x49, 0x49, 0x49, 0x36 }, { 0x06, 0x49, 0x49, 0x29, 0x1E },
     { 0x08, 0x08, 0x3E, 0x08, 0x08 }, { 0x08, 0x08, 0x08, 0x08, 0x08 },
+    { 0x00, 0x60, 0x60, 0x00, 0x00 }, { 0x00, 0x36, 0x36, 0x00, 0x00 }, { 0x20, 0x10, 0x08, 0x04, 0x02 },   // . : /
 };
-int GlyphOf(char c) { if (c >= 'A' && c <= 'Z') return 1 + (c - 'A'); if (c >= '0' && c <= '9') return 27 + (c - '0'); if (c == '+') return 37; if (c == '-') return 38; return 0; }
+int GlyphOf(char c) { if (c >= 'A' && c <= 'Z') return 1 + (c - 'A'); if (c >= '0' && c <= '9') return 27 + (c - '0'); if (c == '+') return 37; if (c == '-') return 38; if (c == '.') return 39; if (c == ':') return 40; if (c == '/') return 41; return 0; }
 
 const char* const kLabelHlsl = R"HLSL(
 Texture2D<float4>   tLabel : register(t0);
@@ -214,18 +216,24 @@ struct LabelGfx {
     void ReleaseAll() { Release(srv); Release(tex); Release(cb); Release(cs); dev = nullptr; w = h = 0; key = -1; }
 } g_label;
 
-// The picture of the label for this text: a dark box, the colour square, the text in white, `scale` pixels to a font pixel.
-std::vector<uint32_t> LabelImage(const char* text, uint32_t rgb, int scale, uint32_t& w, uint32_t& h) {
-    const int pad = 2 * scale, sq = 7 * scale, gap = 2 * scale, n = static_cast<int>(strlen(text));
-    w = static_cast<uint32_t>(pad + sq + gap + n * 6 * scale + pad); h = static_cast<uint32_t>(7 * scale + 2 * pad);
+// The picture of the label: a dark box with rows of text in white, `scale` pixels to a font pixel; the first row has the colour square before it. The rows after the first are the
+// notice (TEMPORARY, for the test of the comparison: it says that this is a test that can break the game, and where to report problems).
+std::vector<uint32_t> LabelImage(const std::vector<std::string>& rows, uint32_t rgb, int scale, uint32_t& w, uint32_t& h) {
+    const int pad = 2 * scale, sq = 7 * scale, gap = 2 * scale, line = 9 * scale;
+    int widest = 0;
+    for (size_t r = 0; r < rows.size(); ++r) widest = std::max(widest, static_cast<int>(rows[r].size()) * 6 * scale + (r == 0 ? sq + gap : 0));
+    w = static_cast<uint32_t>(pad + widest + pad); h = static_cast<uint32_t>(pad + static_cast<int>(rows.size()) * line + pad - 2 * scale);
     const uint32_t bg = 0xFF181818u, fg = 0xFFFFFFFFu, square = 0xFF000000u | ((rgb & 0xFF) << 16) | (rgb & 0xFF00) | ((rgb >> 16) & 0xFF);   // (in memory R, G, B, A)
     std::vector<uint32_t> px(static_cast<size_t>(w) * h, bg);
     for (int y = 0; y < sq; ++y) for (int x = 0; x < sq; ++x) px[static_cast<size_t>(pad + y) * w + pad + x] = square;
-    for (int i = 0; i < n; ++i) {
-        const uint8_t* col = kFont5x7[GlyphOf(text[i])];
-        for (int cx = 0; cx < 5; ++cx) for (int cy = 0; cy < 7; ++cy) if (col[cx] & (1 << cy))
-            for (int dy = 0; dy < scale; ++dy) for (int dx = 0; dx < scale; ++dx)
-                px[static_cast<size_t>(pad + cy * scale + dy) * w + pad + sq + gap + (i * 6 + cx) * scale + dx] = fg;
+    for (size_t r = 0; r < rows.size(); ++r) {
+        const int top = pad + static_cast<int>(r) * line, left = pad + (r == 0 ? sq + gap : 0);
+        for (size_t i = 0; i < rows[r].size(); ++i) {
+            const uint8_t* col = kFont5x7[GlyphOf(rows[r][i])];
+            for (int cx = 0; cx < 5; ++cx) for (int cy = 0; cy < 7; ++cy) if (col[cx] & (1 << cy))
+                for (int dy = 0; dy < scale; ++dy) for (int dx = 0; dx < scale; ++dx)
+                    px[static_cast<size_t>(top + cy * scale + dy) * w + left + (static_cast<int>(i) * 6 + cx) * scale + dx] = fg;
+        }
     }
     return px;
 }
@@ -256,9 +264,12 @@ void DrawLabel(ID3D11DeviceContext* ctx, uint32_t outX, uint32_t outY, uint32_t 
     }
     const int mode = static_cast<int>(s->current);
     const int scale = std::clamp(static_cast<int>(outW / 800), 2, 8);
-    const int key = mode * 16 + scale;
+    const bool notice = GetTickCount64() - static_cast<uint64_t>(s->sinceMs) < kNoticeMs;   // TEMPORARY, for the test: for a few seconds after each press
+    const int key = (mode * 16 + scale) * 2 + (notice ? 1 : 0);
     if (key != g_label.key || !g_label.tex) {
-        uint32_t w = 0, h = 0; const std::vector<uint32_t> px = LabelImage(s->name[mode], s->rgb[mode], scale, w, h);
+        std::vector<std::string> rows = { s->name[mode] };
+        if (notice) { rows.push_back("TEST MODE: THIS CAN BREAK THE GAME OR LOSSLESS SCALING"); rows.push_back("REPORT ANY PROBLEM ON GITHUB.COM/ECHO-STORM/LS-ADDON-MANAGER"); rows.push_back("WITH LOGS/COMPARE TIMELINE.CSV AND THE ADDON LOGS"); }
+        uint32_t w = 0, h = 0; const std::vector<uint32_t> px = LabelImage(rows, s->rgb[mode], scale, w, h);
         Release(g_label.srv); Release(g_label.tex);
         D3D11_TEXTURE2D_DESC d{}; d.Width = w; d.Height = h; d.MipLevels = 1; d.ArraySize = 1; d.Format = DXGI_FORMAT_R8G8B8A8_UNORM; d.SampleDesc.Count = 1; d.Usage = D3D11_USAGE_DEFAULT; d.BindFlags = D3D11_BIND_SHADER_RESOURCE;
         const D3D11_SUBRESOURCE_DATA init{ px.data(), w * 4, 0 };

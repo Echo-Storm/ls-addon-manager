@@ -5,9 +5,7 @@
   "description": "Off until you switch it on. Upscales with AMD FidelityFX Super Resolution (FSR 3.1, or FSR 4 from the Runtimes list) in place of Lossless Scaling's NIS scaler, on any graphics card, with the motion measured from the frames: choose NIS as the Scaling Type and run the game in a window smaller than the screen (at the screen's own size it anti-aliases). AMD's FSR runtime is included. Only one of the upscalers (DLSS, FSR, XeSS) works at a time.",
   "min_host_version": "1.2.0",
   "dependencies": [],
-  "conflicts": [
-    "DLSS4DLAA"
-  ],
+  "conflicts": [],
   "wip": false,
   "tags": [
     "graphics",

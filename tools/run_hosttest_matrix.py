@@ -67,7 +67,7 @@ def run_host(nr_dir, snippet, keys, out_dir, tag):
     # addon=<dll> picks the addon of the pair to load (DLSS 5 Neural Rendering by default); every other key goes to the host.
     # The DLLs are given by full path and the host runs in a folder of the scenario's own (it writes its frames there), so scenarios can run side by side.
     dll = os.path.join(nr_dir, next((k[6:] for k in keys if k.startswith('addon=')), 'DLSS5NR01.dll'))
-    keys = ['second=' + os.path.join(nr_dir, k[7:]) if k.startswith('second=') else k for k in keys if not k.startswith('addon=')]
+    keys = ['second=' + os.path.join(nr_dir, k[7:]) if k.startswith('second=') else 'more=' + ';'.join(os.path.join(nr_dir, d) for d in k[5:].split(';')) if k.startswith('more=') else k for k in keys if not k.startswith('addon=')]
     args = [exe, dll, '-', snippet] + keys
     work = os.path.join(out_dir, 'run_' + tag)
     shutil.rmtree(work, ignore_errors=True)
@@ -596,6 +596,15 @@ def scenario_compare_vsr(ctx, res, text, frame):
     res.check('...and no failure in the VSR chain', 'raised exception' not in text and 'FAULT' not in text and 'the VSR chain' not in text)
 
 
+def scenario_compare_all(ctx, res, text, frame):
+    # the four upscalers and VSR loaded together (the comparison on XeSS): XeSS alone upscales, the label is on, nothing fails
+    res.check('four upscalers loaded', text.count('[check-more]') == 2)
+    res.check('XeSS takes the NIS pass', 'REPLACED NIS' in text and re.search(r'XeSS scaler: \d+ frames upscaled', text) is not None)
+    res.check('...and DLSS and FSR do not', re.search(r'(DLSS|FSR) scaler: \d+ frames upscaled', text) is None)
+    res.check('...with the label (and its test notice) on the picture', label_drawn(text))
+    res.check('...and no failure', 'FAULT' not in text and 'exception 0x' not in text and 'upscaler FAILED' not in text)
+
+
 def scenario_compare_off(ctx, res, text, frame):
     # no comparison, two upscalers loaded: the lowest (DLSS) upscales, the other waits; no label
     res.check('DLSS takes the NIS pass', 'REPLACED NIS' in text and re.search(r'DLSS scaler: \d+ frames upscaled', text) is not None)
@@ -611,7 +620,7 @@ def scenario_selftest(ctx, res, text, frame):
 # name, config overrides, checker
 # Video Super Resolution (the prototype addon VSRUPSC, tools of the user's own NVIDIA Video Effects SDK): only run when the addon is built and the SDK is there (VFX_DIR, or external/vfx_x64)
 VFX_DIR = os.environ.get('VFX_DIR') or os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), 'addons', 'DLSS5NR01', 'external', 'vfx_x64')
-NEEDS_VFX = {'vsr', 'vsr_4_3', 'vsr_move', 'vsr_nogate', 'vsr_fade', 'vsr_fade_nogate', 'compare_vsr'}
+NEEDS_VFX = {'vsr', 'vsr_4_3', 'vsr_move', 'vsr_nogate', 'vsr_fade', 'vsr_fade_nogate', 'compare_vsr', 'compare_all'}
 
 
 def scenario_vsr(ctx, res, text, frame):
@@ -719,6 +728,7 @@ SCENARIOS = [
     ('compare_off', ['addon=DLSS4DLAA.dll', 'second=FSR3UPSC.dll', 'nis=1', 'nisbgra=1', 'nisnoflow=1'], scenario_compare_off),
     ('compare_nis', ['addon=DLSS4DLAA.dll', 'second=FSR3UPSC.dll', 'nis=1', 'nisbgra=1', 'nisnoflow=1', 'compareMode=0'], scenario_compare_nis),
     ('compare_vsr', ['addon=DLSS4DLAA.dll', 'second=VSRUPSC.dll', 'nis=1', 'nisbgra=1', 'nisnoflow=1', 'compareMode=5', 'enabled=1', 'quality=1', 'vfxDir=' + VFX_DIR], scenario_compare_vsr),
+    ('compare_all', ['addon=DLSS4DLAA.dll', 'second=FSR3UPSC.dll', 'more=XESSUPSC.dll;VSRUPSC.dll', 'nis=1', 'nisbgra=1', 'nisnoflow=1', 'compareMode=3', 'quality=1', 'vfxDir=' + VFX_DIR], scenario_compare_all),
     ('compare_fsr', ['addon=DLSS4DLAA.dll', 'second=FSR3UPSC.dll', 'nis=1', 'nisbgra=1', 'nisnoflow=1', 'compareMode=2'], scenario_compare_fsr),
     ('exit_abrupt', ['exitmode=abrupt'], scenario_none),   # the process ends with the addon loaded and no AddonShutdown, as Lossless Scaling does
     ('ui_shot', ['shot=@OUT@/ui_nr_panel.bmp', 'snapshotOnStart=1', 'hud=0,0,0.3,0.17/0.86,0,1,0.24', 'deltaSmooth=0.3', 'grain=0.2', 'shadows=0.2', 'presetNames=Night raid|Bright zone', 'preset.Night raid=shadows=0.4;grain=0.15', 'preset.Bright zone=highlights=-0.3;sharpen=0.2'], scenario_none),

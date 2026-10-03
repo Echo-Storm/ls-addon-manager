@@ -309,6 +309,21 @@ int main(int argc, char** argv) {
         Init2(&host, ctx, (void*)af, (void*)ff, ud);
         printf("[check-pair] second addon %s at its start: %s\n", secondDll.c_str(), host.Said("switched off at start:") ? "STEPPED ASIDE" : "BOTH ON");
     }
+    // more=<dll>;<dll>...: further addons loaded as well (the comparison of the upscalers: four of them together)
+    std::vector<PFN_Void> shutMore;
+    for (int i = 4; i < argc; ++i) if (!strncmp(argv[i], "more=", 5)) {
+        std::string list = argv[i] + 5;
+        for (size_t at = 0; at < list.size();) {
+            size_t end = list.find(';', at); if (end == std::string::npos) end = list.size();
+            const std::string dll = list.substr(at, end - at); at = end + 1;
+            if (dll.empty()) continue;
+            HMODULE hm = LoadLibraryA(dll.c_str()); if (!hm) { printf("LoadLibrary %s failed %lu\n", dll.c_str(), GetLastError()); return 1; }
+            auto InitM = (PFN_Init)GetProcAddress(hm, "AddonInitialize"); auto ShutM = (PFN_Void)GetProcAddress(hm, "AddonShutdown");
+            if (!InitM || !ShutM) { printf("exports of %s missing\n", dll.c_str()); return 1; }
+            InitM(&host, ctx, (void*)af, (void*)ff, ud); shutMore.push_back(ShutM);
+            printf("[check-more] %s loaded\n", dll.c_str());
+        }
+    }
 
     auto panel = [&]() {
         if (shotMode) {
@@ -888,6 +903,7 @@ int main(int argc, char** argv) {
         ExitProcess(0);
     }
     Shut();
+    for (auto it = shutMore.rbegin(); it != shutMore.rend(); ++it) (*it)();
     if (Shut2) Shut2();
     for (int i = 4; i < argc; ++i) if (!strcmp(argv[i], "unload=1")) {
         // What the manager does when the addon is switched off while Lossless Scaling runs: AddonShutdown, then FreeLibrary. Then Lossless

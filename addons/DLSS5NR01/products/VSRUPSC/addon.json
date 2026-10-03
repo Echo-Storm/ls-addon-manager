@@ -5,11 +5,7 @@
   "description": "A prototype. Off until you switch it on. Upscales with NVIDIA's RTX Video Super Resolution in place of Lossless Scaling's NIS scaler: a trained network that sharpens the picture one frame at a time, which suits still scenes, menus, interface text and video. It needs your own NVIDIA Video Effects SDK (x64, with the Video Super Resolution feature): nothing of NVIDIA's is included. Choose NIS as the Scaling Type and run the game in a window smaller than the screen. Only one upscaler works at a time.",
   "min_host_version": "1.2.0",
   "dependencies": [],
-  "conflicts": [
-    "DLSS4DLAA",
-    "FSR3UPSC",
-    "XESSUPSC"
-  ],
+  "conflicts": [],
   "wip": false,
   "tags": [
     "graphics",
