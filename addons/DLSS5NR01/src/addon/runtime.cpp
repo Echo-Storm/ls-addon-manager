@@ -821,7 +821,9 @@ void PresentGuarded(IDXGISwapChain* sc) {   // no objects here: __try cannot unw
 
 // "Record what is shown" for the upscalers: the output swap chain's back buffer as it goes to the screen (after the upscaler, the frames Lossless Scaling made between included),
 // instead of the frame going to the upscaler. Not with frame generation of our own, which records its own presents.
+std::string g_compareSavePending;   // a mode's recording waiting to be saved (the recorder was still saving the one before): nothing new is recorded meanwhile, so the next mode's frames do not end up in it
 void RecordShownFrame(IDXGISwapChain* sc) {
+    if (!g_compareSavePending.empty()) return;
     bool on, shown, ownFrameGen; { std::lock_guard<std::mutex> lock(g_settingsMutex); on = g_config.recordOn; shown = g_config.recordShown; ownFrameGen = kFrameGen && g_config.frameGen; }
     if (!on || !shown || ownFrameGen) return;
     if (compare::Active()) { if (!compare::Records(kCompareMode) || !compare::BurstOpen()) return; }   // comparing: one addon records, in bursts, whichever mode is shown (CompareSegments saves each mode's)
@@ -839,6 +841,10 @@ void RecordShownFrame(IDXGISwapChain* sc) {
 // While comparing, each mode's bursts are saved as a recording of their own when the mode changes (named <game>-<mode>), so that every mode can be looked at by itself.
 void CompareSegments() {
     static int recording = -1;
+    if (!g_compareSavePending.empty()) {   // the recorder was busy: again, until it takes them
+        if (g_recorder.Save(RecordFolder(), g_compareSavePending, true)) { Log("compare: the recording %s is being saved", g_compareSavePending.c_str()); g_compareSavePending.clear(); }
+        return;
+    }
     const int now = compare::Records(kCompareMode) ? compare::Current() : -1;
     if (now == recording) return;
     const int was = recording; recording = now;
@@ -849,8 +855,9 @@ void CompareSegments() {
     if (game.size() > 4 && game.compare(game.size() - 4, 4, ".exe") == 0) game.resize(game.size() - 4);
     game += std::string("-") + compare::Name(was);
     for (char& c : game) if (c == ' ') c = '_';
-    const bool saved = g_recorder.Save(RecordFolder(), game, true);
-    Log("compare: %s ended; its recording %s (%s)", compare::Name(was), saved ? "is being saved" : "was not saved", saved ? game.c_str() : "nothing recorded, or a save is running");
+    if (g_recorder.Save(RecordFolder(), game, true)) { Log("compare: %s ended; its recording is being saved (%s)", compare::Name(was), game.c_str()); return; }
+    if (g_recorder.GetStatus().saving) { g_compareSavePending = game; Log("compare: %s ended; the recorder is still saving the one before, so this recording waits for it", compare::Name(was)); }
+    else Log("compare: %s ended; nothing was recorded for it", compare::Name(was));
 }
 
 void OnPresent(IDXGISwapChain* sc, UINT sync, UINT flags) {

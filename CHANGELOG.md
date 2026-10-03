@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.9.38 (2026-10-03)
+
+- **Comparing the upscalers: a mode's recording that has to wait for the recorder** (it was still saving the one before) no longer picks up the next mode's frames: nothing new is recorded until the recorder takes it.
+- **The test of 0.9.37 is over:** the upscalers name each other as conflicts again, and the notice under the comparison's label is gone.
+
 ## 0.9.37 (2026-10-02)
 
 - **Temporary, for the test of the comparison:** the upscalers no longer name each other under "conflicts" (so DLSS, FSR, XeSS and VSR can be switched on together), and each press of Ctrl+Shift+F9 shows a notice under the label for a few seconds saying that this is a test that can break the game and where to report problems. Both go when the test is over.

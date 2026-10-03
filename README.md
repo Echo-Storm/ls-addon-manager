@@ -14,10 +14,11 @@ Around them, the manager installs and switches addons, shows the machine's load 
 updates itself. It is free, MIT-licensed and unofficial: not affiliated with the Lossless Scaling developers. Read the [disclaimer](DISCLAIMER.md) before installing.
 
 [![build](https://github.com/Echo-Storm/ls-addon-manager/actions/workflows/build.yml/badge.svg)](https://github.com/Echo-Storm/ls-addon-manager/actions/workflows/build.yml)
-&nbsp; **0.9.37**, on the way to 1.0 ([roadmap](ROADMAP.md)) &nbsp;·&nbsp; Lossless Scaling 3.2.2.0 &nbsp;·&nbsp; Windows 10 or 11, x64
+&nbsp; **0.9.38**, on the way to 1.0 ([roadmap](ROADMAP.md)) &nbsp;·&nbsp; Lossless Scaling 3.2.2.0 &nbsp;·&nbsp; Windows 10 or 11, x64
 
 > [!TIP]
-> **New in 0.9.37: a test of the upscalers side by side** (Ctrl+Shift+F9; see the warning under The addons), and tools to pack recordings.
+> **New in 0.9.38: the end of the 0.9.37 test** (the upscalers name each other as conflicts again). Ctrl+Shift+F9 still steps between NIS and the upscaler that is on, with a label.
+> **New in 0.9.37: a test of the upscalers side by side** (Ctrl+Shift+F9), and tools to pack recordings.
 > **New in 0.9.36: smaller fixes** (the Video Super Resolution test addon needs only its switch in the manager; the build now runs the addon's offline tests).
 > **New in 0.9.35: Neural Rendering's Auto quality is on for new installs again** (0.9.28 to 0.9.34 loaded it as off, so a new install ran the model at full size), and a few smaller fixes.
 > **New in 0.9.34: the XeSS Upscaler is back in the package** (0.9.28 to 0.9.33 went out without it; nothing in it changed).
@@ -102,8 +103,6 @@ Like every file here, Setup is **unsigned**, so Windows SmartScreen may warn you
 
 Every runtime the upscalers need comes with them. Only one upscaler runs at a time; any of them works beside Neural Rendering.
 
-> [!WARNING]
-> **Test of the upscalers side by side (temporary).** For now the upscalers can all be switched on together, and Ctrl+Shift+F9 steps through Lossless Scaling's NIS, DLSS, FSR, XeSS and Video Super Resolution, one at a time, with a label in the top left naming the one drawing (a notice says that this is a test that can break the game). With the recorder on (Record what is shown) each mode's output is recorded in short bursts and saved when you move to the next; `logs/compare_timeline.csv` has the times. Please report any problem, with that file and the addons' logs, at [the issues](https://github.com/Echo-Storm/ls-addon-manager/issues). This is for the test only and will go.
 
 > [!NOTE]
 > The Video Super Resolution test addon comes with the NVIDIA Video Effects SDK files it needs (in `addons/VSRUPSC/vfx`). They are in the test packages only for now, so that it can be tried. From 1.0 they will not be provided: the addon will need your own copy of NVIDIA's Video Effects SDK, or a download you start yourself.

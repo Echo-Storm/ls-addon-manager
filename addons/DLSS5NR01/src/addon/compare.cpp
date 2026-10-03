@@ -26,7 +26,6 @@ struct Shared {
     char name[kModes][24];
 };
 constexpr LONG kMagic = 0x43504D31;
-constexpr uint64_t kNoticeMs = 8000;   // how long the test notice stays under the label after a press (TEMPORARY, for the test of the comparison)
 
 Shared* g_shared = nullptr;
 HANDLE g_mapping = nullptr;
@@ -216,8 +215,7 @@ struct LabelGfx {
     void ReleaseAll() { Release(srv); Release(tex); Release(cb); Release(cs); dev = nullptr; w = h = 0; key = -1; }
 } g_label;
 
-// The picture of the label: a dark box with rows of text in white, `scale` pixels to a font pixel; the first row has the colour square before it. The rows after the first are the
-// notice (TEMPORARY, for the test of the comparison: it says that this is a test that can break the game, and where to report problems).
+// The picture of the label: a dark box with rows of text in white, `scale` pixels to a font pixel; the first row has the colour square before it.
 std::vector<uint32_t> LabelImage(const std::vector<std::string>& rows, uint32_t rgb, int scale, uint32_t& w, uint32_t& h) {
     const int pad = 2 * scale, sq = 7 * scale, gap = 2 * scale, line = 9 * scale;
     int widest = 0;
@@ -264,11 +262,9 @@ void DrawLabel(ID3D11DeviceContext* ctx, uint32_t outX, uint32_t outY, uint32_t 
     }
     const int mode = static_cast<int>(s->current);
     const int scale = std::clamp(static_cast<int>(outW / 800), 2, 8);
-    const bool notice = GetTickCount64() - static_cast<uint64_t>(s->sinceMs) < kNoticeMs;   // TEMPORARY, for the test: for a few seconds after each press
-    const int key = (mode * 16 + scale) * 2 + (notice ? 1 : 0);
+    const int key = mode * 16 + scale;
     if (key != g_label.key || !g_label.tex) {
         std::vector<std::string> rows = { s->name[mode] };
-        if (notice) { rows.push_back("TEST MODE: THIS CAN BREAK THE GAME OR LOSSLESS SCALING"); rows.push_back("REPORT ANY PROBLEM ON GITHUB.COM/ECHO-STORM/LS-ADDON-MANAGER"); rows.push_back("WITH LOGS/COMPARE TIMELINE.CSV AND THE ADDON LOGS"); }
         uint32_t w = 0, h = 0; const std::vector<uint32_t> px = LabelImage(rows, s->rgb[mode], scale, w, h);
         Release(g_label.srv); Release(g_label.tex);
         D3D11_TEXTURE2D_DESC d{}; d.Width = w; d.Height = h; d.MipLevels = 1; d.ArraySize = 1; d.Format = DXGI_FORMAT_R8G8B8A8_UNORM; d.SampleDesc.Count = 1; d.Usage = D3D11_USAGE_DEFAULT; d.BindFlags = D3D11_BIND_SHADER_RESOURCE;

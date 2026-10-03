@@ -1,6 +1,6 @@
 {
   "name": "DLSS 5 Neural Rendering",
-  "version": "0.9.37",
+  "version": "0.9.38",
   "author": "Echo-Storm",
   "description": "Runs NVIDIA DLSS 5 Neural Rendering on Lossless Scaling's frames on the LSFG GPU and applies the result to every presented frame, real and generated, without ever making Lossless Scaling wait. Settings panel included. Needs your own copy of nvngx_dlssnr.dll: it is not included and is never downloaded.",
   "renamed_from": [
