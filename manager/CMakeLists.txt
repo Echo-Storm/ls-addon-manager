@@ -1,5 +1,5 @@
 cmake_minimum_required(VERSION 3.14)
-project(LSAddonManager VERSION 0.9.36)
+project(LSAddonManager VERSION 0.9.37)
 enable_language(RC)
 
 set(CMAKE_CXX_STANDARD 17)
