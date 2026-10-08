@@ -120,6 +120,8 @@ ID3D11ShaderResourceView* Probe::ViewOf(ID3D11Texture2D* frame, uint32_t* w, uin
     D3D11_SHADER_RESOURCE_VIEW_DESC sv{}; sv.Format = ViewFormat(d.Format); sv.ViewDimension = D3D11_SRV_DIMENSION_TEXTURE2D; sv.Texture2D.MipLevels = 1;
     ID3D11ShaderResourceView* srv = nullptr;
     if (FAILED(m_dev->CreateShaderResourceView(frame, &sv, &srv))) return nullptr;
+    // a new size (a resolution change): the textures of the old size are let go, the views keep them alive otherwise (up to eight 4K HDR frames)
+    for (View& v : m_views) if (v.tex && (v.w != d.Width || v.h != d.Height)) { Rel(v.srv); Rel(v.tex); v.w = v.h = 0; }
     View& slot = m_views[m_nextView]; m_nextView = (m_nextView + 1) % 8;
     Rel(slot.srv); Rel(slot.tex);
     frame->AddRef(); slot.tex = frame; slot.srv = srv; slot.w = d.Width; slot.h = d.Height;
