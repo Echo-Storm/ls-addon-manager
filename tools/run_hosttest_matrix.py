@@ -91,7 +91,7 @@ def run_host(nr_dir, snippet, keys, out_dir, tag):
 
 def basic(res, rc, text):
     res.check('exit code 0', rc == 0, 'rc=%s' % rc)
-    res.check('tap is read-only', 'TAP READ-ONLY' in text)
+    res.check('tap is read-only', 'TAP READ-ONLY' in text or 'TAP NOT COMPARED' in text)
     res.check('no crash / engine failure', 'NrEngine FAILED' not in text and 'CRASH' not in text and 'DISABLED' not in text)
 
 
@@ -605,6 +605,18 @@ def scenario_compare_all(ctx, res, text, frame):
     res.check('...and no failure', 'FAULT' not in text and 'exception 0x' not in text and 'upscaler FAILED' not in text)
 
 
+def scenario_cadence_dup2(ctx, res, text, frame):
+    # the captured frames come twice each (a 30 fps game in a 60 Hz feed): the addon says so, with the 2
+    res.check('the doubled source is noticed (every picture comes 2 times)', re.search(r'source cadence: every picture Lossless Scaling captures comes 2 times', text) is not None)
+    res.check('...and nothing fails', 'FAULT' not in text and 'exception 0x' not in text)
+
+
+def scenario_cadence_unique(ctx, res, text, frame):
+    # every captured frame new: nothing said about repeats
+    res.check('a source of new frames is not called a repeat', 'source cadence: every picture' not in text)
+    res.check('...and nothing fails', 'FAULT' not in text and 'exception 0x' not in text)
+
+
 def scenario_compare_off(ctx, res, text, frame):
     # no comparison, two upscalers loaded: the lowest (DLSS) upscales, the other waits; no label
     res.check('DLSS takes the NIS pass', 'REPLACED NIS' in text and re.search(r'DLSS scaler: \d+ frames upscaled', text) is not None)
@@ -728,6 +740,10 @@ SCENARIOS = [
     ('compare_off', ['addon=DLSS4DLAA.dll', 'second=FSR3UPSC.dll', 'nis=1', 'nisbgra=1', 'nisnoflow=1'], scenario_compare_off),
     ('compare_nis', ['addon=DLSS4DLAA.dll', 'second=FSR3UPSC.dll', 'nis=1', 'nisbgra=1', 'nisnoflow=1', 'compareMode=0'], scenario_compare_nis),
     ('compare_vsr', ['addon=DLSS4DLAA.dll', 'second=VSRUPSC.dll', 'nis=1', 'nisbgra=1', 'nisnoflow=1', 'compareMode=5', 'enabled=1', 'quality=1', 'vfxDir=' + VFX_DIR], scenario_compare_vsr),
+    ('cadence_dup2', ['presentMode=0', 'srcdup=2'], scenario_cadence_dup2),
+    ('cadence_unique', ['presentMode=0', 'srcdup=1'], scenario_cadence_unique),
+    ('cadence_scaler_dup2', ['addon=DLSS4DLAA.dll', 'nis=1', 'srcdup=2'], scenario_cadence_dup2),
+    ('cadence_scaler_unique', ['addon=DLSS4DLAA.dll', 'nis=1', 'srcdup=1'], scenario_cadence_unique),
     ('compare_all', ['addon=DLSS4DLAA.dll', 'second=FSR3UPSC.dll', 'more=XESSUPSC.dll;VSRUPSC.dll', 'nis=1', 'nisbgra=1', 'nisnoflow=1', 'compareMode=3', 'quality=1', 'vfxDir=' + VFX_DIR], scenario_compare_all),
     ('compare_fsr', ['addon=DLSS4DLAA.dll', 'second=FSR3UPSC.dll', 'nis=1', 'nisbgra=1', 'nisnoflow=1', 'compareMode=2'], scenario_compare_fsr),
     ('exit_abrupt', ['exitmode=abrupt'], scenario_none),   # the process ends with the addon loaded and no AddonShutdown, as Lossless Scaling does

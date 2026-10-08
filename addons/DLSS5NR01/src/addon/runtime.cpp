@@ -11,6 +11,7 @@
 #include "addon/state.h"
 #include "addon/log.h"
 #include "addon/frame_trace.h"
+#include "addon/source_cadence.h"
 #include "addon/diagnosis.h"
 #include "addon/vram.h"
 #include "addon/present_hook.h"
@@ -105,11 +106,48 @@ int g_presentsWithoutTap = 0;
 ID3D11Device* g_presentHookTriedOn = nullptr;   // the device the Present hook was last tried from (once per device, not every pass)
 void ForgetPair();
 
+// Source cadence (source_cadence.h): whether the pictures Lossless Scaling captures repeat (a 30 fps game in a 60 Hz capture feed). Fed at each captured frame, under g_frameMutex.
+nr::cadence::Probe g_cadenceProbe; nr::cadence::Detector g_cadenceDetector; std::atomic<int> g_sourceRepeats{ 0 }; std::atomic<float> g_sourceFps{ 0.0f };
+void ForgetCadence() { g_cadenceProbe.Shutdown(); g_cadenceDetector.Reset(); g_sourceRepeats = 0; g_sourceFps = 0.0f; }
+void NoteSource(ID3D11DeviceContext* ctx, ID3D11Texture2D* frame);
+// At a TAP dispatch: the captured frame is the texture the tap chose, bound to this very pass (the frame is handed to the model later, when the flow is in, so the decision may not carry it yet)
+void NoteTapFrame(ID3D11DeviceContext* ctx) {
+    ID3D11Resource* res = const_cast<ID3D11Resource*>(static_cast<const ID3D11Resource*>(g_tap.LastTapFrame()));
+    ID3D11Texture2D* tex = nullptr;
+    if (res && SUCCEEDED(res->QueryInterface(IID_PPV_ARGS(&tex)))) { NoteSource(ctx, tex); tex->Release(); }
+}
+void NoteSource(ID3D11DeviceContext* ctx, ID3D11Texture2D* frame) {
+    ID3D11Device* dev = nullptr; ctx->GetDevice(&dev);
+    if (!dev) return;
+    const int pushed = g_cadenceProbe.Observe(dev, ctx, frame, g_cadenceDetector);
+    dev->Release();
+    static bool said = false;
+    if (!said && (pushed > 0 || g_cadenceProbe.Failed())) { said = true; Log(pushed > 0 ? "source cadence: watching the captured pictures for repeats" : "source cadence: the sample pass could not be made; repeats in the source will not be noticed"); }
+    if (!pushed) return;
+    const uint64_t frames = g_cadenceDetector.Frames();
+    static uint64_t rateTick = 0, nextRate = 60, nextLook = 12;
+    static uint64_t seenFrames = 0;
+    if (frames < seenFrames) { rateTick = 0; nextRate = 60; nextLook = 12; }   // (the detector was reset)
+    seenFrames = frames;
+    if (frames >= nextRate) { nextRate = frames + 60; const uint64_t now = GetTickCount64(); if (rateTick && now > rateTick) g_sourceFps = 60000.0f / static_cast<float>(now - rateTick); rateTick = now; }
+    if (frames < nextLook) return;
+    nextLook = frames + 12;
+    static int pending = 0, pendingCount = 0;   // a change of verdict has to hold for three looks
+    const int v = g_cadenceDetector.Verdict().repeats;
+    if (v == g_sourceRepeats.load()) { pendingCount = 0; return; }
+    if (v != pending) { pending = v; pendingCount = 1; return; }
+    if (++pendingCount < 3) return;
+    pendingCount = 0; g_sourceRepeats = v;
+    if (v >= 2) Log("source cadence: every picture Lossless Scaling captures comes %d times in a row (it captures about %.0f a second, so the source is really at about %.0f): frame generation makes pictures between identical frames and the motion advances unevenly; a capture card or recorder set to the game's real rate avoids it",
+                    v, g_sourceFps.load(), g_sourceFps.load() / v);
+    else Log("source cadence: the captured pictures no longer repeat");
+}
+
 void ForgetDevice() {   // under g_frameMutex
     screenshot::Forget();
     ForgetPair();
     g_recorder.Forget();
-    g_bridge.Shutdown(); g_compose.Shutdown(); g_tap.Reset();
+    g_bridge.Shutdown(); g_compose.Shutdown(); g_tap.Reset(); ForgetCadence();
     g_presentMode = false; g_tapsSeen = 0; g_presentsWithoutTap = 0; g_presentHookTriedOn = nullptr;
     g_seen.clear(); g_tapDevice = nullptr; g_lsChain = nullptr; g_otherChain = nullptr;
 }
@@ -149,6 +187,7 @@ void UpdateFindings(int frames, float p50, float p95, float p99, const NrStats* 
     nr::diag::Snapshot d;
     d.frames = frames; d.frameP50 = p50; d.frameP95 = p95; d.frameP99 = p99;
     d.showingPlain = g_compare.load() == 2;
+    d.sourceRepeats = g_sourceRepeats.load(); d.sourceFps = g_sourceFps.load();
     bool autoOn; float floor;
     { std::lock_guard<std::mutex> lock(g_settingsMutex); autoOn = g_config.autoQuality; floor = g_config.autoFloor; d.recording = g_config.recordOn; d.recordingShown = g_config.recordShown; }
     if (st) {
@@ -286,7 +325,9 @@ bool EngineOnFrameCard(const LUID& card) {
 void AfterHandOver(bool started, float ceiling, const AutoQuality::Settings& autoSettings, float watchdogMs);
 void Tap(ID3D11DeviceContext* ctx, uint32_t x, uint32_t y, uint32_t z) {
     TapDecision d;
-    if (!g_tap.Observe(ctx, x, y, z, d) || !g_tapDevice) { ReleaseDecision(d); return; }
+    const bool handedOver = g_tap.Observe(ctx, x, y, z, d);   // (false while the frame waits for its flow; the tap is still a real frame)
+    if (d.isTap && g_tapDevice) NoteTapFrame(ctx);
+    if (!handedOver || !g_tapDevice) { ReleaseDecision(d); return; }
     if (d.isTap) nr::trace::Add(nr::trace::kTap, 0, 0, static_cast<int32_t>(g_tap.Taps()));
     if (g_presentMode) {
         g_presentMode = false; g_bridge.Shutdown(); g_tapsSeen = g_tap.Taps(); g_presentsWithoutTap = 0;
@@ -408,7 +449,7 @@ bool Tappable(ID3D11DeviceContext* ctx) {
     for (const SeenDevice& s : g_seen) if (s.dev == dev) { dev->Release(); return s.nvidia; }
     const Card card = CardOf(dev);
     if (g_seen.size() < 32) g_seen.push_back({ dev, card.nvidia, card.luid });
-    if (card.nvidia && g_tapDevice != dev) { g_bridge.Shutdown(); g_compose.Shutdown(); g_tap.Reset(); g_tapDevice = dev; g_lsChain = nullptr; g_otherChain = nullptr; }
+    if (card.nvidia && g_tapDevice != dev) { g_bridge.Shutdown(); g_compose.Shutdown(); g_tap.Reset(); ForgetCadence(); g_tapDevice = dev; g_lsChain = nullptr; g_otherChain = nullptr; }
     char text[192];
     snprintf(text, sizeof text, "%p on %s (LUID %08x) -> %s", static_cast<void*>(dev), card.name.c_str(), static_cast<unsigned>(card.luid.LowPart), card.nvidia ? "TAPPED" : "ignored");
     if (card.nvidia) { std::lock_guard<std::mutex> lock(g_textMutex); g_tappedDeviceText = text; }
@@ -1302,7 +1343,7 @@ bool ScalerPass(ID3D11DeviceContext* ctx, uint32_t x, uint32_t y, uint32_t z) {
     g_passStep = "in the pass";
     TapDecision d;
     g_tap.Observe(ctx, x, y, z, d);   // the flow and the real frames (nothing is handed to a model here)
-    if (d.isTap) { if (g_nisSinceTap) g_nisPerFrame = g_nisSinceTap; g_nisSinceTap = 0; NoteRealFrame(); }
+    if (d.isTap) { if (g_nisSinceTap) g_nisPerFrame = g_nisSinceTap; g_nisSinceTap = 0; NoteRealFrame(); NoteTapFrame(ctx); }
     ReleaseDecision(d);
     LogPassTable();
 

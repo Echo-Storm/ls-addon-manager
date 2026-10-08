@@ -372,6 +372,8 @@ int main(int argc, char** argv) {
     // synthetic LSFG: pyramid pass (TAP), flow passes, then per output frame a compose; 3 presents per real frame
     ID3D11Texture2D* prev = MakeTex(dev, W, H, DXGI_FORMAT_B8G8R8A8_UNORM, true), * cur = MakeTex(dev, W, H, DXGI_FORMAT_B8G8R8A8_UNORM, true);
     ID3D11Texture2D* flow = MakeTex(dev, FW, FH, DXGI_FORMAT_R16G16_FLOAT, true), * out = MakeTex(dev, W, H, DXGI_FORMAT_B8G8R8A8_UNORM, true);
+    // srcdup=N: the captured frames are a moving picture, each one given N times in a row (a 30 fps game in a 60 Hz capture feed: srcdup=2); srcdup=1: every frame new (for the source cadence's [check-cadence] line)
+    int srcDup = 0; for (int i = 4; i < argc; ++i) if (!strncmp(argv[i], "srcdup=", 7)) srcDup = std::clamp(atoi(argv[i] + 7), 0, 8);
     Fill(dc, prev, W, H); Fill(dc, cur, W, H);
     auto srv = [&](ID3D11Texture2D* t) { ID3D11ShaderResourceView* v = nullptr; dev->CreateShaderResourceView(t, nullptr, &v); return v; };
     auto uav = [&](ID3D11Texture2D* t) { ID3D11UnorderedAccessView* v = nullptr; dev->CreateUnorderedAccessView(t, nullptr, &v); return v; };
@@ -427,8 +429,10 @@ int main(int argc, char** argv) {
         void* after = (*(void***)sc)[8];
         if (presents <= 3 || before != after) printf("[hosttest] present #%llu: vtable Present %p -> %p%s\n", (unsigned long long)presents, before, after, before != after ? " (CHANGED)" : "");
     };
-    for (int fr = 0; fr < 90; ++fr) {
-        Fill(dc, prev, W, H); Fill(dc, cur, W, H);   // fresh capture every real frame, like LS
+    for (int fr = 0; fr < (srcDup ? 260 : 90); ++fr) {
+        if (srcDup) { ID3D11Texture2D* tapTex = (fr & 1) ? prev : cur; ID3D11Texture2D* otherTex = (fr & 1) ? cur : prev;   // (the views sPrev and sCur are swapped at the end of each frame, the textures are not)
+            FillMoving(dc, otherTex, W, H, 4 * (std::max(0, fr - 1) / srcDup)); FillMoving(dc, tapTex, W, H, 4 * (fr / srcDup)); if (fr) std::this_thread::sleep_for(std::chrono::milliseconds(12)); }
+        else { Fill(dc, prev, W, H); Fill(dc, cur, W, H); }   // fresh capture every real frame, like LS
         // per real frame: pyramid pass on the new frame (the TAP)
         dc->CSSetShaderResources(0, 1, &sCur); dc->CSSetUnorderedAccessViews(0, 4, uPyr, nullptr); dc->CSSetShader(csPyr, nullptr, 0); host.Dispatch(dc, W * 7 / 10 / 8, H * 7 / 10 / 8, 1);
         ID3D11UnorderedAccessView* null4[4] = {}; dc->CSSetUnorderedAccessViews(0, 4, null4, nullptr); dc->CSSetShaderResources(0, 3, nulls);
@@ -553,7 +557,7 @@ int main(int argc, char** argv) {
             const char* kv = argv[i] + 10; const char* eq = strchr(kv, '=');
             if (eq) { switchKey.assign(kv, eq - kv); switchValue = eq + 1; }
         }
-        const int kFrames = switchKey.empty() ? (nisNoFlow ? 260 : 150) : 400, kSwitchAt = 75;   // (no flow: frames are 16 ms apart, and the engine takes 2 to 2.7 s to start: a run of 150 ended before it did on a busy machine)
+        const int kFrames = srcDup ? 260 : switchKey.empty() ? (nisNoFlow ? 260 : 150) : 400, kSwitchAt = 75;   // (no flow: frames are 16 ms apart, and the engine takes 2 to 2.7 s to start: a run of 150 ended before it did on a busy machine)
         int nisGap = 12; for (int i = 4; i < argc; ++i) if (!strncmp(argv[i], "nisgap=", 7)) nisGap = std::clamp(atoi(argv[i] + 7), 0, 24);
         for (int fr = 0; fr < kFrames; ++fr) {
             if (fr == kSwitchAt && !switchKey.empty()) { host.cfg[switchKey] = switchValue; printf("[hosttest] frame %d: %s = %s\n", fr, switchKey.c_str(), switchValue.c_str()); }
@@ -561,7 +565,7 @@ int main(int argc, char** argv) {
             if (nisFade) FillFade(dc, nisIn, NW, NH, fr);
             if (nisLine) fillLine(fr);
             if (nisNoFlow) { nisPass(); std::this_thread::sleep_for(std::chrono::milliseconds(16)); if (fr % 30 == 0) frame("nis"); else emptyFrame(); continue; }
-            Fill(dc, cur, W, H);
+            if (srcDup) FillMoving(dc, cur, W, H, 4 * (fr / srcDup)); else Fill(dc, cur, W, H);
             dc->CSSetShaderResources(0, 1, genTex ? &nisSrvs[0] : &sCur); dc->CSSetUnorderedAccessViews(0, 4, uPyr, nullptr); dc->CSSetShader(csPyr, nullptr, 0); host.Dispatch(dc, W * 7 / 10 / 8, H * 7 / 10 / 8, 1);
             ID3D11UnorderedAccessView* null4[4] = {}; dc->CSSetUnorderedAccessViews(0, 4, null4, nullptr); dc->CSSetShaderResources(0, 3, nulls);
             dc->CSSetShaderResources(4, 1, &sPyr3); dc->CSSetUnorderedAccessViews(0, 1, &uFlow16, nullptr); dc->CSSetShader(csFlow16, nullptr, 0); host.Dispatch(dc, FLW / 8, FLH / 8, 1);
@@ -719,7 +723,7 @@ int main(int argc, char** argv) {
     }
     {   // the tap must be read-only now: LS's frame textures keep the original pattern
         for (ID3D11Texture2D* t : { prev, cur }) { double mean = 0; uint64_t changed = CountChanged(dev, dc, t, W, H, &mean, nullptr);
-            printf("[check] frame texture %p: %llu / %llu pixels differ from the pattern (%s)\n", (void*)t, (unsigned long long)changed, (unsigned long long)W * H, changed == 0 ? "TAP READ-ONLY" : "TAP WROTE INTO LS'S FRAME"); }
+            printf("[check] frame texture %p: %llu / %llu pixels differ from the pattern (%s)\n", (void*)t, (unsigned long long)changed, (unsigned long long)W * H, srcDup ? "TAP NOT COMPARED: srcdup= fills a moving picture" : changed == 0 ? "TAP READ-ONLY" : "TAP WROTE INTO LS'S FRAME"); }
         printf("[check] presented buffers: %llu of %llu sampled presents carried the model's delta (mean abs diff of changed px %.2f) -> %s\n", (unsigned long long)composedSeen, (unsigned long long)checks, lastMean, composedSeen >= checks / 2 ? "COMPOSE APPLIED" : "COMPOSE MISSING");
     }
     for (int i = 0; i < 3; ++i) frame("after");

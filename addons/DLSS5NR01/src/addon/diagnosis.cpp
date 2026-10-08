@@ -21,6 +21,10 @@ std::vector<Finding> Diagnose(const Snapshot& s) {
                              : "Recording is on: it copies the frames it keeps all the time, which takes some of the graphics card and the processor.",
             "Turn it off (Recording in the panel) unless you are recording a problem: it is the first thing to rule out when frames are uneven or the card is full.");
 
+    if (s.sourceRepeats >= 2)
+        add(Level::Note, Fmt("The picture Lossless Scaling captures repeats: each one comes %.0f times in a row, so the source is really at about %.0f a second in a feed of %.0f.", s.sourceRepeats, s.sourceRepeats ? s.sourceFps / s.sourceRepeats : 0, s.sourceFps),
+            "Frame generation makes its pictures between identical frames, and the motion advances unevenly. If the source is a capture card or a recorder, set its signal to the game's real rate (30 for a 30 fps game).");
+
     if (s.frames >= 60 && s.frameP50 > 0) {
         const bool uneven = s.frameP95 > 1.6f * s.frameP50 && s.frameP95 - s.frameP50 > 6.0f;
         const bool waits = s.model && s.startMs > 4.0f;

@@ -22,6 +22,8 @@ struct Snapshot {
     bool showingPlain = false;
     // the recorder is on (it copies frames all the time) and whether it records what is shown (every presented frame, twice the frames and big ones)
     bool recording = false, recordingShown = false;
+    // the pictures Lossless Scaling captures repeat (a 30 fps game in a 60 Hz feed): each comes this many times in a row (0: no repeat noticed), and the capture rate in frames a second
+    int sourceRepeats = 0; float sourceFps = 0;
 };
 
 enum class Level { Info = 0, Note = 1, Problem = 2 };

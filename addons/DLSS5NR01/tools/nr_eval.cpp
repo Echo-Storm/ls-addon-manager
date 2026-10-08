@@ -121,6 +121,7 @@ int main(int argc, char** argv) {
     const nr::lsrec::FileHeader& h = rec.Header();
     const uint32_t W = h.width, H = h.height;
     const int first = std::max(0, Arg(argc, argv, "first", 0));
+    const int dupN = std::max(1, Arg(argc, argv, "dup", 1));   // dup=N: each frame of the recording given N times in a row (a 30 fps game in a 60 Hz capture feed)
     const int count = std::min<int>(Arg(argc, argv, "count", 1 << 30), static_cast<int>(rec.Count()) - first);
     if (count < 2) { printf("the recording has too few frames\n"); return 2; }
     const int show = Arg(argc, argv, "show", 2), stillLevels = Arg(argc, argv, "still", 3);
@@ -203,8 +204,9 @@ int main(int argc, char** argv) {
     std::vector<uint8_t> heat; int heatFrame = -1;    double sumSteady = 0, sumStill = 0, sumMoving = 0, sumP95 = 0, sumLag = 0, sumPlain = 0; int n = 0;
     std::vector<double> lightShift;   // per frame: the model's mean change of the picture's brightness (levels of 255): lighting pumping
     double modelMsSum = 0, wholeMsSum = 0; int modelRuns = 0;
+    double dupDelta[2] = {}, dupPic[2] = {}, dupLight[2] = {}; int dupCnt[2] = {};   // [0]: the repeats, [1]: the new frames (dup=N): the model's delta change and the picture's change from the one before
     for (int i = 0; i < count; ++i) {
-        if (!rec.Read(first + i, px) || !ToRgba8(h, px, frame)) { printf("frame %d could not be read\n", first + i); return 3; }
+        if (!rec.Read(first + i / dupN, px) || !ToRgba8(h, px, frame)) { printf("frame %d could not be read\n", first + i); return 3; }
         { uint8_t* m = nullptr; upload->Map(0, nullptr, reinterpret_cast<void**>(&m));
           for (uint32_t y = 0; y < H; ++y) memcpy(m + inFp.Offset + y * inFp.Footprint.RowPitch, frame.data() + static_cast<size_t>(y) * W * 4, W * 4);
           upload->Unmap(0, nullptr); }
@@ -349,6 +351,13 @@ int main(int argc, char** argv) {
                 if (i >= 4) { sumLag1n += s.lag1n; sumLag2 += s.lag2; sumMag += s.mag; ++nStale; }
             }
         }
+        if (dupN > 1 && i >= 6 && !dPrev.empty()) {
+            const int ph = (i % dupN) ? 0 : 1;
+            double dd = 0, pd = 0; size_t cd = 0, cp = 0;
+            for (size_t k = 0; k + 3 < d.size() && k < dPrev.size(); k += 16) { double m = 0; for (int c = 0; c < 3; ++c) m = std::max(m, double(std::fabs(d[k + c] - dPrev[k + c]))); dd += m * 255.0; ++cd; }
+            for (size_t k = 0; k + 3 < pic.size() && k < picPrev.size(); k += 16) { pd += std::abs(0.299 * (pic[k] - picPrev[k]) + 0.587 * (pic[k + 1] - picPrev[k + 1]) + 0.114 * (pic[k + 2] - picPrev[k + 2])); ++cp; }
+            dupDelta[ph] += cd ? dd / cd : 0; dupPic[ph] += cp ? pd / cp : 0; dupLight[ph] += lightShift.back(); ++dupCnt[ph];
+        }
         printf("  frame %4d  steady %5.2f dB   delta change: where the game is still %5.2f levels, along the motion %5.2f levels (%.0f %% of the picture matched)\n", s.frame, s.steady, s.still, s.moving, usedShare * 100.0);
         if (s.steady < 99) printf("             the live path (this frame shown with the run before's delta moved by its motion): %5.2f levels off this frame's own delta; not moved: %5.2f\n", s.lag, s.plain);
         if (i >= 4 && s.steady < 99) { sumSteady += s.steady; sumStill += s.still; sumMoving += s.moving; sumP95 += s.p95; sumLag += s.lag; sumPlain += s.plain; ++n; }
@@ -361,6 +370,9 @@ int main(int argc, char** argv) {
         dPrev2 = dPrev; mvPrev2 = mvPrev;
         framePrev = frame; picPrev = pic; dPrev = d; mvPrev = mv;
     }
+    if (dupN > 1 && dupCnt[0] && dupCnt[1])
+        printf("dup=%d: the model's delta change from the run before (levels of 255), on the REPEATS %.3f, on the NEW frames %.3f; the picture's luma change on the repeats %.3f, on the new frames %.3f; the brightness shift of the model on the repeats %.3f, on the new frames %.3f\n", dupN,
+               dupDelta[0] / dupCnt[0], dupDelta[1] / dupCnt[1], dupPic[0] / dupCnt[0], dupPic[1] / dupCnt[1], dupLight[0] / dupCnt[0], dupLight[1] / dupCnt[1]);
     if (dumpFile) fclose(dumpFile);
     if (modelRuns) printf("model GPU time on an idle card, %d runs after the first 6: the model %.2f ms, the whole run (copies, motion, model) %.2f ms\n", modelRuns, modelMsSum / modelRuns, wholeMsSum / modelRuns);
     { const uint64_t vramAfter = nr::ProcessVideoMemoryMb(ad.AdapterLuid); printf("video memory: this program holds %llu MB; Neural Rendering and its textures added %llu MB (from %llu MB before it started)\n", (unsigned long long)vramAfter, (unsigned long long)(vramAfter - std::min(vramAfter, vramBefore)), (unsigned long long)vramBefore); }

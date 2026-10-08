@@ -1,5 +1,6 @@
 // Offline test of the "what is wrong" rules (src/addon/diagnosis.cpp).
 #include "addon/diagnosis.h"
+#include "addon/source_cadence.h"
 #include <cstdio>
 #include <string>
 using namespace nr::diag;
@@ -59,6 +60,21 @@ int main() {
     Snapshot many = waiting; many.runEvery = 3; many.keepUpPct = 50; many.showingPlain = true; many.autoOn = false; many.modelMs = 9; many.scale = 0.25f; many.floor = 0.25f;
     Check("at most four findings", Diagnose(many).size() <= 4);
 
+    // source cadence
+    {
+        nr::cadence::Detector det;
+        auto feed = [&](std::initializer_list<int> pattern, int times) { for (int t = 0; t < times; ++t) for (int stay : pattern) { det.Push(false); for (int k = 1; k < stay; ++k) det.Push(true); } };
+        feed({ 1 }, 80); Check("a game at its real rate (every frame new) is no repeat", det.Verdict().repeats == 0);
+        det.Reset(); feed({ 2 }, 40); Check("each picture twice (30 in a 60 feed): 2", det.Verdict().repeats == 2);
+        det.Reset(); feed({ 4 }, 40); Check("each picture four times (30 in a 120 feed): 4", det.Verdict().repeats == 4);
+        det.Reset(); feed({ 2 }, 5); Check("too few stays to say", det.Verdict().repeats == 0);
+        det.Reset(); feed({ 1 }, 10); det.Push(false); for (int i = 0; i < 400; ++i) det.Push(true); Check("a still scene (one very long stay) is no repeat", det.Verdict().repeats == 0);
+        det.Reset(); feed({ 2, 2, 2, 2, 2, 2, 2, 1 }, 10); Check("one stay in eight odd (a hitch) still reads as 2", det.Verdict().repeats == 2);
+        det.Reset(); feed({ 2, 1 }, 40); Check("stays alternating 2 and 1 (a 40 in 60 feed) is not called a repeat", det.Verdict().repeats == 0);
+        Snapshot s2; s2.sourceRepeats = 2; s2.sourceFps = 60;
+        auto f = Diagnose(s2);
+        Check("a repeating source is a note with the capture setting as advice", f.size() == 1 && f[0].level == Level::Note && Has(f, "30 a second") && f[0].tryThis.find("real rate") != std::string::npos);
+    }
     printf("\n%s\n", g_failed ? "DIAGNOSIS TEST FAILED" : "DIAGNOSIS TEST PASSED");
     return g_failed ? 1 : 0;
 }

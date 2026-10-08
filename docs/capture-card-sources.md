@@ -56,6 +56,24 @@ A repeat of the input gives an output that is almost the same picture (the plain
 passes do not toggle on a doubled source. Not covered: Neural Rendering (needs the model; `nr_nreval`), the live path (this tool measures motion from the frames; live, Lossless Scaling's flow
 feeds the passes), HDR (`hdr=1`), a clip with fast camera motion, and 120 Hz (dup=4).
 
+## Result of test 1 for Neural Rendering (2026-10-08)
+
+`nr_nreval ... dup=2`, the same recording, the model run on every frame (60 real frames, each given twice): the model's brightness shift is the same on the repeats and on the new frames
+(0.248 and 0.247 levels of 255), the picture changes by 0.058 on the repeats and 1.017 on the new frames, and the model's change where the game is still is lower than with no doubling
+(0.12 against 0.16). So the smoothing and the dark guard do not pulse either. Still not covered: HDR, fast camera motion, 120 Hz (dup=4), and the live path.
+
+## Built: the source cadence note (2026-10-08)
+
+`src/addon/source_cadence.{h,cpp}`. At each captured frame (the TAP) the addons run one small compute pass on Lossless Scaling's device: 2304 points of the frame's luma (l / (1 + l)),
+compared on the card with the points of the frame before, one float read back a few frames later (never waiting for the card; samples lost on a busy card break the stay in progress, they are
+not guessed). A change under 0.00015 is the same picture again (a repeat is bit for bit the same, 0; the smallest change between real frames on the WoW recordings was 0.00056). The
+detector keeps the lengths of the last 48 stays of a picture: when 85 % of them are one length L from 2 to 8, the source repeats each picture L times; a still scene (one long stay) and a game
+at its real rate (all stays of 1) say nothing. A verdict has to hold for three looks (12 frames apart). It is logged ("source cadence: every picture Lossless Scaling captures comes 2 times in a
+row ...") and shown in the panel's "What stands out" as a note: set the capture to the game's real rate. Works where the tap sees the captured frames: Neural Rendering and the three
+upscalers with frame generation on (with it off Lossless Scaling runs no capture pass for the tap to see). Tests: the detector and the rule in `nr_diagtest`, and the host scenarios
+`cadence_dup2`, `cadence_unique`, `cadence_scaler_dup2`, `cadence_scaler_unique` (`addon_host_test srcdup=N`). Not tested in a real game or with a capture card.
+
 ## Status
 
-Test 1 done for the upscalers; the option `dup=N` is in `nr_sreval`. Open: the same for Neural Rendering and a live check; the cadence diagnostic (2); the output cadence (3).
+Test 1 done for the upscalers and Neural Rendering offline; the diagnostic is built and tested in the host, not yet seen live. Open: a live check with a duplicated source, HDR and 120 Hz
+(dup=4) for test 1, and the output cadence (3).
