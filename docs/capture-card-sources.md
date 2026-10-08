@@ -41,6 +41,21 @@ screen is uneven; 30 x 4 and 60 x 2 are even).
 4. **A dedupe-aware mode is not ours to build now.** If it is ever wanted, it lives in the pre-dispatch path: recognise the repeat, hold the generated frame to the repeat's input, and let
    the real change step through at the true rate. Needs a look at what Lossless Scaling's dispatch order allows first.
 
+## Result of test 1 (2026-10-08): no pulsing in the three upscalers
+
+`nr_sreval ... dup=2` gives each recorded frame twice in a row (a 30 fps game in a 60 Hz feed) and scores the output's change from the picture before, on the repeats and on the new frames.
+One recording (WoW, 2562x1442, 8 s, shrunk 1.5x and upscaled back, the shipped defaults: Sharpness at rest 0.5, Steady sharpening 0.6, Sharpen less in fast motion 0.5), 60 real frames:
+
+| Upscaler | change on the repeats (levels of 255) | change on the new frames | detail, repeats vs new frames |
+|---|---|---|---|
+| FSR | 0.029 | 0.894 (the game's own 0.983) | 0.1 % apart |
+| DLSS | 0.054 | 0.881 | 0.2 % apart |
+| XeSS | 0.054 | 0.905 | 0.1 % apart |
+
+A repeat of the input gives an output that is almost the same picture (the plain stretch: 0.000), and the sharpness does not alternate between repeat and new frames, so the motion-driven
+passes do not toggle on a doubled source. Not covered: Neural Rendering (needs the model; `nr_nreval`), the live path (this tool measures motion from the frames; live, Lossless Scaling's flow
+feeds the passes), HDR (`hdr=1`), a clip with fast camera motion, and 120 Hz (dup=4).
+
 ## Status
 
-Nothing built. Next step (1 above): the doubled-source test, which can find a real bug in what ships.
+Test 1 done for the upscalers; the option `dup=N` is in `nr_sreval`. Open: the same for Neural Rendering and a live check; the cadence diagnostic (2); the output cadence (3).

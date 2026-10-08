@@ -116,6 +116,7 @@ int main(int argc, char** argv) {
     if (!splicePath.empty() && (!rec2.Open(Wide(splicePath.c_str()), &error) || rec2.Header().width != h.width || rec2.Header().height != h.height)) { printf("the recording to splice in could not be opened or has another size\n"); return 2; }
     const uint32_t W = h.width, H = h.height;
     const int first = std::max(0, Arg(argc, argv, "first", 0));
+    const int dupN = std::max(1, Arg(argc, argv, "dup", 1));   // dup=N: every frame of the recording is given N times in a row (a 30 fps game in a 60 Hz capture feed: dup=2)
     const int count = std::min<int>(Arg(argc, argv, "count", 1 << 30), static_cast<int>(rec.Count()) - first);
     const double shrink = std::max(1.0, Arg(argc, argv, "shrink", 150) / 100.0);
     const uint32_t w = static_cast<uint32_t>(W / shrink + 0.5) & ~1u, hh = static_cast<uint32_t>(H / shrink + 0.5) & ~1u;
@@ -230,11 +231,14 @@ int main(int argc, char** argv) {
     std::vector<uint8_t> px, frame, shrunk, picture, stretched, framePrev, picturePrev, stretchedPrev, framePrev2, picturePrev2, stretchedPrev2;
     double flickOut = 0, flickIn = 0, detailOut = 0, detailIn = 0, flickStretch = 0, detailStretch = 0; int flickN = 0, detailN = 0;
     double sumUp = 0, sumPlain = 0, sumUpC = 0, sumPlainC = 0, sumUpT = 0, sumPlainT = 0; int n = 0;
+    // dup=N: the output's change from the picture before, on the repeats of a frame (the input did not change, so the output should not) and on the new frames; and its detail on each
+    double dupRepUp = 0, dupRepSt = 0, dupRepDet = 0, dupNewUp = 0, dupNewSt = 0, dupNewDet = 0, dupNewIn = 0; int dupRepN = 0, dupNewN = 0;
+    const auto lumaChange = [](const std::vector<uint8_t>& a, const std::vector<uint8_t>& b) { double t = 0; size_t c = 0; for (size_t k = 0; k + 3 < a.size() && k < b.size(); k += 16) { t += std::abs(0.299 * (a[k] - b[k]) + 0.587 * (a[k + 1] - b[k + 1]) + 0.114 * (a[k + 2] - b[k + 2])); ++c; } return c ? t / c : 0.0; };
     // hdr=1 helpers: light -> 8-bit (the roll-off and sRGB of ToRgba8), and the checks HDR needs
     auto tone = [](float v) { v = std::max(v, 0.0f); if (v > 0.75f) v = 0.75f + 0.25f * (1.0f - std::exp(-(v - 0.75f) / 0.25f)); v = v <= 0.0031308f ? v * 12.92f : 1.055f * std::pow(v, 1.0f / 2.4f) - 0.055f; return static_cast<uint8_t>(std::clamp(v, 0.0f, 1.0f) * 255.0f + 0.5f); };
     std::vector<float> frameF, shrunkF; double hdrMeanIn = 0, hdrMeanOut = 0; float hdrMaxIn = 0, hdrMaxOut = 0; uint64_t hdrBad = 0; int hdrN = 0;
     for (int i = 0; i < count; ++i) {
-        if (!(i >= spliceAt && !splicePath.empty() ? rec2.Read(std::min<size_t>(rec2.Count() - 1, static_cast<size_t>(first + (i - spliceAt))), px) : rec.Read(Arg(argc, argv, "still", 0) != 0 ? first : first + i, px)) || !ToRgba8(h, px, frame)) { printf("frame %d could not be read\n", first + i); return 3; }
+        if (!(i >= spliceAt && !splicePath.empty() ? rec2.Read(std::min<size_t>(rec2.Count() - 1, static_cast<size_t>(first + (i - spliceAt))), px) : rec.Read(Arg(argc, argv, "still", 0) != 0 ? first : first + i / dupN, px)) || !ToRgba8(h, px, frame)) { printf("frame %d could not be read\n", first + i); return 3; }
         if (pointSampled) {   // sample=point: what a game without anti-aliasing renders at a lower size (one sample at each pixel's centre): aliased, so a temporal upscaler has detail to unfold
             shrunk.assign(static_cast<size_t>(w) * hh * 4, 255);
             for (uint32_t y = 0; y < hh; ++y) for (uint32_t x = 0; x < w; ++x) {
@@ -362,6 +366,11 @@ int main(int argc, char** argv) {
             if (i >= 10) { flickOut += Flicker(picturePrev2, picturePrev, picture, W); flickIn += Flicker(framePrev2, framePrev, frame, W); flickStretch += Flicker(stretchedPrev2, stretchedPrev, stretched, W); ++flickN; }
         }
         if (i >= 9) { detailOut += Detail(picture, W); detailIn += Detail(frame, W); detailStretch += Detail(stretched, W); ++detailN; }
+        if (dupN > 1 && i >= 10) {
+            const double dUp = lumaChange(picture, picturePrev), dSt = lumaChange(stretched, stretchedPrev), det = Detail(picture, W);
+            if (i % dupN) { dupRepUp += dUp; dupRepSt += dSt; dupRepDet += det; ++dupRepN; }
+            else { dupNewUp += dUp; dupNewSt += dSt; dupNewDet += det; dupNewIn += lumaChange(frame, framePrev); ++dupNewN; }
+        }
         framePrev2 = framePrev; picturePrev2 = picturePrev; stretchedPrev2 = stretchedPrev;
         framePrev = frame; picturePrev = picture; stretchedPrev = stretched;
         if (show > 0) { s.truth = frame; s.picture = picture; s.stretched = stretched; }
@@ -376,6 +385,9 @@ int main(int argc, char** argv) {
     if (flickN && detailN) printf("no reference (levels of 255 on luma; the picture / the game's own frames): flicker %.3f / %.3f (%.0f %%), detail %.3f / %.3f (%.0f %%); the plain stretch: flicker %.3f, detail %.3f\n",
                                   flickOut / flickN, flickIn / flickN, 100.0 * flickOut / std::max(1e-9, flickIn), detailOut / detailN, detailIn / detailN, 100.0 * detailOut / std::max(1e-9, detailIn),
                                   flickStretch / flickN, detailStretch / detailN);
+    if (dupN > 1 && dupRepN && dupNewN)
+        printf("dup=%d (each frame given %d times): the output's change from the picture before (levels of 255 on luma), on the REPEATS: upscaled %.3f, plain stretch %.3f; on the NEW frames: upscaled %.3f, plain stretch %.3f (the game's own change %.3f); detail of the picture on the repeats %.3f, on the new frames %.3f (%.1f %% apart)\n",
+               dupN, dupN, dupRepUp / dupRepN, dupRepSt / dupRepN, dupNewUp / dupNewN, dupNewSt / dupNewN, dupNewIn / dupNewN, dupRepDet / dupRepN, dupNewDet / dupNewN, 100.0 * std::fabs(dupRepDet / dupRepN - dupNewDet / dupNewN) / std::max(1e-9, dupNewDet / dupNewN));
     if (n) printf("average over %d frames (after the first 8): upscaled %.2f dB (coarse %.2f, steady %.2f), stretched %.2f dB (coarse %.2f, steady %.2f)\n", n, sumUp / n, sumUpC / n, sumUpT / n, sumPlain / n, sumPlainC / n, sumPlainT / n);
     // bench=N: the last frame's picture run N more times back to back, without waiting between them, so the GPU stays busy at full clocks (the timings above
     // are taken with the GPU idling between frames and read several times too high); prints the GPU times the engine measured over those runs
