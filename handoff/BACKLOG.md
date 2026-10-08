@@ -29,7 +29,25 @@ item is done (move it to the changelog) or when a new one comes up. Dates are wh
 
 - **Issue #11, a lead from the reporter (2026-10-01):** on an RX 6600 XT the FSR 4.1.1b INT8 runtime crashes in our addon but works for them in OptiScaler with `FsrAgilitySDKUpgrade` configured. The addon's own D3D12 device uses the system D3D12 and no Agility SDK; if the INT8 build needs a newer D3D12 core that would explain it (a guess). Asked them for the files and versions they use; to try: ship the Agility SDK beside the FSR addon and create the device through it.
 
-## GitHub issues (state 2026-09-30, all answered)
+## GitHub issues (state 2026-10-08)
+
+Closed today as fixed or answered, with a comment each and no reply for 5+ days: #4 (Performance tab on AMD, 0.9.16), #8 (softness at rest: Sharpness at rest, and the VSR addon is the single-frame answer), #10 (expectation set; reopen with the log if "NIS stays"). Earlier: #1, #2, #3, #7, #13.
+Open, and what each is waiting for:
+- #5 antivirus: zurce says the auto updater trips it too (2026-10-04). Code signing is the real fix (owner's decision); not closed.
+- #6 dual GPU: works for the reporter with an unsigned model (2026-10-01); they are still testing and found ghosting in some titles. Waiting for their report. Related: #19 (below).
+- #9 XeSS FG / DLSS FG: a feature request, open as research (docs/frame-generation-research.md, docs/magpie-fork-study.md).
+- #11 FSR4 INT8 on RDNA2: no longer crashes since 0.9.32 (Agility core); the reporter sees no image difference. Their log shows "the runtime runs 4.1.1b", i.e. it is loaded; no difference is expected without jitter (the same as #10). To reply: say so, and that it is working as built.
+- #14 NR resolution "capped at 1080p": a reporter sees 3840x2160 -> 1920x1080 in the panel, a second player gets the 4K model on a 4090. Likely auto quality / model scale picking the model size by budget, not a cap; needs their panel screenshot or `DLSS5NR01.log`. Check the Model scale and Auto quality settings first.
+- #15 CuNNy / Anime4K style shader upscalers: a feature request (see "Single-frame neural upscaling" above, route (a)).
+- #16 "looks like NIS since 0.9.2x" (2026-10-03, two people; owner said "let me see"): likely causes already fixed: Auto quality was off on new installs 0.9.28 to 0.9.34 and XeSS was missing from the zips 0.9.28 to 0.9.33; ask them to try 0.9.38 and send the panel's Upscaling line.
+- #18 ghosting in Expedition 33 with NR and frame generation: the reporter found lowering Local contrast and the second-frame option helped. Needs `DLSS5NR01.log` and their settings; check the NR ghost guards.
+- #19 DLSS upscaling at 100 % GPU on the second card (dual GPU, 5070 shows the display, 5080 renders; 87 fps vs the game's 120): the upscaler's cost per frame is in the panel and `DLSS4DLAA.log`; with x2 frame generation the pass runs per presented frame. Needs the log; a cost measurement at 5k2k would settle expected vs not.
+
+## Capture-card and duplicated sources (2026-10-08)
+
+Research in docs/capture-card-sources.md (the post that prompted it: 30 fps console through a capture card at 60 or 120 Hz, Lossless Scaling x2). Open, in order: (1) test the addons' motion-driven features on a source with every frame doubled (host test or `nr_sreval`); (2) a source-cadence diagnostic in the addons' logs and panel; (3) `tools/video_pacing.py` on a capture of Lossless Scaling's output from a doubled source to confirm the 3,1,3,1 stays. Dropping duplicates is for Lossless Scaling or the capture app, not ours.
+
+## GitHub issues (state 2026-09-30, all answered; superseded by the section above)
 
 - #7 DLSS Upscaler "FeatureNotFound" with NR on: fixed in 0.9.16 (NGX search paths union, ngx_paths.h). Awaiting the reporter.
 - #4 Performance tab on AMD: fixed in 0.9.16 (Windows counters); awaiting a report from a real Radeon (only tested against NVML here).
