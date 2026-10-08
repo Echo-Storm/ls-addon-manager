@@ -45,7 +45,7 @@ Open, and what each is waiting for:
 
 ## Capture-card and duplicated sources (2026-10-08)
 
-Research in docs/capture-card-sources.md (the post that prompted it: 30 fps console through a capture card at 60 or 120 Hz, Lossless Scaling x2). Open, in order: (1) the doubled-source test: DONE for the three upscalers (`nr_sreval dup=2`: no pulsing, the repeats change the output by 0.03 to 0.05 of 255 and the detail does not alternate; the result is in the doc); still open for Neural Rendering (`nr_nreval`), HDR, fast motion and live; (2) a source-cadence diagnostic in the addons' logs and panel; (3) `tools/video_pacing.py` on a capture of Lossless Scaling's output from a doubled source to confirm the 3,1,3,1 stays. Dropping duplicates is for Lossless Scaling or the capture app, not ours.
+Research in docs/capture-card-sources.md. Done: (1) the doubled-source test offline for the three upscalers and Neural Rendering (`nr_sreval dup=2`, `nr_nreval dup=2`: no pulsing); (2) the source cadence note (`source_cadence.cpp`, commit e049bf0, UNRELEASED: log line + "What stands out" note when every captured picture repeats L times), tested in the host (`cadence_*` scenarios) and in `nr_diagtest`. Open: a live check with a real duplicated source (a capture card, or a 30 fps game capped in a 60 Hz window) to confirm the note appears and the pass costs nothing noticeable; HDR and 120 Hz (dup=4) for the offline test; (3) `tools/video_pacing.py` on a capture of Lossless Scaling's output from a doubled source (3,1,3,1 stays?). Dropping duplicates is for Lossless Scaling or the capture app, not ours.
 
 ## GitHub issues (state 2026-09-30, all answered; superseded by the section above)
 
