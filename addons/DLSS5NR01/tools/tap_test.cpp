@@ -198,8 +198,7 @@ int main(int argc, char** argv) {
             FrameTap tap; for (int k = 0; k < 30; ++k) RunFrame(tap, l, k, withFlow != 0);   // (learn the roles first)
             g_observeTicks = g_observeCalls = 0;
             for (int k = 0; k < 4000; ++k) RunFrame(tap, l, k + 30, withFlow != 0);
-            printf("bench: %s: %.2f us per dispatch inside Observe (%lld dispatches); a frame of %d dispatches costs %.1f us of CPU per loaded addon
-", withFlow ? "frame generation on" : "no flow passes (frame generation off)",
+            printf("bench: %s: %.2f us per dispatch inside Observe (%lld dispatches); a frame of %d dispatches costs %.1f us of CPU per loaded addon\n", withFlow ? "frame generation on" : "no flow passes (frame generation off)",
                    1e6 * g_observeTicks / freq.QuadPart / g_observeCalls, g_observeCalls, withFlow ? 5 : 3, 1e6 * g_observeTicks / freq.QuadPart / 4000);
         }
     }
