@@ -60,5 +60,10 @@ sharpening or edge setting, a reset) is worked on.
    With that, a 1 ms wait (4 to 7 timeouts in 80 pictures) scores 33.36 dB again.
 2. A harness that writes every output into one texture made "copy the last output into this one" a copy of a texture onto itself, which D3D12 does not allow: `CopyPicture` returns at once when source and destination are the same.
 
-**Not done:** the load test (the compare's wait under a competing GPU load, and timeouts per hundred pictures); FSR and XeSS (the engine hook is the same for all three; only DLSS was run); the live link (`ScalerLink` has a ring of output pictures; the copy there is between different textures, and the new
+**Later the same day:** (a) all three upscalers, `dup=2`, idle card and a card kept busy by a second process: 40 of 80 pictures skipped each, the pictures as good as without skipping (DLSS 33.36 vs 33.35 dB, FSR 33.09 vs 33.00, XeSS 33.53 vs 33.53), the compare's wait 0.9 to 1.3 ms, no timeouts. (b) The compare is queued behind the previous picture's own work on the engine's queue, so right after a heavy run it timed out and three timeouts switched it off:
+it is now asked for only while the queue is **idle** (a picture met while it is busy is simply worked on) and waits up to 10 ms. (c) Wired into the live addons as the setting `scalerSkipRepeats` ("Do not upscale a picture that is exactly the one before (test)", off by default); the host scenario `scaler_skip` runs it through the real link.
+
+**Not done (still):** the live look (a pause menu; a capture card), the effect on the link's "Late" hand-over timing (the compare adds a millisecond before the picture is submitted), Neural Rendering (the old list below applies to it).
+
+**Earlier list, for reference:** the load test (the compare's wait under a competing GPU load, and timeouts per hundred pictures); FSR and XeSS (the engine hook is the same for all three; only DLSS was run); the live link (`ScalerLink` has a ring of output pictures; the copy there is between different textures, and the new
 `m_lastOut` pointer must stay valid until the next picture, which the ring guarantees for kOut >= 2); a panel switch and a setting (`scalerSkipRepeats`); Neural Rendering (its model runs through a different engine, `NrEngine`).
