@@ -52,7 +52,7 @@ $suites = [ordered]@{
     setupexe  = @{ When = '^installer/src/|^installer/tests/setup_exe_test|^installer/CMakeLists|^tools/package';
                    Build = @('installer', 'setup_core', 'setup_cli', 'pack_payload', 'LSAddonManagerSetup');
                    Script = "$root\installer\tests\setup_exe_test.ps1" }
-    nr        = @{ When = '^addons/DLSS5NR01/(src|tools|CMakeLists)|^manager/sdk/|^tools/run_hosttest_matrix';
+    nr        = @{ When = '^addons/DLSS5NR01/(src|tools|tests|CMakeLists)|^manager/sdk/|^tools/run_hosttest_matrix';
                    Build = @('nr', 'nr_reqtest', 'nr_taptest', 'nr_settingstest', 'nr_autotest', 'nr_tracetest', 'nr_diagtest', 'nr_composebench', 'nr_rectest', 'nr_lsrec', 'nr_sreval', 'DLSS5NR01', 'DLSS4DLAA', 'FSR3UPSC', 'nr_hosttest', 'nr_selftest');
                    Runs = @(@('Neural Rendering requirements check', "$nrBuild\Release\nr_reqtest.exe", @()),
                             @('Neural Rendering settings and looks', "$nrBuild\Release\nr_settingstest.exe", @()),
@@ -95,13 +95,16 @@ foreach ($n in $chosen) {
     $targetsByDir[$b[0]] += @($b | Select-Object -Skip 1)
 }
 $skipped = @{}
+$buildFailed = @()
 foreach ($which in $targetsByDir.Keys) {
     $dir = $buildDirs[$which]
     if ($which -eq 'nr' -and -not (Test-Path "$dir\CMakeCache.txt")) { Write-Host '(Neural Rendering is not configured here: it needs the NVIDIA SDK; its suite is skipped)'; $skipped[$which] = $true; continue }
     if ($which -eq 'installer' -and -not (Test-Path "$dir\CMakeCache.txt")) { & cmake -S "$root\installer" -B $dir -G 'Visual Studio 17 2022' -A x64 2>&1 | Select-String -Pattern 'error' | ForEach-Object { Write-Host $_.Line } }
     [string[]]$targets = @($targetsByDir[$which] | Select-Object -Unique)
-    & cmake --build $dir --config Release --parallel --target @targets 2>&1 | Select-String -Pattern ' error ' | ForEach-Object { Write-Host $_.Line }
+    & cmake --build $dir --config Release --parallel --target @targets 2>&1 | Select-String -Pattern ' error |error C|LNK[0-9]+' | ForEach-Object { Write-Host $_.Line }
+    if ($LASTEXITCODE -ne 0) { $buildFailed += $which; Write-Host "BUILD FAILED: $which (the tests below would run the old executables, so they are not run)" }
 }
+if ($buildFailed.Count) { Write-Host "build failed for: $($buildFailed -join ', ')"; exit 1 }
 Write-Host ("built in {0:0} s" -f $total.Elapsed.TotalSeconds)
 
 # 2. What to run. The window tests (gui, features, setupexe) open windows and use the hotkey, so they run one after another; everything else

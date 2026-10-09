@@ -190,7 +190,8 @@ void FrameTap::Record(const DispatchSig& sig, uint64_t key) {
     if (m_mode != Auto) return;
     const auto tap = m_tapKey ? m_table.find(m_tapKey) : m_table.end();
     const bool tapGone = m_tapKey && (tap == m_table.end() || m_dispatches - tap->second.lastSeen > kStaleAfter);
-    if (!m_tapKey || tapGone || m_dispatches - m_lastChoice > kRechooseEvery) { ChooseTapAutomatically(); m_lastChoice = m_dispatches; }
+    // (with no TAP yet the choice is tried every 32 dispatches, not at every one: with frame generation off there never is one, and this scanned the whole table for each dispatch)
+    if (tapGone || m_dispatches - m_lastChoice > (m_tapKey ? kRechooseEvery : 32)) { ChooseTapAutomatically(); m_lastChoice = m_dispatches; }
 }
 
 // As observed on Lossless Scaling 3.x: the captured real frame is the largest colour texture in recent passes, and the first thing LSFG does with a

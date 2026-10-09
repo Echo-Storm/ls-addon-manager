@@ -9,6 +9,7 @@ Each frame is shrunk to 480x270 grey (on the card with --cuda, which is much fas
 share of runs that are not the usual one, the longest freezes with their times, and the evenness of the gaps between new pictures (the coefficient of variation of the run lengths).
 """
 import argparse
+import os
 import subprocess
 import sys
 
@@ -21,8 +22,22 @@ def probe(ffprobe, path):
     out = subprocess.run([ffprobe, '-v', 'error', '-select_streams', 'v:0', '-show_entries', 'stream=width,height,r_frame_rate,nb_frames:format=duration', '-of', 'default=nw=1', path],
                          capture_output=True, text=True).stdout
     info = dict(line.split('=', 1) for line in out.strip().splitlines() if '=' in line)
-    num, den = info.get('r_frame_rate', '60/1').split('/')
-    return float(num) / float(den), float(info.get('duration', 0)), int(info.get('nb_frames', 0) or 0)
+
+    def number(key, kind):   # ffprobe prints N/A for what a container does not carry (MKV has no frame count)
+        try:
+            return kind(info.get(key, 0))
+        except ValueError:
+            return kind(0)
+    fps = 0.0
+    try:
+        num, den = info.get('r_frame_rate', '0/0').split('/')
+        fps = float(num) / float(den)
+    except (ValueError, ZeroDivisionError):
+        pass
+    if fps <= 0:
+        print('WARNING: ffprobe did not give the frame rate (is --ffmpeg next to an ffprobe?); 60 fps is assumed and every time and rate below is wrong if it is not')
+        fps = 60.0
+    return fps, number('duration', float), number('nb_frames', int)
 
 
 def diffs(ffmpeg, path, cuda):
@@ -52,6 +67,8 @@ def diffs(ffmpeg, path, cuda):
             break
     p.stdout.close()
     p.wait()
+    if p.returncode != 0 or not d:
+        sys.exit('ffmpeg failed (exit %s) or gave fewer than two frames: nothing to measure (run it by hand to see why%s)' % (p.returncode, '; --cuda needs an NVIDIA card and a build with cuda' if cuda else ''))
     return np.array(d, np.float64), np.array(luma, np.float64)
 
 
@@ -64,7 +81,8 @@ def main():
     ap.add_argument('--cuda', action='store_true')
     ap.add_argument('--active', type=int, default=30, help='new pictures in a second for it to count as moving')
     args = ap.parse_args()
-    ffprobe = args.ffmpeg.replace('ffmpeg.exe', 'ffprobe.exe')
+    head, tail = os.path.split(args.ffmpeg)
+    ffprobe = os.path.join(head, tail.lower().replace('ffmpeg', 'ffprobe')) if 'ffmpeg' in tail.lower() else 'ffprobe'
     fps, duration, nb = probe(ffprobe, args.video)
     d, luma = diffs(args.ffmpeg, args.video, args.cuda)
     n = len(d) + 1

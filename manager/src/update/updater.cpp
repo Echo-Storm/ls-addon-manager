@@ -150,6 +150,8 @@ Progress DownloadAndCheck(const std::string& version, const std::wstring& url, c
     if (name != "LS Addon Manager Setup" || setupVersion != version) {
         p.error = "the Setup in the zip is not LS Addon Manager " + version + "'s (it says \"" + name + "\" " + setupVersion + ")"; return p;
     }
+    p.setupSha256 = AddonSecurity::ComputeSHA256(setup);
+    p.fingerprintChecked = !sha256.empty();
     p.setup = setup; p.step = Phase::Ready;
     return p;
 }
@@ -223,6 +225,13 @@ bool StartSetup(const std::wstring& lsDir, std::string& error) {
     Progress p;
     { std::lock_guard<std::mutex> lk(g_mu); p = g_progress; }
     if (p.step != Phase::Ready || p.setup.empty()) { error = "nothing is downloaded yet"; return false; }
+    // the file that is run is the one that was checked: it sat in the temporary folder, where another program of this user could have replaced it
+    if (p.setupSha256.empty() || _stricmp(AddonSecurity::ComputeSHA256(p.setup).c_str(), p.setupSha256.c_str()) != 0) {
+        DeleteFileW(p.setup.c_str());
+        { std::lock_guard<std::mutex> lk(g_mu); g_progress = Progress{}; }
+        error = "the downloaded Setup was changed after it was checked, so it was not run: download the update again";
+        return false;
+    }
     // administrator rights only when the folder needs them (Program Files, some Steam libraries)
     const std::wstring probe = lsDir + L"\\.lsam_update_write_test_" + std::to_wstring(GetCurrentProcessId());
     const HANDLE h = CreateFileW(probe.c_str(), GENERIC_WRITE, 0, nullptr, CREATE_NEW, FILE_ATTRIBUTE_TEMPORARY | FILE_FLAG_DELETE_ON_CLOSE, nullptr);

@@ -135,7 +135,12 @@ bool ScalerLink::Fit(Shared& t, uint32_t w, uint32_t h, DXGI_FORMAT fmt, bool en
         if (SUCCEEDED(hr)) { hr = dxgi->CreateSharedHandle(nullptr, DXGI_SHARED_RESOURCE_READ | DXGI_SHARED_RESOURCE_WRITE, nullptr, &handle); dxgi->Release(); }
         if (SUCCEEDED(hr)) { t.d3d12 = m_engine->OpenSharedTexture(handle); CloseHandle(handle); if (!t.d3d12) hr = E_FAIL; }
     }
-    if (FAILED(hr)) { Log("%s upscaler: the shared %s (%ux%u, format %d) could not be made: 0x%08x", kUpscalerName, name, w, h, (int)fmt, (unsigned)hr); t.Release(); return false; }
+    if (FAILED(hr)) {
+        static uint64_t saidAt = 0;   // (it is tried again at the next pass, which can be hundreds a second: one line in ten seconds)
+        const uint64_t now = GetTickCount64();
+        if (!saidAt || now - saidAt > 10000) { saidAt = now; Log("%s upscaler: the shared %s (%ux%u, format %d) could not be made: 0x%08x", kUpscalerName, name, w, h, (int)fmt, (unsigned)hr); }
+        t.Release(); return false;
+    }
     t.w = w; t.h = h; t.fmt = fmt;
     Log("%s upscaler: shared %s %ux%u, format %d", kUpscalerName, name, w, h, (int)fmt);
     return true;

@@ -199,7 +199,7 @@ not saved: Lossless Scaling always starts on the enhanced view.
 |---|---|
 | Compare view | *Enhanced*, *Split* (left of the line original, right enhanced) or *Original only*. *Original only* skips the compose pass altogether. |
 | Split position | Where the split line sits, as a fraction of the width. |
-| Hotkeys | **Ctrl+Shift + F-key**, polled at every present, so they work while the game has focus (the modifier pair keeps them off the game's own bindings). Defaults: **F6** before/after, **F7** split view, **F8** / **F9** sharpen down / up by 0.05, **F10** next preset. The keys are configurable (F1-F12); the panel lists the current bindings and says when hotkeys are switched off. |
+| Hotkeys | **Ctrl+Shift + F-key**, polled at every present, so they work while the game has focus (the modifier pair keeps them off the game's own bindings). Defaults: **F7** before/after, **F8** split view, **F2** / **F3** sharpen down / up by 0.05, **F4** before / after pictures, **F10** next saved look, **F1** save the recording; **Ctrl+Shift+F9** steps through the upscalers side by side when several are on (a temporary test, not configurable). The keys are configurable (F1-F12); the panel lists the current bindings and says when hotkeys are switched off. |
 
 There is no overlay in the game, so a hotkey shows a small coloured square in the screen's top-left corner for about a
 second: **green** enhanced, **red** original only, **amber** split, **blue** sharpen changed, **purple** preset applied. Actions are also written

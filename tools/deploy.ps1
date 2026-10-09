@@ -43,6 +43,8 @@ if ($ls) {
     Stop-Process -Id $ls.Id; Start-Sleep 2
 }
 $stamp = Get-Date -Format 'yyyyMMdd-HHmmss'
+$ErrorActionPreference = 'Stop'   # a copy that fails stops the script (it used to print the path and go on, exit 0)
+$renamedHost = $false
 # upscalers: every upscaler addon for a side-by-side test (DLSS, FSR, XeSS and the VSR prototype), Neural Rendering and the host left as they are
 $names = if ($What -eq 'all') { @('host', 'nr', 'dlaa', 'fsr', 'xess') } elseif ($What -eq 'upscalers') { @('dlaa', 'fsr', 'xess', 'vsr') } else { @($What) }
 foreach ($n in $names) {
@@ -56,7 +58,7 @@ foreach ($n in $names) {
             New-Item -ItemType Directory -Force "$LsDir\backups" | Out-Null
             if (Test-Path "$LsDir\Lossless_original.dll") { Move-Item "$LsDir\Lossless_original.dll" "$LsDir\backups\Lossless_original-$stamp.dll" }
             Copy-Item "$LsDir\Lossless.dll" "$LsDir\backups\Lossless-original-$stamp.dll"
-            Move-Item "$LsDir\Lossless.dll" "$LsDir\Lossless_original.dll"
+            Move-Item "$LsDir\Lossless.dll" "$LsDir\Lossless_original.dll"; $renamedHost = $true
             Write-Host "[host] Lossless Scaling's own Lossless.dll is now Lossless_original.dll"
         }
         elseif (-not (Test-Path "$LsDir\Lossless_original.dll")) {
@@ -74,9 +76,16 @@ foreach ($n in $names) {
         New-Item -ItemType Directory -Force (Split-Path $f.Dst) | Out-Null
         if (Test-Path $f.Dst) {
             $bk = "$LsDir\backups"; New-Item -ItemType Directory -Force $bk | Out-Null
-            Copy-Item $f.Dst "$bk\$([IO.Path]::GetFileNameWithoutExtension($f.Dst))-$stamp$([IO.Path]::GetExtension($f.Dst))"
+            # the name carries the folder the file was in, so that two files of one name (each addon's addon.json, the two FSR runtimes) do not overwrite each other's backup
+            $rel = $f.Dst.Substring($LsDir.TrimEnd([char]92).Length).TrimStart([char]92) -replace '[\\/:]', '_'
+            Copy-Item $f.Dst "$bk\$([IO.Path]::GetFileNameWithoutExtension($rel))-$stamp$([IO.Path]::GetExtension($rel))"
         }
-        Copy-Item $f.Src $f.Dst -Force
+        try { Copy-Item $f.Src $f.Dst -Force }
+        catch {
+            Write-Host "[$n] COULD NOT COPY $($f.Dst): $($_.Exception.Message)"
+            if ($n -eq 'host' -and $renamedHost -and -not (Test-Path "$LsDir\Lossless.dll") -and (Test-Path "$LsDir\Lossless_original.dll")) { Move-Item "$LsDir\Lossless_original.dll" "$LsDir\Lossless.dll"; Write-Host "[host] Lossless Scaling's own Lossless.dll is back where it was" }
+            exit 4
+        }
         Write-Host "[$n] $($f.Dst)"
     }
 }

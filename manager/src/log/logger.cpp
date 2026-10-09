@@ -44,8 +44,8 @@ void Logger::RotateIfNeeded() {
     std::error_code ec;
     std::filesystem::path oldPath = m_path;
     oldPath += L".old";
-    std::filesystem::remove(oldPath, ec);
-    std::filesystem::rename(m_path, oldPath, ec);
+    std::filesystem::rename(m_path, oldPath, ec);   // (replaces an older .old; the old one is not deleted first, so a failed rename loses nothing)
+    if (ec) std::filesystem::resize_file(m_path, 0, ec);   // held open by something else: keep this one from growing for ever
     OpenFile();
 }
 
@@ -59,8 +59,7 @@ void Logger::Init(const std::wstring& logFilePath) {
     if (!ec && size > kRotateAtInit) {
         std::filesystem::path oldPath = m_path;
         oldPath += L".old";
-        std::filesystem::remove(oldPath, ec);
-        std::filesystem::rename(m_path, oldPath, ec);
+        std::filesystem::rename(m_path, oldPath, ec);   // (replaces an older .old)
     }
     OpenFile();
     m_initialized = true;

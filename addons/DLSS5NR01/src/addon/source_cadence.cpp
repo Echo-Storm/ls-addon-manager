@@ -10,7 +10,7 @@
 
 namespace nr::cadence {
 
-void Detector::Reset() { m_stays.clear(); m_run = 0; m_frames = 0; }
+void Detector::Reset() { m_stays.clear(); m_run = -1; m_frames = 0; }   // (-1: the stay in progress is not known, as after Break)
 
 // Frames were lost between two reads: the stay in progress is not known; repeats are ignored until the next new picture starts a stay that is whole.
 void Detector::Break() { m_run = -1; }

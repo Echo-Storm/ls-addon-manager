@@ -144,7 +144,7 @@ frame (no trailing), and at rest the upscaler smooths (the **Sharpness at rest**
 | Runs on | NVIDIA RTX | any DirectX 12 card | any card with Shader Model 6.4 (Intel Arc, NVIDIA, AMD) |
 | Versions | **Auto** (the default: model E at the screen's own size, L when upscaling), or K, L, J (DLSS 4), M (DLSS 4.5), E (DLSS 3) | FSR 3.1.4 (AMD's, signed) or FSR 4.1.1b (the OptiScaler team's build, on any card) | XeSS 2.0.2 (Intel's, signed) |
 | Good at | smoothing edges | FSR 3: low cost, crisp text; FSR 4: motion | on Intel Arc it runs on the card's matrix units |
-| Sharpening | ours | AMD's RCAS, ours above it | ours |
+| Sharpening | ours | ours (AMD's RCAS is off by default) | ours |
 
 **Which one?** On an NVIDIA RTX card, try DLSS and FSR 4. On any other card, FSR, and XeSS on Intel Arc. All three are tried in World of Warcraft.
 
@@ -224,6 +224,7 @@ clashes in your game, change it in the addon's *Compare and hotkeys* section.
 | Ctrl+Shift+F2 / F3 | Sharpening down / up | every addon |
 | Ctrl+Shift+F4 | Before / after pictures: two PNGs of the same moment, with and without the addon | every addon |
 | Ctrl+Shift+F10 | The next saved look | Neural Rendering |
+| Ctrl+Shift+F9 | Steps through Lossless Scaling's NIS and the upscalers that are on, one at a time, with a label (a temporary test; not configurable, so do not bind F9 to anything else) | the upscalers |
 | Ctrl+Shift+F1 | Save the recording (the last few seconds, with *Recording* on in any addon: it is one setting) | every addon |
 | Home | ReShade input passthrough on and off | the manager |
 

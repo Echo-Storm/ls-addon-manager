@@ -2,7 +2,7 @@
 # that build, with an install note and the licences. The files are not in the zip a second time: `LSAddonManagerSetup.exe --extract <folder>`
 # writes them out for installing by hand (since 0.9.12; the zip held every file twice before).
 # The DLSSNR model is never packaged. NVIDIA's NGX library is linked into Neural Rendering and ships under NVIDIA's licence (NOTICE.md), with
-# NVIDIA-LICENSE.txt beside it. Neural Rendering is left out (with a note) when it did not build; work-in-progress addons unless -IncludeWip.
+# NVIDIA-LICENSE.txt beside it. An addon that did not build STOPS the packaging unless -AllowMissing is given; work-in-progress addons unless -IncludeWip.
 #   powershell -File tools\package.ps1 [-Version 0.7.0] [-SkipBuild] [-AllowMissing]
 # An addon that is not built (or whose extra files are missing) STOPS the packaging, because a release without it goes out silently (XESSUPSC was
 # left out of 0.9.28 to 0.9.33 that way); -AllowMissing packages without it anyway, for a test build.
@@ -19,7 +19,10 @@ if (-not $Version) {   # default: the release number in version.h
 }
 if (-not $SkipBuild) {
     & powershell -NoProfile -File "$PSScriptRoot\build_all.ps1" -Only host,nr
-    if ($LASTEXITCODE -ne 0) { Write-Host 'Some target did not build (Neural Rendering needs the NVIDIA SDK in external\ngx); packaging what is there.' }
+    if ($LASTEXITCODE -ne 0) {
+        if (-not $AllowMissing) { throw 'Some target did not build, so the files in the build folders may be from an earlier build: not packaging (-AllowMissing packages what is there, for a test build).' }
+        Write-Host 'Some target did not build (Neural Rendering needs the NVIDIA SDK in external\ngx); packaging what is there (-AllowMissing).'
+    }
 }
 
 $name = "LSAddonManager-$Version-x64"

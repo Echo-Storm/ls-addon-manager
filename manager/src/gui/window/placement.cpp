@@ -9,13 +9,19 @@ Placement InitialPlacement(const nlohmann::json& saved, float displayScale, cons
     p.h = static_cast<int>(kDefaultLogicalH * displayScale);
 
     if (saved.is_object()) {
-        const int lw = saved.value("w", 0), lh = saved.value("h", 0);
+        // (a value of the wrong type, from a hand-edited or imported config.json, is the default: json's value() throws on it, and this runs before any guard)
+        const auto intOf = [&](const char* key, int fallback) {
+            const auto it = saved.find(key);
+            return it != saved.end() && it->is_number_integer() ? static_cast<int>(it->get<long long>()) : fallback;
+        };
+        const int lw = intOf("w", 0), lh = intOf("h", 0);
         if (lw >= kMinLogicalW && lh >= kMinLogicalH) {
             p.w = static_cast<int>(lw * displayScale);
             p.h = static_cast<int>(lh * displayScale);
-            p.x = saved.value("x", p.x);
-            p.y = saved.value("y", p.y);
-            p.maximized = saved.value("maximized", false);
+            p.x = intOf("x", p.x);
+            p.y = intOf("y", p.y);
+            const auto maxi = saved.find("maximized");
+            p.maximized = maxi != saved.end() && maxi->is_boolean() && maxi->get<bool>();
         }
     }
 

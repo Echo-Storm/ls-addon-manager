@@ -117,7 +117,7 @@ int main(int argc, char** argv) {
     const uint32_t W = h.width, H = h.height;
     const int first = std::max(0, Arg(argc, argv, "first", 0));
     const int dupN = std::max(1, Arg(argc, argv, "dup", 1));   // dup=N: every frame of the recording is given N times in a row (a 30 fps game in a 60 Hz capture feed: dup=2)
-    const int count = std::min<int>(Arg(argc, argv, "count", 1 << 30), static_cast<int>(rec.Count()) - first);
+    const int count = std::min<int>(Arg(argc, argv, "count", 1 << 30), (static_cast<int>(rec.Count()) - first) * dupN);   // (count is frames given, so dup=N uses every recorded frame N times)
     const double shrink = std::max(1.0, Arg(argc, argv, "shrink", 150) / 100.0);
     const uint32_t w = static_cast<uint32_t>(W / shrink + 0.5) & ~1u, hh = static_cast<uint32_t>(H / shrink + 0.5) & ~1u;
     const std::string backendName = ArgText(argc, argv, "backend").empty() ? "fsr" : ArgText(argc, argv, "backend");

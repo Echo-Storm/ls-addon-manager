@@ -61,7 +61,8 @@ void UpdateOffer() {
         ImGui::Dummy(ImVec2(0, S(4)));
         if (ui::Button("Cancel", ui::icons::kClose)) update::CancelDownload();
     } else if (step == update::Phase::Ready) {
-        ImGui::Text("LS Addon Manager %s is downloaded and checked.", st.latest.c_str());
+        if (pr.fingerprintChecked) ImGui::Text("LS Addon Manager %s is downloaded and checked.", st.latest.c_str());
+        else ImGui::Text("LS Addon Manager %s is downloaded. GitHub gave no fingerprint for it, so it was checked for its size and for Setup's name and version only.", st.latest.c_str());
         ImGui::Dummy(ImVec2(0, S(2)));
         Wrapped("To install it, Lossless Scaling has to close: Setup waits for that, updates it (with backups, as always) and starts it again. "
                 "Your settings carry over.");

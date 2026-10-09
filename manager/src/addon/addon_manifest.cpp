@@ -72,7 +72,7 @@ uint32_t ParseApiVersion(const std::string& text) {
         ++at;
     }
     if (have < 2) return 0;
-    return (part[0] << 16) | ((part[1] & 0xFF) << 8) | (part[2] & 0xFF);
+    return (std::min<uint32_t>(part[0], 0xFFFF) << 16) | (std::min<uint32_t>(part[1], 0xFF) << 8) | std::min<uint32_t>(part[2], 0xFF);   // (clamped, not wrapped: 1.256.0 is not 1.0.0)
 }
 
 } // namespace eam

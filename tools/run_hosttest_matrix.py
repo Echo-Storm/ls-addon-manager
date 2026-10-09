@@ -608,11 +608,13 @@ def scenario_compare_all(ctx, res, text, frame):
 def scenario_cadence_dup2(ctx, res, text, frame):
     # the captured frames come twice each (a 30 fps game in a 60 Hz feed): the addon says so, with the 2
     res.check('the doubled source is noticed (every picture comes 2 times)', re.search(r'source cadence: every picture Lossless Scaling captures comes 2 times', text) is not None)
+    res.check('...with a capture rate in the line (not 0)', re.search(r'captures about [1-9][0-9]* a second', text) is not None)
     res.check('...and nothing fails', 'FAULT' not in text and 'exception 0x' not in text)
 
 
 def scenario_cadence_unique(ctx, res, text, frame):
     # every captured frame new: nothing said about repeats
+    res.check('the probe ran (it said it was watching)', 'source cadence: watching the captured pictures' in text)
     res.check('a source of new frames is not called a repeat', 'source cadence: every picture' not in text)
     res.check('...and nothing fails', 'FAULT' not in text and 'exception 0x' not in text)
 
@@ -788,7 +790,7 @@ def area_of(name):
 
 
 AREA_FILES = {   # regular expressions on the changed paths (forward slashes), under addons/DLSS5NR01/
-    'nr':       r'src/engine/(nr_engine|nr_shaders|dlaa_model)|src/addon/(bridge|compose11|present_hook|frame_tap|tasks)',
+    'nr':       r'src/engine/(nr_engine|nr_shaders|dlaa_model)|src/addon/(bridge|compose11|present_hook|frame_tap|tasks|source_cadence)',
     'dlss':     r'src/engine/(sr_engine|flow_estimator)|src/addon/scaler11',
     'fsr':      r'src/engine/(sr_engine|flow_estimator)|src/addon/scaler11|external/ffx',
     'xess':     r'src/engine/(sr_engine|flow_estimator)|src/addon/scaler11|external/xess',

@@ -211,7 +211,7 @@ The same sources build two more addons (`src/addon/product.h`: `kScalerAddon`, `
   and `Probe` log what the pass reads and writes and how bright the frame and the picture are.
 - **SrEngine** (`src/engine/sr_engine.cpp`), on a D3D12 device of its own: waits on "copied" on the GPU, runs the motion estimate (or turns
   LSFG's flow into motion vectors), runs the upscaler (Backend::Dlss through NGX, Backend::Fsr through AMD's FidelityFX API, loaded from
-  the addon's `fsr` folder), sharpens (DLSS only; FSR has RCAS), signals "done". Timestamps give the total and the motion part.
+  the addon's `fsr` folder), sharpens (our own pass on all three; FSR's RCAS is off by default), signals "done". Timestamps give the total and the motion part.
 - **FlowEstimator** (`src/engine/flow_estimator.cpp`): the motion estimate and the distrust mask; statistics and per-stage timestamps are
   read back per engine slot and logged every 1200 frames.
 

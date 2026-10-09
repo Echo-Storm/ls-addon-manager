@@ -430,7 +430,7 @@ void DrawPanel() {
             if (g_compare.load() == 2) ImGui::TextColored(eam::ui::theme::V(eam::ui::theme::kWarn), "Showing Lossless Scaling's NIS for comparison (Before / after hotkey).");
         }
         changed |= SL("Sharpening", &c.p.sharpen, 0.0f, 1.0f, c.p.sharpen <= 0.001f ? "off" : "%.2f");
-        if (kFsrScaler) Tip("FSR's own sharpening (AMD's RCAS), part of its upscaling pass; above about 0.6 an extra pass adds more than RCAS can. Lossless Scaling's "
+        if (kFsrScaler) Tip("Sharpening of the upscaled picture, by our own pass as on DLSS and XeSS (AMD's RCAS left too little of the detail). Lossless Scaling's "
                             "NIS sharpens too (its Sharpness setting), so without it FSR can look softer next to NIS. 0.5 is a good start (Ctrl+Shift+F2 / F3 in the game).");
         else Tip("Contrast-adaptive sharpening of DLSS's picture (the FidelityFX CAS formula), which costs a fraction of a millisecond; above about 0.6 its effect is amplified "
                  "past CAS's own maximum. DLSS has no sharpening of its own, while Lossless Scaling's NIS does (its Sharpness setting), so without it DLSS can look softer "

@@ -69,8 +69,8 @@ has the graphics card to spare for it. A post-process anti-aliasing (FXAA, CMAA)
 - **Motion by shape (test)** (off): the motion is found by matching each small block of the frame before to this one; this matches their
   shape and edges rather than their brightness, for scenes where the light changes (spell effects, flashes, fades). Neutral on the recordings
   tried. Switching it on makes a second version of the search shader, on a thread of its own (it takes several seconds); the plain one runs meanwhile.
-- **Sharpening** (0.3 to start with): DLSS 4 has no sharpening of its own, so the DLSS addon sharpens its picture with the contrast-adaptive
-  (CAS) formula; the FSR addon uses AMD's own RCAS. NIS sharpens too (Lossless Scaling's Sharpness), so without it the upscaler can look
+- **Sharpening** (0.5 to start with): DLSS 4 has no sharpening of its own, so the DLSS addon sharpens its picture with the contrast-adaptive
+  (CAS) formula; the FSR addon sharpens with the same pass (AMD's RCAS is off by default, see above). NIS sharpens too (Lossless Scaling's Sharpness), so without it the upscaler can look
   softer next to NIS. 0.2 to 0.6 is the useful range. Ctrl+Shift+F2 / F3 lower and raise it in the game.
 - **Motion**: *Measured from the frames* (the default), *Lossless Scaling's frame generation* (its flow: coarser, a quarter of the game's size,
   and only with frame generation on), or *None* (the upscaler assumes nothing moves: sharp when still, smeared when the camera turns; there to

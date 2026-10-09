@@ -63,6 +63,14 @@ PlaceResult PlaceAddon(const fs::path& src, const fs::path& addonsDir) {
     if (fs::is_directory(src, ec)) {
         srcDir = FindAddonRoot(src);
         if (srcDir.empty()) { r.message = "No addon found in that folder: it needs an addon.json or a .dll."; return r; }
+        {   // the addons folder inside the folder to copy (picking the Lossless Scaling folder, which holds a .dll): it would be copied into itself
+            std::error_code e1, e2;
+            const fs::path from = fs::weakly_canonical(srcDir, e1), into = fs::weakly_canonical(addonsDir, e2);
+            if (!e1 && !e2) {
+                const fs::path rel = into.lexically_relative(from);
+                if (!rel.empty() && *rel.begin() != L"..") { r.message = "That folder contains the addons folder itself (is it the Lossless Scaling folder?). Pick the addon's own folder, a .zip or a .dll."; return r; }
+            }
+        }
         name = srcDir.filename().wstring();
     } else if (isZip || isDll) {
         staging = addonsDir / (L".install-" + std::to_wstring(GetTickCount64()));

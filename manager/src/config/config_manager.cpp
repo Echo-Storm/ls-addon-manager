@@ -89,6 +89,12 @@ void ConfigManager::Load(const std::wstring& path) {
     std::error_code ec;
     if (fs::exists(path, ec)) {
         std::ifstream in(path);
+        for (int tries = 0; !in.is_open() && tries < 5; ++tries) { Sleep(100); in.clear(); in.open(path); }   // (a virus scanner or an editor may hold it for a moment)
+        if (!in.is_open()) {
+            // not "corrupt": the file is there and we cannot read it. Nothing is written over it this session (Save needs a loaded config).
+            LOG_ERROR("Config", "config.json exists but cannot be opened (another program has it?): the settings of this session are not saved, and the file is left as it is");
+            return;
+        }
         json parsed = json::parse(in, nullptr, /*allow_exceptions=*/false);
         if (parsed.is_object()) {
             m_data = std::move(parsed);

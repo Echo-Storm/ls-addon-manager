@@ -94,7 +94,7 @@ static void LoadConfigFile(const std::wstring& path) {
     std::stringstream buf;
     buf << file.rdbuf();
     const std::string content = buf.str();
-    if (content.size() >= kCfgBufSize) { s_cfgTooBig = true; return; }
+    if (content.size() >= kCfgBufSize || content.find('\0') != std::string::npos) { s_cfgTooBig = true; return; }   // (too big, or not plain text: a NUL, as in a UTF-16 file, would cut it short on Save)
     memcpy(s_cfgBuf.data(), content.data(), content.size());
 }
 

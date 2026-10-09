@@ -24,6 +24,8 @@ struct Progress {
     uint64_t done = 0, total = 0;   // bytes, while downloading (total 0: not known)
     std::string error;              // in words, when Failed
     std::wstring setup;             // the checked Setup exe, when Ready
+    std::string setupSha256;        // its SHA-256 as it was checked; StartSetup hashes it again, so a file swapped in the temporary folder meanwhile is not run
+    bool fingerprintChecked = false; // the zip matched GitHub's SHA-256 for it (false: GitHub gave none for this release)
 };
 
 void StartDownload(const Status& available);   // Available with a zip; one already running (or ready for this version) is left as it is

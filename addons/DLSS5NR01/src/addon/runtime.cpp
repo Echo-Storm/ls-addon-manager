@@ -107,8 +107,9 @@ ID3D11Device* g_presentHookTriedOn = nullptr;   // the device the Present hook w
 void ForgetPair();
 
 // Source cadence (source_cadence.h): whether the pictures Lossless Scaling captures repeat (a 30 fps game in a 60 Hz capture feed). Fed at each captured frame, under g_frameMutex.
-nr::cadence::Probe g_cadenceProbe; nr::cadence::Detector g_cadenceDetector; std::atomic<int> g_sourceRepeats{ 0 }; std::atomic<float> g_sourceFps{ 0.0f };
-struct CadenceLook { uint64_t rateTick = 0, rateTaps = 0, nextRate = 60, nextLook = 12, seenFrames = 0; int pending = 0, pendingCount = 0; bool said = false, saidUnreadable = false; } g_cadenceLook;   // (what NoteSource keeps between frames)
+nr::cadence::Probe& g_cadenceProbe = *new nr::cadence::Probe;   // (left to the process end: Lossless Scaling never calls AddonShutdown, and releasing its textures in the static destructors of a dying process is how exits crash)
+nr::cadence::Detector g_cadenceDetector; std::atomic<int> g_sourceRepeats{ 0 }; std::atomic<float> g_sourceFps{ 0.0f };
+struct CadenceLook { uint64_t rateTick = 0, rateTaps = 0, nextLook = 12, seenFrames = 0; int pending = 0, pendingCount = 0; bool said = false, saidUnreadable = false; uint64_t loggedAt = 0; } g_cadenceLook;   // (what NoteSource keeps between frames)
 void ForgetCadence() { g_cadenceProbe.Forget(); g_cadenceDetector.Reset(); g_sourceRepeats = 0; g_sourceFps = 0.0f; g_cadenceLook = CadenceLook{}; }
 void NoteSource(ID3D11DeviceContext* ctx, ID3D11Texture2D* frame);
 // At a TAP dispatch: the captured frame is the texture the tap chose, bound to this very pass (the frame is handed to the model later, when the flow is in, so the decision may not carry it yet)
@@ -126,26 +127,30 @@ void NoteSource(ID3D11DeviceContext* ctx, ID3D11Texture2D* frame) {
     if (!L.saidUnreadable && g_cadenceProbe.Unreadable()) { L.saidUnreadable = true; Log("source cadence: the captured frame cannot be read by a shader (no shader-resource bind, or multisampled); repeats in the source will not be noticed"); }
     if (!pushed) return;
     const uint64_t frames = g_cadenceDetector.Frames();
-    if (frames < L.seenFrames) { L.rateTick = 0; L.nextRate = 60; L.nextLook = 12; }   // (the detector was reset)
+    if (frames < L.seenFrames) { L.rateTick = 0; L.nextLook = 12; }   // (the detector was reset)
     L.seenFrames = frames;
-    if (frames >= L.nextRate) {   // the capture rate: captured frames (taps) over time, not reads (some are lost when the card is busy)
-        L.nextRate = frames + 60;
-        const uint64_t now = GetTickCount64(), taps = g_tap.Taps();
-        if (L.rateTick && now > L.rateTick && taps > L.rateTaps) g_sourceFps = 1000.0f * static_cast<float>(taps - L.rateTaps) / static_cast<float>(now - L.rateTick);
-        L.rateTick = now; L.rateTaps = taps;
-    }
     if (frames < L.nextLook) return;
     L.nextLook = frames + 12;
-    const int v = g_cadenceDetector.Verdict().repeats;   // a change of verdict has to hold for three looks
+    {   // the capture rate: captured frames (taps) over at least a second (some reads are lost when the card is busy, so reads would undercount)
+        const uint64_t now = GetTickCount64(), taps = g_tap.Taps();
+        if (!L.rateTick) { L.rateTick = now; L.rateTaps = taps; }
+        else if (now - L.rateTick >= 1000 && taps > L.rateTaps) { g_sourceFps = 1000.0f * static_cast<float>(taps - L.rateTaps) / static_cast<float>(now - L.rateTick); L.rateTick = now; L.rateTaps = taps; }
+    }
+    int v = g_cadenceDetector.Verdict().repeats;   // a change of verdict has to hold for three looks
+    if (v >= 2 && g_sourceFps.load() <= 0.0f) v = g_sourceRepeats.load();   // (a rate to say it with first)
     if (v == g_sourceRepeats.load()) { L.pendingCount = 0; return; }
     if (v != L.pending) { L.pending = v; L.pendingCount = 1; return; }
     if (++L.pendingCount < 3) return;
     L.pendingCount = 0; g_sourceRepeats = v;
+    const uint64_t nowMs = GetTickCount64();
+    if (L.loggedAt && nowMs - L.loggedAt < 20000) return;   // (a source that flips between repeating and not: the panel follows it, the log says it every 20 s at most)
+    L.loggedAt = nowMs;
     if (v >= 2) Log("source cadence: every picture Lossless Scaling captures comes %d times in a row (it captures about %.0f a second, so the source is really at about %.0f): frame generation makes pictures between identical frames and the motion advances unevenly; a capture card or recorder set to the game's real rate avoids it",
                     v, g_sourceFps.load(), g_sourceFps.load() / v);
     else Log("source cadence: the captured pictures no longer repeat");
 }
 
+ID3D11ShaderResourceView* g_tapBound[8] = {}; bool g_tapBoundOpen = false;   // what Tap took off the pass (under g_frameMutex)
 void ForgetDevice() {   // under g_frameMutex
     screenshot::Forget();
     ForgetPair();
@@ -371,12 +376,15 @@ void Tap(ID3D11DeviceContext* ctx, uint32_t x, uint32_t y, uint32_t z) {
     g_bridge.ShareMotion(false);   // the generated frames are moved with LSFG's flow
     // Lossless Scaling's pass may have the frame bound as an input: the copy needs it unbound, and it is put back after
     ID3D11ShaderResourceView* bound[8] = {}; ctx->CSGetShaderResources(0, 8, bound);
+    for (int i = 0; i < 8; ++i) { g_tapBound[i] = bound[i]; if (bound[i]) bound[i]->AddRef(); }   // (a second copy for TapGuarded: a fault in the bridge skips the restore below)
+    g_tapBoundOpen = true;
     ID3D11ShaderResourceView* none[8] = {}; ctx->CSSetShaderResources(0, 8, none);
     const bool reset = g_resetRequested.exchange(false);
     const bool started = g_bridge.Submit(d.frame, d.flow, d.flowW, d.flowH, p, reset, g_tap.Taps());
     if (reset && !started) g_resetRequested = true;   // a frame left out (the model busy, or its turn off under auto quality) did not carry the reset: it goes with the next
     ctx->CSSetShaderResources(0, 8, bound);
     for (ID3D11ShaderResourceView* v : bound) if (v) v->Release();
+    g_tapBoundOpen = false; for (ID3D11ShaderResourceView*& v : g_tapBound) { if (v) v->Release(); v = nullptr; }
     ReleaseDecision(d);
     AfterHandOver(started, ceiling, autoSettings, watchdogMs);
 }
@@ -440,8 +448,16 @@ int OnFault(unsigned code, const char* where) {
     SwitchOff(text);
     return EXCEPTION_EXECUTE_HANDLER;
 }
+// Lossless Scaling's own views, put back after a fault inside Tap (which had taken them off the pass for the bridge). No objects here either.
+void PutTapBindingsBack(ID3D11DeviceContext* ctx) {
+    __try {
+        if (g_tapBoundOpen) ctx->CSSetShaderResources(0, 8, g_tapBound);
+        for (ID3D11ShaderResourceView*& v : g_tapBound) { if (v) v->Release(); v = nullptr; }
+    } __except (EXCEPTION_EXECUTE_HANDLER) {}
+    g_tapBoundOpen = false;
+}
 void TapGuarded(ID3D11DeviceContext* ctx, uint32_t x, uint32_t y, uint32_t z) {   // no objects here: __try cannot unwind them
-    __try { Tap(ctx, x, y, z); } __except (OnFault(GetExceptionCode(), "tap")) {}
+    __try { Tap(ctx, x, y, z); } __except (OnFault(GetExceptionCode(), "tap")) { PutTapBindingsBack(ctx); }
 }
 
 // Each device that dispatches is judged once: only one on an NVIDIA card is tapped (under g_frameMutex).

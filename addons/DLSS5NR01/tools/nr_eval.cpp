@@ -122,7 +122,7 @@ int main(int argc, char** argv) {
     const uint32_t W = h.width, H = h.height;
     const int first = std::max(0, Arg(argc, argv, "first", 0));
     const int dupN = std::max(1, Arg(argc, argv, "dup", 1));   // dup=N: each frame of the recording given N times in a row (a 30 fps game in a 60 Hz capture feed)
-    const int count = std::min<int>(Arg(argc, argv, "count", 1 << 30), static_cast<int>(rec.Count()) - first);
+    const int count = std::min<int>(Arg(argc, argv, "count", 1 << 30), (static_cast<int>(rec.Count()) - first) * dupN);   // (count is frames given, so dup=N uses every recorded frame N times)
     if (count < 2) { printf("the recording has too few frames\n"); return 2; }
     const int show = Arg(argc, argv, "show", 2), stillLevels = Arg(argc, argv, "still", 3);
     const float maxDelta = Arg(argc, argv, "maxdelta", 50) / 100.0f;
@@ -206,7 +206,7 @@ int main(int argc, char** argv) {
     double modelMsSum = 0, wholeMsSum = 0; int modelRuns = 0;
     double dupDelta[2] = {}, dupPic[2] = {}, dupLight[2] = {}; int dupCnt[2] = {};   // [0]: the repeats, [1]: the new frames (dup=N): the model's delta change and the picture's change from the one before
     for (int i = 0; i < count; ++i) {
-        if (!rec.Read(first + i / dupN, px) || !ToRgba8(h, px, frame)) { printf("frame %d could not be read\n", first + i); return 3; }
+        if (!rec.Read(first + i / dupN, px) || !ToRgba8(h, px, frame)) { printf("frame %d could not be read\n", first + i / dupN); return 3; }
         { uint8_t* m = nullptr; upload->Map(0, nullptr, reinterpret_cast<void**>(&m));
           for (uint32_t y = 0; y < H; ++y) memcpy(m + inFp.Offset + y * inFp.Footprint.RowPitch, frame.data() + static_cast<size_t>(y) * W * 4, W * 4);
           upload->Unmap(0, nullptr); }
