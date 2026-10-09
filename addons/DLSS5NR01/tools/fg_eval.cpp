@@ -1083,7 +1083,8 @@ int main(int argc, char** argv) {
             if (flowDump > 0 && flowDumped < flowDump && i >= 2 && stride == 2) {   // flowdump=N: the first N triples (kept frame before, frame between, this kept frame) and this frame's vectors, raw, for tools\interp_lab.py
                 wchar_t name[64]; swprintf(name, 64, L"\\triple_%05d.bin", first + i);
                 if (FILE* f = _wfopen((outDir + name).c_str(), L"wb")) {
-                    const uint32_t head[4] = { 0x31544C46u /* "FLT1" */, W, H, 0 };
+                    const double span = times[i] - times[i - 2];   // when the frame between was shown, as a share of the way from the frame before to this one (uneven pacing in the capture), in thousandths
+                    const uint32_t head[4] = { 0x31544C46u /* "FLT1" */, W, H, span > 0.0 ? static_cast<uint32_t>(std::clamp((times[i - 1] - times[i - 2]) / span, 0.0, 1.0) * 1000.0 + 0.5) : 500u };
                     fwrite(head, 4, 4, f);
                     fwrite(frames[i - 2].data(), 1, static_cast<size_t>(W) * H * 4, f);   // a: RGBA8
                     fwrite(frames[i - 1].data(), 1, static_cast<size_t>(W) * H * 4, f);   // b: the truth
