@@ -64,9 +64,22 @@ ImportResult ImportSettings(const std::string& text, const json& current, const 
         out << current.dump(2, ' ', false, json::error_handler_t::replace);
         if (!out) { r.message = "Could not save your current settings first, so nothing was changed."; return r; }
     }
-    apply(p.config);
+    // A file somebody else made must not loosen the checks on what is loaded: the security level stays what it is here, and the settings that name a file an addon loads code
+    // from (a model file, a runtime folder) are not taken over; the person chooses those on this PC.
+    json cfg = p.config;
+    int skippedPaths = 0;
+    if (cfg["global"].is_object()) {
+        cfg["global"].erase("security_level");
+        const auto now = current.find("global");
+        if (now != current.end() && now->is_object() && now->contains("security_level")) cfg["global"]["security_level"] = (*now)["security_level"];
+    }
+    for (auto& section : cfg["addons"])
+        for (const char* key : { "snippetPath", "vfxDir" })
+            if (section.is_object() && section.erase(key)) ++skippedPaths;
+    apply(cfg);
     r.ok = true; r.previousSavedAs = prev;
-    r.message = p.message + " Restart Lossless Scaling to apply them. Your previous settings were kept as " + prev.filename().string() + ".";
+    r.message = p.message + " Restart Lossless Scaling to apply them. Your previous settings were kept as " + prev.filename().string() + "." +
+                " The security level" + (skippedPaths ? " and the locations of model and runtime files (" + std::to_string(skippedPaths) + ")" : std::string()) + " were not imported.";
     return r;
 }
 

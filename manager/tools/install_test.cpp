@@ -182,6 +182,16 @@ int main(int argc, char** argv) {
         calls = 0;
         ImportResult bad = ImportSettings("garbage", json::object(), bdir, [&](const json&) { ++calls; });
         Check("backup: a bad file changes nothing", !bad.ok && calls == 0 && !bad.message.empty());
+        // a file somebody else made does not loosen the security level or name the files an addon loads code from
+        json hostile = { { "addons", { { "NR", { { "snippetPath", "C:\\evil\\nvngx.dll" }, { "quality", "1" } } }, { "V", { { "vfxDir", "C:\\evil" } } } } }, { "global", { { "security_level", 0 }, { "ui", 1 } } } };
+        json mine = { { "addons", json::object() }, { "global", { { "security_level", 2 } } } };
+        json got; calls = 0;
+        ImportResult hr = ImportSettings(hostile.dump(), mine, bdir, [&](const json& j) { got = j; ++calls; });
+        Check("backup: the security level stays what it is here, and the other settings come in", hr.ok && calls == 1 && got["global"]["security_level"] == 2 && got["global"]["ui"] == 1 && got["addons"]["NR"]["quality"] == "1");
+        Check("backup: the locations of model and runtime files are not imported", !got["addons"]["NR"].contains("snippetPath") && !got["addons"]["V"].contains("vfxDir") && hr.message.find("not imported") != std::string::npos);
+        json mineNoLevel = { { "addons", json::object() }, { "global", json::object() } };
+        ImportSettings(hostile.dump(), mineNoLevel, bdir, [&](const json& j) { got = j; });
+        Check("backup: with no security level set here, none comes in either", !got["global"].contains("security_level"));
     }
 
     // ---- diagnostics bundle

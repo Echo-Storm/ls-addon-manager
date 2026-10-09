@@ -391,7 +391,17 @@ void AddonManager::RenderAddonSettings(int index) {
 }
 
 bool AddonManager::InterceptResource(const wchar_t* name, const wchar_t* type, const void** outData, uint32_t* outSize) {
-    std::lock_guard<std::mutex> lock(m_mutex);
+    // Lossless Scaling's own thread asks (FindResourceW). The list lock is also held while an addon draws its settings panel or starts, which can take long: this waits for it
+    // at most 50 ms and then lets Lossless Scaling have its own resource, rather than stall it for as long as the panel does.
+    std::unique_lock<std::mutex> lock(m_mutex, std::defer_lock);
+    for (int tries = 0; !lock.try_lock(); ++tries) {
+        if (tries >= 50) {
+            static bool said = false;
+            if (!said) { said = true; LOG_WARN("AddonManager", "A resource lookup of Lossless Scaling did not wait for the addon list (busy for over 50 ms); it got its own resource"); }
+            return false;
+        }
+        Sleep(1);
+    }
     for (const AddonInfo& addon : m_addons) {
         if (!addon.enabled || addon.faulted) continue;
         if (guarded::Intercept(addon.exports, name, type, outData, outSize)) return true;
