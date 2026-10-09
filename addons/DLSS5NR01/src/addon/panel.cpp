@@ -489,6 +489,8 @@ void DrawPanel() {
                 "on recordings. Off: measured for every frame. It does nothing without frame generation.");
         }
         {
+            if (ImGui::Checkbox("Lighter upscaling of generated frames when the card is full (test)", &c.scalerLightAuto)) changed = true;
+            Tip("A test, off by default. Reads the graphics card's load once a second; when it has been at or over the limit set under Auto quality (95 % by default) for three readings, the frames Lossless Scaling makes between the game's own get the lighter picture described below, and they are upscaled in full again once the load has been well under the limit for ten seconds. Measured on recordings, the lighter picture costs about 0.1 to 0.3 dB (a little more, 1.5 dB, in fast motion) and takes the upscaler's cost for those frames from about 1.4 ms to under 0.2 ms at 2560x1440. It does nothing without frame generation, or on a card whose load cannot be read.");
             if (ImGui::Checkbox("Lighter upscaling of generated frames (test)", &c.scalerLightGen)) changed = true;
             Tip("A test, off by default. With frame generation, the upscaler runs on the frames the game draws only; the frames Lossless Scaling makes between them get the last "
                 "upscaled picture moved along the motion, checked against the new frame (where they disagree, the new frame stretched plainly), and sharpened. That takes the "
