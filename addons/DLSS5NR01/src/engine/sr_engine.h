@@ -23,6 +23,8 @@
 #include <thread>
 #include <string>
 #include "engine/flow_estimator.h"
+#include "engine/repeat_gate.h"
+#include <memory>
 
 class SrEngine {
 public:
@@ -127,6 +129,14 @@ public:
     double GpuMs() const { return m_gpuMs; }   // everything a run does, on the GPU, smoothed
     double MotionMs() const { return m_motionMs; }   // of that, the motion (the estimate, or the flow pass)
     uint64_t Runs() const { return m_runs; }
+    // A picture that is exactly the one before is not worked on again: the last output is copied (docs/repeat-skip-spec.md). Off by default. Every kMaxRepeatStreak-th repeat is run for
+    // real, so a changed setting shows within a few pictures. The compare is waited for at most SetRepeatWaitMs (a busy card may be slow to get to it): later, the picture is worked on.
+    void SetSkipRepeats(bool on) { m_skipRepeats.store(on); }
+    void SetRepeatWaitMs(unsigned ms) { m_repeatWaitMs.store(ms); }
+    uint64_t RepeatSkips() const { return m_repeatSkips; }     // pictures not worked on
+    uint64_t RepeatChecks() const { return m_repeatChecks; }   // pictures compared
+    uint64_t RepeatTimeouts() const { return m_gate ? m_gate->TimedOut() : 0; }
+    double RepeatCompareMs() const { return m_gate ? m_gate->LastCompareMs() : 0.0; }
     double LastBuildMs() const { return m_buildMs; }
 
 private:
@@ -216,4 +226,7 @@ private:
     ID3D12PipelineState* m_viewPso = nullptr;
     ID3D12Resource* m_depthUpload = nullptr;
     uint64_t m_runs = 0; double m_buildMs = 0;
+    static constexpr int kMaxRepeatStreak = 8;
+    std::atomic<bool> m_skipRepeats{ false }; std::atomic<unsigned> m_repeatWaitMs{ 4 };
+    std::unique_ptr<RepeatGate> m_gate; ID3D12Resource* m_lastOut = nullptr; uint64_t m_lastKey = 0; int m_repeatStreak = 0; uint64_t m_repeatSkips = 0, m_repeatChecks = 0;
 };

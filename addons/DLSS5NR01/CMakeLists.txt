@@ -47,7 +47,7 @@ set(NR_ADDON_SOURCES
     src/addon/bridge.cpp src/addon/nis_pass.cpp src/addon/compare.cpp src/addon/frame_tap.cpp src/addon/gpu_timer11.cpp src/addon/frame_trace.cpp src/addon/diagnosis.cpp src/addon/source_cadence.cpp
     src/addon/present_hook.cpp src/addon/compose11.cpp src/addon/requirements.cpp src/addon/scaler11.cpp src/addon/framegen11.cpp src/addon/hdr.cpp src/addon/lsrec.cpp src/addon/recorder.cpp
     src/engine/nr_engine.cpp
-    src/engine/dlaa_model.cpp src/engine/sr_engine.cpp src/engine/flow_estimator.cpp src/engine/fg_engine.cpp
+    src/engine/dlaa_model.cpp src/engine/sr_engine.cpp src/engine/repeat_gate.cpp src/engine/flow_estimator.cpp src/engine/fg_engine.cpp
     ${imgui_SOURCE_DIR}/imgui.cpp ${imgui_SOURCE_DIR}/imgui_draw.cpp
     ${imgui_SOURCE_DIR}/imgui_tables.cpp ${imgui_SOURCE_DIR}/imgui_widgets.cpp)
 function(nr_addon target)
@@ -130,7 +130,7 @@ endif()
 add_dependencies(nr_fgeval FSR3UPSC)   # (AMD's runtime, in the build's fsr folder)
 
 # nr_sreval: an upscaler scored offline on a recording (tools/sr_eval.cpp): each frame shrunk and upscaled back by the addon's own engine
-add_executable(nr_sreval tools/sr_eval.cpp src/addon/lsrec.cpp src/addon/agility.cpp src/engine/sr_engine.cpp src/engine/flow_estimator.cpp)
+add_executable(nr_sreval tools/sr_eval.cpp src/addon/lsrec.cpp src/addon/agility.cpp src/engine/sr_engine.cpp src/engine/repeat_gate.cpp src/engine/flow_estimator.cpp)
 target_include_directories(nr_sreval PRIVATE ${CMAKE_SOURCE_DIR}/src ${NGX_DIR}/include ${CMAKE_SOURCE_DIR}/third_party/ffx/include ${XESS_DIR}/inc)
 target_link_libraries(nr_sreval PRIVATE ${NGX_LIB} d3d12 dxgi d3dcompiler shell32)
 add_dependencies(nr_sreval FSR3UPSC)   # (AMD's runtime, in the build's fsr folder)

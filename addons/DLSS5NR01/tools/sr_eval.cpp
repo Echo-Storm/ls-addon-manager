@@ -208,6 +208,7 @@ int main(int argc, char** argv) {
     if (const int steady = Arg(argc, argv, "steady", -1); steady >= 0) eng.SetSteadySharpen(steady / 100.0f);   // steady=N: percent the sharpening is cut where the picture shimmers
     if (const int a = Arg(argc, argv, "steadymv", -1); a >= 0) eng.SetSteadyMotion(a / 10.0f, Arg(argc, argv, "steadymv2", 60) / 10.0f);   // steadymv=A steadymv2=B: tenths of an output pixel of motion
     if (const int reuse = Arg(argc, argv, "flowreuse", 0); reuse > 0) eng.SetFlowReuse(reuse);   // flowreuse=1|2: every other frame keeps the last estimate (2) or refines its blocks per pixel (1)
+    if (Arg(argc, argv, "skip", 0) != 0) { eng.SetSkipRepeats(true); eng.SetRepeatWaitMs(static_cast<unsigned>(std::max(1, Arg(argc, argv, "skipwait", 4)))); }   // skip=1: a picture exactly the one before is not worked on again (RepeatGate); skipwait=N ms
     if (const int cut = Arg(argc, argv, "movecut", 0); cut > 0) eng.SetMoveCut(cut / 100.0f);   // movecut=N: percent the sharpening is cut in fast motion
     if (Arg(argc, argv, "fsrown", 1) == 0) eng.SetFsrOwnSharpen(false);   // fsrown=0: FSR's sharpening by AMD's RCAS, not our pass
     if (Arg(argc, argv, "steadysign", -1) > 0) eng.SetSteadySign(1.0f);                                       // steadysign=1: fetch the history the other way along the motion (default -1)
@@ -391,6 +392,7 @@ int main(int argc, char** argv) {
     if (n) printf("average over %d frames (after the first 8): upscaled %.2f dB (coarse %.2f, steady %.2f), stretched %.2f dB (coarse %.2f, steady %.2f)\n", n, sumUp / n, sumUpC / n, sumUpT / n, sumPlain / n, sumPlainC / n, sumPlainT / n);
     // bench=N: the last frame's picture run N more times back to back, without waiting between them, so the GPU stays busy at full clocks (the timings above
     // are taken with the GPU idling between frames and read several times too high); prints the GPU times the engine measured over those runs
+    if (Arg(argc, argv, "skip", 0) != 0) printf("repeated pictures: %llu of %llu compared were not worked on again; the compare waited %.2f ms for the last (timed out %llu times)\n", (unsigned long long)eng.RepeatSkips(), (unsigned long long)eng.RepeatChecks(), eng.RepeatCompareMs(), (unsigned long long)eng.RepeatTimeouts());
     if (const int bench = Arg(argc, argv, "bench", 0); bench > 0) {
         FILETIME ct, et, kt0, ut0, kt1, ut1; GetThreadTimes(GetCurrentThread(), &ct, &et, &kt0, &ut0);   // the CPU this thread spends on the runs (not the time it waits)
         for (int j = 1; j <= bench; ++j) {

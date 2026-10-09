@@ -653,6 +653,7 @@ bool SrEngine::Shutdown() {
     if (m_ngxJoined) { m_ngxJoined = false; if (nr::ngxusers::Leaving() && m_dev) NVSDK_NGX_D3D12_Shutdown1(m_dev); else Log("DLSS upscaler: NGX left running (another addon still uses it)"); }
     m_estimator.Shutdown(); m_estimatedLast = false; m_estimates = 0; m_haveMotion = false; m_flowPhase = 0;
     SafeRelease(m_motion); SafeRelease(m_distrust); SafeRelease(m_depth); SafeRelease(m_depthUpload);
+    m_gate.reset(); m_lastOut = nullptr;   // (the repeat gate's compare and copy resources: the queue is idle here)
     SafeRelease(m_leanPso); SafeRelease(m_leanRoot); SafeRelease(m_leaned); m_leanedW = m_leanedH = 0;
     SafeRelease(m_steadyPso); SafeRelease(m_steadyRoot); for (auto*& t : m_sharpHist) SafeRelease(t); m_sharpHistW = m_sharpHistH = 0; m_sharpHistValid = false;
     SafeRelease(m_motionPso); SafeRelease(m_sharpenPso); SafeRelease(m_edgesPso); SafeRelease(m_viewPso); SafeRelease(m_view); m_viewW = m_viewH = 0; SafeRelease(m_smoothed); m_smoothedW = m_smoothedH = 0; SafeRelease(m_unsharpened); m_unsharpenedW = m_unsharpenedH = 0; SafeRelease(m_rootSig); SafeRelease(m_heap);
@@ -1187,8 +1188,36 @@ bool SrEngine::Run(ID3D12Resource* in, uint32_t inW, uint32_t inH, DXGI_FORMAT i
     const bool steadySharp = sharpening && estimating && (steadyShare > 0.001f || m_moveCut.load() > 0.001f) && m_steadyPso && m_steadyRoot && EnsureSharpHist(outW, outH, outFormat);
     const bool histOk = steadySharp && m_sharpHistValid && !reset;
     if (!steadySharp) m_sharpHistValid = false;
+    // A picture that is exactly the one before (RepeatGate): not worked on again, the last output is copied into this one. The key says what else must be the same for the old output to be
+    // right; a setting changed meanwhile is caught by running every kMaxRepeatStreak-th repeat for real.
+    uint64_t repeatKey = 0;
+    if (m_skipRepeats.load() && !cheap) {
+        if (!m_gate) {
+            m_gate = std::make_unique<RepeatGate>();
+            if (!m_gate->Init(m_dev, m_queue)) { Log("%s upscaler: repeated pictures cannot be recognised on this card; they are worked on as any other", Name()); m_skipRepeats.store(false); m_gate.reset(); }
+        }
+        if (m_gate) {
+            auto mix = [&](uint64_t v) { repeatKey = repeatKey * 1099511628211ull ^ (v + 0x9e3779b97f4a7c15ull); };
+            mix(inW); mix(inH); mix(outW); mix(outH); mix(static_cast<uint64_t>(inFormat)); mix(static_cast<uint64_t>(outFormat)); mix(preset); mix(hdr ? 1 : 0);
+            mix(static_cast<uint64_t>(sharpen * 1000.0f + 0.5f)); mix(static_cast<uint64_t>(edges * 1000.0f + 0.5f)); mix(estimating ? 1 : 0); mix(sharpening ? 1 : 0); mix(smoothing ? 1 : 0); mix(leaning ? 1 : 0);
+            DXGI_FORMAT view = inFormat;
+            if (view == DXGI_FORMAT_UNKNOWN) view = hdr ? DXGI_FORMAT_R16G16B16A16_FLOAT : DXGI_FORMAT_R8G8B8A8_UNORM;
+            const RepeatGate::Result r = m_gate->Compare(in, view, copied, copiedValue, 0.0f, m_repeatWaitMs.load());
+            ++m_repeatChecks;
+            const bool sameAsBefore = !fresh && !reset && m_lastOut && m_lastKey == repeatKey;
+            if (r == RepeatGate::Result::Same && sameAsBefore && m_repeatStreak < kMaxRepeatStreak && m_gate->CopyPicture(m_lastOut, out)) {
+                m_queue->Signal(done, doneValue);
+                m_queue->Signal(m_fence, ++m_fenceValue);
+                m_lastOut = out; ++m_repeatStreak; ++m_repeatSkips;
+                if (m_repeatSkips == 1 || m_repeatSkips % 1200 == 0) Log("%s upscaler: repeated pictures are not worked on again (%llu of %llu pictures so far; the compare waits %.2f ms)", Name(),
+                                                                       static_cast<unsigned long long>(m_repeatSkips), static_cast<unsigned long long>(m_repeatChecks), m_gate->LastCompareMs());
+                return true;
+            }
+            if (r != RepeatGate::Result::Same) m_repeatStreak = 0;
+        }
+    }
     const int slot = TakeSlot();
-    if (slot < 0) return skip();
+    if (slot < 0) { m_lastOut = nullptr; return skip(); }
     ReadTime(slot);
     m_estimator.ReadStats(slot);
 
@@ -1446,9 +1475,11 @@ bool SrEngine::Run(ID3D12Resource* in, uint32_t inW, uint32_t inH, DXGI_FORMAT i
     m_queue->Signal(done, doneValue);
     m_queue->Signal(m_fence, ++m_fenceValue);
     m_slotDone[slot] = m_fenceValue;
-    if (m_ngxLost) return false;   // (NIS's picture this frame; NGX starts again at the next)
-    if (!evaluated) { Fail("%s", evalError); return false; }
+    if (m_ngxLost) { m_lastOut = nullptr; return false; }   // (NIS's picture this frame; NGX starts again at the next)
+    if (!evaluated) { m_lastOut = nullptr; Fail("%s", evalError); return false; }
     ++m_runs;
+    if (m_skipRepeats.load() && !cheap) { m_lastOut = out; m_lastKey = repeatKey; m_repeatStreak = 0; }   // what a repeat of this picture shows
+    else m_lastOut = nullptr;
     if ((smoothing || sharpening) && (m_runs == 30 || m_runs % 1200 == 0))   // what the passes after the upscaler cost (after 30 runs, so a short run has it, then every 1200)
         Log("%s upscaler: after the upscaler %.2f ms (edge smoothing %.2f, sharpening %.2f)", Name(), m_afterMs, smoothing ? edges : 0.0f, sharpen);
     if (estimating && (++m_estimates == 60 || m_estimates % 1200 == 0)) {   // what the estimate found (a check that it follows the picture)
