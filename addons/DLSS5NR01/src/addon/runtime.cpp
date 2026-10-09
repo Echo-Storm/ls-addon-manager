@@ -1466,9 +1466,9 @@ bool ScalerPass(ID3D11DeviceContext* ctx, uint32_t x, uint32_t y, uint32_t z) {
                 Log("%s upscaler: could not hook Present; no corner square after a hotkey%s", kUpscalerName,
                     handoffMode == static_cast<int>(ScalerLink::Handoff::AtPresent) || frameGenOn ? ", and the picture cannot go over NIS's there" : "");
             if (g_linkDevice == dev && g_compare.load() != 2 && myTurn) {   // "original only" lets NIS run, for comparing
-                NrParams p; unsigned preset; int handoff, motion; bool gpuWait, steadyFast, shapes, easu, reuseMotion, lightGen, lightAuto; float limitPercent; float stability, edges, leanFrom, leanRest, steadySharp, moveCut;
+                NrParams p; unsigned preset; int handoff, motion; bool gpuWait, steadyFast, shapes, easu, reuseMotion, lightGen, lightAuto, skipRepeats; float limitPercent; float stability, edges, leanFrom, leanRest, steadySharp, moveCut;
                 { std::lock_guard<std::mutex> settings(g_settingsMutex); p = g_config.p; preset = g_config.dlaaPreset; handoff = g_config.scalerHandoff; motion = g_config.motionSource;
-                  gpuWait = g_config.scalerGpuWait; stability = g_config.scalerStability; edges = g_config.scalerEdges; steadyFast = g_config.scalerFastMotion; shapes = g_config.motionShapes; leanFrom = g_config.scalerLeanFrom; easu = g_config.leanEasu; leanRest = g_config.scalerLeanRest; steadySharp = g_config.scalerSteadySharp; moveCut = g_config.scalerMoveCut; reuseMotion = g_config.scalerReuseMotion; lightGen = g_config.scalerLightGen; lightAuto = g_config.scalerLightAuto; limitPercent = g_config.gpuLimitPercent; }
+                  gpuWait = g_config.scalerGpuWait; stability = g_config.scalerStability; edges = g_config.scalerEdges; steadyFast = g_config.scalerFastMotion; shapes = g_config.motionShapes; leanFrom = g_config.scalerLeanFrom; easu = g_config.leanEasu; leanRest = g_config.scalerLeanRest; steadySharp = g_config.scalerSteadySharp; moveCut = g_config.scalerMoveCut; reuseMotion = g_config.scalerReuseMotion; lightGen = g_config.scalerLightGen; lightAuto = g_config.scalerLightAuto; limitPercent = g_config.gpuLimitPercent; skipRepeats = g_config.scalerSkipRepeats; }
                 // "when the card is full": the card's load is read once a second; at or over the limit for 3 readings the generated frames get the lighter picture, and it goes
                 // back to the full upscale once the load has been 12 points under the limit for 10 readings (so it does not flap). Needs frame generation (more than one picture per real frame).
                 {
@@ -1488,6 +1488,7 @@ bool ScalerPass(ID3D11DeviceContext* ctx, uint32_t x, uint32_t y, uint32_t z) {
                     } else if (autoLight) { autoLight = false; overRuns = underRuns = 0; }
                     lightGen = lightGen || autoLight;
                 }
+                g_sr.SetSkipRepeats(skipRepeats);   // a picture exactly like the one before is not upscaled again (the engine compares and copies; off by default)
                 g_sr.SetStability(stability); g_sr.SetEdgeSmoothing(edges);
                 g_sr.SetFastMotion(steadyFast ? -1.0f : 0.0f); g_sr.SetFastMotionShare(leanFrom * 0.01f);   // in fast motion lean on the frame (from the chosen share, or its own), or never
                 g_sr.SetLeanMode(easu ? 1u : 0u); g_sr.SetLeanRest(leanRest); g_sr.SetSteadySharpen(steadySharp); g_sr.SetMoveCut(moveCut);

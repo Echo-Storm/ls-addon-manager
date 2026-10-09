@@ -605,6 +605,15 @@ def scenario_compare_all(ctx, res, text, frame):
     res.check('...and no failure', 'FAULT' not in text and 'exception 0x' not in text and 'upscaler FAILED' not in text)
 
 
+def scenario_scaler_skip(ctx, res, text, frame):
+    # the DLSS Upscaler with "do not upscale a picture that is exactly the one before": the host's frames are the same picture every time, so most are copies of the last output (every 8th is run);
+    # the picture that results is as the plain scenario's
+    scenario_scaler(ctx, res, text, frame)
+    res.check('repeated pictures are recognised and not worked on again', 'repeated pictures are not worked on again' in text)
+    m = re.search(r'DLSS scaler: (\d+) frames upscaled', text)
+    res.check('...and the run still ends with no failure', 'FAULT' not in text and 'exception 0x' not in text and 'upscaler FAILED' not in text)
+
+
 def scenario_cadence_dup2(ctx, res, text, frame):
     # the captured frames come twice each (a 30 fps game in a 60 Hz feed): the addon says so, with the 2
     res.check('the doubled source is noticed (every picture comes 2 times)', re.search(r'source cadence: every picture Lossless Scaling captures comes 2 times', text) is not None)
@@ -703,6 +712,7 @@ SCENARIOS = [
     ('flow_previous', ['freshFlow=0'], scenario_flow_previous),
     ('selftest', ['selfTestOnStart=1'], scenario_selftest),
     ('scaler', ['addon=DLSS4DLAA.dll', 'nis=1', 'sharpen=0'], scenario_scaler),   # no sharpening (the upscalers' default is 0.3): the baseline for scaler_sharp
+    ('scaler_skip', ['addon=DLSS4DLAA.dll', 'nis=1', 'sharpen=0', 'scalerSkipRepeats=1'], scenario_scaler_skip),
     ('scaler_m', ['addon=DLSS4DLAA.dll', 'nis=1', 'dlaaPreset=13'], scenario_scaler),
     ('scaler_light', ['addon=DLSS4DLAA.dll', 'nis=1', 'nisgen=1', 'sharpen=0.5', 'scalerLightGen=1'], scenario_scaler_light),   # lighter upscaling of generated frames (a test)
     ('scaler_sharp', ['addon=DLSS4DLAA.dll', 'nis=1', 'sharpen=0.5'], scenario_scaler),
