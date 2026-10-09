@@ -8,6 +8,7 @@
 #include "addon/frame_tap.h"
 #include <d3d11.h>
 #include <cstdio>
+#include <cstring>
 #include <string>
 #include <vector>
 #pragma comment(lib, "d3d11.lib")
@@ -32,6 +33,7 @@ struct Tex {
     ULONG Refs() { t->AddRef(); return t->Release(); }
 };
 
+static long long g_observeTicks = 0, g_observeCalls = 0;   // the time spent inside FrameTap::Observe (bench=1)
 static void Unbind() {
     ID3D11ShaderResourceView* s[8] = {}; ID3D11UnorderedAccessView* u[4] = {};
     g_ctx->CSSetShaderResources(0, 8, s); g_ctx->CSSetUnorderedAccessViews(0, 4, u, nullptr);
@@ -40,7 +42,9 @@ static void Unbind() {
 static bool Pass(FrameTap& tap, std::vector<std::pair<int, Tex*>> srvs, std::vector<std::pair<int, Tex*>> uavs, UINT x, UINT y, TapDecision& d) {
     for (auto& s : srvs) g_ctx->CSSetShaderResources(s.first, 1, &s.second->srv);
     for (auto& u : uavs) g_ctx->CSSetUnorderedAccessViews(u.first, 1, &u.second->uav, nullptr);
+    LARGE_INTEGER q0, q1; QueryPerformanceCounter(&q0);
     const bool run = tap.Observe(g_ctx, x, y, 1, d);
+    QueryPerformanceCounter(&q1); g_observeTicks += q1.QuadPart - q0.QuadPart; ++g_observeCalls;
     Unbind();
     return run;
 }
@@ -89,7 +93,7 @@ static FrameResult RunFrame(FrameTap& tap, Lsfg& l, int k, bool flowPass = true,
     return r;
 }
 
-int main() {
+int main(int argc, char** argv) {
     D3D_FEATURE_LEVEL fl;
     if (FAILED(D3D11CreateDevice(nullptr, D3D_DRIVER_TYPE_HARDWARE, nullptr, 0, nullptr, 0, D3D11_SDK_VERSION, &g_dev, &fl, &g_ctx)) &&
         FAILED(D3D11CreateDevice(nullptr, D3D_DRIVER_TYPE_WARP, nullptr, 0, nullptr, 0, D3D11_SDK_VERSION, &g_dev, &fl, &g_ctx))) { printf("FAIL  no D3D11 device\n"); return 2; }
@@ -187,6 +191,17 @@ int main() {
         if (d.frame) d.frame->Release(); if (d.flow) d.flow->Release();
         tap.Reset();
         tap.SetFreshFlow(false);
+    }
+    if (argc > 1 && !strcmp(argv[1], "bench")) {   // tap_test bench: what one dispatch costs the addon on Lossless Scaling's render thread (CPU), per loaded addon
+        LARGE_INTEGER freq; QueryPerformanceFrequency(&freq);
+        for (int withFlow = 1; withFlow >= 0; --withFlow) {
+            FrameTap tap; for (int k = 0; k < 30; ++k) RunFrame(tap, l, k, withFlow != 0);   // (learn the roles first)
+            g_observeTicks = g_observeCalls = 0;
+            for (int k = 0; k < 4000; ++k) RunFrame(tap, l, k + 30, withFlow != 0);
+            printf("bench: %s: %.2f us per dispatch inside Observe (%lld dispatches); a frame of %d dispatches costs %.1f us of CPU per loaded addon
+", withFlow ? "frame generation on" : "no flow passes (frame generation off)",
+                   1e6 * g_observeTicks / freq.QuadPart / g_observeCalls, g_observeCalls, withFlow ? 5 : 3, 1e6 * g_observeTicks / freq.QuadPart / 4000);
+        }
     }
     const ULONG f0 = l.frame[0].Refs(), f1 = l.frame[1].Refs(), w0 = l.flowFine[0].Refs(), w1 = l.flowFine[1].Refs(), s0 = l.flowFineSmall[0].Refs(), s1 = l.flowFineSmall[1].Refs();
     Check("every texture handed out or held was released, also when a FrameTap is destroyed (no reference left behind)",
