@@ -86,6 +86,10 @@ static void PureChecks() {
     Check("placement: a saved size without a position uses (100, 100)", d.x == 100 && d.y == 100 && d.w == 900);
     d = InitialPlacement(nlohmann::json("nonsense"), 1.0f, yes);
     Check("placement: a setting that is not an object is ignored", d.w == 1100);
+    d = InitialPlacement(nlohmann::json({ {"x", "left"}, {"y", nullptr}, {"w", "900"}, {"h", 600}, {"maximized", "yes"} }), 1.0f, yes);
+    Check("placement: values of the wrong type (a hand-edited config.json) are the defaults, not an exception", d.w == 1100 && d.h == 720 && !d.maximized);
+    d = InitialPlacement(nlohmann::json({ {"x", "left"}, {"y", nullptr}, {"w", 900}, {"h", 600}, {"maximized", 1} }), 1.0f, yes);
+    Check("placement: a good size with a position of the wrong type keeps the size and the default position", d.w == 900 && d.h == 600 && d.x == 100 && d.y == 100 && !d.maximized);
     bool asked = false;
     const OnScreenFn spy = [&](const RECT& r) { asked = (r.left == 210 && r.top == 130 && r.right == 1110 && r.bottom == 730); return true; };
     InitialPlacement(ok, 1.0f, spy);

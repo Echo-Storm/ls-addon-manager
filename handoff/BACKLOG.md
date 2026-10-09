@@ -43,6 +43,24 @@ Open, and what each is waiting for:
 - #18 ghosting in Expedition 33 with NR and frame generation: the reporter found lowering Local contrast and the second-frame option helped. Needs `DLSS5NR01.log` and their settings; check the NR ghost guards.
 - #19 DLSS upscaling at 100 % GPU on the second card (dual GPU, 5070 shows the display, 5080 renders; 87 fps vs the game's 120): the upscaler's cost per frame is in the panel and `DLSS4DLAA.log`; with x2 frame generation the pass runs per presented frame. Needs the log; a cost measurement at 5k2k would settle expected vs not.
 
+## Fresh-eyes review 2026-10-09: found, NOT fixed (two independent reviewers, plus mine)
+
+Fixed in 3400db0 (see its message). Left, with why (each is real, none is a crash seen in use; all need a design choice or a live test):
+- **Manager, `AddonManager::m_mutex` is held across addon code** (`RenderAddonSettings`, `AddonInitialize/Shutdown`), and `InterceptResource` (LS's `FindResourceW`) takes the same lock: an addon panel that opens a modal dialog stalls Lossless Scaling's next resource lookup. Fix = copy what is needed under the lock and call addon code outside it. Not done: a refactor of the addon manager's locking without a live test.
+- **Event bus** can call a callback of an addon DLL that is being unloaded (`Publish` copies the list and calls with no lock; `ForgetCode` does not wait for publishes in flight). Needs an in-flight count that `ForgetCode` drains.
+- **`HostImpl::InvokePre/PostDispatch` hold a non-recursive mutex while calling addons**: an addon that changes its own dispatch callback from inside the callback deadlocks the render thread. Our addons only set them at init and shutdown. Document the rule in `ihost.h` (or copy the hook list and call outside the lock).
+- **Shutdown assumptions** (`core/main.cpp`: loader lock, GUI thread killed at `ExitProcess` while holding a lock; hooks left in place on `FreeLibrary`). Depends on how Lossless Scaling exits.
+- **Addon security level is advisory**: the verdict is not re-checked at load, only the one DLL is hashed, `trusted_addons.json` is in the writable folder, and `dll`/`icon`/`runtimes[].file` in addon.json are joined without refusing `..` or absolute paths. Import of a settings file can set `security_level` and `_enabled`. Raises no new risk beyond "can write the addons folder", but the manifest paths should be refused.
+- **D3D11 device/context pointers handed to addons** are raw and unsynchronised; `g_lsContexts` keeps contexts for ever.
+- **`NrEngine::EndBuild` waits INFINITE** for the model build thread while the caller holds `g_frameMutex`: a model change during a build freezes Lossless Scaling until it ends (bounded by the build's GPU wait; unbounded if NGX hangs).
+- **`Tappable` accepts any previously seen NVIDIA device**, not only `g_tapDevice`: with two NVIDIA devices dispatching, `Bridge::Init(g_tapDevice, ctx)` could pair a device with another's context. Dual-GPU; needs a dual-GPU machine to change safely.
+- **Recorder**: `Collect(true)` blocks the render thread up to 4 s on a size/format change or when switched off; after its timeout `DropStaging` can unmap memory a worker still reads. Rare (recorder on + a change).
+- **Cadence probe**: runs once per loaded addon (up to four compute passes per captured frame with all addons on; add a process-wide owner like `kOwnerVariable`); it makes its own SRV of slice 0 of the frame (blind if the frames are array slices).
+- **Per-dispatch cost**: `FindNisPass` (scalers) reads the bindings again after `FrameTap::Bound` did; one read could serve both.
+- **NIS viewport cache** (`nis_pass.cpp`) is never re-read for the same pass key if LS changes its output viewport without changing the key.
+- **Updater** still accepts a zip with no GitHub digest (now said in the offer and the Setup is re-hashed before it runs); a release without a digest should probably be refused.
+- **Config**: deep nesting in config.json (tens of thousands of `[`) overflows the stack in `dump`; `WriteAtomically` has no flush.
+
 ## Capture-card and duplicated sources (2026-10-08)
 
 Research in docs/capture-card-sources.md. Done: (1) the doubled-source test offline for the three upscalers and Neural Rendering (`nr_sreval dup=2`, `nr_nreval dup=2`: no pulsing); (2) the source cadence note (`source_cadence.cpp`, commit e049bf0, UNRELEASED: log line + "What stands out" note when every captured picture repeats L times), tested in the host (`cadence_*` scenarios) and in `nr_diagtest`. Open: a live check with a real duplicated source (a capture card, or a 30 fps game capped in a 60 Hz window) to confirm the note appears and the pass costs nothing noticeable; HDR and 120 Hz (dup=4) for the offline test; (3) `tools/video_pacing.py` on a capture of Lossless Scaling's output from a doubled source (3,1,3,1 stays?). Dropping duplicates is for Lossless Scaling or the capture app, not ours.
