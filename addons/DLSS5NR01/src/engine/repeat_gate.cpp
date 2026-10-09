@@ -3,6 +3,7 @@
 #include <d3dcompiler.h>
 #include <windows.h>
 #include <cstring>
+#include <cstdlib>
 
 namespace nr {
 
@@ -156,7 +157,11 @@ RepeatGate::Result RepeatGate::Compare(ID3D12Resource* in, DXGI_FORMAT viewForma
     m_fence->SetEventOnCompletion(m_fenceValue, static_cast<HANDLE>(m_event));
     const bool hadPrev = compare;
     m_havePrev = true;   // (this input is being copied in whatever comes of the wait)
-    if (WaitForSingleObject(static_cast<HANDLE>(m_event), waitMs) != WAIT_OBJECT_0) { ++m_timedOut; return Result::Different; }
+    if (WaitForSingleObject(static_cast<HANDLE>(m_event), waitMs) != WAIT_OBJECT_0) {
+        ++m_timedOut;
+        if (getenv("EAM_GATE_FINISH")) WaitForSingleObject(static_cast<HANDLE>(m_event), 3000);   // EXPERIMENT
+        return Result::Different;
+    }
     QueryPerformanceCounter(&q1); m_lastMs = (q1.QuadPart - q0.QuadPart) * 1000.0 / freq.QuadPart;
     if (!hadPrev) return Result::Different;
     uint32_t flag = 1; void* p = nullptr; D3D12_RANGE r{ 0, 4 };
