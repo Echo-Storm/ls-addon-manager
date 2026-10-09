@@ -1188,12 +1188,12 @@ bool SrEngine::Run(ID3D12Resource* in, uint32_t inW, uint32_t inH, DXGI_FORMAT i
     const bool steadySharp = sharpening && estimating && (steadyShare > 0.001f || m_moveCut.load() > 0.001f) && m_steadyPso && m_steadyRoot && EnsureSharpHist(outW, outH, outFormat);
     const bool histOk = steadySharp && m_sharpHistValid && !reset;
     if (!steadySharp) m_sharpHistValid = false;
-    // A picture that is exactly the one before (RepeatGate): not worked on again, the last output is copied into this one. The key says what else must be the same for the old output to be
+    // A picture that is exactly the one before (nr::RepeatGate): not worked on again, the last output is copied into this one. The key says what else must be the same for the old output to be
     // right; a setting changed meanwhile is caught by running every kMaxRepeatStreak-th repeat for real.
     uint64_t repeatKey = 0;
     if (m_skipRepeats.load() && !cheap) {
         if (!m_gate) {
-            m_gate = std::make_unique<RepeatGate>();
+            m_gate = std::make_unique<nr::RepeatGate>();
             if (!m_gate->Init(m_dev, m_queue)) { Log("%s upscaler: repeated pictures cannot be recognised on this card; they are worked on as any other", Name()); m_skipRepeats.store(false); m_gate.reset(); }
         }
         if (m_gate) {
@@ -1202,10 +1202,10 @@ bool SrEngine::Run(ID3D12Resource* in, uint32_t inW, uint32_t inH, DXGI_FORMAT i
             mix(static_cast<uint64_t>(sharpen * 1000.0f + 0.5f)); mix(static_cast<uint64_t>(edges * 1000.0f + 0.5f)); mix(estimating ? 1 : 0); mix(sharpening ? 1 : 0); mix(smoothing ? 1 : 0); mix(leaning ? 1 : 0);
             DXGI_FORMAT view = inFormat;
             if (view == DXGI_FORMAT_UNKNOWN) view = hdr ? DXGI_FORMAT_R16G16B16A16_FLOAT : DXGI_FORMAT_R8G8B8A8_UNORM;
-            const RepeatGate::Result r = m_gate->Compare(in, view, copied, copiedValue, 0.0f, m_repeatWaitMs.load());
+            const nr::RepeatGate::Result r = m_gate->Compare(in, view, copied, copiedValue, 0.0f, m_repeatWaitMs.load());
             ++m_repeatChecks;
             const bool sameAsBefore = !fresh && !reset && m_lastOut && m_lastKey == repeatKey;
-            if (r == RepeatGate::Result::Same && sameAsBefore && m_repeatStreak < kMaxRepeatStreak && m_gate->CopyPicture(m_lastOut, out)) {
+            if (r == nr::RepeatGate::Result::Same && sameAsBefore && m_repeatStreak < kMaxRepeatStreak && m_gate->CopyPicture(m_lastOut, out)) {
                 m_queue->Signal(done, doneValue);
                 m_queue->Signal(m_fence, ++m_fenceValue);
                 m_lastOut = out; ++m_repeatStreak; ++m_repeatSkips;
@@ -1213,7 +1213,7 @@ bool SrEngine::Run(ID3D12Resource* in, uint32_t inW, uint32_t inH, DXGI_FORMAT i
                                                                        static_cast<unsigned long long>(m_repeatSkips), static_cast<unsigned long long>(m_repeatChecks), m_gate->LastCompareMs());
                 return true;
             }
-            if (r != RepeatGate::Result::Same) m_repeatStreak = 0;
+            if (r != nr::RepeatGate::Result::Same) m_repeatStreak = 0;
         }
     }
     const int slot = TakeSlot();
