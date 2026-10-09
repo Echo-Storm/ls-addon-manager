@@ -110,3 +110,42 @@ Persistence loses clearly: the model's noise is amplitude jitter, not correction
 flicker at equal response for a second history texture (fast/slow) or a noise channel (adaptive): not perceptible on a residual of 0.1 to 0.3 levels, so not built. What dominates what is seen: on the Durotar clip **the
 game's own frames flicker at about 7 levels** (`nr_sreval`, "flicker" of the game's frames) against 0.3 to 1.0 from the model; sharpening amplifies that (the upscaler's sharpening 0.45 gives 113 % of it), and a second
 sharpener after the upscaler, Neural Rendering's own `sharpen` in the compose pass, stacks on top.
+
+## Follow-up 2026-10-09: the fork's 0.6.9 (released 2026-10-02) and what else moved
+
+Same boundary as above: read for ideas only (GPL-3.0), our own notes, nothing copied. Read: the release notes (v0.6.9-experimental) and `docs/experimental/reviews/20261001-v0.6.9-duplicate-frame-filter.md`.
+The repository is very active (about 100 commits between 09-30 and 10-03, 120 forks).
+
+### Duplicate-frame handling (the same problem as our repeat-source note, docs/capture-card-sources.md)
+
+- They compare each captured frame with the one before **on the GPU, exactly, channel by channel** (alpha too in HDR), a group reduction that publishes a "differs" flag, read back with a **synchronous Map**.
+  They considered an asynchronous ring and left it: it needs a snapshot of the input, strict pairing of result and frame, back-pressure and extra latency, and they had no measurement showing a net gain.
+  That is the same design as our probe (a compare on the card, one float read back) except that ours is asynchronous (a few frames late, never waiting) because ours only *reports*; theirs *acts* on the answer.
+- What they do with it is the part we do not do: **a repeated input skips the effect chain** (the shaders, the HDR conversion and the SDK work) and the previous output is shown again; each effect keeps a "content version", and a downstream
+  effect recomputes only when its input's version changed. Where an old input must be processed again anyway (a minimum frame rate, a cursor refresh), the temporal upscalers get a zero-motion guide and an SDK **reset** for it,
+  so a repeated frame does not feed the history as if it were new content. Neural Rendering decides from the captured guidance whether its cached total correction can be rebuilt without running the model.
+- For us this is a performance idea with a clear case: **a 30 fps source in a 60 or 120 Hz feed makes Neural Rendering (8-12 ms at 4K) and the upscalers run twice or four times on identical pictures.**
+  Skipping the repeats would save half to three quarters of that cost for capture-card users (nitro's GTA VI plan), and identical pictures would get identical output (no flicker between repeats).
+  Not built; the open problem is knowing, at the TAP, that this frame repeats the one before: our compare answers a few frames late. With a stable repeat count L and the phase known from the stays the detector already keeps,
+  the model could be run on the first of each group and the result reused for the rest. Backlog.
+- They log *why* each frame was classified as it was (accepted, no frame, interrupted, pixel-duplicate, skipped check, unfiltered, new sequence, colour change, ...) in their frame trace; ours has the taps and presents but not a reason. Cheap to copy as an idea.
+
+### Neural rendering controls (their "detail control")
+
+- Their 0.6.9 simplifies the NR correction into a few intensities (total, chroma, luma total, shadows / structure, highlights / glow), applied **once to the combined correction after all passes**, with advanced protections (hue, shadow, highlight protection,
+  over-correction suppression, low- and high-frequency strengths) and a **diagnostic view** that shows the correction itself. The diagnostic view is the idea worth taking: a debug view of "what the model changed" (our `nr_nreval` writes a flicker heat map offline, but a tester
+  cannot see it live). It would have made issues like #18 (ghosting with frame generation) easier to describe. Backlog.
+- Their multi-pass NR (1, 2 or 3, default 1) and "input resolution 25-100 %" match our passes and model scale; their warning that a very low input resolution gives artefacts matches ours (the floor of 0.25).
+
+### Smaller
+
+- "Frame rate and refresh": content frame rate follow-source / auto / custom, pacing Front Edge / Async / NVIDIA Reflex, cursor refresh policies, idle redraw. Lossless Scaling covers pacing; nothing to take.
+- A fix for choosing the wrong display adapter in **virtual-display setups (Sunshine)**: render on the real GPU, not the display-only one. Our card choice follows the device Lossless Scaling dispatches on, so this should not apply; worth a thought if a streaming user reports the wrong card.
+
+### Other repositories looked at (2026-10-09)
+
+- **OptiScaler** (GPL-3.0, very active, 0.9.4 in July): this week's commits are menu work, DX11 frame-generation fixes, a memory-leak fix when NvngxFFX errors, and "late latching for reprojection" in its frame generation. Nothing that bears on issue #11 beyond what we have (the Agility core).
+- **lsfg-vk** (the Linux port of Lossless Scaling's frame generation; last push 2026-09-05, 2.0.0-dev29 on 08-27): no recent change to study; CC BY-NC-ND, read-only as before.
+- **Upstream Magpie** (Blinue, GPL-3.0): 0.13.0-preview02 on 10-01 (only a start-up fix since preview01); nothing for us.
+- **Beware:** most of what a search for "lossless scaling" or "DLSS5" returns is search-bait with no code (generic READMEs, some with hundreds of stars). Two to be careful with if users ask: `StormHatchet/LossLess-Scaling` (98 stars, no description) and `Fastbrasecret8/DLSS5-Manager`
+  (387 stars, "one-click DLSS 5 manager"): not read, not vouched for; nothing from them should be recommended or run.
