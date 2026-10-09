@@ -249,7 +249,7 @@ bool FrameTap::OnTap(const Bound& b, TapDecision& d) {
     if (m_frameSlotPref >= 0 && m_frameSlotPref < 8 && b.srv[m_frameSlotPref]) slot = m_frameSlotPref;
     else for (int i = 7; i >= 0 && slot < 0; --i) if (b.srv[i] && b.sig.srv[i].w == w && b.sig.srv[i].h == h && IsColour(b.sig.srv[i].fmt)) slot = i;
 
-    if (slot >= 0) m_lastTapFrame = b.srv[slot];
+    if (slot >= 0) { m_lastTapFrame = b.srv[slot]; d.tapFrame = b.srv[slot]; }
 
     // With a TICK set by hand, once per tick; otherwise (LSFG) every TAP is a new real frame
     const bool gate = m_tickKey ? m_lastGatedTick != m_ticks : true;

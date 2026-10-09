@@ -101,7 +101,7 @@ bool Probe::Init(ID3D11Device* dev) {
     for (int i = 0; ok && i < 2; ++i) ok = SUCCEEDED(dev->CreateBuffer(&ob, nullptr, &m_samples[i])) && SUCCEEDED(dev->CreateUnorderedAccessView(m_samples[i], &uv, &m_sampleUav[i]));
     for (int i = 0; ok && i < kRing; ++i) ok = SUCCEEDED(dev->CreateBuffer(&sb, nullptr, &m_stage[i]));
     if (!ok) { Shutdown(); m_failed = true; return false; }
-    m_dev = dev; m_written = m_read = 0; m_flip = 0;
+    m_dev = dev; m_written = m_read = 0; m_flip = 0; m_cbW = m_cbH = 0;
     return true;
 }
 
@@ -116,10 +116,10 @@ void Probe::Shutdown() {
 ID3D11ShaderResourceView* Probe::ViewOf(ID3D11Texture2D* frame, uint32_t* w, uint32_t* h) {
     for (View& v : m_views) if (v.tex == frame) { *w = v.w; *h = v.h; return v.srv; }
     D3D11_TEXTURE2D_DESC d; frame->GetDesc(&d);
-    if (!(d.BindFlags & D3D11_BIND_SHADER_RESOURCE) || d.SampleDesc.Count != 1) return nullptr;
+    if (!(d.BindFlags & D3D11_BIND_SHADER_RESOURCE) || d.SampleDesc.Count != 1) { m_unreadable = true; return nullptr; }
     D3D11_SHADER_RESOURCE_VIEW_DESC sv{}; sv.Format = ViewFormat(d.Format); sv.ViewDimension = D3D11_SRV_DIMENSION_TEXTURE2D; sv.Texture2D.MipLevels = 1;
     ID3D11ShaderResourceView* srv = nullptr;
-    if (FAILED(m_dev->CreateShaderResourceView(frame, &sv, &srv))) return nullptr;
+    if (FAILED(m_dev->CreateShaderResourceView(frame, &sv, &srv))) { m_unreadable = true; return nullptr; }
     // a new size (a resolution change): the textures of the old size are let go, the views keep them alive otherwise (up to eight 4K HDR frames)
     for (View& v : m_views) if (v.tex && (v.w != d.Width || v.h != d.Height)) { Rel(v.srv); Rel(v.tex); v.w = v.h = 0; }
     View& slot = m_views[m_nextView]; m_nextView = (m_nextView + 1) % 8;
@@ -139,8 +139,7 @@ int Probe::Observe(ID3D11Device* dev, ID3D11DeviceContext* ctx, ID3D11Texture2D*
     ID3D11ShaderResourceView* oldSrv = nullptr; ctx->CSGetShaderResources(0, 1, &oldSrv);
     ID3D11UnorderedAccessView* oldUav[3] = {}; ctx->CSGetUnorderedAccessViews(0, 3, oldUav);
     ID3D11Buffer* oldCb = nullptr; ctx->CSGetConstantBuffers(0, 1, &oldCb);
-    const uint32_t sz[4] = { w, h, 0, 0 };
-    ctx->UpdateSubresource(m_cb, 0, nullptr, sz, 0, 0);
+    if (w != m_cbW || h != m_cbH) { const uint32_t sz[4] = { w, h, 0, 0 }; ctx->UpdateSubresource(m_cb, 0, nullptr, sz, 0, 0); m_cbW = w; m_cbH = h; }
     ctx->CSSetShader(m_cs, nullptr, 0);
     ctx->CSSetShaderResources(0, 1, &srv);
     const UINT keep[3] = { static_cast<UINT>(-1), static_cast<UINT>(-1), static_cast<UINT>(-1) };

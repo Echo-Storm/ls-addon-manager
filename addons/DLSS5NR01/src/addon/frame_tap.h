@@ -40,6 +40,7 @@ struct DispatchEntry {
 struct TapDecision {
     bool isTick = false, isTap = false;
     ID3D11Texture2D* frame = nullptr;   // the captured frame (AddRef'd; the caller releases)
+    ID3D11Resource* tapFrame = nullptr; // with isTap: the frame bound to this very dispatch (NOT AddRef'd: good for this call only; null when the tap found no frame in the pass)
     int frameSlot = -1;
     // LSFG's finest optical flow (AddRef'd; the caller releases). RGBA16F: xy = displacement from the current to the previous frame, zw = the
     // reverse; units = pixels of a texture twice this size. This frame's own (k-1 -> k) with fresh flow on, the frame before's otherwise.

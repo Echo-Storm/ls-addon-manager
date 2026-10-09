@@ -125,6 +125,10 @@ def main():
         print('  unevenness of the stays in a second (mean distance from the average stay of the second, frames): median %.2f, p90 %.2f, worst %.2f' % (np.median(un), np.percentile(un, 90), un.max()))
         worst = sorted(per, key=lambda r: (-r[3], -r[2]))[:6]
         print('  the roughest moving seconds (at s: pictures, longest stay in frames, stays of 3+): ' + '; '.join('%ds: %d, %d, %d' % (r[0], r[1], r[2], r[3]) for r in worst))
+    # a picture whose frames differ little (a slow pan, low contrast) puts many real changes just above the threshold, and some under it: the counts above are then unreliable
+    near = float(((jump >= args.thr) & (jump < 2 * args.thr)).mean()) if len(jump) else 0.0
+    if near > 0.15:
+        print('  NOTE: %.0f%% of the changes between new pictures are under %.2f levels (twice --thr): a low-contrast or slow scene; repeats and new pictures cannot be told apart reliably, so the numbers above may be wrong (try a lower --thr)' % (100 * near, 2 * args.thr))
     # the noise floor: how far apart the repeats and the new pictures are
     rep = d[d < args.thr]
     print('  repeats differ by %.3f levels on average (p99 %.3f); new pictures by %.2f; mean luma %.1f' % (rep.mean() if len(rep) else 0, np.percentile(rep, 99) if len(rep) else 0, jump.mean() if len(jump) else 0, luma.mean()))

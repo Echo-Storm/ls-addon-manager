@@ -108,11 +108,11 @@ void ForgetPair();
 
 // Source cadence (source_cadence.h): whether the pictures Lossless Scaling captures repeat (a 30 fps game in a 60 Hz capture feed). Fed at each captured frame, under g_frameMutex.
 nr::cadence::Probe g_cadenceProbe; nr::cadence::Detector g_cadenceDetector; std::atomic<int> g_sourceRepeats{ 0 }; std::atomic<float> g_sourceFps{ 0.0f };
-void ForgetCadence() { g_cadenceProbe.Forget(); g_cadenceDetector.Reset(); g_sourceRepeats = 0; g_sourceFps = 0.0f; }
+struct CadenceLook { uint64_t rateTick = 0, rateTaps = 0, nextRate = 60, nextLook = 12, seenFrames = 0; int pending = 0, pendingCount = 0; bool said = false, saidUnreadable = false; } g_cadenceLook;   // (what NoteSource keeps between frames)
+void ForgetCadence() { g_cadenceProbe.Forget(); g_cadenceDetector.Reset(); g_sourceRepeats = 0; g_sourceFps = 0.0f; g_cadenceLook = CadenceLook{}; }
 void NoteSource(ID3D11DeviceContext* ctx, ID3D11Texture2D* frame);
 // At a TAP dispatch: the captured frame is the texture the tap chose, bound to this very pass (the frame is handed to the model later, when the flow is in, so the decision may not carry it yet)
-void NoteTapFrame(ID3D11DeviceContext* ctx) {
-    ID3D11Resource* res = const_cast<ID3D11Resource*>(static_cast<const ID3D11Resource*>(g_tap.LastTapFrame()));
+void NoteTapFrame(ID3D11DeviceContext* ctx, ID3D11Resource* res) {
     ID3D11Texture2D* tex = nullptr;
     if (res && SUCCEEDED(res->QueryInterface(IID_PPV_ARGS(&tex)))) { NoteSource(ctx, tex); tex->Release(); }
 }
@@ -121,23 +121,26 @@ void NoteSource(ID3D11DeviceContext* ctx, ID3D11Texture2D* frame) {
     if (!dev) return;
     const int pushed = g_cadenceProbe.Observe(dev, ctx, frame, g_cadenceDetector);
     dev->Release();
-    static bool said = false;
-    if (!said && (pushed > 0 || g_cadenceProbe.Failed())) { said = true; Log(pushed > 0 ? "source cadence: watching the captured pictures for repeats" : "source cadence: the sample pass could not be made; repeats in the source will not be noticed"); }
+    CadenceLook& L = g_cadenceLook;
+    if (!L.said && (pushed > 0 || g_cadenceProbe.Failed())) { L.said = true; Log(pushed > 0 ? "source cadence: watching the captured pictures for repeats" : "source cadence: the sample pass could not be made; repeats in the source will not be noticed"); }
+    if (!L.saidUnreadable && g_cadenceProbe.Unreadable()) { L.saidUnreadable = true; Log("source cadence: the captured frame cannot be read by a shader (no shader-resource bind, or multisampled); repeats in the source will not be noticed"); }
     if (!pushed) return;
     const uint64_t frames = g_cadenceDetector.Frames();
-    static uint64_t rateTick = 0, nextRate = 60, nextLook = 12;
-    static uint64_t seenFrames = 0;
-    if (frames < seenFrames) { rateTick = 0; nextRate = 60; nextLook = 12; }   // (the detector was reset)
-    seenFrames = frames;
-    if (frames >= nextRate) { nextRate = frames + 60; const uint64_t now = GetTickCount64(); if (rateTick && now > rateTick) g_sourceFps = 60000.0f / static_cast<float>(now - rateTick); rateTick = now; }
-    if (frames < nextLook) return;
-    nextLook = frames + 12;
-    static int pending = 0, pendingCount = 0;   // a change of verdict has to hold for three looks
-    const int v = g_cadenceDetector.Verdict().repeats;
-    if (v == g_sourceRepeats.load()) { pendingCount = 0; return; }
-    if (v != pending) { pending = v; pendingCount = 1; return; }
-    if (++pendingCount < 3) return;
-    pendingCount = 0; g_sourceRepeats = v;
+    if (frames < L.seenFrames) { L.rateTick = 0; L.nextRate = 60; L.nextLook = 12; }   // (the detector was reset)
+    L.seenFrames = frames;
+    if (frames >= L.nextRate) {   // the capture rate: captured frames (taps) over time, not reads (some are lost when the card is busy)
+        L.nextRate = frames + 60;
+        const uint64_t now = GetTickCount64(), taps = g_tap.Taps();
+        if (L.rateTick && now > L.rateTick && taps > L.rateTaps) g_sourceFps = 1000.0f * static_cast<float>(taps - L.rateTaps) / static_cast<float>(now - L.rateTick);
+        L.rateTick = now; L.rateTaps = taps;
+    }
+    if (frames < L.nextLook) return;
+    L.nextLook = frames + 12;
+    const int v = g_cadenceDetector.Verdict().repeats;   // a change of verdict has to hold for three looks
+    if (v == g_sourceRepeats.load()) { L.pendingCount = 0; return; }
+    if (v != L.pending) { L.pending = v; L.pendingCount = 1; return; }
+    if (++L.pendingCount < 3) return;
+    L.pendingCount = 0; g_sourceRepeats = v;
     if (v >= 2) Log("source cadence: every picture Lossless Scaling captures comes %d times in a row (it captures about %.0f a second, so the source is really at about %.0f): frame generation makes pictures between identical frames and the motion advances unevenly; a capture card or recorder set to the game's real rate avoids it",
                     v, g_sourceFps.load(), g_sourceFps.load() / v);
     else Log("source cadence: the captured pictures no longer repeat");
@@ -326,7 +329,7 @@ void AfterHandOver(bool started, float ceiling, const AutoQuality::Settings& aut
 void Tap(ID3D11DeviceContext* ctx, uint32_t x, uint32_t y, uint32_t z) {
     TapDecision d;
     const bool handedOver = g_tap.Observe(ctx, x, y, z, d);   // (false while the frame waits for its flow; the tap is still a real frame)
-    if (d.isTap && g_tapDevice) NoteTapFrame(ctx);
+    if (d.isTap && g_tapDevice) NoteTapFrame(ctx, d.tapFrame);
     if (!handedOver || !g_tapDevice) { ReleaseDecision(d); return; }
     if (d.isTap) nr::trace::Add(nr::trace::kTap, 0, 0, static_cast<int32_t>(g_tap.Taps()));
     if (g_presentMode) {
@@ -1343,7 +1346,7 @@ bool ScalerPass(ID3D11DeviceContext* ctx, uint32_t x, uint32_t y, uint32_t z) {
     g_passStep = "in the pass";
     TapDecision d;
     g_tap.Observe(ctx, x, y, z, d);   // the flow and the real frames (nothing is handed to a model here)
-    if (d.isTap) { if (g_nisSinceTap) g_nisPerFrame = g_nisSinceTap; g_nisSinceTap = 0; NoteRealFrame(); NoteTapFrame(ctx); }
+    if (d.isTap) { if (g_nisSinceTap) g_nisPerFrame = g_nisSinceTap; g_nisSinceTap = 0; NoteRealFrame(); NoteTapFrame(ctx, d.tapFrame); }
     ReleaseDecision(d);
     LogPassTable();
 

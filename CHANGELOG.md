@@ -2,7 +2,7 @@
 
 ## Unreleased
 
-- **The addons notice a repeating source.** A 30 fps game seen through a capture card at 60 or 120 Hz reaches Lossless Scaling as the same picture two or four times in a row, so frame generation makes pictures between identical frames and the motion advances unevenly. Neural Rendering and the upscalers now compare each captured frame with the one before on the graphics card (a small pass, one float read back) and, when every picture repeats the same number of times, say so in the log and in the panel's "What stands out", with the advice to set the capture to the game's real rate. It says nothing for a still scene or a game at its real rate.
+- **The addons notice a repeating source.** A 30 fps game seen through a capture card at 60 or 120 Hz reaches Lossless Scaling as the same picture two or four times in a row, so frame generation makes pictures between identical frames and the motion advances unevenly. Neural Rendering and the DLSS, FSR and XeSS upscalers now compare each captured frame with the one before on the graphics card (a small pass, one float read back) and, when every picture repeats the same number of times, say so in the log and in the panel's "What stands out", with the advice to set the capture to the game's real rate. It says nothing for a still scene or a game at its real rate.
 
 ## 0.9.38 (2026-10-03)
 

@@ -39,20 +39,21 @@ public:
     // back the samples of earlier frames that the card has finished (a few frames late, in order), pushing for each whether it repeats the one before into `det`. Returns how many were pushed.
     int Observe(ID3D11Device* dev, ID3D11DeviceContext* ctx, ID3D11Texture2D* frame, Detector& det);
     void Shutdown();
-    void Forget() { Shutdown(); m_failed = false; m_missed = 0; }   // (the device is gone or changed: a failure on the one before is no reason not to try on the next)
+    void Forget() { Shutdown(); m_failed = false; m_unreadable = false; m_missed = 0; }   // (the device is gone or changed: a failure on the one before is no reason not to try on the next)
     uint64_t Missed() const { return m_missed; }
     bool Failed() const { return m_failed; }
+    bool Unreadable() const { return m_unreadable; }   // a captured frame the sample pass cannot read (no shader-resource bind, or multisampled)
 private:
     bool Init(ID3D11Device* dev);
     ID3D11ShaderResourceView* ViewOf(ID3D11Texture2D* frame, uint32_t* w, uint32_t* h);
-    static constexpr int kGx = 64, kGy = 36, kPoints = kGx * kGy, kRing = 64;
+    static constexpr int kGx = 64, kGy = 36, kPoints = kGx * kGy, kRing = 16;
     ID3D11Device* m_dev = nullptr;
     ID3D11ComputeShader* m_cs = nullptr; ID3D11Buffer* m_cb = nullptr;
     ID3D11Buffer* m_samples[2] = {}; ID3D11UnorderedAccessView* m_sampleUav[2] = {}; int m_flip = 0;   // this frame's points and the frame before's, swapped each time
     ID3D11Buffer* m_result = nullptr; ID3D11UnorderedAccessView* m_resultUav = nullptr;               // the mean change between them (one float), made on the card
     ID3D11Buffer* m_stage[kRing] = {}; uint64_t m_written = 0, m_read = 0;
     struct View { ID3D11Texture2D* tex = nullptr; ID3D11ShaderResourceView* srv = nullptr; uint32_t w = 0, h = 0; } m_views[8]; int m_nextView = 0;
-    uint64_t m_missed = 0; bool m_failed = false;
+    uint64_t m_missed = 0; bool m_failed = false, m_unreadable = false; uint32_t m_cbW = 0, m_cbH = 0;
 };
 
 } // namespace nr::cadence
