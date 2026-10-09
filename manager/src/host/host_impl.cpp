@@ -40,6 +40,11 @@ void SetHook(std::vector<Hook>& hooks, Callback callback, void* owner, void* mod
 
 // Dispatch callbacks run on Lossless Scaling's render thread, where a fault would end the process. Kept apart from anything that owns
 // C++ objects: a function with a __try block cannot also have destructors to run.
+// True on a thread while it runs addon dispatch callbacks, which the host calls with its hook list locked: an addon that asks to change its hooks from inside one would wait for
+// a lock its own thread holds. The change is refused (and said) instead; an addon sets or clears its callbacks from AddonInitialize / AddonShutdown or a thread of its own.
+thread_local bool t_inDispatchCallback = false;
+struct InCallback { InCallback() { t_inDispatchCallback = true; } ~InCallback() { t_inDispatchCallback = false; } };
+
 bool CallPre(EamPreDispatchCallback cb, uint32_t x, uint32_t y, uint32_t z, void* owner, bool* skip) {
     __try { *skip = cb(x, y, z, owner); return true; }
     __except (EXCEPTION_EXECUTE_HANDLER) { return false; }
@@ -114,12 +119,14 @@ void HostImpl::ReleaseImage(void* image) { if (image) static_cast<IUnknown*>(ima
 // ---- dispatch callbacks
 
 void HostImpl::SetPreDispatchCallback(EamPreDispatchCallback callback, void* userData) {
+    if (t_inDispatchCallback) { LOG_ERROR("Host", "SetPreDispatchCallback called from inside a dispatch callback: refused (it would deadlock); set callbacks from AddonInitialize, AddonShutdown or another thread"); return; }
     std::lock_guard<std::mutex> lock(m_dispatchMutex);
     SetHook(m_preHooks, callback, userData, ModuleAt(_ReturnAddress()));
     Recount();
 }
 
 void HostImpl::SetPostDispatchCallback(EamPostDispatchCallback callback, void* userData) {
+    if (t_inDispatchCallback) { LOG_ERROR("Host", "SetPostDispatchCallback called from inside a dispatch callback: refused (it would deadlock); set callbacks from AddonInitialize, AddonShutdown or another thread"); return; }
     std::lock_guard<std::mutex> lock(m_dispatchMutex);
     SetHook(m_postHooks, callback, userData, ModuleAt(_ReturnAddress()));
     Recount();
@@ -128,6 +135,7 @@ void HostImpl::SetPostDispatchCallback(EamPostDispatchCallback callback, void* u
 bool HostImpl::InvokePreDispatch(uint32_t x, uint32_t y, uint32_t z) {
     if (!m_preCount.load(std::memory_order_relaxed)) return false;
     std::lock_guard<std::mutex> lock(m_dispatchMutex);
+    const InCallback inside;
     bool skip = false, faulted = false;
     for (auto& hook : m_preHooks) {
         bool wantsSkip = false;
@@ -141,6 +149,7 @@ bool HostImpl::InvokePreDispatch(uint32_t x, uint32_t y, uint32_t z) {
 void HostImpl::InvokePostDispatch(uint32_t x, uint32_t y, uint32_t z) {
     if (!m_postCount.load(std::memory_order_relaxed)) return;
     std::lock_guard<std::mutex> lock(m_dispatchMutex);
+    const InCallback inside;
     bool faulted = false;
     for (auto& hook : m_postHooks)
         if (!CallPost(hook.callback, x, y, z, hook.owner)) { hook.callback = nullptr; faulted = true; }

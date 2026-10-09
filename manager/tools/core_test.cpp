@@ -824,6 +824,15 @@ int main(int argc, char** argv) {
             WriteFile(wipJson, "{ \"name\": \"W\", \"enabled_by_default\": false }");
             AddonManifest off; ReadManifest(wipJson, off);
             Check("enabled_by_default is read, and is true when absent", !off.enabledByDefault && plain.enabledByDefault);
+            // paths in addon.json stay inside the addon's folder
+            WriteFile(wipJson, "{ \"name\": \"P\", \"dll\": \"..\\\\evil.dll\", \"icon\": \"C:\\\\x.svg\", \"runtimes\": [ { \"name\": \"up\", \"file\": \"../x.dll\" }, { \"name\": \"ok\", \"file\": \"sub/y.dll\" } ] }");
+            AddonManifest esc; ReadManifest(wipJson, esc);
+            Check("a dll or an icon that climbs out of the folder or names a drive is dropped", esc.dll.empty() && esc.icon.empty());
+            Check("...and so is a runtime file that does, while one in a subfolder stays", esc.runtimes.size() == 1 && esc.runtimes[0].name == "ok");
+            WriteFile(wipJson, "{ \"name\": \"Q\", \"dll\": \"sub\\\\q.dll\" }");
+            AddonManifest sub; ReadManifest(wipJson, sub);
+            Check("a dll in a subfolder is kept", sub.dll == "sub\\q.dll");
+            Check("a version part over 255 does not wrap into a lower version", ParseApiVersion("1.256.0") >= ParseApiVersion("1.255.0"));
             fs::remove(wipJson);
         }
         Find(mgr, "beta")->manifest.wip = true;

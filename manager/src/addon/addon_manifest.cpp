@@ -21,6 +21,21 @@ void TakeList(const Json& obj, const char* key, std::vector<std::string>& into) 
         if (item.is_string()) into.push_back(item.get<std::string>());
 }
 
+// A path in addon.json (the DLL, the icon, a runtime file) is relative to the addon's own folder: one that is absolute, names a drive or a stream (a colon), or climbs out
+// with ".." would make the manager load or read something outside it, and is dropped (the DLL then falls back to <folder>.dll, as with no "dll" at all).
+bool StaysInside(const std::string& path) {
+    if (path.empty()) return true;
+    if (path.find(':') != std::string::npos || path.front() == '/' || path.front() == '\\') return false;
+    size_t at = 0;
+    while (at <= path.size()) {
+        size_t end = path.find_first_of("/\\", at);
+        if (end == std::string::npos) end = path.size();
+        if (path.compare(at, end - at, "..") == 0) return false;
+        at = end + 1;
+    }
+    return true;
+}
+
 } // namespace
 
 bool ReadManifest(const std::filesystem::path& file, AddonManifest& out, std::string* problem) {
@@ -39,6 +54,8 @@ bool ReadManifest(const std::filesystem::path& file, AddonManifest& out, std::st
     TakeText(doc, "min_host_version", out.minHostVersion);
     TakeText(doc, "dll", out.dll);
     TakeText(doc, "icon", out.icon);
+    if (!StaysInside(out.dll)) out.dll.clear();
+    if (!StaysInside(out.icon)) out.icon.clear();
     TakeList(doc, "dependencies", out.dependencies);
     TakeList(doc, "renamed_from", out.renamedFrom);
     TakeList(doc, "conflicts", out.conflicts);
@@ -52,7 +69,7 @@ bool ReadManifest(const std::filesystem::path& file, AddonManifest& out, std::st
             TakeText(item, "name", r.name); TakeText(item, "file", r.file); TakeText(item, "config_key", r.configKey);
             TakeText(item, "shipped_sha256", r.shippedSha256); TakeText(item, "shipped_label", r.shippedLabel);
             TakeList(item, "exports", r.exports);
-            if (!r.name.empty() && !r.file.empty()) out.runtimes.push_back(r);
+            if (!r.name.empty() && !r.file.empty() && StaysInside(r.file)) out.runtimes.push_back(r);
         }
     out.parsed = true;
     return true;

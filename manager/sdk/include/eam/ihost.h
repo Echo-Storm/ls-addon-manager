@@ -16,7 +16,9 @@ enum EamLogLevel : uint8_t {
 // Called around each of Lossless Scaling's compute passes (ID3D11DeviceContext::Dispatch on the immediate context of one of its devices), on
 // its render thread, with the pass's thread group counts. A pre-dispatch callback returns true to have the pass skipped (and then no
 // post-dispatch callback runs). Dispatches an addon makes itself from inside a callback do not call back. Keep them short: Lossless Scaling
-// waits for them.
+// waits for them. The host holds its hook list locked while it calls them: SetPreDispatchCallback / SetPostDispatchCallback called from inside
+// a dispatch callback are refused (and logged), because they would wait for that lock; set and clear callbacks from AddonInitialize,
+// AddonShutdown or a thread of your own.
 typedef bool (*EamPreDispatchCallback)(uint32_t groupsX, uint32_t groupsY, uint32_t groupsZ, void* userData);
 typedef void (*EamPostDispatchCallback)(uint32_t groupsX, uint32_t groupsY, uint32_t groupsZ, void* userData);
 
