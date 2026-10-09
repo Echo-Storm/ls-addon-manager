@@ -166,6 +166,7 @@ RepeatGate::Result RepeatGate::Compare(ID3D12Resource* in, DXGI_FORMAT viewForma
 
 bool RepeatGate::CopyPicture(ID3D12Resource* src, ID3D12Resource* dst) {
     if (!m_ready || !src || !dst) return false;
+    if (src == dst) return true;   // the same picture (a caller that writes every output into one texture): already there, and a resource cannot be copied onto itself
     const int i = m_copyNext; m_copyNext = (m_copyNext + 1) % kCopyRing;
     if (m_copyDone[i] && m_fence->GetCompletedValue() < m_copyDone[i]) {   // this allocator's last copy still on the card
         m_fence->SetEventOnCompletion(m_copyDone[i], static_cast<HANDLE>(m_event));
