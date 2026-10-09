@@ -19,7 +19,15 @@ bool CallGuarded(EventCallback callback, uint32_t eventId, const void* data, uin
     }
 }
 
+thread_local int t_publishing = 0;   // the publishes this thread is inside (a callback that unsubscribes must not wait for its own publish)
+
 } // namespace
+
+void EventBus::WaitForPublishes() const {
+    if (t_publishing > 0) return;
+    const ULONGLONG deadline = GetTickCount64() + 2000;
+    while (m_inFlight.load() > 0 && GetTickCount64() < deadline) Sleep(1);
+}
 
 EventBus& EventBus::Instance() {
     static EventBus bus;
@@ -38,10 +46,17 @@ void EventBus::Unsubscribe(uint32_t eventId, EventCallback callback) {
     if (list == m_subscribers.end()) return;
     auto& subs = list->second;
     subs.erase(std::remove_if(subs.begin(), subs.end(), [callback](const Subscriber& s) { return s.callback == callback; }), subs.end());
+    lock.unlock();
+    WaitForPublishes();
 }
 
 void EventBus::Publish(uint32_t eventId, const void* data, uint32_t dataSize) {
     std::vector<Subscriber> subscribers;
+    struct InFlight {   // counted from before the list is copied until the last callback returns
+        const EventBus& bus;
+        explicit InFlight(const EventBus& b) : bus(b) { ++bus.m_inFlight; ++t_publishing; }
+        ~InFlight() { --bus.m_inFlight; --t_publishing; }
+    } inFlight(*this);
     {
         std::shared_lock<std::shared_mutex> lock(m_mutex);
         const auto list = m_subscribers.find(eventId);
@@ -64,6 +79,8 @@ size_t EventBus::ForgetCode(uintptr_t begin, uintptr_t end) {
         }), subs.end());
         removed += before - subs.size();
     }
+    lock.unlock();
+    if (removed) WaitForPublishes();   // a publish that copied the list before this may still be inside the code being forgotten
     return removed;
 }
 
