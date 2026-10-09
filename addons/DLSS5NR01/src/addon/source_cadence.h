@@ -39,6 +39,7 @@ public:
     // back the samples of earlier frames that the card has finished (a few frames late, in order), pushing for each whether it repeats the one before into `det`. Returns how many were pushed.
     int Observe(ID3D11Device* dev, ID3D11DeviceContext* ctx, ID3D11Texture2D* frame, Detector& det);
     void Shutdown();
+    void Forget() { Shutdown(); m_failed = false; m_missed = 0; }   // (the device is gone or changed: a failure on the one before is no reason not to try on the next)
     uint64_t Missed() const { return m_missed; }
     bool Failed() const { return m_failed; }
 private:

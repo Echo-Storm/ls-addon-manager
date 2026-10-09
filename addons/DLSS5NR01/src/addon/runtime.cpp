@@ -108,7 +108,7 @@ void ForgetPair();
 
 // Source cadence (source_cadence.h): whether the pictures Lossless Scaling captures repeat (a 30 fps game in a 60 Hz capture feed). Fed at each captured frame, under g_frameMutex.
 nr::cadence::Probe g_cadenceProbe; nr::cadence::Detector g_cadenceDetector; std::atomic<int> g_sourceRepeats{ 0 }; std::atomic<float> g_sourceFps{ 0.0f };
-void ForgetCadence() { g_cadenceProbe.Shutdown(); g_cadenceDetector.Reset(); g_sourceRepeats = 0; g_sourceFps = 0.0f; }
+void ForgetCadence() { g_cadenceProbe.Forget(); g_cadenceDetector.Reset(); g_sourceRepeats = 0; g_sourceFps = 0.0f; }
 void NoteSource(ID3D11DeviceContext* ctx, ID3D11Texture2D* frame);
 // At a TAP dispatch: the captured frame is the texture the tap chose, bound to this very pass (the frame is handed to the model later, when the flow is in, so the decision may not carry it yet)
 void NoteTapFrame(ID3D11DeviceContext* ctx) {
