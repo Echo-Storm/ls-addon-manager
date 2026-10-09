@@ -233,8 +233,10 @@ clashes in your game, change it in the addon's *Compare and hotkeys* section.
 Once a day the manager asks GitHub whether there is a newer release (**on by default**; *Settings > Updates* turns it off, *Check now* always works). When
 there is, it asks once:
 
-- **Download and install** downloads the release, checks its size and SHA-256 against GitHub's and that the Setup inside is that version, then updates when
-  you close Lossless Scaling and starts it again. Your settings carry over.
+- **Download and install** downloads the release, checks its size and SHA-256 against GitHub's and that the Setup inside is that version. Then you choose:
+  **Close it and install** asks Lossless Scaling to close itself (as its window's X would; any scaling in progress ends) and Setup updates it and starts it
+  again; **Install when I close it** leaves the closing to you and Setup waits. If Lossless Scaling does not close when asked (a dialog open in it), the offer says
+  so and gives **Ask again** and **End it now**. Your settings carry over, and the Setup that runs is hashed again just before it starts.
 - **Not now** asks again after the next check; **Don't ask again for this release** waits for a newer one (the About tab still offers it).
 
 That check, and a download you ask for, are the only times the manager goes online. To update by hand, download the zip and run Setup: it offers **Update**.

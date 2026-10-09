@@ -2,6 +2,9 @@
 
 ## Unreleased
 
+- **Updates can close Lossless Scaling for you.** After the download, **Close it and install** asks Lossless Scaling to close (WM_CLOSE to its windows, as its X would) and Setup updates and restarts it; **Install when I close it** is the old behaviour. If it does not close, the offer says why and offers **Ask again** and **End it now**. The Setup that runs is hashed again just before it starts, and the offer says when GitHub gave no fingerprint for the release.
+- **Fixes from two independent reviews:** a window size of the wrong type in config.json no longer ends Lossless Scaling at every start; an unreadable config.json is not replaced; log rotation keeps the old log if the rename fails; installing the Lossless Scaling folder as an addon no longer copies it into itself; a version part over 255 no longer wraps; the config editor refuses files with NUL bytes; the addons put Lossless Scaling's views back after a fault; the addons report their real version (they said 0.9.12).
+- **Tools:** `deploy.ps1` keeps distinct backups and stops on a failed copy; `package.ps1` and the test runner stop on a failed build; `tap_test bench` measures the CPU a dispatch costs (0.25 us in the addon).
 - **The addons notice a repeating source.** A 30 fps game seen through a capture card at 60 or 120 Hz reaches Lossless Scaling as the same picture two or four times in a row, so frame generation makes pictures between identical frames and the motion advances unevenly. Neural Rendering and the DLSS, FSR and XeSS upscalers now compare each captured frame with the one before on the graphics card (a small pass, one float read back) and, when every picture repeats the same number of times, say so in the log and in the panel's "What stands out", with the advice to set the capture to the game's real rate. It says nothing for a still scene or a game at its real rate.
 
 ## 0.9.38 (2026-10-03)
