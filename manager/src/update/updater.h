@@ -36,6 +36,13 @@ void ForgetDownload();                         // back to Idle (after a failure,
 // Starts the checked Setup on the Lossless Scaling folder; false with the reason if it could not be started.
 bool StartSetup(const std::wstring& lsDir, std::string& error);
 
+// Closing Lossless Scaling for the update, which Setup waits for. Both only after StartSetup has started Setup (it waits for the process to end).
+// Asks politely: WM_CLOSE to the process's visible windows other than the manager's own, as the window's X would; returns how many were asked (0: it has no
+// open window, e.g. it sits in the tray: the person uses its tray menu's Exit).
+int AskLosslessScalingToClose();
+// Ends the process at once (TerminateProcess): for when it did not close after being asked and the person says so. Does not return.
+[[noreturn]] void EndLosslessScalingNow();
+
 // The updater's own downloads in %TEMP%\LSAddonManager-update\<version> (about 110 MB each): the folders of versions this build already
 // is or is newer than, and of any other version than keep (the one being downloaded now; empty: none). Called at a download's start and
 // once a day from Tick. A folder in use (a Setup still running from it) is simply left for next time.

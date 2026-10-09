@@ -252,6 +252,30 @@ bool StartSetup(const std::wstring& lsDir, std::string& error) {
     return true;
 }
 
+namespace {
+BOOL CALLBACK AskWindowToClose(HWND hwnd, LPARAM count) {
+    DWORD pid = 0; GetWindowThreadProcessId(hwnd, &pid);
+    if (pid != GetCurrentProcessId() || !IsWindowVisible(hwnd)) return TRUE;
+    wchar_t cls[128] = {}; GetClassNameW(hwnd, cls, 128);
+    if (wcscmp(cls, L"LSAddonManagerClass") == 0) return TRUE;   // the manager's own window is not Lossless Scaling's
+    if (PostMessageW(hwnd, WM_CLOSE, 0, 0)) ++*reinterpret_cast<int*>(count);
+    return TRUE;
+}
+} // namespace
+
+int AskLosslessScalingToClose() {
+    int asked = 0;
+    EnumWindows(AskWindowToClose, reinterpret_cast<LPARAM>(&asked));
+    LOG_INFO("Update", "asked Lossless Scaling to close for the update (%d window%s)", asked, asked == 1 ? "" : "s");
+    return asked;
+}
+
+void EndLosslessScalingNow() {
+    LOG_WARN("Update", "Lossless Scaling did not close when asked: ending it for the update, as the person chose");
+    TerminateProcess(GetCurrentProcess(), 0);
+    for (;;) Sleep(1000);   // (not reached)
+}
+
 bool Skipped(const std::string& version) {
     return !version.empty() && ConfigManager::Instance().GlobalGetOr<std::string>("updates", "skipped", "") == version;
 }

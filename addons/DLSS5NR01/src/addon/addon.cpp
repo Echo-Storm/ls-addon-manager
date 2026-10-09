@@ -11,6 +11,7 @@
 #include "addon/compare.h"
 #include "imgui.h"
 #include <eam/widgets.h>
+#include <eam/version.h>
 #include <algorithm>
 #include <windows.h>
 
@@ -195,7 +196,7 @@ EAM_EXPORT void AddonShutdown() {
 EAM_EXPORT void AddonRenderSettings() { DrawPanel(); }
 EAM_EXPORT uint32_t GetAddonCapabilities() { return EAM_CAP_HAS_SETTINGS | EAM_CAP_D3D11_DEVICE_ACCESS | EAM_CAP_DISPATCH_HOOK; }
 EAM_EXPORT const char* GetAddonName() { return kProductName; }
-EAM_EXPORT const char* GetAddonVersion() { return "0.9.12"; }
+EAM_EXPORT const char* GetAddonVersion() { return EAM_VERSION_STRING; }   // (it said 0.9.12 for months: the release number, from the one header)
 EAM_EXPORT const char* GetAddonAuthor() { return "Echo-Storm"; }
 EAM_EXPORT const char* GetAddonDescription() {
     return kXessScaler

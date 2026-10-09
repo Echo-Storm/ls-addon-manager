@@ -16,6 +16,8 @@ namespace widgets {
 
 namespace {
 bool g_requested = false;          // the About tab asked for it
+uint64_t g_closeAskedAt = 0;      // when Lossless Scaling was asked to close for the update (0: not asked)
+int g_closeAsked = 0;              // how many windows were asked
 int64_t g_offeredAt = 0;           // the check the offer last opened for by itself ("Not now" lasts until the next daily check)
 constexpr const char* kPopup = "Update available###update_offer";
 
@@ -66,8 +68,16 @@ void UpdateOffer() {
         ImGui::Dummy(ImVec2(0, S(2)));
         Wrapped("To install it, Lossless Scaling has to close: Setup waits for that, updates it (with backups, as always) and starts it again. "
                 "Your settings carry over.");
+        ImGui::Dummy(ImVec2(0, S(2)));
+        Wrapped("\"Close it and install\" asks Lossless Scaling to close itself, as its window's X would: any scaling in progress ends.", true);
         ImGui::Dummy(ImVec2(0, S(6)));
-        if (ui::Button("Install now", ui::icons::kDownload, ui::ButtonKind::Primary)) {
+        if (ui::Button("Close it and install", ui::icons::kDownload, ui::ButtonKind::Primary)) {
+            std::string error;
+            if (!update::StartSetup(LosslessScalingFolder(), error)) ToastShow("Setup could not be started: " + error, ToastType::Error, 8.0f);
+            else { g_closeAsked = update::AskLosslessScalingToClose(); g_closeAskedAt = GetTickCount64(); }
+        }
+        ImGui::SameLine();
+        if (ui::Button("Install when I close it", ui::icons::kCheck)) {
             std::string error;
             if (!update::StartSetup(LosslessScalingFolder(), error)) ToastShow("Setup could not be started: " + error, ToastType::Error, 8.0f);
         }
@@ -76,7 +86,21 @@ void UpdateOffer() {
     } else if (step == update::Phase::Handed) {
         ImGui::TextUnformatted("Setup is waiting for Lossless Scaling to close.");
         ImGui::Dummy(ImVec2(0, S(2)));
-        Wrapped("Close Lossless Scaling: its window, or right-click its icon next to the clock and choose Exit. Setup then updates it and starts it again.");
+        const uint64_t waited = g_closeAskedAt ? GetTickCount64() - g_closeAskedAt : 0;
+        if (g_closeAskedAt && g_closeAsked > 0 && waited < 10000) {
+            Wrapped("Lossless Scaling was asked to close; it should be gone in a moment. Setup then updates it and starts it again.");
+        } else if (g_closeAskedAt) {
+            Wrapped(g_closeAsked > 0 ? "Lossless Scaling did not close when asked (a dialog may be open in it, or it is busy)."
+                                     : "Lossless Scaling has no open window to ask (it is probably in the tray).");
+            Wrapped("Close it yourself (its window, or right-click its icon next to the clock and choose Exit), or end it here: any scaling in progress is lost at once.", true);
+            ImGui::Dummy(ImVec2(0, S(4)));
+            if (ui::Button("Ask again", ui::icons::kCheck)) { g_closeAsked = update::AskLosslessScalingToClose(); g_closeAskedAt = GetTickCount64(); }
+            ImGui::SameLine();
+            if (ui::Button("End it now", ui::icons::kClose)) update::EndLosslessScalingNow();
+            ImGui::SameLine();
+        } else {
+            Wrapped("Close Lossless Scaling: its window, or right-click its icon next to the clock and choose Exit. Setup then updates it and starts it again.");
+        }
         ImGui::Dummy(ImVec2(0, S(6)));
         if (ui::Button("OK", ui::icons::kCheck, ui::ButtonKind::Primary)) close();
     } else {   // the offer (or the offer again after a failed or cancelled try)

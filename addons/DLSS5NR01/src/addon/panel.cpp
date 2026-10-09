@@ -628,6 +628,7 @@ void DrawPanel() {
                 float mp = (float)st.workW * (float)st.workH / 1e6f; double iv = g_bridge.IntervalMs();
                 uint64_t runs = g_bridge.Runs(), skipped = g_bridge.Skipped(), seen = runs + skipped;
                 ImGui::TextWrapped("frame %ux%u -> model input %ux%u (%.2f MP): model %.1f ms (avg %.1f), frame interval %.1f ms", g_bridge.Width(), g_bridge.Height(), st.workW, st.workH, mp, st.nrMs, g_avgModelMs, iv);
+                if (st.workW && st.workW < g_bridge.Width()) ImGui::TextDisabled("The model works on a smaller picture than the frame and its change is stretched back to the full frame: a size picked by Model resolution or by Auto quality to fit the budget, not a limit of the addon (raise the setting, or turn Auto quality off, for a larger one; it costs more).");
                 if (st.builds) ImGui::TextWrapped("model made %u time%s, the last in %.0f ms off the frame path; %llu frames not run meanwhile", st.builds, st.builds == 1 ? "" : "s", st.lastBuildMs, (unsigned long long)st.busySkips);
                 ImGui::TextWrapped("model keeps up with %llu of %llu frames (%.0f%%); GPU start +%.1f / done +%.1f ms after submit; tap CPU %.2f ms", (unsigned long long)runs, (unsigned long long)seen, seen ? 100.0 * runs / seen : 0.0, st.startMs, st.doneMs, g_bridge.CpuMs());
                 ImGui::TextWrapped("presents: %llu on LS's swap chain (%s), composed %llu, compose CPU %.2f ms, target %s; newest delta = frame %llu, applied at offset %.2f frames",
