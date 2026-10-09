@@ -592,6 +592,7 @@ int main(int argc, char** argv) {
     // ffxdebug=1: FidelityFX's checks and messages; debugview=1: FSR draws its own views of its inputs into the frame it makes
     const bool ffxDebug = Arg(argc, argv, "ffxdebug", 0) != 0, debugView = Arg(argc, argv, "debugview", 0) != 0;
     const bool mvDump = Arg(argc, argv, "mvdump", 0) != 0;
+    const int flowDump = Arg(argc, argv, "flowdump", 0); int flowDumped = 0;   // flowdump=N: raw triples with this project's vectors for the first N rebuilt frames (tools\interp_lab.py reads them)
     // direct=1: FSR frame generation dispatched on our own command list (no FidelityFX swap chain, no presents, no pacing); else through its swap chain
     const bool direct = Arg(argc, argv, "direct", 0) != 0;
     // engine=1: the addon's own FgEngine (src/engine/fg_engine.cpp) makes the frames, through shared textures and fences, as live
@@ -1079,6 +1080,18 @@ int main(int argc, char** argv) {
             if (depthOrbit) { DepthOrbit(mv, W, H, depthValues); writeDepth(depthValues.data()); }
             bandFrac = BandMask(mv, W, H, band);
             if (guardApart > 0) frameMv = mv;
+            if (flowDump > 0 && flowDumped < flowDump && i >= 2 && stride == 2) {   // flowdump=N: the first N triples (kept frame before, frame between, this kept frame) and this frame's vectors, raw, for tools\interp_lab.py
+                wchar_t name[64]; swprintf(name, 64, L"\\triple_%05d.bin", first + i);
+                if (FILE* f = _wfopen((outDir + name).c_str(), L"wb")) {
+                    const uint32_t head[4] = { 0x31544C46u /* "FLT1" */, W, H, 0 };
+                    fwrite(head, 4, 4, f);
+                    fwrite(frames[i - 2].data(), 1, static_cast<size_t>(W) * H * 4, f);   // a: RGBA8
+                    fwrite(frames[i - 1].data(), 1, static_cast<size_t>(W) * H * 4, f);   // b: the truth
+                    fwrite(frames[i].data(), 1, static_cast<size_t>(W) * H * 4, f);       // c
+                    fwrite(mv.data(), 2, static_cast<size_t>(W) * H * 2, f);              // half floats (x, y): from a pixel of c to where it was in a, in pixels
+                    fclose(f); ++flowDumped;
+                }
+            }
             if (mvDump && i >= 2) {   // mvdump=1: the vectors as a picture beside the frame (red: x, green: y; 1 level a pixel, 128 = none)
                 std::vector<uint8_t> pic(static_cast<size_t>(W) * H * 4);
                 for (size_t p = 0; p < static_cast<size_t>(W) * H; ++p) {
