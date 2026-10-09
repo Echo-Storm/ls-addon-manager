@@ -1204,6 +1204,7 @@ bool SrEngine::Run(ID3D12Resource* in, uint32_t inW, uint32_t inH, DXGI_FORMAT i
             if (view == DXGI_FORMAT_UNKNOWN) view = hdr ? DXGI_FORMAT_R16G16B16A16_FLOAT : DXGI_FORMAT_R8G8B8A8_UNORM;
             const nr::RepeatGate::Result r = m_gate->Compare(in, view, copied, copiedValue, 0.0f, m_repeatWaitMs.load());
             ++m_repeatChecks;
+            { static uint64_t seenTimeouts = 0; if (m_gate->TimedOut() != seenTimeouts) { seenTimeouts = m_gate->TimedOut(); Log("%s upscaler: the repeat compare did not answer within %u ms (picture %llu): this one is worked on", Name(), m_repeatWaitMs.load(), static_cast<unsigned long long>(m_repeatChecks)); } }
             const bool sameAsBefore = !fresh && !reset && m_lastOut && m_lastKey == repeatKey;
             if (r == nr::RepeatGate::Result::Same && sameAsBefore && m_repeatStreak < kMaxRepeatStreak && m_gate->CopyPicture(m_lastOut, out)) {
                 m_queue->Signal(done, doneValue);
