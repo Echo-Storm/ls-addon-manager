@@ -39,7 +39,7 @@ void OpenUpdateOffer() { g_requested = true; }
 void UpdateOffer() {
     const update::Status st = update::Current();
     const bool available = st.state == update::State::Available && !st.latest.empty();
-    if (available && (g_requested || (g_offeredAt != st.checkedAt && !update::Skipped(st.latest)))) {
+    if (available && (g_requested || (g_offeredAt != st.checkedAt && !update::Skipped(st.latest) && !update::ScalingNow()))) {   // (not over a game that is being scaled)
         g_offeredAt = st.checkedAt;
         ImGui::OpenPopup(kPopup);
     }

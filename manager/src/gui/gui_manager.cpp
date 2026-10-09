@@ -16,6 +16,7 @@
 #include "../host/gpu_stats.h"
 #include "../log/logger.h"
 #include "../update/update_check.h"
+#include "../core/d3d11_hook.h"
 #include "../../sdk/include/eam/version.h"
 #include "imgui.h"
 #include "imgui_internal.h"   // ImGui::ErrorRecoveryStoreState / ErrorRecoveryTryToRecoverState
@@ -282,7 +283,8 @@ DWORD WINAPI GuiManager::GuiThread(LPVOID /*lpParam*/) {
     g.trayTries = 0;
     EnsureTrayIcon(hwnd);
     GuiManager::ApplyHotkey();     // registers the hotkey and puts it in the tray tip
-    update::Tick();                // the daily update check, if it is on and due
+    update::SetDispatchCounter(&D3D11Hook::GetDispatchCount);   // so that the check and the offer wait while a game is being scaled
+    update::Tick();                // the update check, if it is on and due (at start-up, then daily; not while a game is being scaled)
     SetTimer(hwnd, kUpdateTimer, 60 * 1000, nullptr);
     if (cfg.GlobalGetOr<bool>("ui", "open_on_start", true)) {
         ShowWindow(hwnd, place.maximized ? SW_SHOWMAXIMIZED : SW_SHOWDEFAULT);

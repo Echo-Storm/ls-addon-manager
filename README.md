@@ -230,8 +230,9 @@ clashes in your game, change it in the addon's *Compare and hotkeys* section.
 
 ## Updates
 
-Once a day the manager asks GitHub whether there is a newer release (**on by default**; *Settings > Updates* turns it off, *Check now* always works). When
-there is, it asks once:
+At start-up (if the last check is over an hour old) and then once a day while it stays open, the manager asks GitHub whether there is a newer release (**on by default**;
+*Settings > Updates* turns it off, *Check now* always works). It waits while a game is being scaled, so nothing is shown over a game. When there is one, it asks once, and
+an **Update available** badge stays in the header (also after *Not now*) to open the offer again:
 
 - **Download and install** downloads the release, checks its size and SHA-256 against GitHub's and that the Setup inside is that version. Then you choose:
   **Close it and install** asks Lossless Scaling to close itself (as its window's X would; any scaling in progress ends) and Setup updates it and starts it

@@ -2,6 +2,8 @@
 #include "tooltip.h"
 #include "../gui_scale.h"
 #include "../gui_style.h"
+#include "update_offer.h"
+#include "../../update/update_check.h"
 #include "../../host/gpu_stats.h"
 #include "../../host/system_stats.h"
 #include "eam/icons.h"
@@ -70,7 +72,26 @@ void HeaderBar() {
     const ImVec2 chip(x, smallY - S(1));
     dl->AddRect(chip, ImVec2(chip.x + vs.x + S(10), chip.y + vs.y + S(3)), U(kAccentDim), S(3.0f));
     dl->AddText(ImGui::GetFont(), smallSize * 0.92f, ImVec2(chip.x + S(5), chip.y + S(1.5f)), U(kAccent), version.c_str());
-    const float leftEnd = chip.x + vs.x + S(10);
+    float leftEnd = chip.x + vs.x + S(10);
+    {   // an update is waiting (also after "Not now" or "Don't ask again"): a badge that opens the offer
+        const update::Status us = update::Current();
+        if (us.state == update::State::Available && !us.latest.empty()) {
+            const std::string label = "Update " + us.latest + " available";
+            const float fs = smallSize * 0.92f;
+            const ImVec2 ts = ImGui::GetFont()->CalcTextSizeA(fs, FLT_MAX, 0.0f, label.c_str());
+            const ImVec2 p0(leftEnd + S(10), chip.y - S(1)), p1(p0.x + ts.x + S(14), p0.y + ts.y + S(5));
+            const ImVec2 saved = ImGui::GetCursorScreenPos();
+            ImGui::SetCursorScreenPos(p0);
+            const bool clicked = ImGui::InvisibleButton("##update_badge", ImVec2(p1.x - p0.x, p1.y - p0.y));
+            const bool hovered = ImGui::IsItemHovered();
+            ImGui::SetCursorScreenPos(saved);
+            dl->AddRectFilled(p0, p1, hovered ? U(kAccent) : U(kAccentDim), S(3.0f));
+            dl->AddText(ImGui::GetFont(), fs, ImVec2(p0.x + S(7), p0.y + S(2.5f)), hovered ? U(kBg) : U(kText), label.c_str());
+            if (hovered) Tip("A newer version is available. Click for what is new and to install it.");
+            if (clicked) OpenUpdateOffer();
+            leftEnd = p1.x;
+        }
+    }
 
     // right: the machine, right to left
     GpuStats::Instance().Wanted();   // keeps the card's sampler running while the window is drawn

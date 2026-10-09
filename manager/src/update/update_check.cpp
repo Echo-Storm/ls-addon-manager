@@ -298,16 +298,34 @@ void StartCheckAsync() {
     }).detach();
 }
 
+static uint32_t (*g_dispatchCounter)() = nullptr;
+void SetDispatchCounter(uint32_t (*counter)()) { g_dispatchCounter = counter; }
+
+bool ScalingNow() {
+    static uint32_t last = 0;
+    static ULONGLONG changedAt = 0;
+    const uint32_t n = g_dispatchCounter ? g_dispatchCounter() : 0;
+    const ULONGLONG now = GetTickCount64();
+    if (n != last) { last = n; changedAt = now; }
+    return changedAt && now - changedAt < 10000;
+}
+
 void Tick() {
     static ULONGLONG cleanedAt = 0;   // the updater's old downloads, once a day (updater.h)
     if (!cleanedAt || GetTickCount64() - cleanedAt > 24ull * 3600 * 1000) { cleanedAt = GetTickCount64(); CleanOldDownloads(""); }
     auto& cfg = ConfigManager::Instance();
     const bool enabled = cfg.GlobalGetOr<bool>("updates", "check", true);   // on unless the person turned it off
     const int64_t last = cfg.GlobalGetOr<int64_t>("updates", "last_check", 0);
-    if (ShouldCheckNow(enabled, last, static_cast<int64_t>(time(nullptr)))) StartCheckAsync();
+    // At start-up if the last check is over an hour old, then once a day while it stays open; never while a game is being scaled (it is tried again a minute later)
+    static bool started = false;
+    const int64_t interval = started ? 24 * 3600 : 3600;
+    if (ScalingNow()) return;
+    started = true;
+    if (ShouldCheckNow(enabled, last, static_cast<int64_t>(time(nullptr)), interval)) StartCheckAsync();
 }
 
 std::string TakeNotice() {
+    if (ScalingNow()) return std::string();   // (said once the game is not being scaled)
     const Status s = Current();
     if (s.state != State::Available || s.latest.empty()) return std::string();
     auto& cfg = ConfigManager::Instance();

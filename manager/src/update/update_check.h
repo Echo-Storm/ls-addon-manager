@@ -75,6 +75,10 @@ void SetStatusForTest(const Status& st);  // the UI preview: a result as if a ch
 
 // Called about once a minute: starts the daily check when it is due. Reads Settings > Updates (updates.check, on unless turned off; updates.last_check).
 void Tick();
+// Lossless Scaling's compute passes have run in the last 10 seconds, so a game is being scaled. The check, the offer and the notice wait for it to stop, so that nothing
+// is shown over a game. Sampled whenever it is asked (the GUI thread).
+bool ScalingNow();
+void SetDispatchCounter(uint32_t (*counter)());   // where the count of Lossless Scaling's compute passes comes from (the manager sets it; the update test has none, so it is never 'scaling')
 // A message to show once when a version newer than the one last announced has been found ("" otherwise).
 std::string TakeNotice();
 
