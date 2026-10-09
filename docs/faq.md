@@ -95,6 +95,15 @@ motion but costs the most. On any other card, FSR, and on Intel Arc also XeSS, w
 Yes: 16-bit (scRGB) and 10-bit (HDR10) frames are upscaled in the upscaler's own HDR mode (since 0.9.10) and go back as HDR. If a game looks washed out or too dark,
 set *Frame encoding* under Upscaling by hand.
 
+## Capture cards and 30 fps games
+
+**The panel says the picture Lossless Scaling captures repeats.**
+A 30 fps game seen through a capture card at 60 or 120 Hz (or a video at 30 fps on a 120 Hz screen) reaches Lossless Scaling as the same picture two or four times in a
+row. Frame generation then makes its pictures between identical frames and the motion advances unevenly, which looks like judder. The addon only notices and says so
+(it needs frame generation on, and says nothing for a still scene or a game at its real rate). The fix is on the source's side: set the capture card's or the capture
+program's signal to the game's real rate (30 for a 30 fps game), then use frame generation x2 or x4 for your screen. More in
+[the research note](capture-card-sources.md).
+
 ## Reporting a problem
 
 Open an issue at <https://github.com/Echo-Storm/ls-addon-manager/issues>. Attach the **diagnostics file** (*Settings > Create a diagnostics file*): a zip of your logs and settings that is only made on your PC and uploaded nowhere. Say what you did, what you expected, what happened, your Windows version, graphics card and Lossless Scaling version.
