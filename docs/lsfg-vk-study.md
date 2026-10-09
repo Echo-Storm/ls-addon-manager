@@ -121,3 +121,9 @@ half way by our vectors, scores about 25 dB against the frame between, where the
 pixel look further (reach 8 -> 24 px) changes nothing (25.02 -> 24.96, 25.92 -> 26.02). So neither the pyramid's reach nor the block cost
 (steps 1 and 2) limits it: what is left is what comes into view and motion blur, and in such fast turns the upscalers lean on the frame
 anyway. The estimate's next gains are for frame generation (occlusion handling, a synthesis of our own), not for the upscalers.
+
+## Follow-up 2026-10-09: the host-side detail, and where the project went
+
+lsfg-vk moved: the GitHub repository is a pointer, the project is at lsfg-vk.dev with its code at git.lsfg-vk.dev, and the **license changed from GPLv3 to CC BY-NC-ND 4.0**. The GPL-era code is kept in `git.lsfg-vk.dev/lsfg-vk-archive` (last commit 2026-06-28).
+Same rule as above: read, learn, copy nothing. What the host code adds to the pass graph (the shaders themselves, the math, are Lossless Scaling's and are not in it): per-stage sizes and counts, the two-kind split (a feature chain per real frame, a matching chain per
+generated frame), the constants (flow scale, a timestamp (i + 1) / (N + 1), a UI threshold of 0.5), the swap of the two source frames on alternate frames. All of it, and a CPU lab of our own that tries the ideas, is in **docs/own-generator-plan.md**.
