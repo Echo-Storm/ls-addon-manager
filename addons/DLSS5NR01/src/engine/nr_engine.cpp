@@ -15,7 +15,7 @@
 namespace {
 
 constexpr unsigned long long kAppId = 0x24480451ull;   // the application id NGX is started with (the same as the forwarder's)
-constexpr DWORD kSlotWaitMs = 2000, kIdleWaitMs = 5000;
+constexpr DWORD kSlotWaitMs = 2000, kIdleWaitMs = 5000, kBuildWaitMs = 20000;   // (a model takes 2 to 3 s to make; 20 s means it is stuck)
 constexpr int kFloatGetterSlot = 14;                   // the parameter block's float getter (see nr_forwarder.cpp)
 enum Pass { kShrink = 0, kMotion = 1, kDeltaPass = 2 };
 
@@ -96,7 +96,14 @@ bool NrEngine::Shutdown() {
         Log("NrEngine: the engine's thread did not stop within %lu ms (stuck in the model's code); the engine is left as it is until Lossless Scaling closes", kIdleWaitMs);
         return false;
     }
-    EndBuild();
+    // A model being made when the engine is shut down (a restart, another card, the addon switched off): waited for, but not for ever. The caller holds the frame lock, which
+    // Lossless Scaling's render thread needs; a build that is stuck in NVIDIA's code is treated as the worker above is: nothing it still uses is torn down.
+    if (!EndBuild(kBuildWaitMs)) {
+        m_abandoned = true; m_failed = true;
+        snprintf(m_stats.lastError, sizeof m_stats.lastError, "the model stopped responding while it was being made; restart Lossless Scaling to use it again");
+        Log("NrEngine: the thread making the model did not end within %lu ms (stuck in the model's code); the engine is left as it is until Lossless Scaling closes", kBuildWaitMs);
+        return false;
+    }
     if (m_buildState.load() == kBuilt) Discard(m_built);
     m_buildState = kIdle;
     SafeRelease(m_buildList); SafeRelease(m_buildAlloc); SafeRelease(m_buildFence); SafeRelease(m_buildQueue);
@@ -606,11 +613,12 @@ void NrEngine::Build() {
     m_buildState.store(kBuilt, std::memory_order_release);
 }
 
-void NrEngine::EndBuild() {
-    if (!m_buildThread) return;
-    WaitForSingleObject(m_buildThread, INFINITE);   // it has ended, or ends within the GPU wait's limit
+bool NrEngine::EndBuild(unsigned long timeoutMs) {
+    if (!m_buildThread) return true;
+    if (WaitForSingleObject(m_buildThread, timeoutMs) != WAIT_OBJECT_0) return false;   // (otherwise it has ended, or ends within the GPU wait's limit)
     CloseHandle(m_buildThread);
     m_buildThread = nullptr;
+    return true;
 }
 
 void NrEngine::Discard(Scratch& s) {

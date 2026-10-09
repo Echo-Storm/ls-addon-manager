@@ -113,7 +113,33 @@ struct CadenceLook { uint64_t rateTick = 0, rateTaps = 0, nextLook = 12, seenFra
 void ForgetCadence() { g_cadenceProbe.Forget(); g_cadenceDetector.Reset(); g_sourceRepeats = 0; g_sourceFps = 0.0f; g_cadenceLook = CadenceLook{}; }
 void NoteSource(ID3D11DeviceContext* ctx, ID3D11Texture2D* frame);
 // At a TAP dispatch: the captured frame is the texture the tap chose, bound to this very pass (the frame is handed to the model later, when the flow is in, so the decision may not carry it yet)
+// Several addons of this family can be loaded at once (Neural Rendering and the upscalers), each a copy of this code with its own probe: one of them samples the frames and the others
+// take its verdict, through a process variable "<addon id>|<tick ms>|<repeats>|<capture rate x10>" that the sampling one renews once a second (a lease: when it stops, after 4 s
+// another takes over). Two that start in the same second both sample until the next look, when the one that wrote last stays and the other lets go.
+constexpr const wchar_t* kCadenceVariable = L"EAM_SOURCE_CADENCE";
+bool CadenceMine() {
+    static uint64_t checkedAt = 0; static bool mine = true;
+    const uint64_t now = GetTickCount64();
+    if (checkedAt && now - checkedAt < 1000) return mine;
+    checkedAt = now;
+    wchar_t buf[160] = {};
+    const DWORD n = GetEnvironmentVariableW(kCadenceVariable, buf, 160);
+    wchar_t id[64] = {}; unsigned long long tick = 0; int repeats = 0, fps10 = 0;
+    const bool parsed = n > 0 && n < 160 && swscanf_s(buf, L"%63[^|]|%llu|%d|%d", id, 64, &tick, &repeats, &fps10) == 4;
+    wchar_t me[64] = {}; MultiByteToWideChar(CP_UTF8, 0, kAddonId, -1, me, 64);
+    const bool otherLive = parsed && wcscmp(id, me) != 0 && now - tick < 4000;
+    if (otherLive) {   // somebody else samples: this addon shows what it found
+        if (mine) { g_cadenceProbe.Forget(); g_cadenceDetector.Reset(); g_cadenceLook = CadenceLook{}; }
+        mine = false; g_sourceRepeats = repeats; g_sourceFps = fps10 / 10.0f;
+        return false;
+    }
+    mine = true;
+    wchar_t out[160]; swprintf_s(out, L"%s|%llu|%d|%d", me, static_cast<unsigned long long>(now), g_sourceRepeats.load(), static_cast<int>(g_sourceFps.load() * 10.0f));
+    SetEnvironmentVariableW(kCadenceVariable, out);
+    return true;
+}
 void NoteTapFrame(ID3D11DeviceContext* ctx, ID3D11Resource* res) {
+    if (!CadenceMine()) return;
     ID3D11Texture2D* tex = nullptr;
     if (res && SUCCEEDED(res->QueryInterface(IID_PPV_ARGS(&tex)))) { NoteSource(ctx, tex); tex->Release(); }
 }

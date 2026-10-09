@@ -196,7 +196,7 @@ private:
     bool StartBuild(uint32_t ww, uint32_t wh, const NrTuning& tuning);
     static DWORD WINAPI BuildThread(void* self);
     void Build();                         // on the build thread
-    void EndBuild();                      // waits for the build thread to end (it has, or is about to)
+    bool EndBuild(unsigned long timeoutMs = 0xFFFFFFFFul);   // waits for the build thread to end (it has, or is about to); false when it did not within the time (the thread is then left running)
     void Discard(Scratch& s);             // a set the GPU no longer uses
     void TakeBuilt();                     // the built set becomes the one the runs use (on the frame path, between runs)
     bool WaitIdle();                      // false when the GPU did not finish in time

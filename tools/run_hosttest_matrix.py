@@ -612,6 +612,12 @@ def scenario_cadence_dup2(ctx, res, text, frame):
     res.check('...and nothing fails', 'FAULT' not in text and 'exception 0x' not in text)
 
 
+def scenario_cadence_pair(ctx, res, text, frame):
+    # two addons loaded together: one samples the frames and says so, once; the other takes its verdict
+    res.check('the doubled source is noticed, once (one addon samples)', len(re.findall(r'source cadence: every picture Lossless Scaling captures comes 2 times', text)) == 1)
+    res.check('...and nothing fails', 'FAULT' not in text and 'exception 0x' not in text)
+
+
 def scenario_cadence_unique(ctx, res, text, frame):
     # every captured frame new: nothing said about repeats
     res.check('the probe ran (it said it was watching)', 'source cadence: watching the captured pictures' in text)
@@ -743,6 +749,7 @@ SCENARIOS = [
     ('compare_nis', ['addon=DLSS4DLAA.dll', 'second=FSR3UPSC.dll', 'nis=1', 'nisbgra=1', 'nisnoflow=1', 'compareMode=0'], scenario_compare_nis),
     ('compare_vsr', ['addon=DLSS4DLAA.dll', 'second=VSRUPSC.dll', 'nis=1', 'nisbgra=1', 'nisnoflow=1', 'compareMode=5', 'enabled=1', 'quality=1', 'vfxDir=' + VFX_DIR], scenario_compare_vsr),
     ('cadence_dup2', ['presentMode=0', 'srcdup=2'], scenario_cadence_dup2),
+    ('cadence_pair', ['addon=DLSS4DLAA.dll', 'second=FSR3UPSC.dll', 'nis=1', 'srcdup=2'], scenario_cadence_pair),
     ('cadence_unique', ['presentMode=0', 'srcdup=1'], scenario_cadence_unique),
     ('cadence_scaler_dup2', ['addon=DLSS4DLAA.dll', 'nis=1', 'srcdup=2'], scenario_cadence_dup2),
     ('cadence_scaler_unique', ['addon=DLSS4DLAA.dll', 'nis=1', 'srcdup=1'], scenario_cadence_unique),
