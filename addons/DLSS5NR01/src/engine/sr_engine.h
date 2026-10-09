@@ -227,6 +227,8 @@ private:
     ID3D12Resource* m_depthUpload = nullptr;
     uint64_t m_runs = 0; double m_buildMs = 0;
     static constexpr int kMaxRepeatStreak = 8;
+    static constexpr unsigned kGateBackoffMs = 10000;
+    uint64_t m_gateOffUntil = 0, m_gateSeenTimeouts = 0; int m_gateSlowStreak = 0;
     std::atomic<bool> m_skipRepeats{ false }; std::atomic<unsigned> m_repeatWaitMs{ 4 };
     std::unique_ptr<nr::RepeatGate> m_gate; ID3D12Resource* m_lastOut = nullptr; uint64_t m_lastKey = 0; int m_repeatStreak = 0; uint64_t m_repeatSkips = 0, m_repeatChecks = 0;
 };

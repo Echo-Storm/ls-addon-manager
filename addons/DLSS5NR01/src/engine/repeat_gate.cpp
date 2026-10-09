@@ -159,7 +159,9 @@ RepeatGate::Result RepeatGate::Compare(ID3D12Resource* in, DXGI_FORMAT viewForma
     m_havePrev = true;   // (this input is being copied in whatever comes of the wait)
     if (WaitForSingleObject(static_cast<HANDLE>(m_event), waitMs) != WAIT_OBJECT_0) {
         ++m_timedOut;
-        if (getenv("EAM_GATE_FINISH")) WaitForSingleObject(static_cast<HANDLE>(m_event), 3000);   // EXPERIMENT
+        // The compare is let finish (50 ms at most) before the picture is worked on: with it still in flight the pictures that followed came out wrong (measured with a 1 ms wait: 31.4 dB
+        // against 33.4 in `nr_sreval dup=2`, every time; finished first, 33.4 every time). The engine stops asking for a while when this happens (SrEngine, kGateBackoffMs).
+        WaitForSingleObject(static_cast<HANDLE>(m_event), 50);
         return Result::Different;
     }
     QueryPerformanceCounter(&q1); m_lastMs = (q1.QuadPart - q0.QuadPart) * 1000.0 / freq.QuadPart;

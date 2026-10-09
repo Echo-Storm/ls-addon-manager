@@ -1196,7 +1196,9 @@ bool SrEngine::Run(ID3D12Resource* in, uint32_t inW, uint32_t inH, DXGI_FORMAT i
             m_gate = std::make_unique<nr::RepeatGate>();
             if (!m_gate->Init(m_dev, m_queue)) { Log("%s upscaler: repeated pictures cannot be recognised on this card; they are worked on as any other", Name()); m_skipRepeats.store(false); m_gate.reset(); }
         }
-        if (m_gate) {
+        const uint64_t nowMs = GetTickCount64();
+        if (m_gate && nowMs < m_gateOffUntil) { /* the compare was too slow a moment ago (a busy card): not asked for now */ }
+        else if (m_gate) {
             auto mix = [&](uint64_t v) { repeatKey = repeatKey * 1099511628211ull ^ (v + 0x9e3779b97f4a7c15ull); };
             mix(inW); mix(inH); mix(outW); mix(outH); mix(static_cast<uint64_t>(inFormat)); mix(static_cast<uint64_t>(outFormat)); mix(preset); mix(hdr ? 1 : 0);
             mix(static_cast<uint64_t>(sharpen * 1000.0f + 0.5f)); mix(static_cast<uint64_t>(edges * 1000.0f + 0.5f)); mix(estimating ? 1 : 0); mix(sharpening ? 1 : 0); mix(smoothing ? 1 : 0); mix(leaning ? 1 : 0);
@@ -1204,7 +1206,11 @@ bool SrEngine::Run(ID3D12Resource* in, uint32_t inW, uint32_t inH, DXGI_FORMAT i
             if (view == DXGI_FORMAT_UNKNOWN) view = hdr ? DXGI_FORMAT_R16G16B16A16_FLOAT : DXGI_FORMAT_R8G8B8A8_UNORM;
             const nr::RepeatGate::Result r = m_gate->Compare(in, view, copied, copiedValue, 0.0f, m_repeatWaitMs.load());
             ++m_repeatChecks;
-            { static uint64_t seenTimeouts = 0; if (m_gate->TimedOut() != seenTimeouts) { seenTimeouts = m_gate->TimedOut(); Log("%s upscaler: the repeat compare did not answer within %u ms (picture %llu): this one is worked on", Name(), m_repeatWaitMs.load(), static_cast<unsigned long long>(m_repeatChecks)); } }
+            if (m_gate->TimedOut() != m_gateSeenTimeouts) {   // too slow to answer: said, and after three in a row the compare is not asked for during kGateBackoffMs (the card is busy)
+                m_gateSeenTimeouts = m_gate->TimedOut(); ++m_gateSlowStreak;
+                Log("%s upscaler: the repeat compare did not answer within %u ms (picture %llu): this one is worked on", Name(), m_repeatWaitMs.load(), static_cast<unsigned long long>(m_repeatChecks));
+                if (m_gateSlowStreak >= 3) { m_gateOffUntil = nowMs + kGateBackoffMs; m_gateSlowStreak = 0; m_gate->Forget(); Log("%s upscaler: repeated pictures are not looked for for %u s (the compare is slow: the card is busy)", Name(), kGateBackoffMs / 1000); }
+            } else if (r == nr::RepeatGate::Result::Same) m_gateSlowStreak = 0;
             const bool sameAsBefore = !fresh && !reset && m_lastOut && m_lastKey == repeatKey;
             if (r == nr::RepeatGate::Result::Same && sameAsBefore && m_repeatStreak < kMaxRepeatStreak && m_gate->CopyPicture(m_lastOut, out)) {
                 m_queue->Signal(done, doneValue);
