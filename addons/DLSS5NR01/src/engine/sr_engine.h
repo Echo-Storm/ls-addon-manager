@@ -135,6 +135,7 @@ public:
     void SetRepeatWaitMs(unsigned ms) { m_repeatWaitMs.store(ms); }
     uint64_t RepeatSkips() const { return m_repeatSkips; }     // pictures not worked on
     uint64_t RepeatChecks() const { return m_repeatChecks; }   // pictures compared
+    uint64_t RepeatBusy() const { return m_repeatBusy; }       // pictures not compared because the engine's queue was still busy
     uint64_t RepeatTimeouts() const { return m_gate ? m_gate->TimedOut() : 0; }
     double RepeatCompareMs() const { return m_gate ? m_gate->LastCompareMs() : 0.0; }
     double LastBuildMs() const { return m_buildMs; }
@@ -229,6 +230,6 @@ private:
     static constexpr int kMaxRepeatStreak = 8;
     static constexpr unsigned kGateBackoffMs = 10000;
     uint64_t m_gateOffUntil = 0, m_gateSeenTimeouts = 0; int m_gateSlowStreak = 0;
-    std::atomic<bool> m_skipRepeats{ false }; std::atomic<unsigned> m_repeatWaitMs{ 4 };
-    std::unique_ptr<nr::RepeatGate> m_gate; ID3D12Resource* m_lastOut = nullptr; uint64_t m_lastKey = 0; int m_repeatStreak = 0; uint64_t m_repeatSkips = 0, m_repeatChecks = 0;
+    std::atomic<bool> m_skipRepeats{ false }; std::atomic<unsigned> m_repeatWaitMs{ 10 };
+    std::unique_ptr<nr::RepeatGate> m_gate; ID3D12Resource* m_lastOut = nullptr; uint64_t m_lastKey = 0; int m_repeatStreak = 0; uint64_t m_repeatSkips = 0, m_repeatChecks = 0, m_repeatBusy = 0;
 };

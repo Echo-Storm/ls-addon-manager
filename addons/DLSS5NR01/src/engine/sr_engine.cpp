@@ -1204,8 +1204,12 @@ bool SrEngine::Run(ID3D12Resource* in, uint32_t inW, uint32_t inH, DXGI_FORMAT i
             mix(static_cast<uint64_t>(sharpen * 1000.0f + 0.5f)); mix(static_cast<uint64_t>(edges * 1000.0f + 0.5f)); mix(estimating ? 1 : 0); mix(sharpening ? 1 : 0); mix(smoothing ? 1 : 0); mix(leaning ? 1 : 0);
             DXGI_FORMAT view = inFormat;
             if (view == DXGI_FORMAT_UNKNOWN) view = hdr ? DXGI_FORMAT_R16G16B16A16_FLOAT : DXGI_FORMAT_R8G8B8A8_UNORM;
-            const nr::RepeatGate::Result r = m_gate->Compare(in, view, copied, copiedValue, 0.0f, m_repeatWaitMs.load());
-            ++m_repeatChecks;
+            // Only asked while the engine's queue is idle: the compare would wait behind the picture before's work (a run of a millisecond or two, a startup much more), and the answer is not worth
+            // that wait; a picture met while the queue is busy is simply worked on (and the gate forgets the input it kept, which is now not the one before).
+            const bool idle = m_fence && m_fence->GetCompletedValue() >= m_fenceValue;
+            nr::RepeatGate::Result r = nr::RepeatGate::Result::Different;
+            if (idle) { r = m_gate->Compare(in, view, copied, copiedValue, 0.0f, m_repeatWaitMs.load()); ++m_repeatChecks; }
+            else { m_gate->Forget(); ++m_repeatBusy; }
             if (m_gate->TimedOut() != m_gateSeenTimeouts) {   // too slow to answer: said, and after three in a row the compare is not asked for during kGateBackoffMs (the card is busy)
                 m_gateSeenTimeouts = m_gate->TimedOut(); ++m_gateSlowStreak;
                 Log("%s upscaler: the repeat compare did not answer within %u ms (picture %llu): this one is worked on", Name(), m_repeatWaitMs.load(), static_cast<unsigned long long>(m_repeatChecks));
