@@ -41,3 +41,24 @@ Differences from theirs, because our host is not theirs: **we run inside Lossles
 2. A run with every picture new (predication present, never skipping): must cost the same as today plus the compare.
 3. A run with `dup=2` and `dup=4`: the GPU time per picture, and the output against the unskipped run (must be identical on the repeats).
 4. A moving small region in an otherwise repeated picture: must not be skipped (the reason for the exact compare).
+
+## Prototype result (2026-10-09): built as a waited compare, not predication
+
+**What was built** (`src/engine/repeat_gate.{h,cpp}`, the hook in `SrEngine::Run`, `nr_sreval skip=1`; off by default): the exact compare runs on the engine's own queue, on the engine's worker thread, and **is waited for there** (the worker is not Lossless Scaling's render
+thread; the pictures it makes are shown a frame or two later anyway). Predication was not needed for the first measurement and carries the unknown of the runtimes' dispatches under a predicate; it stays the alternative if the wait turns out too costly on a busy card.
+A repeat copies the last output into this picture's output on the GPU and signals "done"; every 8th repeat is run for real, so a setting changed meanwhile shows within a few pictures. Anything that is not an exact repeat (a new size or format, a changed
+sharpening or edge setting, a reset) is worked on.
+
+**Measured** (`nr_sreval`, DLSS, the WoW HDR clip, 1.5x, `dup=N` giving each recorded frame N times in a row):
+- `dup=2`: 40 of 80 pictures not worked on (every repeat); `dup=4`: 120 of 160 (3 of 4). The picture scores are the same as without skipping (33.36 dB; the repeats are *perfectly* steady, 99 dB, since they are copies).
+- The compare's wait: 0.1 to 1.1 ms on an idle card (the GPU's round trip, mostly), not yet measured on a busy one (a load test was cut short because the owner needed the card).
+- GPU cost of a skipped picture: the compare and a copy (the compare is a single dispatch of one thread a pixel; well under 0.1 ms at this size) against 1.35 ms (DLSS, 2562x1442) for a full run; so a 30 fps source in a 60 Hz feed saves about 0.65 ms of every 1.35, and in a 120 Hz feed about 1.0.
+
+**Two things learned the hard way**
+1. A compare that times out (it was given too short a wait) and is then followed by the real run **without the compare having finished** gave wrong pictures for about twenty frames afterwards (31.4 dB against 33.4, every time with a 1 ms wait). Why is not understood
+   (the two lists are in order on one queue, and the barriers end in COMMON); the fix is by design: after a timeout the gate still waits for the compare to finish (50 ms at most) before returning, and the engine stops comparing for 10 s after three slow compares in a row (a busy card).
+   With that, a 1 ms wait (4 to 7 timeouts in 80 pictures) scores 33.36 dB again.
+2. A harness that writes every output into one texture made "copy the last output into this one" a copy of a texture onto itself, which D3D12 does not allow: `CopyPicture` returns at once when source and destination are the same.
+
+**Not done:** the load test (the compare's wait under a competing GPU load, and timeouts per hundred pictures); FSR and XeSS (the engine hook is the same for all three; only DLSS was run); the live link (`ScalerLink` has a ring of output pictures; the copy there is between different textures, and the new
+`m_lastOut` pointer must stay valid until the next picture, which the ring guarantees for kOut >= 2); a panel switch and a setting (`scalerSkipRepeats`); Neural Rendering (its model runs through a different engine, `NrEngine`).
