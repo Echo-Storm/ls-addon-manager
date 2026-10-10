@@ -9,6 +9,9 @@
 //   * the square's x against x0 + v (n - 1 + k / N) for made frame k of N in the interval ending at real frame n,
 //   * the spacing in time of the frames shown.
 //   nr_fgpresent [mult=4] [hdr=0|1] [frames=30] [own=1] [fps=30] [speed=24] [fsr=<amd_fidelityfx_dx12.dll>]
+//                [dup=2]     every real frame comes dup times (a 30 fps game in a 60 Hz feed: with fps=60): the frames made between identical ones must be the same too
+//                [switch=1]  the multiplier changed while it runs (to x2 a third of the way, to x5 two thirds): the last intervals must have the last one's count
+//                [resize=1]  the swap chain's buffers resized to 800x450 half way: the presenter starts again at the new size and goes on
 // Needs a build made with NR_FRAMEGEN=ON only for the addon itself; this tool links the presenter directly, so it runs in any build.
 #include <windows.h>
 #include <d3d11_4.h>
@@ -77,11 +80,12 @@ void OnHook(IDXGISwapChain* sc, UINT sync, UINT flags) {
 // the square's left edge and centre x in a frame (bright pixels in the rows the square covers), or -1
 double SquareX(ID3D11Texture2D* st) {
     D3D11_MAPPED_SUBRESOURCE m{};
+    D3D11_TEXTURE2D_DESC sd{}; st->GetDesc(&sd);
     if (FAILED(g_ctx->Map(st, 0, D3D11_MAP_READ, 0, &m))) return -1;
     double sum = 0; uint64_t n = 0;
-    for (UINT y = 320; y < 400 && y < g_h; y += 2) {
+    for (UINT y = 330; y < 400 && y < sd.Height; y += 2) {
         const uint8_t* row = static_cast<const uint8_t*>(m.pData) + static_cast<size_t>(y) * m.RowPitch;
-        for (UINT x = 0; x < g_w; ++x) {
+        for (UINT x = 0; x < sd.Width; ++x) {
             float v;
             if (g_fmt == DXGI_FORMAT_R16G16B16A16_FLOAT) v = DirectX::PackedVector::XMConvertHalfToFloat(reinterpret_cast<const uint16_t*>(row)[x * 4]);
             else v = row[x * 4] / 255.0f;
@@ -100,6 +104,8 @@ int main(int argc, char** argv) {
     const bool hdr = Arg(argc, argv, "hdr", 0) != 0, own = Arg(argc, argv, "own", 1) != 0;
     // (the square must stay on the 960 pixel wide picture: 120 + speed * frames + 96 < 960)
     const int fps = std::clamp(Arg(argc, argv, "fps", 30), 10, 120); const double speed = Arg(argc, argv, "speed", 24);
+    const int dup = std::clamp(Arg(argc, argv, "dup", 1), 1, 4); const bool doSwitch = Arg(argc, argv, "switch", 0) != 0, doResize = Arg(argc, argv, "resize", 0) != 0;
+    int wantMult = mult, settledFrom = 0;   // the multiplier the last intervals should have, and the first real frame from which the checks look
     g_w = 960; g_h = 540; g_fmt = hdr ? DXGI_FORMAT_R16G16B16A16_FLOAT : DXGI_FORMAT_R8G8B8A8_UNORM;
     g_encoding = hdr ? 1u : 0u; g_white = 80.0f;
     std::wstring fsr;
@@ -131,10 +137,16 @@ int main(int argc, char** argv) {
     LARGE_INTEGER freq, start; QueryPerformanceFrequency(&freq); QueryPerformanceCounter(&start);
     auto nowMs = [&] { LARGE_INTEGER n; QueryPerformanceCounter(&n); return (n.QuadPart - start.QuadPart) * 1000.0 / freq.QuadPart; };
     for (int n = 0; n < frames; ++n) {
+        if (doSwitch && n == frames / 3) nr::framegen::SetMultiplier(2);
+        if (doSwitch && n == 2 * frames / 3) { nr::framegen::SetMultiplier(5); wantMult = 5; settledFrom = n + 3; }
+        if (doResize && n == frames / 2) {
+            if (FAILED(sc->ResizeBuffers(0, 800, 450, DXGI_FORMAT_UNKNOWN, 0))) { printf("the resize failed\n"); return 2; }
+            g_w = 800; g_h = 450; settledFrom = n + 4;
+        }
         while (nowMs() < n * intervalMs) Sleep(0);
         ID3D11Texture2D* bb = nullptr; sc->GetBuffer(0, IID_PPV_ARGS(&bb));
         ID3D11UnorderedAccessView* uav = nullptr; g_dev->CreateUnorderedAccessView(bb, nullptr, &uav);
-        const float c[4] = { static_cast<float>(x0 + speed * n), 330.0f, 1.0f, 0.0f };
+        const float c[4] = { static_cast<float>(x0 + speed * (n / dup)), 330.0f, 1.0f, 0.0f };
         g_ctx->UpdateSubresource(cb, 0, nullptr, c, 0, 0);
         g_ctx->CSSetShader(cs, nullptr, 0); g_ctx->CSSetConstantBuffers(0, 1, &cb); g_ctx->CSSetUnorderedAccessViews(0, 1, &uav, nullptr);
         g_ctx->Dispatch((g_w + 7) / 8, (g_h + 7) / 8, 1);
@@ -151,7 +163,7 @@ int main(int argc, char** argv) {
     printf("presenter: %llu real, %llu made between (%llu by %s), %zu frames shown\n", (unsigned long long)st.real, (unsigned long long)st.generated, (unsigned long long)st.byFsr, st.engine.c_str(), g_shown.size());
     if (Arg(argc, argv, "list", 0)) { double t0 = 0; for (size_t i = 0; i < g_shown.size() && i < 400; ++i) { if (!i) t0 = static_cast<double>(g_shown[0].at.QuadPart); printf("  shown %2zu  %s  x %7.1f  at %7.1f ms\n", i, g_shown[i].made ? "made" : "real", SquareX(g_shown[i].staging), (g_shown[i].at.QuadPart - t0) * 1000.0 / freq.QuadPart); } }
     int made = 0, real = 0, bad = 0, orderBad = 0, interval = 0, inInterval = 0; double worst = 0, sumErr = 0; int measured = 0;
-    std::vector<double> gaps; LARGE_INTEGER last{}; int countWrong = 0, warm = 6;
+    std::vector<double> gaps; LARGE_INTEGER last{}; int countWrong = 0, warm = std::max(6, settledFrom);
     std::vector<int> perInterval;
     for (size_t i = 0; i < g_shown.size(); ++i) {
         const Shown& s = g_shown[i];
@@ -163,11 +175,12 @@ int main(int argc, char** argv) {
             // a real frame n: x = x0 + speed n; the made frames before it, k = 1 .. inInterval of inInterval + 1
             if (real > 0 && real > warm) {
                 perInterval.push_back(inInterval);
-                if (inInterval != mult - 1) ++countWrong;
+                if (inInterval != wantMult - 1) ++countWrong;
                 for (int k = 1; k <= inInterval; ++k) {
                     const Shown& m = g_shown[i - inInterval + (k - 1)];
-                    const double mx = SquareX(m.staging), want = x0 + speed * (real - 1 + static_cast<double>(k) / (inInterval + 1));
-                    const double base = x0 + speed * real;   // this real frame's measured x is base + offset (the centroid sits half the square in)
+                    const double cPrev = (real - 1) / dup, cNow = real / dup;   // (the content index of the real frames each side)
+                    const double mx = SquareX(m.staging), want = x0 + speed * (cPrev + (cNow - cPrev) * static_cast<double>(k) / (inInterval + 1));
+                    const double base = x0 + speed * cNow;   // this real frame's measured x is base + offset (the centroid sits half the square in)
                     const double offset = x - base;
                     const double e = std::fabs(mx - (want + offset));
                     if (mx < 0) { ++bad; continue; }
@@ -181,10 +194,10 @@ int main(int argc, char** argv) {
     double minGap = 1e9, maxGap = 0, meanGap = 0;
     for (double g : gaps) { minGap = std::min(minGap, g); maxGap = std::max(maxGap, g); meanGap += g; }
     if (!gaps.empty()) meanGap /= gaps.size();
-    const double want = intervalMs / mult;
-    printf("frames per real frame after warm-up: %s (wanted %d made between each two real ones; %d intervals wrong)\n", perInterval.empty() ? "none" : "measured", mult - 1, countWrong);
+    const double want = intervalMs / wantMult;
+    printf("frames per real frame after warm-up: %s (wanted %d made between each two real ones; %d intervals wrong)\n", perInterval.empty() ? "none" : "measured", wantMult - 1, countWrong);
     printf("the made frames' square position: mean error %.2f px, worst %.2f px (%d frames; speed %.0f px a real frame); %d frames without a readable square\n", measured ? sumErr / measured : 0.0, worst, measured, speed, bad);
-    printf("spacing of the frames shown: mean %.1f ms, min %.1f, max %.1f (wanted %.1f ms at x%d of %d fps)\n", meanGap, minGap, maxGap, want, mult, fps);
+    printf("spacing of the frames shown: mean %.1f ms, min %.1f, max %.1f (wanted %.1f ms at x%d of %d fps)\n", meanGap, minGap, maxGap, want, wantMult, fps);
     const bool ok = made > 0 && countWrong == 0 && bad == 0 && measured > 0 && worst < 0.2 * speed + 3.0;
     printf("%s\n", ok ? "FG PRESENT TEST PASSED" : "FG PRESENT TEST FAILED");
     for (auto& s : g_shown) if (s.staging) s.staging->Release();
