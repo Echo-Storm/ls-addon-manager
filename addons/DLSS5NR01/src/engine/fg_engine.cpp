@@ -305,7 +305,7 @@ bool FgEngine::Generate(ID3D12Resource* in, ID3D12Fence* copied, uint64_t n, ID3
         ok = m_ffx->fn.Dispatch(&m_ffx->ctx, &prep.header) == FFX_API_RETURN_OK;
         if (!ok) Log("frame generation engine: FSR's preparation failed");
     } else Log("frame generation engine: FSR's configure failed");
-    if (ok) {
+    if (ok && !ownNow) {
         ffxDispatchDescFrameGeneration gen{}; gen.header.type = FFX_API_DISPATCH_DESC_TYPE_FRAMEGENERATION;
         gen.commandList = m_list; gen.presentColor = ffxApiGetResourceDX12(in, FFX_API_RESOURCE_STATE_COMPUTE_READ);
         gen.outputs[0] = ffxApiGetResourceDX12(m_made, FFX_API_RESOURCE_STATE_UNORDERED_ACCESS); gen.numGeneratedFrames = 1; gen.reset = first;
