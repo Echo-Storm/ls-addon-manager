@@ -839,7 +839,7 @@ int main(int argc, char** argv) {
                 g.list->CopyTextureRegion(&to, 0, 0, 0, &from, nullptr);
                 g.Submit();
                 readPicture(readback, picture);
-                if (i >= 2 && i % 20 == 0) printf("  FgEngine (%s): the GPU %.2f ms a frame between\n", eng.GpuMs());
+                if (i >= 2 && i % 20 == 0) printf("  FgEngine (%s): the GPU %.2f ms a frame between\n", eng.UsingOwnSynthesis() ? "own synthesis" : "FSR", eng.GpuMs());
                 return true;
             };
         } else if (direct) {
