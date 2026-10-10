@@ -777,6 +777,7 @@ int main(int argc, char** argv) {
         uint64_t frameId = 0;
         if (useOwn) {
             static nr::OwnSynth syn; static ID3D12Resource *prevTex = nullptr, *outTex = nullptr; static D3D12_RESOURCE_STATES prevState = D3D12_RESOURCE_STATE_COPY_DEST;
+            { UINT64 qf = 0; g.queue->GetTimestampFrequency(&qf); syn.SetTimestampFrequency(qf); }
             if (!syn.Init(g.dev, [](const char* m) { printf("  %s\n", m); }) || !syn.Ensure(W, H)) { printf("own synthesis could not start\n"); return 4; }
             prevTex = g.Texture(W, H, DXGI_FORMAT_R8G8B8A8_UNORM, false, D3D12_RESOURCE_STATE_COPY_DEST);
             outTex = g.Texture(W, H, DXGI_FORMAT_R8G8B8A8_UNORM, true, D3D12_RESOURCE_STATE_UNORDERED_ACCESS);
@@ -798,7 +799,7 @@ int main(int argc, char** argv) {
                 g.Barrier(cur, D3D12_RESOURCE_STATE_COPY_SOURCE, D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE);
                 prevState = D3D12_RESOURCE_STATE_COPY_DEST;
                 g.Submit();
-                if (i >= 2) readPicture(readback, picture);
+                if (i >= 2) { readPicture(readback, picture); double ms = 0; static double sum = 0; static int n = 0; if (syn.ReadMs(0, ms)) { sum += ms; ++n; } if (i + 2 >= count && n) printf("  own synthesis: the GPU %.2f ms a frame (%d frames, %ux%u)\n", sum / n, n, W, H); }
                 return true;
             };
         } else

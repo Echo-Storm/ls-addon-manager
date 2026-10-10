@@ -33,6 +33,9 @@ public:
     // before, now: the frames (NON_PIXEL_SHADER_RESOURCE, any format a shader reads as colour, same size); motion: RG16F pixel vectors c to a
     // (NON_PIXEL_SHADER_RESOURCE); out: the frame made (UNORDERED_ACCESS, a format that takes typed stores, same size). t: the time of the frame made
     // between them (0 = before, 1 = now). Leaves the list's descriptor heap and root signature changed.
+    // With a timestamp frequency (the queue's) the passes are timed on the GPU: ReadMs(slot) after the slot's work has finished.
+    void SetTimestampFrequency(uint64_t f) { m_freq = f; }
+    bool ReadMs(int slot, double& ms);
     bool Record(ID3D12GraphicsCommandList* list, int slot, ID3D12Resource* before, DXGI_FORMAT beforeFormat, ID3D12Resource* now, DXGI_FORMAT nowFormat,
                 ID3D12Resource* motion, ID3D12Resource* out, DXGI_FORMAT outFormat, float t);
 
@@ -45,6 +48,7 @@ private:
     ID3D12DescriptorHeap* m_heap = nullptr; uint32_t m_descriptorSize = 0;
     ID3D12Resource* m_buf[kBuffers] = {};   // E0, Ea0, K1, K2, K3, V1, V2, V3
     uint32_t m_w = 0, m_h = 0; bool m_ready = false;
+    ID3D12QueryHeap* m_stamps = nullptr; ID3D12Resource* m_stampReadback = nullptr; uint64_t m_freq = 0;
 };
 
 } // namespace nr

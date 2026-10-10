@@ -1,4 +1,6 @@
+#ifndef NOMINMAX
 #define NOMINMAX
+#endif
 #include "engine/own_synth.h"
 #include <d3dcompiler.h>
 #include <cstdio>
@@ -189,10 +191,21 @@ bool OwnSynth::Init(ID3D12Device* dev, LogFn log) {
     return true;
 }
 
+bool OwnSynth::ReadMs(int slot, double& ms) {
+    if (!m_stampReadback || !m_freq) return false;
+    const uint64_t* v = nullptr; D3D12_RANGE r{ static_cast<SIZE_T>(slot % kSlots) * 16, static_cast<SIZE_T>(slot % kSlots) * 16 + 16 };
+    if (FAILED(m_stampReadback->Map(0, &r, reinterpret_cast<void**>(const_cast<uint64_t**>(&v))))) return false;
+    const uint64_t a = v[(slot % kSlots) * 2], b = v[(slot % kSlots) * 2 + 1];
+    D3D12_RANGE none{ 0, 0 }; m_stampReadback->Unmap(0, &none);
+    if (b <= a) return false;
+    ms = static_cast<double>(b - a) * 1000.0 / static_cast<double>(m_freq);
+    return true;
+}
+
 void OwnSynth::Shutdown() {
     for (auto& b : m_buf) Rel(b);
     for (auto& p : m_pso) Rel(p);
-    Rel(m_heap); Rel(m_root);
+    Rel(m_heap); Rel(m_root); Rel(m_stamps); Rel(m_stampReadback);
     m_w = m_h = 0; m_ready = false; m_dev = nullptr;
 }
 
@@ -225,6 +238,13 @@ bool OwnSynth::Record(ID3D12GraphicsCommandList* list, int slot, ID3D12Resource*
     }
     {   D3D12_UNORDERED_ACCESS_VIEW_DESC uv{}; uv.Format = outFormat; uv.ViewDimension = D3D12_UAV_DIMENSION_TEXTURE2D;
         D3D12_CPU_DESCRIPTOR_HANDLE h = cpu; h.ptr += static_cast<SIZE_T>(kSrvs + kBuffers) * m_descriptorSize; m_dev->CreateUnorderedAccessView(out, nullptr, &uv, h); }
+    if (m_freq && !m_stamps) {
+        D3D12_QUERY_HEAP_DESC qd{}; qd.Type = D3D12_QUERY_HEAP_TYPE_TIMESTAMP; qd.Count = kSlots * 2;
+        D3D12_HEAP_PROPERTIES rp{}; rp.Type = D3D12_HEAP_TYPE_READBACK;
+        D3D12_RESOURCE_DESC rd{}; rd.Dimension = D3D12_RESOURCE_DIMENSION_BUFFER; rd.Width = kSlots * 16; rd.Height = 1; rd.DepthOrArraySize = 1; rd.MipLevels = 1; rd.SampleDesc.Count = 1; rd.Layout = D3D12_TEXTURE_LAYOUT_ROW_MAJOR;
+        if (FAILED(m_dev->CreateQueryHeap(&qd, IID_PPV_ARGS(&m_stamps))) || FAILED(m_dev->CreateCommittedResource(&rp, D3D12_HEAP_FLAG_NONE, &rd, D3D12_RESOURCE_STATE_COPY_DEST, nullptr, IID_PPV_ARGS(&m_stampReadback)))) { Rel(m_stamps); Rel(m_stampReadback); m_freq = 0; }
+    }
+    if (m_stamps) list->EndQuery(m_stamps, D3D12_QUERY_TYPE_TIMESTAMP, static_cast<UINT>(slot % kSlots) * 2);
     ID3D12DescriptorHeap* heaps[] = { m_heap };
     list->SetDescriptorHeaps(1, heaps);
     list->SetComputeRootSignature(m_root);
@@ -249,6 +269,10 @@ bool OwnSynth::Record(ID3D12GraphicsCommandList* list, int slot, ID3D12Resource*
     pass(Hyp1, 0, 0, 0.0f);
     pass(Hyp2, 0, 0, 0.0f);
     pass(Synth, 0, 0, 0.0f);
+    if (m_stamps) {
+        list->EndQuery(m_stamps, D3D12_QUERY_TYPE_TIMESTAMP, static_cast<UINT>(slot % kSlots) * 2 + 1);
+        list->ResolveQueryData(m_stamps, D3D12_QUERY_TYPE_TIMESTAMP, static_cast<UINT>(slot % kSlots) * 2, 2, m_stampReadback, static_cast<UINT64>(slot % kSlots) * 16);
+    }
     return true;
 }
 
