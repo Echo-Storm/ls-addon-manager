@@ -230,7 +230,10 @@ bool BeforeRealPresent(IDXGISwapChain* sc, UINT sync, UINT flags, uint32_t encod
 
     // the frame between: FSR's (the frame copied over to FgEngine, the frame made copied back), or the blend
     bool byFsr = false; int made = 0;   // made: how many frames between the engine made (0 with the blend)
-    if (EnsureEngine(bd, log)) {
+    LARGE_INTEGER stageA; QueryPerformanceCounter(&stageA);
+    const bool engineUp = EnsureEngine(bd, log);
+    LARGE_INTEGER stageB; QueryPerformanceCounter(&stageB);
+    if (engineUp) {
         g.ctx->CopyResource(g.in11, back);
         g.ctx4->Signal(g.copied11, ++g.copiedValue);
         g.ctx->Flush();   // the copy and the signal on the GPU's way before the engine waits for them
@@ -243,6 +246,9 @@ bool BeforeRealPresent(IDXGISwapChain* sc, UINT sync, UINT flags, uint32_t encod
         ID3D12Resource* outs[OwnSynth::kMaxTargets]; outs[0] = g.out12; for (int k = 1; k < want; ++k) outs[k] = g.more12[k];
         made = g.engine.GenerateFrames(g.in12, g.copied12, g.copiedValue, outs, want, g.made12, ++g.madeValue, static_cast<float>(g.intervalMs), g.resetNext, encoding, whiteNits, g.guard.load());
         g.resetNext = false;
+        LARGE_INTEGER stageC; QueryPerformanceCounter(&stageC);
+        { static int said = 0; const double ensureMs = Ms(stageA, stageB), engineMs = Ms(stageB, stageC);
+          if ((ensureMs > 40.0 || engineMs > 40.0) && said < 6 && log) { ++said; char m[200]; snprintf(m, sizeof m, "frame generation: a slow frame on the presenting thread: the engine check %.0f ms, the engine's frame %.0f ms", ensureMs, engineMs); log(m); } }
         byFsr = made > 0;
         if (g.engine.IsReady()) g.ctx4->Wait(g.made11, g.madeValue);   // (the engine signals it on every path: the next copy into in11 must follow its reading of it, also when it made none)
         if (byFsr) {
