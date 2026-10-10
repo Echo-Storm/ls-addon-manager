@@ -776,16 +776,27 @@ int main(int argc, char** argv) {
         if (const ffxReturnCode_t rc = fx.Configure(&ctx, &cfg.header); rc != FFX_API_RETURN_OK) { printf("FSR frame generation could not be configured (code %u)\n", rc); return 4; }
         uint64_t frameId = 0;
         if (useOwn) {
-            static nr::OwnSynth syn; static ID3D12Resource *prevTex = nullptr, *outTex = nullptr; static D3D12_RESOURCE_STATES prevState = D3D12_RESOURCE_STATE_COPY_DEST;
+            static nr::OwnSynth syn; static ID3D12Resource *prevTex = nullptr; static std::vector<ID3D12Resource*> outs; static std::vector<nr::OwnSynth::Target> tgts; static int pickOut = 0; static D3D12_RESOURCE_STATES prevState = D3D12_RESOURCE_STATE_COPY_DEST;
             { UINT64 qf = 0; g.queue->GetTimestampFrequency(&qf); syn.SetTimestampFrequency(qf); }
+            syn.SetAnalysisScale(Arg(argc, argv, "ownscale", 2));   // ownscale=1: the analysis at every pixel (the reference), 2: at half size (the default)
             if (!syn.Init(g.dev, [](const char* m) { printf("  %s\n", m); }) || !syn.Ensure(W, H)) { printf("own synthesis could not start\n"); return 4; }
             prevTex = g.Texture(W, H, DXGI_FORMAT_R8G8B8A8_UNORM, false, D3D12_RESOURCE_STATE_COPY_DEST);
-            outTex = g.Texture(W, H, DXGI_FORMAT_R8G8B8A8_UNORM, true, D3D12_RESOURCE_STATE_UNORDERED_ACCESS);
+            {   // ownmult=N: N - 1 frames between each pair (at k / N), the one nearest owt= is scored; 2 (default): one, at owt
+                const int mult = std::clamp(Arg(argc, argv, "ownmult", 2), 2, nr::OwnSynth::kMaxTargets + 1);
+                float bestD = 9.0f;
+                for (int k = 1; k < mult; ++k) {
+                    outs.push_back(g.Texture(W, H, DXGI_FORMAT_R8G8B8A8_UNORM, true, D3D12_RESOURCE_STATE_UNORDERED_ACCESS));
+                    const float tk = mult == 2 ? ownT : static_cast<float>(k) / mult;
+                    tgts.push_back({ outs.back(), tk });
+                    if (std::fabs(tk - ownT) < bestD) { bestD = std::fabs(tk - ownT); pickOut = k - 1; }
+                }
+            }
             step = [&](int i, float frameMs, std::vector<uint8_t>& picture) -> bool {
                 (void)frameMs;
                 if (i >= 2) {
                     if (prevState != D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE) { g.Barrier(prevTex, prevState, D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE); prevState = D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE; }
-                    if (!syn.Record(g.list, 0, prevTex, DXGI_FORMAT_R8G8B8A8_UNORM, cur, DXGI_FORMAT_R8G8B8A8_UNORM, motion, outTex, DXGI_FORMAT_R8G8B8A8_UNORM, ownT)) { printf("own synthesis failed\n"); return false; }
+                    if (!syn.Record(g.list, 0, prevTex, DXGI_FORMAT_R8G8B8A8_UNORM, cur, DXGI_FORMAT_R8G8B8A8_UNORM, motion, DXGI_FORMAT_R8G8B8A8_UNORM, tgts.data(), static_cast<int>(tgts.size()))) { printf("own synthesis failed\n"); return false; }
+                    ID3D12Resource* outTex = outs[pickOut];
                     g.Barrier(outTex, D3D12_RESOURCE_STATE_UNORDERED_ACCESS, D3D12_RESOURCE_STATE_COPY_SOURCE);
                     D3D12_TEXTURE_COPY_LOCATION to{ readback, D3D12_TEXTURE_COPY_TYPE_PLACED_FOOTPRINT }; to.PlacedFootprint = fp;
                     D3D12_TEXTURE_COPY_LOCATION from{ outTex, D3D12_TEXTURE_COPY_TYPE_SUBRESOURCE_INDEX }; from.SubresourceIndex = 0;

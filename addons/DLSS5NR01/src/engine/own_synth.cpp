@@ -15,63 +15,73 @@ namespace {
 
 template <class T> void Rel(T*& p) { if (p) { p->Release(); p = nullptr; } }
 
-// See own_synth.h for what each pass does. All state lives in eight structured buffers of uints (floats as bits, vectors as two halves).
-// HDR frames (scRGB, HDR10) are compared and blended in their SDR view (hdr_hlsl.h, as the upscalers do) and the frame made goes back into their own encoding.
+// See own_synth.h for what each pass does. All state lives in eleven structured buffers of uints (one a cell; floats as bits, vectors as two halves, in the
+// frames' pixels). A cell is `scale` x `scale` pixels. HDR frames (scRGB, HDR10) are compared and blended in their SDR view (hdr_hlsl.h, as the upscalers do)
+// and the frames made go back into their own encoding.
 const char* const kHlsl = NR_HDR_HLSL R"(
 Texture2D<float4> tA : register(t0);
 Texture2D<float4> tC : register(t1);
 Texture2D<float2> tV : register(t2);
-RWStructuredBuffer<uint> bE0 : register(u0);    // the match error of each pixel of c; later the moved pair's disagreement of hypothesis 1
-RWStructuredBuffer<uint> bEa0 : register(u1);   // the match error of each pixel of a (the reversed vectors); later hypothesis 2's disagreement
+RWStructuredBuffer<uint> bE0 : register(u0);    // the match error of each cell of c; later the moved pair's disagreement of hypothesis 1
+RWStructuredBuffer<uint> bEa0 : register(u1);   // the match error of each cell of a (the reversed vectors); later hypothesis 2's disagreement
 RWStructuredBuffer<uint> bK1 : register(u2);    // the splat keys: onto the time of the frame made, from c
-RWStructuredBuffer<uint> bK2 : register(u3);    // onto a's pixels (also, at the end, the pixel's hypothesis: 0 none, 1 from c, 2 from a)
+RWStructuredBuffer<uint> bK2 : register(u3);    // onto a's cells (shared by every frame made from the pair)
 RWStructuredBuffer<uint> bK3 : register(u4);    // onto the time of the frame made, from a's reversed vectors
-RWStructuredBuffer<uint> bV1 : register(u5);    // the winners' vectors (also, at the end, each pixel's vector F)
+RWStructuredBuffer<uint> bV1 : register(u5);    // the winners' vectors (also, at the end, each cell's vector F)
 RWStructuredBuffer<uint> bV2 : register(u6);
 RWStructuredBuffer<uint> bV3 : register(u7);
-RWStructuredBuffer<uint> bB : register(u8);     // the 5x5 mean of the match error being splatted
-RWTexture2D<float4> uOut : register(u9);
+RWStructuredBuffer<uint> bB : register(u8);     // the 5x5 mean of c's match error (what the splats from c compete on)
+RWStructuredBuffer<uint> bB2 : register(u9);    // the same for a's
+RWStructuredBuffer<uint> bFL : register(u10);   // which hypothesis a cell took: 0 none, 1 from c, 2 from a, 3 filled from a neighbour
+RWTexture2D<float4> uOut : register(u11);
 SamplerState sLin : register(s0);
-cbuffer C : register(b0) { uint2 size; uint mode; uint phase; float t; float k; uint encoding; float white; };
+cbuffer C : register(b0) { uint2 size; uint2 fsize; uint mode; uint phase; float t; float k; uint encoding; float white; uint scale; uint pad; };
 
 static const uint kEmpty = 0xFFFFFFFF;
 float3 View(float3 c) { return ToSdr(c, encoding, white); }
-float3 SmpA(float2 p) { return View(tA.SampleLevel(sLin, (p + 0.5) / float2(size), 0).rgb); }
-float3 SmpC(float2 p) { return View(tC.SampleLevel(sLin, (p + 0.5) / float2(size), 0).rgb); }
+float3 SmpA(float2 p) { return View(tA.SampleLevel(sLin, (p + 0.5) / float2(fsize), 0).rgb); }
+float3 SmpC(float2 p) { return View(tC.SampleLevel(sLin, (p + 0.5) / float2(fsize), 0).rgb); }
 uint Pack(float2 v) { return f32tof16(v.x) | (f32tof16(v.y) << 16); }
 float2 Unpack(uint u) { return float2(f16tof32(u & 0xFFFF), f16tof32(u >> 16)); }
 uint Idx(int2 p) { return uint(p.y) * size.x + uint(p.x); }
 bool Inside(int2 p) { return p.x >= 0 && p.y >= 0 && p.x < int(size.x) && p.y < int(size.y); }
 float Lev(float3 d) { return (abs(d.x) + abs(d.y) + abs(d.z)) * 255.0; }
-// the mean of a float buffer over (2r+1)^2, edges clamped
+float2 Cen(int2 a) { return float2(a * int(scale)) + 0.5 * float(int(scale) - 1); }   // a cell's centre, in the frames' pixels
+float2 VecAt(int2 a) {                                                                  // the estimate's vector for a cell: the mean over its pixels
+    float2 s = float2(0, 0);
+    [loop] for (uint y = 0; y < scale; ++y) [loop] for (uint x = 0; x < scale; ++x) s += tV[min(uint2(a) * scale + uint2(x, y), fsize - 1)];
+    return s / float(scale * scale);
+}
+// the mean of a float buffer over (2r+1)^2 cells, edges clamped
 #define BOX(buf, p, r, result) { float s_ = 0; [loop] for (int j_ = -(r); j_ <= (r); ++j_) [loop] for (int i_ = -(r); i_ <= (r); ++i_) \
     s_ += asfloat(buf[Idx(clamp((p) + int2(i_, j_), int2(0, 0), int2(size) - 1))]); result = s_ / float((2 * (r) + 1) * (2 * (r) + 1)); }
 #define OOB if (id.x >= size.x || id.y >= size.y) return; const int2 p = int2(id.xy); const uint i = Idx(p);
 
+// mode 0: K2 (the cells of a); mode 1: K1 and K3 (the frame made's), once for each frame made
 [numthreads(8, 8, 1)] void Clear(uint3 id : SV_DispatchThreadID) {
     OOB
-    bK1[i] = kEmpty; bK2[i] = kEmpty; bK3[i] = kEmpty;
+    if (mode == 0) bK2[i] = kEmpty; else { bK1[i] = kEmpty; bK3[i] = kEmpty; }
 }
 
-// the match error of every pixel of c at its vector
+// the match error of every cell of c at its vector
 [numthreads(8, 8, 1)] void Err0(uint3 id : SV_DispatchThreadID) {
     OOB
-    bE0[i] = asuint(Lev(View(tC[p].rgb) - SmpA(float2(p) + tV[p])));
+    const float2 c = Cen(p);
+    bE0[i] = asuint(Lev(SmpC(c) - SmpA(c + VecAt(p))));
 }
 
-// the 5x5 mean of a match error (mode 0: c's, 1: a's), once, for the splats
+// the 5x5 mean of a match error (mode 0: c's into bB, 1: a's into bB2), once, for the splats
 [numthreads(8, 8, 1)] void Box5(uint3 id : SV_DispatchThreadID) {
     OOB
     float e;
-    if (mode == 0) { BOX(bE0, p, 2, e); } else { BOX(bEa0, p, 2, e); }
-    bB[i] = asuint(e);
+    if (mode == 0) { BOX(bE0, p, 2, e); bB[i] = asuint(e); } else { BOX(bEa0, p, 2, e); bB2[i] = asuint(e); }
 }
 
-// the match error of every pixel of a that a vector landed on (the vector reversed)
+// the match error of every cell of a that a vector landed on (the vector reversed)
 [numthreads(8, 8, 1)] void ErrA(uint3 id : SV_DispatchThreadID) {
     OOB
     float e = 1e4;
-    if (bK2[i] != kEmpty) e = Lev(View(tA[p].rgb) - SmpC(float2(p) - Unpack(bV2[i])));
+    if (bK2[i] != kEmpty) { const float2 c = Cen(p); e = Lev(SmpA(c) - SmpC(c - Unpack(bV2[i]))); }
     bEa0[i] = asuint(e);
 }
 
@@ -80,10 +90,9 @@ float Lev(float3 d) { return (abs(d.x) + abs(d.y) + abs(d.z)) * 255.0; }
 [numthreads(8, 8, 1)] void Splat(uint3 id : SV_DispatchThreadID) {
     OOB
     float2 vec; float err;
-    err = asfloat(bB[i]);
-    if (mode == 2) { if (bK2[i] == kEmpty) return; vec = -Unpack(bV2[i]); }
-    else vec = tV[p];
-    const int2 d = int2(round(float2(p) + k * vec));
+    if (mode == 2) { if (bK2[i] == kEmpty) return; vec = -Unpack(bV2[i]); err = asfloat(bB2[i]); }
+    else { vec = VecAt(p); err = asfloat(bB[i]); }
+    const int2 d = int2(round(float2(p) + k * vec / float(scale)));
     if (!Inside(d)) return;
     const uint di = Idx(d);
     const uint key = (min(uint(err * 16.0), 65535u) << 16) | (i & 0xFFFF);
@@ -96,18 +105,18 @@ float Lev(float3 d) { return (abs(d.x) + abs(d.y) + abs(d.z)) * 255.0; }
     }
 }
 
-// each hypothesis's moved pair's disagreement at every pixel it reached
+// each hypothesis's moved pair's disagreement at every cell it reached
 [numthreads(8, 8, 1)] void Hyp1(uint3 id : SV_DispatchThreadID) {
     OOB
-    const float2 q = float2(p);
+    const float2 q = Cen(p);
     float dc = 1e4, da = 1e4;
     if (bK1[i] != kEmpty) { const float2 s = Unpack(bV1[i]); dc = Lev(SmpA(q + t * s) - SmpC(q - (1.0 - t) * s)); }
     if (bK3[i] != kEmpty) { const float2 s = Unpack(bV3[i]); da = Lev(SmpA(q - t * s) - SmpC(q + (1.0 - t) * s)); }
     bE0[i] = asuint(dc); bEa0[i] = asuint(da);
 }
 
-// per pixel the hypothesis that agrees better over 3x3 (neighbours that did not reach do not count); the vector (as c's: c(x) ~ a(x + v)) goes to bV1,
-// which hypothesis to bK2 (0 none, 1 from c, 2 from a)
+// per cell the hypothesis that agrees better over 3x3 (neighbours that did not reach do not count); the vector (as c's: c(x) ~ a(x + v)) goes to bV1,
+// which hypothesis to bFL
 [numthreads(8, 8, 1)] void Hyp2(uint3 id : SV_DispatchThreadID) {
     OOB
     const bool h1 = bK1[i] != kEmpty, h3 = bK3[i] != kEmpty;
@@ -121,52 +130,65 @@ float Lev(float3 d) { return (abs(d.x) + abs(d.y) + abs(d.z)) * 255.0; }
     dc = nc > 0 ? dc / nc : 1e4; da = na > 0 ? da / na : 1e4;
     uint which = 0;
     if (h1 && h3) which = dc <= da ? 1u : 2u; else if (h1) which = 1u; else if (h3) which = 2u;
-    if (which == 1u) { /* the vector stays in bV1 */ }
-    else if (which == 2u) bV1[i] = Pack(-Unpack(bV3[i]));
-    bK2[i] = which;
+    if (which == 2u) bV1[i] = Pack(-Unpack(bV3[i]));
+    bFL[i] = which;
 }
 
-float Agree(int2 p, float2 u) {   // the moved pair's disagreement over 5x5 around p, one vector
+float Agree(int2 p, float2 u) {   // the moved pair's disagreement around a cell, nine samples a cell apart, one vector
     float s = 0;
-    [unroll] for (int j = -2; j <= 2; j += 2) [unroll] for (int x = -2; x <= 2; x += 2) {   // 3x3 samples two apart: the 5x5's reach for 9 of its 25
-        const float2 q = float2(p + int2(x, j));
+    [unroll] for (int j = -2; j <= 2; j += 2) [unroll] for (int x = -2; x <= 2; x += 2) {
+        const float2 q = Cen(p) + float2(x, j) * float(scale);
         s += Lev(SmpA(q + t * u) - SmpC(q - (1.0 - t) * u));
     }
     return s;
 }
 
-[numthreads(8, 8, 1)] void Synth(uint3 id : SV_DispatchThreadID) {
+// a cell nothing reached: the nearest reached cell in each of four directions (up to 64 cells), or no motion, whichever agrees best
+[numthreads(8, 8, 1)] void Holes(uint3 id : SV_DispatchThreadID) {
     OOB
-    float2 F = float2(0, 0);
-    if (bK2[i] != 0) F = Unpack(bV1[i]);
-    else {
-        // nothing reached here: the nearest reached pixel in each of four directions (up to 64 pixels), or no motion, whichever agrees best
-        float2 cand[5]; cand[0] = float2(0, 0);
-        const int2 dir[4] = { int2(-1, 0), int2(1, 0), int2(0, -1), int2(0, 1) };
-        [unroll] for (int d = 0; d < 4; ++d) {
-            float2 f = float2(0, 0);
-            [loop] for (int s = 1; s <= 64; ++s) {
-                const int2 n = p + dir[d] * s;
-                if (!Inside(n)) break;
-                if (bK2[Idx(n)] != 0) { f = Unpack(bV1[Idx(n)]); break; }
-            }
-            cand[d + 1] = f;
+    if (bFL[i] != 0) return;
+    float2 cand[5]; cand[0] = float2(0, 0);
+    const int2 dir[4] = { int2(-1, 0), int2(1, 0), int2(0, -1), int2(0, 1) };
+    [unroll] for (int d = 0; d < 4; ++d) {
+        float2 f = float2(0, 0);
+        [loop] for (int s = 1; s <= 64; ++s) {
+            const int2 n = p + dir[d] * s;
+            if (!Inside(n)) break;
+            const uint fl = bFL[Idx(n)];
+            if (fl == 1u || fl == 2u) { f = Unpack(bV1[Idx(n)]); break; }
         }
-        float best = 1e30;
-        [unroll] for (int c = 0; c < 5; ++c) {
-            bool seen = false;
-            [unroll] for (int b = 0; b < c; ++b) seen = seen || all(cand[b] == cand[c]);
-            if (seen) continue;
-            const float e = Agree(p, cand[c]);
-            if (e < best) { best = e; F = cand[c]; }
-        }
+        cand[d + 1] = f;
     }
+    float2 F = float2(0, 0); float best = 1e30;
+    [unroll] for (int c = 0; c < 5; ++c) {
+        bool seen = false;
+        [unroll] for (int b = 0; b < c; ++b) seen = seen || all(cand[b] == cand[c]);
+        if (seen) continue;
+        const float e = Agree(p, cand[c]);
+        if (e < best) { best = e; F = cand[c]; }
+    }
+    bV1[i] = Pack(F); bFL[i] = 3u;
+}
+
+// the frame, at the frames' size: of the (up to) 2x2 nearest cells, the vector under which the moved pair agrees best here
+[numthreads(8, 8, 1)] void Synth(uint3 id : SV_DispatchThreadID) {
+    if (id.x >= fsize.x || id.y >= fsize.y) return;
+    const int2 p = int2(id.xy);
     const float2 q = float2(p);
+    const int2 a0 = int2(floor((q - 0.5 * float(int(scale) - 1)) / float(scale)));
+    const int n = scale == 1u ? 1 : 2;
+    float2 F = float2(0, 0); float best = 1e30;
+    [loop] for (int j = 0; j < n; ++j) [loop] for (int x = 0; x < n; ++x) {
+        const int2 a = clamp(a0 + int2(x, j), int2(0, 0), int2(size) - 1);
+        const float2 u = Unpack(bV1[Idx(a)]);
+        const float e = Lev(SmpA(q + t * u) - SmpC(q - (1.0 - t) * u));
+        if (e < best) { best = e; F = u; }
+    }
     uOut[p] = float4(FromSdr((1.0 - t) * SmpA(q + t * F) + t * SmpC(q - (1.0 - t) * F), encoding, white), 1.0);
 }
 )";
 
-struct Constants { uint32_t w, h, mode, phase; float t, k; uint32_t encoding; float white; };
+struct Constants { uint32_t w, h, fw, fh, mode, phase; float t, k; uint32_t encoding; float white; uint32_t scale, pad; };
 
 } // namespace
 
@@ -188,7 +210,7 @@ bool OwnSynth::Init(ID3D12Device* dev, LogFn log) {
                         SUCCEEDED(dev->CreateRootSignature(0, blob->GetBufferPointer(), blob->GetBufferSize(), IID_PPV_ARGS(&m_root)));
     Rel(blob); Rel(error);
     if (!rootOk) { Log("own synthesis: the root signature could not be made"); Shutdown(); return false; }
-    static const char* const names[EntryCount] = { "Clear", "Err0", "Box5", "ErrA", "Splat", "Hyp1", "Hyp2", "Synth" };
+    static const char* const names[EntryCount] = { "Clear", "Err0", "Box5", "ErrA", "Splat", "Hyp1", "Hyp2", "Holes", "Synth" };
     for (int e = 0; e < EntryCount; ++e) {
         ID3DBlob* code = nullptr;
         if (FAILED(D3DCompile(kHlsl, strlen(kHlsl), "own_synth", nullptr, nullptr, names[e], "cs_5_0", D3DCOMPILE_OPTIMIZATION_LEVEL3, 0, &code, &error))) {
@@ -223,15 +245,17 @@ void OwnSynth::Shutdown() {
     for (auto& b : m_buf) Rel(b);
     for (auto& p : m_pso) Rel(p);
     Rel(m_heap); Rel(m_root); Rel(m_stamps); Rel(m_stampReadback);
-    m_w = m_h = 0; m_ready = false; m_dev = nullptr;
+    m_w = m_h = m_aw = m_ah = 0; m_ready = false; m_dev = nullptr;
 }
 
 bool OwnSynth::Ensure(uint32_t w, uint32_t h) {
     if (!m_dev) return false;
-    if (w == m_w && h == m_h && m_buf[0]) return true;
+    if (w == m_w && h == m_h && m_scale == m_wantScale && m_buf[0]) return true;
     for (auto& b : m_buf) Rel(b);
+    m_scale = m_wantScale;
+    m_aw = (w + m_scale - 1) / m_scale; m_ah = (h + m_scale - 1) / m_scale;
     D3D12_HEAP_PROPERTIES hp{}; hp.Type = D3D12_HEAP_TYPE_DEFAULT;
-    D3D12_RESOURCE_DESC d{}; d.Dimension = D3D12_RESOURCE_DIMENSION_BUFFER; d.Width = static_cast<UINT64>(w) * h * 4; d.Height = 1; d.DepthOrArraySize = 1; d.MipLevels = 1;
+    D3D12_RESOURCE_DESC d{}; d.Dimension = D3D12_RESOURCE_DIMENSION_BUFFER; d.Width = static_cast<UINT64>(m_aw) * m_ah * 4; d.Height = 1; d.DepthOrArraySize = 1; d.MipLevels = 1;
     d.SampleDesc.Count = 1; d.Layout = D3D12_TEXTURE_LAYOUT_ROW_MAJOR; d.Flags = D3D12_RESOURCE_FLAG_ALLOW_UNORDERED_ACCESS;
     for (auto& b : m_buf) if (FAILED(m_dev->CreateCommittedResource(&hp, D3D12_HEAP_FLAG_NONE, &d, D3D12_RESOURCE_STATE_UNORDERED_ACCESS, nullptr, IID_PPV_ARGS(&b)))) { Log("own synthesis: buffers could not be made"); return false; }
     m_w = w; m_h = h;
@@ -239,8 +263,9 @@ bool OwnSynth::Ensure(uint32_t w, uint32_t h) {
 }
 
 bool OwnSynth::Record(ID3D12GraphicsCommandList* list, int slot, ID3D12Resource* before, DXGI_FORMAT beforeFormat, ID3D12Resource* now, DXGI_FORMAT nowFormat,
-                      ID3D12Resource* motion, ID3D12Resource* out, DXGI_FORMAT outFormat, float t, uint32_t encoding, float whiteNits) {
-    if (!m_ready || !m_buf[0] || !before || !now || !motion || !out) return false;
+                      ID3D12Resource* motion, DXGI_FORMAT outFormat, const Target* targets, int count, uint32_t encoding, float whiteNits) {
+    if (!m_ready || !m_buf[0] || !before || !now || !motion || !targets || count < 1 || count > kMaxTargets) return false;
+    for (int j = 0; j < count; ++j) if (!targets[j].out) return false;
     D3D12_CPU_DESCRIPTOR_HANDLE cpu = m_heap->GetCPUDescriptorHandleForHeapStart(); cpu.ptr += static_cast<SIZE_T>(slot % kSlots) * kPerSlot * m_descriptorSize;
     D3D12_GPU_DESCRIPTOR_HANDLE gpu = m_heap->GetGPUDescriptorHandleForHeapStart(); gpu.ptr += static_cast<UINT64>(slot % kSlots) * kPerSlot * m_descriptorSize;
     auto srv = [&](int n, ID3D12Resource* r, DXGI_FORMAT f) {
@@ -248,13 +273,17 @@ bool OwnSynth::Record(ID3D12GraphicsCommandList* list, int slot, ID3D12Resource*
         D3D12_CPU_DESCRIPTOR_HANDLE h = cpu; h.ptr += static_cast<SIZE_T>(n) * m_descriptorSize; m_dev->CreateShaderResourceView(r, &sv, h);
     };
     srv(0, before, beforeFormat); srv(1, now, nowFormat); srv(2, motion, DXGI_FORMAT_R16G16_FLOAT);
-    for (int b = 0; b < kBuffers; ++b) {
-        D3D12_UNORDERED_ACCESS_VIEW_DESC uv{}; uv.Format = DXGI_FORMAT_UNKNOWN; uv.ViewDimension = D3D12_UAV_DIMENSION_BUFFER;
-        uv.Buffer.NumElements = m_w * m_h; uv.Buffer.StructureByteStride = 4;
-        D3D12_CPU_DESCRIPTOR_HANDLE h = cpu; h.ptr += static_cast<SIZE_T>(kSrvs + b) * m_descriptorSize; m_dev->CreateUnorderedAccessView(m_buf[b], nullptr, &uv, h);
+    // for each frame to make, a table of the eleven buffers and its own output (a shader cannot pick among outputs by an index)
+    for (int j = 0; j < count; ++j) {
+        const SIZE_T base = static_cast<SIZE_T>(kSrvs + j * kUavs);
+        for (int b = 0; b < kBuffers; ++b) {
+            D3D12_UNORDERED_ACCESS_VIEW_DESC uv{}; uv.Format = DXGI_FORMAT_UNKNOWN; uv.ViewDimension = D3D12_UAV_DIMENSION_BUFFER;
+            uv.Buffer.NumElements = m_aw * m_ah; uv.Buffer.StructureByteStride = 4;
+            D3D12_CPU_DESCRIPTOR_HANDLE h = cpu; h.ptr += (base + b) * m_descriptorSize; m_dev->CreateUnorderedAccessView(m_buf[b], nullptr, &uv, h);
+        }
+        D3D12_UNORDERED_ACCESS_VIEW_DESC uv{}; uv.Format = outFormat; uv.ViewDimension = D3D12_UAV_DIMENSION_TEXTURE2D;
+        D3D12_CPU_DESCRIPTOR_HANDLE h = cpu; h.ptr += (base + kBuffers) * m_descriptorSize; m_dev->CreateUnorderedAccessView(targets[j].out, nullptr, &uv, h);
     }
-    {   D3D12_UNORDERED_ACCESS_VIEW_DESC uv{}; uv.Format = outFormat; uv.ViewDimension = D3D12_UAV_DIMENSION_TEXTURE2D;
-        D3D12_CPU_DESCRIPTOR_HANDLE h = cpu; h.ptr += static_cast<SIZE_T>(kSrvs + kBuffers) * m_descriptorSize; m_dev->CreateUnorderedAccessView(out, nullptr, &uv, h); }
     if (m_freq && !m_stamps) {
         D3D12_QUERY_HEAP_DESC qd{}; qd.Type = D3D12_QUERY_HEAP_TYPE_TIMESTAMP; qd.Count = kSlots * 2;
         D3D12_HEAP_PROPERTIES rp{}; rp.Type = D3D12_HEAP_TYPE_READBACK;
@@ -269,30 +298,39 @@ bool OwnSynth::Record(ID3D12GraphicsCommandList* list, int slot, ID3D12Resource*
     list->SetDescriptorHeaps(1, heaps);
     list->SetComputeRootSignature(m_root);
     list->SetComputeRootDescriptorTable(0, gpu);
-    D3D12_GPU_DESCRIPTOR_HANDLE uavs = gpu; uavs.ptr += static_cast<UINT64>(kSrvs) * m_descriptorSize;
-    list->SetComputeRootDescriptorTable(1, uavs);
-    const UINT gx = (m_w + 7) / 8, gy = (m_h + 7) / 8;
+    auto uavTable = [&](int j) { D3D12_GPU_DESCRIPTOR_HANDLE h = gpu; h.ptr += static_cast<UINT64>(kSrvs + j * kUavs) * m_descriptorSize; list->SetComputeRootDescriptorTable(1, h); };
+    const UINT gx = (m_aw + 7) / 8, gy = (m_ah + 7) / 8, fx = (m_w + 7) / 8, fy = (m_h + 7) / 8;
     static const int stopAt = [] { char b[16]; return GetEnvironmentVariableA("NR_SYNTH_STOP", b, 16) ? atoi(b) : 999; }(); int passNo = 0;   // (a test aid: NR_SYNTH_STOP=N runs only the first N passes, to time them)
-    auto pass = [&](Entry e, uint32_t mode, uint32_t phase, float k) {
+    float t = 0.5f;
+    auto pass = [&](Entry e, uint32_t mode, uint32_t phase, float k, bool full = false) {
         if (++passNo > stopAt) return;
-        const Constants c{ m_w, m_h, mode, phase, t, k, encoding, whiteNits > 0.0f ? whiteNits : 80.0f };
+        const Constants c{ m_aw, m_ah, m_w, m_h, mode, phase, t, k, encoding, whiteNits > 0.0f ? whiteNits : 80.0f, static_cast<uint32_t>(m_scale), 0 };
         list->SetPipelineState(m_pso[e]);
         list->SetComputeRoot32BitConstants(2, sizeof(Constants) / 4, &c, 0);
-        list->Dispatch(gx, gy, 1);
+        list->Dispatch(full ? fx : gx, full ? fy : gy, 1);
         D3D12_RESOURCE_BARRIER b{}; b.Type = D3D12_RESOURCE_BARRIER_TYPE_UAV; b.UAV.pResource = nullptr;   // every pass reads what the one before wrote
         list->ResourceBarrier(1, &b);
     };
+    // once for the pair: the errors and the vectors onto a's cells
+    uavTable(0);
     pass(Clear, 0, 0, 0.0f);
     pass(Err0, 0, 0, 0.0f);
     pass(Box5, 0, 0, 0.0f);
-    pass(Splat, 0, 0, 1.0f - t); pass(Splat, 0, 1, 1.0f - t);    // c's vectors to the frame made
-    pass(Splat, 1, 0, 1.0f);     pass(Splat, 1, 1, 1.0f);        // c's vectors onto a's pixels
+    pass(Splat, 1, 0, 1.0f); pass(Splat, 1, 1, 1.0f);
     pass(ErrA, 0, 0, 0.0f);
     pass(Box5, 1, 0, 0.0f);
-    pass(Splat, 2, 0, t);        pass(Splat, 2, 1, t);           // a's reversed vectors to the frame made
-    pass(Hyp1, 0, 0, 0.0f);
-    pass(Hyp2, 0, 0, 0.0f);
-    pass(Synth, 0, 0, 0.0f);
+    // for each frame to make
+    for (int j = 0; j < count; ++j) {
+        t = targets[j].t;
+        uavTable(j);
+        pass(Clear, 1, 0, 0.0f);
+        pass(Splat, 0, 0, 1.0f - t); pass(Splat, 0, 1, 1.0f - t);    // c's vectors to the frame made
+        pass(Splat, 2, 0, t);        pass(Splat, 2, 1, t);           // a's reversed vectors to the frame made
+        pass(Hyp1, 0, 0, 0.0f);
+        pass(Hyp2, 0, 0, 0.0f);
+        pass(Holes, 0, 0, 0.0f);
+        pass(Synth, 0, 0, 0.0f, true);
+    }
     if (m_stamps) {
         list->EndQuery(m_stamps, D3D12_QUERY_TYPE_TIMESTAMP, static_cast<UINT>(slot % kSlots) * 2 + 1);
         list->ResolveQueryData(m_stamps, D3D12_QUERY_TYPE_TIMESTAMP, static_cast<UINT>(slot % kSlots) * 2, 2, m_stampReadback, static_cast<UINT64>(slot % kSlots) * 16);

@@ -222,7 +222,7 @@ void FgEngine::Shutdown() {
         delete m_ffx; m_ffx = nullptr;
     }
     m_estimator.Shutdown(); m_synth.Shutdown(); m_synthTried = m_synthReady = false;
-    SafeRelease(m_motion); SafeRelease(m_distrust); SafeRelease(m_depth); SafeRelease(m_made);
+    SafeRelease(m_motion); SafeRelease(m_distrust); SafeRelease(m_depth); SafeRelease(m_made); for (auto*& r : m_madeMore) SafeRelease(r);
     SafeRelease(m_before); SafeRelease(m_guarded); SafeRelease(m_guardPso); SafeRelease(m_guardRoot); SafeRelease(m_guardHeap); m_haveBefore = false;
     SafeRelease(m_stamps); SafeRelease(m_stampReadback);
     SafeRelease(m_list); for (auto*& a : m_alloc) SafeRelease(a);
@@ -256,15 +256,15 @@ void FgEngine::ReadSlot(int slot) {
     }
 }
 
-bool FgEngine::Generate(ID3D12Resource* in, ID3D12Fence* copied, uint64_t n, ID3D12Resource* out, ID3D12Fence* made, uint64_t madeValue, float frameMs, bool reset,
-                        uint32_t encoding, float whiteNits, bool guard) {
-    if (!m_ready) return false;
+int FgEngine::GenerateFrames(ID3D12Resource* in, ID3D12Fence* copied, uint64_t n, ID3D12Resource* const* outs, int count, ID3D12Fence* made, uint64_t madeValue, float frameMs, bool reset,
+                             uint32_t encoding, float whiteNits, bool guard) {
+    if (!m_ready || count < 1 || !outs) return 0;
     for (int s = 0; s < kSlots; ++s) ReadSlot(s);   // what has finished since
     const int slot = static_cast<int>(m_runs % kSlots);
     if (!WaitFence(m_slotValue[slot], 100)) {   // (its work from kSlots frames ago: long done, unless the GPU is swamped)
         Log("frame generation engine: the GPU is %d frames behind; this frame gets none between", kSlots);
         m_queue->Signal(made, madeValue);
-        return false;
+        return 0;
     }
     ReadSlot(slot);
     if (reset) m_estimator.Forget();
@@ -287,14 +287,30 @@ bool FgEngine::Generate(ID3D12Resource* in, ID3D12Fence* copied, uint64_t n, ID3
         }
     }
     const bool ownNow = m_own && m_synthReady;
+    int ownCount = 1;
     ffxConfigureDescFrameGeneration& cfg = m_ffx->cfg;
     cfg.frameID = m_frameId;   // configure, prepare and dispatch with the same frame ID (else FSR takes it as a reset)
     bool ok = ownNow ? true : m_ffx->fn.Configure(&m_ffx->ctx, &cfg.header) == FFX_API_RETURN_OK;
     if (ownNow) {   // the frame between from the frame before, this frame and the motion, by our own passes (nothing of FSR is dispatched)
         if (!first && m_haveBefore) {
-            Barrier(m_before, D3D12_RESOURCE_STATE_COPY_DEST, D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE);
-            ok = m_synth.Record(m_list, slot, m_before, StorageFormat(m_fmt), in, m_fmt, m_motion, m_made, StorageFormat(m_fmt), 0.5f, encoding, whiteNits);
-            Barrier(m_before, D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE, D3D12_RESOURCE_STATE_COPY_DEST);
+            // one frame between, or several: frame k of `made` at k / (made + 1) (the first goes into m_made, the others into textures made when first wanted)
+            ownCount = std::min(count, static_cast<int>(OwnSynth::kMaxTargets));
+            OwnSynth::Target targets[OwnSynth::kMaxTargets];
+            for (int j = 0; j < ownCount && ok; ++j) {
+                ID3D12Resource*& r = j == 0 ? m_made : m_madeMore[j];
+                if (!r) {
+                    D3D12_HEAP_PROPERTIES heap{}; heap.Type = D3D12_HEAP_TYPE_DEFAULT;
+                    D3D12_RESOURCE_DESC d{}; d.Dimension = D3D12_RESOURCE_DIMENSION_TEXTURE2D; d.Width = m_w; d.Height = m_h; d.DepthOrArraySize = 1; d.MipLevels = 1; d.SampleDesc.Count = 1;
+                    d.Format = StorageFormat(m_fmt); d.Flags = D3D12_RESOURCE_FLAG_ALLOW_UNORDERED_ACCESS;
+                    ok = SUCCEEDED(m_dev->CreateCommittedResource(&heap, D3D12_HEAP_FLAG_NONE, &d, D3D12_RESOURCE_STATE_UNORDERED_ACCESS, nullptr, IID_PPV_ARGS(&r)));
+                }
+                targets[j] = { r, static_cast<float>(j + 1) / static_cast<float>(ownCount + 1) };
+            }
+            if (ok) {
+                Barrier(m_before, D3D12_RESOURCE_STATE_COPY_DEST, D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE);
+                ok = m_synth.Record(m_list, slot, m_before, StorageFormat(m_fmt), in, m_fmt, m_motion, StorageFormat(m_fmt), targets, ownCount, encoding, whiteNits);
+                Barrier(m_before, D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE, D3D12_RESOURCE_STATE_COPY_DEST);
+            }
         } else ok = false;
     } else if (ok) {
         ffxDispatchDescFrameGenerationPrepare prep{}; prep.header.type = FFX_API_DISPATCH_DESC_TYPE_FRAMEGENERATION_PREPARE;
@@ -349,8 +365,10 @@ bool FgEngine::Generate(ID3D12Resource* in, ID3D12Fence* copied, uint64_t n, ID3
         Barrier(m_before, D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE, D3D12_RESOURCE_STATE_COPY_DEST);
         Barrier(m_made, D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE, D3D12_RESOURCE_STATE_UNORDERED_ACCESS);
     }
-    if (produced) {   // the frame between (guarded or FSR's own) into the caller's shared texture
-        ID3D12Resource* const from = guarding ? m_guarded : m_made;
+    const int madeCount = produced ? (ownNow ? ownCount : 1) : 0;
+    for (int j = 0; j < madeCount; ++j) {   // the frames between (guarded or FSR's own, or ours) into the caller's shared textures
+        ID3D12Resource* const from = guarding ? m_guarded : (j == 0 ? m_made : m_madeMore[j]);
+        ID3D12Resource* const out = outs[j];
         Barrier(from, D3D12_RESOURCE_STATE_UNORDERED_ACCESS, D3D12_RESOURCE_STATE_COPY_SOURCE);
         Barrier(out, D3D12_RESOURCE_STATE_COMMON, D3D12_RESOURCE_STATE_COPY_DEST);
         m_list->CopyResource(out, from);
@@ -376,7 +394,7 @@ bool FgEngine::Generate(ID3D12Resource* in, ID3D12Fence* copied, uint64_t n, ID3
     m_queue->Signal(m_fence, ++m_fenceValue);
     m_slotValue[slot] = m_fenceValue; m_slotRead[slot] = false;
     ++m_frameId; ++m_runs;
-    return produced;
+    return madeCount;
 }
 
 } // namespace nr
