@@ -102,6 +102,14 @@ int main() {
     host.values["saturation"] = "9"; host.values["passes"] = "-4"; host.values["debugView"] = "12";
     Loaded wild = LoadSettings(&host, "DLSS5NR01");
     Check("values edited out of range in the file are kept to their range", Same(wild.config.p.saturation, 2.0f) && wild.config.p.passes == 1 && wild.config.p.debugView == 5);
+    {   // frame generation of our own: FSR and x2 by default (off), the multiplier kept to 2..9, both round trip
+        Config d; Check("our own synthesis is off and the multiplier x2 by default", !d.frameGenOwn && d.frameGenMultiplier == 2 && !LoadSettings(&host, "DLSS5NR01").config.frameGenOwn);
+        Config g; g.frameGenOwn = true; g.frameGenMultiplier = 4; SaveSettings(&host, "DLSS5NR01", g, {});
+        Check("...and both come back from the settings", LoadSettings(&host, "DLSS5NR01").config.frameGenOwn && LoadSettings(&host, "DLSS5NR01").config.frameGenMultiplier == 4);
+        host.values["frameGenMultiplier"] = "40"; Check("a multiplier out of range is kept to 2 to 9", LoadSettings(&host, "DLSS5NR01").config.frameGenMultiplier == 9);
+        host.values["frameGenMultiplier"] = "1"; Check("...from 2", LoadSettings(&host, "DLSS5NR01").config.frameGenMultiplier == 2);
+        host.values.erase("frameGenMultiplier"); host.values.erase("frameGenOwn");
+    }
     {   // how often the model runs: one by default, kept to 1..4, and it round trips
         Check("the model runs on every 2nd frame by default (since 0.9.28)", Config().modelEvery == 2 && LoadSettings(&host, "DLSS5NR01").config.modelEvery == 2);
         Config m; m.modelEvery = 3; SaveSettings(&host, "DLSS5NR01", m, {});
