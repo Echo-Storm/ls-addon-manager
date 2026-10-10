@@ -315,6 +315,7 @@ int FgEngine::GenerateFrames(ID3D12Resource* in, ID3D12Fence* copied, uint64_t n
     const bool ownNow = m_own && m_synthReady;
     int ownCount = 1;
     const bool switchedToFsr = !ownNow && m_prevOwn && m_runs > 0;   // FSR's last prepare was before our frames: it starts afresh
+    if (ownNow != m_prevOwn) Log(ownNow ? "frame generation engine: the frames between are made by EchoFG from now on" : "frame generation engine: the frames between are made by FSR 3.1 from now on");
     m_prevOwn = ownNow;
     ffxConfigureDescFrameGeneration& cfg = m_ffx->cfg;
     cfg.frameID = m_frameId;   // configure, prepare and dispatch with the same frame ID (else FSR takes it as a reset)
