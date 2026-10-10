@@ -1,4 +1,6 @@
-# A frame generator of our own for Lossless Scaling: what we know, what the lab says, the plan (2026-10-09)
+# EchoFG: a frame generator of our own for Lossless Scaling: what we know, what the lab says, the plan (2026-10-09)
+
+**Name (the owner's decision, 2026-10-09): EchoFG.** The panel, the log and the notes call the feature that; `OwnSynth` and "our own synthesis" stay as the technical names of the method in the code.
 
 Goal (the owner's, 2026-10-09): a generator that **works with Lossless Scaling** (it sits in the same slot as LSFG, on LS's frames) and that we can improve ourselves, built on our own shaders.
 

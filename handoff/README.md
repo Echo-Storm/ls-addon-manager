@@ -11,7 +11,7 @@ of the 0.9.8 session are in `scripts/`. **Read, in this order: this file, [relea
   (the version number is not decided either) and will test a build first; push, tag or release only when asked.
 - **What is in it** (the headline items; the changelog has the rest): the update flow (close Lossless Scaling and install, a header badge, a daily quiet-time check), the repeat skip (pictures exactly
   like the one before are not upscaled again), the lighter-upscaling auto option, the source-cadence note (a 30 fps game seen at 60 or 120 Hz), and many fixes from three independent reviews.
-- **Frame generation of our own** (a prototype: CMake `NR_FRAMEGEN=OFF` in every release, off by default in a test build): our own shaders now make the frames between (`addons/DLSS5NR01/src/engine/own_synth.*`),
+- **Frame generation of our own, named EchoFG** (a prototype: CMake `NR_FRAMEGEN=OFF` in every release, off by default in a test build): our own shaders now make the frames between (`addons/DLSS5NR01/src/engine/own_synth.*`),
   level with FSR 3.1 on our motion estimate on five recordings, x2 to x9, HDR, tested on a real swap chain (`nr_fgpresent`) but **never inside Lossless Scaling**: the owner's live look is the next step.
   Build it with `tools\build_framegen_test.ps1`, deploy with `tools\deploy.ps1 -What fsr -BuildDir build_fg`. The method, the lab, every measurement and the review fixes: `docs/own-generator-plan.md`.
 - **Test games** (the owner's choice; small ones, not the huge titles): SUPERHOT, Tomb Raider 2013, DOOM 2016, Saints Row 2 (natively 30 fps), WoW for lighting; see release-next.md.
