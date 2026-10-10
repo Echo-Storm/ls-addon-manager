@@ -1,26 +1,26 @@
-# Handoff (2026-09-26 to 27): 0.9.8
+# Handoff (updated 2026-10-09)
 
-Everything needed to continue on another machine, without the old conversation: the state, what changed and where, the scripts this
-session used (in `scripts/`), and the rules. The project's general tools are in `tools/` (see `tools/README.md`).
+Everything needed to continue on another machine, without the old conversation. The project's general tools are in `tools/` (see `tools/README.md`); the scripts
+of the 0.9.8 session are in `scripts/`. **Read, in this order: this file, [release-next.md](release-next.md) (what is unreleased and how to test it), [BACKLOG.md](BACKLOG.md)
+(all open work), and `docs/own-generator-plan.md` if the work is frame generation.**
 
-## State
+## State (2026-10-09)
 
-- **v0.9.8 is released.**
-  - Zip `LSAddonManager-0.9.8-x64.zip`, SHA-256 `bbe8947c8f076d2e869e701486c6b8292fbb23ca2ea8bea16cbf7b3f2eb560ff`, matching GitHub's digest.
-  - The release notes are the changelog's 0.9.8 section.
-- **The in-app update from 0.9.7 to 0.9.8 worked end to end** (tried in person). That was the first real use of the 0.9.7 updater.
-- **The full test suite has not run since 0.9.7.** 0.9.8 went out on real-game testing at the owner's call (Silent Hill f in HDR, World
-  of Warcraft, Metro 2033 Redux).
-  - Run `tools\run_addon_tests.ps1 -All` (with `LS_DIR` set) when there is room.
-  - **New matrix scenarios not yet run:** `scaler_hdr_scrgb`, `scaler_hdr_pq`, `fsr_hdr_scrgb`, `scaler_not_nvidia`.
-- **Next:** 1.0 soon. Frame generation of our own comes later; the engines' own threads (below) are its groundwork.
-- **Backlog:** everything not done yet is in [BACKLOG.md](BACKLOG.md); keep it current.
+- **The latest release is 0.9.38** (check `gh release list`, not the changelog). **Nothing since is pushed or released**: local `main` (and the branch `claude/infallible-diffie-3f06ab`, the same
+  commits) holds a large unreleased body of work, all in CHANGELOG.md "Unreleased" and listed with its test steps in [release-next.md](release-next.md). The owner has said it is not time to release
+  (the version number is not decided either) and will test a build first; push, tag or release only when asked.
+- **What is in it** (the headline items; the changelog has the rest): the update flow (close Lossless Scaling and install, a header badge, a daily quiet-time check), the repeat skip (pictures exactly
+  like the one before are not upscaled again), the lighter-upscaling auto option, the source-cadence note (a 30 fps game seen at 60 or 120 Hz), and many fixes from three independent reviews.
+- **Frame generation of our own** (a prototype: CMake `NR_FRAMEGEN=OFF` in every release, off by default in a test build): our own shaders now make the frames between (`addons/DLSS5NR01/src/engine/own_synth.*`),
+  level with FSR 3.1 on our motion estimate on five recordings, x2 to x9, HDR, tested on a real swap chain (`nr_fgpresent`) but **never inside Lossless Scaling**: the owner's live look is the next step.
+  Build it with `tools\build_framegen_test.ps1`, deploy with `tools\deploy.ps1 -What fsr -BuildDir build_fg`. The method, the lab, every measurement and the review fixes: `docs/own-generator-plan.md`.
+- **Test games** (the owner's choice; small ones, not the huge titles): SUPERHOT, Tomb Raider 2013, DOOM 2016, Saints Row 2 (natively 30 fps), WoW for lighting; see release-next.md.
+- **Tests:** `tools\ci.ps1` (no GPU; what GitHub runs), `tools\run_addon_tests.ps1` (the changed suites; `-All` before a release), `tools\run_hosttest_matrix.py` (the Neural Rendering host scenarios;
+  do not run it whole repeatedly, it is costly: use `--only`). After a push, watch CI (`gh run watch`).
+- **Research notes** (docs/): `own-generator-plan.md`, `lsfg-vk-study.md` and `magpie-fork-study.md` (ideas only: both are not ours to copy), `capture-card-sources.md`, `repeat-skip-spec.md`, `frame-generation-research.md`.
+- **Backlog:** everything not done yet is in [BACKLOG.md](BACKLOG.md); keep it current. Draft replies to open issues are in [issue-reply-drafts.md](issue-reply-drafts.md) and are **not posted** (the owner decides).
 
-## What changed in 0.9.8, and where
-
-See [CHANGES.md](CHANGES.md) for each change with its files, and why.
-
-## Scripts this session used (`scripts/`)
+## Scripts of the 0.9.8 session (`scripts/`)
 
 | Script | What it does |
 |---|---|
