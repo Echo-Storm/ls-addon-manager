@@ -64,7 +64,12 @@ ID3D11Device* g_dev = nullptr; ID3D11DeviceContext* g_ctx = nullptr;
 UINT g_w = 0, g_h = 0; DXGI_FORMAT g_fmt = DXGI_FORMAT_UNKNOWN;
 uint32_t g_encoding = 0; float g_white = 80.0f;
 
-void Log(const char* m) { printf("[presenter] %s\n", m); fflush(stdout); }
+double g_t0 = 0;   // the time of the first log line, for the lines that follow
+void Log(const char* m) {
+    LARGE_INTEGER n, f; QueryPerformanceCounter(&n); QueryPerformanceFrequency(&f);
+    const double ms = n.QuadPart * 1000.0 / f.QuadPart; if (g_t0 == 0) g_t0 = ms;
+    printf("[presenter %6.0f ms] %s\n", ms - g_t0, m); fflush(stdout);
+}
 
 LARGE_INTEGER g_lastEntry{}; double g_maxGapMs = 0; int g_entries = 0;   // how far apart the presenting thread's calls into the presenter are: a stall of the thread shows as a long gap
 void OnHook(IDXGISwapChain* sc, UINT sync, UINT flags) {
@@ -168,7 +173,7 @@ int main(int argc, char** argv) {
         QueryPerformanceCounter(&start);
     }
     for (int n = 0; n < frames; ++n) {
-        if (doToggle && n == frames / 2) nr::framegen::SetOwn(true);
+        if (doToggle && n == 10) nr::framegen::SetOwn(true);
         if (doSwitch && n == frames / 3) nr::framegen::SetMultiplier(2);
         if (doSwitch && n == 2 * frames / 3) { nr::framegen::SetMultiplier(5); wantMult = 5; settledFrom = n + 3; }
         if (doResize && n == 20) {
