@@ -137,6 +137,26 @@ def fill_holes(v_sp, got, v_fallback, iters=3):
 args_margin = [10.0]
 
 
+def dirfill_pair(F, reached, a, c, t, base):
+    """pixels not reached take the vector of the nearest reached pixel left, right, above or below (or none), whichever makes the moved pair agree best over 5x5"""
+    cands = [F * 0.0]
+    for axis, rev in ((1, False), (1, True), (0, False), (0, True)):
+        Fa = np.flip(F, axis) if rev else F; Ra = np.flip(reached, axis) if rev else reached
+        n = Ra.shape[axis]
+        pos = np.arange(n).reshape((1, n) if axis == 1 else (n, 1))
+        last = np.maximum.accumulate(np.where(Ra, pos, -1), axis=axis)
+        src = np.take_along_axis(Fa, np.clip(last, 0, n - 1)[..., None].repeat(2, axis=2), axis=axis)
+        src = np.where((last >= 0)[..., None], src, 0.0)
+        cands.append(np.flip(src, axis) if rev else src)
+    best_e = np.full(a.shape[:2], 1e9, np.float32); best_u = np.zeros_like(F)
+    for u in cands:
+        e = box(np.abs(moved(a, u, t) - moved(c, u, -(1 - t))).sum(axis=2), 5)
+        better = e < best_e
+        best_u = np.where(better[..., None], u, best_u); best_e = np.where(better, e, best_e)
+    hole = (1 - t) * moved(a, best_u, t) + t * moved(c, best_u, -(1 - t))
+    return np.where(reached[..., None], base, hole)
+
+
 def methods(a, c, v, t=0.5, thr_pair=60.0, thr_poor=90.0, still_thr=24.0, vb=None, tau=1.0):
     out = {}
     out['blend'] = (1 - t) * a + t * c
@@ -146,6 +166,7 @@ def methods(a, c, v, t=0.5, thr_pair=60.0, thr_poor=90.0, still_thr=24.0, vb=Non
     # spl: vectors at the output pixel by splatting
     err = match_error(a, c, v)
     vs, e_at, got = splat(v, err, t)
+    vs_raw = vs.copy()
     vs = fill_holes(vs, got, v)
     ca = moved(a, vs, t); cc = moved(c, vs, -(1 - t))
     spl = (1 - t) * ca + t * cc
@@ -250,6 +271,8 @@ def methods(a, c, v, t=0.5, thr_pair=60.0, thr_poor=90.0, still_thr=24.0, vb=Non
             out[name] = (1 - w) * fin + w * out['blend']
         out['bi2'] = np.where(agree[..., None], 0.5 * (Pc + Pa), out['bi'])
         out['_ok'] = (float(ok_c.mean()), float(ok_a.mean()), float(gc.mean()), float(ga.mean()), float(none.mean()))
+    # spl+dir: one splat (no second flow), the holes filled by direction
+    out['spl+dir'] = dirfill_pair(vs_raw, got, a, c, t, spl)
     # med3: the middle value per channel of (moved a, moved c, the unmoved mean): one wrong candidate cannot win
     out['med3'] = np.median(np.stack([ca, cc, out['blend']], axis=0), axis=0)
     # med5: the middle of (moved a, moved c, their mean, a, c)
@@ -267,6 +290,7 @@ def main():
     ap.add_argument('--t', type=float, default=-1, help='the time of the frame between, 0..1 (default: the one in the file, from the capture times)')
     ap.add_argument('--auto-t', action='store_true', help='per triple the time (0.2..0.8) at which the plain moved pair is closest to the truth: the game own pacing is uneven, the capture clock does not show it; the same t for every method')
     ap.add_argument('--cubic', action='store_true', help='Catmull-Rom sampling in place of bilinear')
+    ap.add_argument('--invert', action='store_true', help='the vectors the other way made by inverting this way (no second estimate), not the dumped ones')
     ap.add_argument('--tau', type=float, default=1.0)
     ap.add_argument('--thr-pair', type=float, default=60.0)
     ap.add_argument('--thr-poor', type=float, default=90.0)
@@ -288,6 +312,9 @@ def main():
         if args.t >= 0: t = args.t
         if args.auto_t:
             t = max((0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8), key=lambda q: psnr((1 - q) * moved(a, v, q) + q * moved(c, v, -(1 - q)), b))
+        if args.invert:   # the other way made from this way: each pixel of c's vector put on the pixel of a it points to (the best match wins), reversed; no second estimate
+            iv, _, got_i = splat(v, match_error(a, c, v), 0.0)
+            vb = fill_holes(-iv, got_i, -v)
         m = methods(a, c, v, t, args.thr_pair, args.thr_poor, args.still, vb, args.tau)
         okst = m.pop('_ok', None)
         if okst and not stats: print('  consistent shares (c, a), reached shares (c, a, none): %s' % ' '.join('%.2f' % x for x in okst))
@@ -301,7 +328,7 @@ def main():
         print('%s t=%.2f  ' % (os.path.basename(p), t) + '  '.join('%s %.2f' % (k, x) for k, x in row.items()), flush=True)
     s = np.array(stats).mean(axis=0)
     print('%d triples, frames %dx%d; share of pixels: splat landed %.0f%%, still %.0f%%, moved pair disagreed %.0f%%' % (len(files), a.shape[1], a.shape[0], 100 * s[1], 100 * s[2], 100 * s[0]))
-    for k in ('blend', 'half', 'spl', 'spl+st', 'spl+occ', 'spl+rel', 'cand', 'ref', 'bi', 'bi+dir', 'bi+all', 'bi+conf1', 'bi+conf2', 'bi+conf3', 'bi2', 'med3', 'med5', 'oracle'):
+    for k in ('blend', 'half', 'spl', 'spl+st', 'spl+occ', 'spl+rel', 'cand', 'ref', 'spl+dir', 'bi', 'bi+dir', 'bi+all', 'bi+conf1', 'bi+conf2', 'bi+conf3', 'bi2', 'med3', 'med5', 'oracle'):
         x = np.array(sums[k])
         print('  %-8s mean %.2f dB  (min %.2f, max %.2f)' % (k, x.mean(), x.min(), x.max()))
 

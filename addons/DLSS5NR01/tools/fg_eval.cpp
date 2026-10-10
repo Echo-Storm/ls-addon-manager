@@ -30,6 +30,7 @@
 #include "addon/lsrec.h"
 #include "eval_common.h"
 #include "engine/flow_estimator.h"
+#include "engine/own_synth.h"
 #include "engine/fg_engine.h"
 #include "ffx_api/ffx_api.h"
 #include "ffx_api/ffx_framegeneration.h"
@@ -597,6 +598,8 @@ int main(int argc, char** argv) {
     const bool direct = Arg(argc, argv, "direct", 0) != 0;
     // engine=1: the addon's own FgEngine (src/engine/fg_engine.cpp) makes the frames, through shared textures and fences, as live
     const bool useEngine = Arg(argc, argv, "engine", 0) != 0;
+    // own=1: the frame between made by this project's own synthesis (src/engine/own_synth.cpp: both flows, splatted to the time, holes filled by direction) instead of FSR; owt=N: its time in thousandths (500)
+    const bool useOwn = Arg(argc, argv, "own", 0) != 0; const float ownT = Arg(argc, argv, "owt", 500) / 1000.0f;
     // guard=N: the guard against pasted background (Guard): the frame made must be N levels further from both real frames than they are from
     // each other; guardagree=N: how alike the real frames must be (levels); the reach for a character's shift scales with the width
     const int guardApart = Arg(argc, argv, "guard", 0), guardAgree = Arg(argc, argv, "guardagree", 16);
@@ -772,6 +775,33 @@ int main(int argc, char** argv) {
         }
         if (const ffxReturnCode_t rc = fx.Configure(&ctx, &cfg.header); rc != FFX_API_RETURN_OK) { printf("FSR frame generation could not be configured (code %u)\n", rc); return 4; }
         uint64_t frameId = 0;
+        if (useOwn) {
+            static nr::OwnSynth syn; static ID3D12Resource *prevTex = nullptr, *outTex = nullptr; static D3D12_RESOURCE_STATES prevState = D3D12_RESOURCE_STATE_COPY_DEST;
+            if (!syn.Init(g.dev, [](const char* m) { printf("  %s\n", m); }) || !syn.Ensure(W, H)) { printf("own synthesis could not start\n"); return 4; }
+            prevTex = g.Texture(W, H, DXGI_FORMAT_R8G8B8A8_UNORM, false, D3D12_RESOURCE_STATE_COPY_DEST);
+            outTex = g.Texture(W, H, DXGI_FORMAT_R8G8B8A8_UNORM, true, D3D12_RESOURCE_STATE_UNORDERED_ACCESS);
+            step = [&](int i, float frameMs, std::vector<uint8_t>& picture) -> bool {
+                (void)frameMs;
+                if (i >= 2) {
+                    if (prevState != D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE) { g.Barrier(prevTex, prevState, D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE); prevState = D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE; }
+                    if (!syn.Record(g.list, 0, prevTex, DXGI_FORMAT_R8G8B8A8_UNORM, cur, DXGI_FORMAT_R8G8B8A8_UNORM, motion, outTex, DXGI_FORMAT_R8G8B8A8_UNORM, ownT)) { printf("own synthesis failed\n"); return false; }
+                    g.Barrier(outTex, D3D12_RESOURCE_STATE_UNORDERED_ACCESS, D3D12_RESOURCE_STATE_COPY_SOURCE);
+                    D3D12_TEXTURE_COPY_LOCATION to{ readback, D3D12_TEXTURE_COPY_TYPE_PLACED_FOOTPRINT }; to.PlacedFootprint = fp;
+                    D3D12_TEXTURE_COPY_LOCATION from{ outTex, D3D12_TEXTURE_COPY_TYPE_SUBRESOURCE_INDEX }; from.SubresourceIndex = 0;
+                    g.list->CopyTextureRegion(&to, 0, 0, 0, &from, nullptr);
+                    g.Barrier(outTex, D3D12_RESOURCE_STATE_COPY_SOURCE, D3D12_RESOURCE_STATE_UNORDERED_ACCESS);
+                }
+                // this frame becomes the frame before for the next
+                g.Barrier(prevTex, prevState, D3D12_RESOURCE_STATE_COPY_DEST);
+                g.Barrier(cur, D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE, D3D12_RESOURCE_STATE_COPY_SOURCE);
+                g.list->CopyResource(prevTex, cur);
+                g.Barrier(cur, D3D12_RESOURCE_STATE_COPY_SOURCE, D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE);
+                prevState = D3D12_RESOURCE_STATE_COPY_DEST;
+                g.Submit();
+                if (i >= 2) readPicture(readback, picture);
+                return true;
+            };
+        } else
         if (useEngine) {   // engine=1: the addon's own FgEngine, given the frames through shared textures and fences as framegen11 gives them
             static nr::FgEngine eng;
             DXGI_ADAPTER_DESC1 ad{}; { IDXGIFactory6* f6 = nullptr; CreateDXGIFactory2(0, IID_PPV_ARGS(&f6)); IDXGIAdapter1* a = nullptr; f6->EnumAdapterByGpuPreference(0, DXGI_GPU_PREFERENCE_HIGH_PERFORMANCE, IID_PPV_ARGS(&a)); a->GetDesc1(&ad); a->Release(); f6->Release(); }
