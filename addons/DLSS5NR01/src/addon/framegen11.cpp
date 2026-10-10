@@ -6,6 +6,7 @@
 #include <algorithm>
 #include <cstdio>
 #include <cstring>
+#include <atomic>
 #include <mutex>
 #include <utility>
 
@@ -46,12 +47,14 @@ struct State {
     ID3D11Fence* copied11 = nullptr; ID3D12Fence* copied12 = nullptr; uint64_t copiedValue = 0;
     ID3D11Fence* made11 = nullptr; ID3D12Fence* made12 = nullptr; uint64_t madeValue = 0;   // the frame between is in out11 (a GPU wait here)
     ID3D11DeviceContext4* ctx4 = nullptr;
-    bool resetNext = true; bool guard = true; bool own = false; int multiplier = 2;   // multiplier: frames shown for each real one (more than 2 only with our own synthesis)
+    bool resetNext = true; std::atomic<bool> guard{ true }, own{ false }; std::atomic<int> multiplier{ 2 };   // multiplier: frames shown for each real one (more than 2 only with our own synthesis)
     ID3D11Texture2D* more11[OwnSynth::kMaxTargets] = {}; ID3D12Resource* more12[OwnSynth::kMaxTargets] = {};   // the 2nd, 3rd... frame between (the first is out11)
     // for the log: how long Lossless Scaling's thread is held here, and how soon after it comes back with the next real frame
     LARGE_INTEGER returned{}; double heldSum = 0, freeSum = 0; uint64_t heldCount = 0, freeCount = 0;
 } g;
-std::mutex g_mutex;
+std::mutex g_mutex;                 // the presenter's state: held through a call of BeforeRealPresent (its waits included)
+std::mutex g_statsMutex; Stats g_published;   // what the panel reads: a copy made at two points of each call, under a lock of its own
+void Publish() { std::lock_guard<std::mutex> lock(g_statsMutex); g_published = g.stats; }
 
 double Ms(const LARGE_INTEGER& a, const LARGE_INTEGER& b) { LARGE_INTEGER f; QueryPerformanceFrequency(&f); return (b.QuadPart - a.QuadPart) * 1000.0 / f.QuadPart; }
 
@@ -185,7 +188,7 @@ bool BeforeRealPresent(IDXGISwapChain* sc, UINT sync, UINT flags, uint32_t encod
     if (g.lastReal.QuadPart) {
         const double dt = Ms(g.lastReal, arrived);
         if (dt > 2.0 && dt < 100.0) g.intervalMs = g.intervalMs > 0 && dt < 3.0 * g.intervalMs ? 0.9 * g.intervalMs + 0.1 * dt : dt;
-        else g.haveBefore = false;
+        else { g.haveBefore = false; g.resetNext = true; }   // (a pause, a double present: the frame before is not this one's)
     }
     g.lastReal = arrived;
     g.ctx->CopyResource(g.now, back);
@@ -202,17 +205,17 @@ bool BeforeRealPresent(IDXGISwapChain* sc, UINT sync, UINT flags, uint32_t encod
         g.ctx4->Signal(g.copied11, ++g.copiedValue);
         g.ctx->Flush();   // the copy and the signal on the GPU's way before the engine waits for them
         // queued, not waited for: Lossless Scaling's queue waits on the GPU for "made" before the frame between is copied in
-        g.engine.SetOwnSynthesis(g.own);
+        g.engine.SetOwnSynthesis(g.own.load());
         // frames between wanted: the multiplier less one, when our own synthesis can make that many (it is known to after its first frame); else the one at half way
-        int want = g.own ? std::clamp(g.multiplier, 2, OwnSynth::kMaxTargets + 1) - 1 : 1;
+        int want = g.own ? std::clamp(g.multiplier.load(), 2, OwnSynth::kMaxTargets + 1) - 1 : 1;
         want = std::min(want, g.engine.MaxFramesBetween());
         for (int k = 1; k < want; ++k) if (!g.more12[k] && !MakeShared(bd, g.more11[k], g.more12[k])) { SafeRelease(g.more11[k]); SafeRelease(g.more12[k]); want = k; break; }
         ID3D12Resource* outs[OwnSynth::kMaxTargets]; outs[0] = g.out12; for (int k = 1; k < want; ++k) outs[k] = g.more12[k];
-        made = g.engine.GenerateFrames(g.in12, g.copied12, g.copiedValue, outs, want, g.made12, ++g.madeValue, static_cast<float>(g.intervalMs), g.resetNext, encoding, whiteNits, g.guard);
+        made = g.engine.GenerateFrames(g.in12, g.copied12, g.copiedValue, outs, want, g.made12, ++g.madeValue, static_cast<float>(g.intervalMs), g.resetNext, encoding, whiteNits, g.guard.load());
         g.resetNext = false;
         byFsr = made > 0;
+        if (g.engine.IsReady()) g.ctx4->Wait(g.made11, g.madeValue);   // (the engine signals it on every path: the next copy into in11 must follow its reading of it, also when it made none)
         if (byFsr) {
-            g.ctx4->Wait(g.made11, g.madeValue);
             g.ctx->CopyResource(back, g.out11);
             g.stats.byFsr += made; g.stats.fsrMs = g.engine.GpuMs();
         }
@@ -241,15 +244,17 @@ bool BeforeRealPresent(IDXGISwapChain* sc, UINT sync, UINT flags, uint32_t encod
     // GPU's time for it (or the CPU's, for the blend). The real frame goes out half a frame after that, so the two are evenly spaced.
     LARGE_INTEGER madeAt; QueryPerformanceCounter(&madeAt);
     const double work = std::max(Ms(arrived, madeAt), byFsr ? g.engine.GpuMs() + 0.5 : 0.0);
-    g.leadMs = std::min(std::max(work, 0.97 * g.leadMs + 0.03 * work), std::max(0.0, 0.5 * g.intervalMs - 1.0));
+    const int frames = std::max(1, made);
+    // (at most one frame's share of the interval: the real frame is let go at lead + frames / (frames + 1) of it, and the thread must be back before the next real frame arrives)
+    g.leadMs = std::min(std::max(work, 0.97 * g.leadMs + 0.03 * work), std::max(0.0, g.intervalMs / (frames + 1) - 1.0));
     LARGE_INTEGER f; QueryPerformanceFrequency(&f);
     auto after = [&](double ms) { LARGE_INTEGER t; t.QuadPart = arrived.QuadPart + static_cast<LONGLONG>(ms * f.QuadPart / 1000.0); return t; };
     LARGE_INTEGER t0; QueryPerformanceCounter(&t0);
     PresentHook::PresentOriginal(sc, sync, flags);   // the frame between goes out now...
     LARGE_INTEGER t1; QueryPerformanceCounter(&t1);
     ++g.stats.generated; g.stats.generatedMs = 0.9 * g.stats.generatedMs + 0.1 * Ms(t0, t1);
+    Publish();
     // ...the others, if a multiplier asked for more, each in the next back buffer at its own time, evenly spaced...
-    const int frames = std::max(1, made);
     for (int k = 1; k < frames; ++k) {
         WaitUntil(after(g.leadMs + k * g.intervalMs / (frames + 1)));
         ID3D11Texture2D* nb = nullptr;
@@ -278,16 +283,23 @@ bool BeforeRealPresent(IDXGISwapChain* sc, UINT sync, UINT flags, uint32_t encod
     if (SUCCEEDED(sc->GetBuffer(0, IID_PPV_ARGS(&next))) && next) { g.ctx->CopyResource(next, g.now); if (shown) shown(g.ctx, next, false); next->Release(); }
     std::swap(g.before, g.now); std::swap(g.beforeSrv, g.nowSrv);
     ++g.stats.real; g.stats.realIntervalMs = g.intervalMs;
+    Publish();
     QueryPerformanceCounter(&g.returned);
     g.heldSum += Ms(arrived, g.returned); ++g.heldCount;
     return true;
 }
 
-void SetRuntime(const std::wstring& dll) { std::lock_guard<std::mutex> lock(g_mutex); g.runtime = dll; } void SetGuard(bool on) { std::lock_guard<std::mutex> lock(g_mutex); g.guard = on; }
-void SetOwn(bool on) { std::lock_guard<std::mutex> lock(g_mutex); g.own = on; }
-void SetMultiplier(int n) { std::lock_guard<std::mutex> lock(g_mutex); g.multiplier = std::clamp(n, 2, OwnSynth::kMaxTargets + 1); }
+void SetRuntime(const std::wstring& dll) { std::lock_guard<std::mutex> lock(g_mutex); g.runtime = dll; }
+void SetGuard(bool on) { g.guard = on; }   // (no lock: the presenter holds its own through its waits)
+void SetOwn(bool on) { g.own = on; }
+void SetMultiplier(int n) { g.multiplier = std::clamp(n, 2, OwnSynth::kMaxTargets + 1); }
 void Reset() { std::lock_guard<std::mutex> lock(g_mutex); g.haveBefore = false; g.lastReal = {}; g.intervalMs = 0; g.leadMs = 0; g.resetNext = true; }
-void Shutdown() { std::lock_guard<std::mutex> lock(g_mutex); ReleaseAll(); if (g.timer) { CloseHandle(g.timer); g.timer = nullptr; } }
-Stats GetStats() { std::lock_guard<std::mutex> lock(g_mutex); return g.stats; }
+void Shutdown() {
+    std::lock_guard<std::mutex> lock(g_mutex);
+    ReleaseAll(); if (g.timer) { CloseHandle(g.timer); g.timer = nullptr; }
+    g.stats = {}; g.said = {}; g.saidAt = {}; g.returned = {};
+    Publish();
+}
+Stats GetStats() { std::lock_guard<std::mutex> lock(g_statsMutex); return g_published; }
 
 } // namespace nr::framegen

@@ -13,6 +13,8 @@
 
 namespace nr {
 
+static_assert(OwnSynth::kSlots == FlowEstimator::kSlots, "the engine's slots, the estimate's and the synthesis's descriptor slots go round together");
+
 struct FgEngine::Ffx { HMODULE module = nullptr; ffxFunctions fn{}; ffxContext ctx = nullptr; ffxConfigureDescFrameGeneration cfg{}; };
 
 namespace {
@@ -97,9 +99,15 @@ void FgEngine::Log(const char* fmt, ...) {
 bool FgEngine::Fail(const char* what) { m_error = what; Log("frame generation engine: %s", what); Shutdown(); m_error = what; return false; }
 void FgEngine::Barrier(ID3D12Resource* r, D3D12_RESOURCE_STATES from, D3D12_RESOURCE_STATES to) { BarrierOn(m_list, r, from, to); }
 bool FgEngine::WaitFence(uint64_t value, DWORD ms) {
-    if (!m_fence || m_fence->GetCompletedValue() >= value) return true;
-    m_fence->SetEventOnCompletion(value, m_event);
-    return WaitForSingleObject(m_event, ms) == WAIT_OBJECT_0;
+    // (the event is shared by every wait and a wait that timed out leaves its request pending: the event may be set for an earlier value, so what woke us is checked against the fence)
+    const ULONGLONG until = GetTickCount64() + ms;
+    while (m_fence && m_fence->GetCompletedValue() < value) {
+        const ULONGLONG now = GetTickCount64();
+        if (now >= until) return false;
+        m_fence->SetEventOnCompletion(value, m_event);
+        WaitForSingleObject(m_event, static_cast<DWORD>(until - now));
+    }
+    return true;
 }
 
 bool FgEngine::InitGuard() {
@@ -268,7 +276,11 @@ int FgEngine::GenerateFrames(ID3D12Resource* in, ID3D12Fence* copied, uint64_t n
     }
     ReadSlot(slot);
     if (reset) m_estimator.Forget();
-    m_alloc[slot]->Reset(); m_list->Reset(m_alloc[slot], nullptr);
+    if (FAILED(m_alloc[slot]->Reset()) || FAILED(m_list->Reset(m_alloc[slot], nullptr))) {
+        Log("frame generation engine: its command list could not be reset; this frame gets none between");
+        m_queue->Signal(made, madeValue);
+        return 0;
+    }
     if (m_stamps) m_list->EndQuery(m_stamps, D3D12_QUERY_TYPE_TIMESTAMP, static_cast<UINT>(slot * 2));
     // the frame's motion (the estimate keeps the frame before), then FSR's preparation and its frame between, on this list
     Barrier(in, D3D12_RESOURCE_STATE_COMMON, D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE);
@@ -288,6 +300,8 @@ int FgEngine::GenerateFrames(ID3D12Resource* in, ID3D12Fence* copied, uint64_t n
     }
     const bool ownNow = m_own && m_synthReady;
     int ownCount = 1;
+    const bool switchedToFsr = !ownNow && m_prevOwn && m_runs > 0;   // FSR's last prepare was before our frames: it starts afresh
+    m_prevOwn = ownNow;
     ffxConfigureDescFrameGeneration& cfg = m_ffx->cfg;
     cfg.frameID = m_frameId;   // configure, prepare and dispatch with the same frame ID (else FSR takes it as a reset)
     bool ok = ownNow ? true : m_ffx->fn.Configure(&m_ffx->ctx, &cfg.header) == FFX_API_RETURN_OK;
@@ -324,7 +338,7 @@ int FgEngine::GenerateFrames(ID3D12Resource* in, ID3D12Fence* copied, uint64_t n
     if (ok && !ownNow) {
         ffxDispatchDescFrameGeneration gen{}; gen.header.type = FFX_API_DISPATCH_DESC_TYPE_FRAMEGENERATION;
         gen.commandList = m_list; gen.presentColor = ffxApiGetResourceDX12(in, FFX_API_RESOURCE_STATE_COMPUTE_READ);
-        gen.outputs[0] = ffxApiGetResourceDX12(m_made, FFX_API_RESOURCE_STATE_UNORDERED_ACCESS); gen.numGeneratedFrames = 1; gen.reset = first;
+        gen.outputs[0] = ffxApiGetResourceDX12(m_made, FFX_API_RESOURCE_STATE_UNORDERED_ACCESS); gen.numGeneratedFrames = 1; gen.reset = first || switchedToFsr;
         gen.backbufferTransferFunction = !m_hdr ? FFX_API_BACKBUFFER_TRANSFER_FUNCTION_SRGB
                                        : m_fmt == DXGI_FORMAT_R16G16B16A16_FLOAT ? FFX_API_BACKBUFFER_TRANSFER_FUNCTION_SCRGB : FFX_API_BACKBUFFER_TRANSFER_FUNCTION_PQ;
         gen.minMaxLuminance[0] = 0.0f; gen.minMaxLuminance[1] = 0.0f;   // (as FidelityFX's swap chain gives them without HDR metadata)

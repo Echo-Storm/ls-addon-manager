@@ -6,6 +6,7 @@
 #include "addon/state.h"
 #include "addon/log.h"
 #include "addon/present_hook.h"
+#include "addon/framegen11.h"
 #include "addon/hud_editor.h"
 #include "addon/screenshot.h"
 #include "addon/compare.h"
@@ -180,6 +181,7 @@ EAM_EXPORT void AddonShutdown() {
     }
     ReleaseFrames();
     if (kScalerAddon) { compare::Unregister(kCompareMode); StopScaler(); }
+    if (kFrameGen) nr::framegen::Shutdown();   // (its engine, device and shared textures: before the Present hook goes, which its last present goes through)
     PresentHook::Uninstall();
     DropHudSnapshot();
     for (int i = 0; i < 3000 && g_engineStarting; ++i) Sleep(10);   // a model that is loading is let finish

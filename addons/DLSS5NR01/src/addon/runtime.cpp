@@ -293,6 +293,7 @@ void LogProgress(const NrStats& st) {
 std::atomic<bool> g_lastPassGenerated{ false };   // the last NIS pass showed a generated frame
 // The comparison of the upscalers (compare.h): when NIS is the mode shown, this addon (if it is the lowest loaded) labels NIS's picture right after NIS drew it
 struct ComparePending { bool valid = false; uint32_t x = 0, y = 0, w = 0, h = 0, enc = 0; float white = 200.0f; } g_comparePending;
+bool g_frameGenWasOn = false;   // frame generation has run (the presenting thread's)
 std::atomic<IDXGISwapChain*> g_fgChain{ nullptr };   // Lossless Scaling's output swap chain as NIS's back buffer names it (the upscalers' frame generation)
 void OnPresent(IDXGISwapChain* sc, UINT sync, UINT flags);
 void Compose(IDXGISwapChain* sc);
@@ -975,6 +976,11 @@ void OnPresent(IDXGISwapChain* sc, UINT sync, UINT flags) {
             nr::framegen::ShownFn shown;   // "record what is shown": every frame presented, the frames between and the real ones, tagged
             if (recordShown) shown = [](ID3D11DeviceContext* ctx, ID3D11Texture2D* frame, bool made) { Record(ctx, frame, lsrec::kPresented, 0, made ? lsrec::kMadeBetween : lsrec::kReal); };
             nr::framegen::BeforeRealPresent(sc, sync, flags, encoding, white, [](const char* m) { Log("%s", m); }, shown);
+            g_frameGenWasOn = true;
+        }
+        else if (kFrameGen && g_frameGenWasOn && !frameGen && sc == g_fgChain.load(std::memory_order_acquire)) {   // switched off: its engine, device and textures go (they were about 100 MB at 4K)
+            nr::framegen::Shutdown();
+            g_frameGenWasOn = false;
         }
         return;
     }   // the upscaler: its picture over NIS's (Handoff::AtPresent); no Enable of its own

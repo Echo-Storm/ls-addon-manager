@@ -79,7 +79,7 @@ private:
     ID3D12RootSignature* m_guardRoot = nullptr; ID3D12PipelineState* m_guardPso = nullptr; ID3D12DescriptorHeap* m_guardHeap = nullptr; UINT m_descSize = 0;
     ID3D12Resource* m_before = nullptr; ID3D12Resource* m_guarded = nullptr; bool m_haveBefore = false;
     bool InitGuard();
-    OwnSynth m_synth; bool m_own = false, m_synthTried = false, m_synthReady = false;
+    OwnSynth m_synth; bool m_own = false, m_synthTried = false, m_synthReady = false, m_prevOwn = false;
     Ffx* m_ffx = nullptr;
     uint64_t m_frameId = 0, m_runs = 0;
 };
