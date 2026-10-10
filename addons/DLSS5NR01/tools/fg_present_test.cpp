@@ -8,7 +8,7 @@
 //   * their order (the made ones in the interval, then the real one),
 //   * the square's x against x0 + v (n - 1 + k / N) for made frame k of N in the interval ending at real frame n,
 //   * the spacing in time of the frames shown.
-//   nr_fgpresent [mult=4] [hdr=0|1] [frames=40] [own=1] [fps=30] [speed=24] [fsr=<amd_fidelityfx_dx12.dll>]
+//   nr_fgpresent [mult=4] [hdr=0|1] [frames=30] [own=1] [fps=30] [speed=24] [fsr=<amd_fidelityfx_dx12.dll>]
 // Needs a build made with NR_FRAMEGEN=ON only for the addon itself; this tool links the presenter directly, so it runs in any build.
 #include <windows.h>
 #include <d3d11_4.h>
@@ -96,8 +96,9 @@ double SquareX(ID3D11Texture2D* st) {
 
 int main(int argc, char** argv) {
     setvbuf(stdout, nullptr, _IONBF, 0);
-    const int mult = std::clamp(Arg(argc, argv, "mult", 4), 2, 9), frames = std::clamp(Arg(argc, argv, "frames", 40), 8, 100);
+    const int mult = std::clamp(Arg(argc, argv, "mult", 4), 2, 9), frames = std::clamp(Arg(argc, argv, "frames", 30), 8, 100);
     const bool hdr = Arg(argc, argv, "hdr", 0) != 0, own = Arg(argc, argv, "own", 1) != 0;
+    // (the square must stay on the 960 pixel wide picture: 120 + speed * frames + 96 < 960)
     const int fps = std::clamp(Arg(argc, argv, "fps", 30), 10, 120); const double speed = Arg(argc, argv, "speed", 24);
     g_w = 960; g_h = 540; g_fmt = hdr ? DXGI_FORMAT_R16G16B16A16_FLOAT : DXGI_FORMAT_R8G8B8A8_UNORM;
     g_encoding = hdr ? 1u : 0u; g_white = 80.0f;
