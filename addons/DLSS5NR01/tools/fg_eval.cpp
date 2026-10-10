@@ -593,6 +593,7 @@ int main(int argc, char** argv) {
     // ffxdebug=1: FidelityFX's checks and messages; debugview=1: FSR draws its own views of its inputs into the frame it makes
     const bool ffxDebug = Arg(argc, argv, "ffxdebug", 0) != 0, debugView = Arg(argc, argv, "debugview", 0) != 0;
     const bool mvDump = Arg(argc, argv, "mvdump", 0) != 0;
+    std::vector<uint16_t> prevMvKept;   // the vectors of the kept frame before (from it to the one before that), for flowdump's older frame
     const int flowDump = Arg(argc, argv, "flowdump", 0); int flowDumped = 0;   // flowdump=N: raw triples with this project's vectors for the first N rebuilt frames (tools\interp_lab.py reads them)
     // direct=1: FSR frame generation dispatched on our own command list (no FidelityFX swap chain, no presents, no pacing); else through its swap chain
     const bool direct = Arg(argc, argv, "direct", 0) != 0;
@@ -1221,16 +1222,22 @@ int main(int argc, char** argv) {
                 }
                 if (FILE* f = _wfopen((outDir + name).c_str(), L"wb")) {
                     const double span = times[i] - times[i - 2];   // when the frame between was shown, as a share of the way from the frame before to this one (uneven pacing in the capture), in thousandths
-                    const uint32_t head[4] = { 0x32544C46u /* "FLT2" */, W, H, span > 0.0 ? static_cast<uint32_t>(std::clamp((times[i - 1] - times[i - 2]) / span, 0.0, 1.0) * 1000.0 + 0.5) : 500u };
+                    const bool older = i >= 4 && prevMvKept.size() == static_cast<size_t>(W) * H * 2;   // a third frame, the one before the frame before, and the motion from the frame before to it
+                    const uint32_t head[4] = { older ? 0x33544C46u /* "FLT3" */ : 0x32544C46u /* "FLT2" */, W, H, span > 0.0 ? static_cast<uint32_t>(std::clamp((times[i - 1] - times[i - 2]) / span, 0.0, 1.0) * 1000.0 + 0.5) : 500u };
                     fwrite(head, 4, 4, f);
                     fwrite(frames[i - 2].data(), 1, static_cast<size_t>(W) * H * 4, f);   // a: RGBA8
                     fwrite(frames[i - 1].data(), 1, static_cast<size_t>(W) * H * 4, f);   // b: the truth
                     fwrite(frames[i].data(), 1, static_cast<size_t>(W) * H * 4, f);       // c
                     fwrite(mv.data(), 2, static_cast<size_t>(W) * H * 2, f);              // half floats (x, y): from a pixel of c to where it was in a, in pixels
                     fwrite(mvBack.data(), 2, static_cast<size_t>(W) * H * 2, f);         // and the other way: from a pixel of a to where it is in c
+                    if (older) {
+                        fwrite(frames[i - 4].data(), 1, static_cast<size_t>(W) * H * 4, f);   // a0, the frame before a
+                        fwrite(prevMvKept.data(), 2, static_cast<size_t>(W) * H * 2, f);     // from a pixel of a to where it was in a0
+                    }
                     fclose(f); ++flowDumped;
                 }
             }
+            prevMvKept = mv;
             if (mvDump && i >= 2) {   // mvdump=1: the vectors as a picture beside the frame (red: x, green: y; 1 level a pixel, 128 = none)
                 std::vector<uint8_t> pic(static_cast<size_t>(W) * H * 4);
                 for (size_t p = 0; p < static_cast<size_t>(W) * H; ++p) {
