@@ -73,7 +73,16 @@ What was learnt:
 - On the fast clip 37% of output pixels are reached by neither flow, and the consistency check marks only 59% of vectors good: that is where the remaining error is. The oracle gap (4 to 5 dB) is **not** closed by local rules on this information; what is left is mostly hole and occluded areas and sub-pixel precision on texture.
 - This is a level with FSR frame generation (+4 dB over blend on these clips) and small improvements on top, not a different league; whether it looks better than LSFG is a live judgement.
 
-Next ideas, in order of likely value: (1) hole filling by *direction*: a hole next to a covered area should take the background's vector, not the average of both sides; (2) a coarse-to-fine estimate at the frame's time (a flow defined at t directly, instead of splatting a flow defined at c); (3) a clip with a static HUD for the interface rule; (4) a learned or hand-designed confidence per pixel from the match error and consistency, used to blend between moved and unmoved.
+### Stage 3 result: direction-aware hole fill, and the HUD question (same day)
+
+- **bi+dir: a pixel neither flow reached takes the vector of the nearest reached pixel to its left, right, above or below (or none), whichever makes the moved pair agree best** (a hole is mostly background just uncovered, so one side's vector is right and the average of both sides is not).
+  Fast clip 27.60 -> **28.16**, calm 40.28 -> 40.33 and 37.92 -> 38.06; two WoW 4K clips (with a HUD) 37.34 -> 37.58 and 35.05 -> 35.42. **Every triple of every clip is better than without.** Applying the same candidates to *every* pixel (own vector kept unless another agrees clearly better) added nothing.
+  Cumulative against the plain half-way gather: +1.9 dB (fast), +0.5, +1.0 (calm), about +2 (WoW); against a blend +6.9, +9.4, +9.3, about +6.
+- **Static interface: no rule needed offline.** On pixels that are truly static (frames a, c and the truth agree within 4 levels over 5x5: the WoW HUD, 15-18% of those frames) every moved method has the same error as the blend (the estimator already gives a HUD that stays put a zero vector), and those pixels carry 0.1% of the total error. What stays unmeasured is the HUD *border* over moving background, a live-eye question.
+- **A flow defined at the frame's own time (idea 2) was not built**: nudging the splatted vector per pixel to the best local agreement (`ref`) gained +0.0, so a flow re-estimated at t would start from the same ceiling. Skipped for now.
+- **FSR on the 4K WoW clips scores *below* a blend in `nr_fgeval`** (23 against 29 dB), but those runs had the second estimator active (see above), so the number is not to be trusted; rerun without `flowdump` before drawing anything from it.
+
+Remaining ideas, in order of likely value: (1) a confidence per pixel from the match error and the consistency, used to blend between the moved and the unmoved picture (the oracle gap is mostly here); (2) the HUD border over moving background, judged live; (3) a second, finer estimate in the holes only (they are 37% of the fast clip); (4) then shaders in `FgEngine` (stage 5 below), behind the existing off switch.
 
 ## The plan
 

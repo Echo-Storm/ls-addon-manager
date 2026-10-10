@@ -134,6 +134,9 @@ def fill_holes(v_sp, got, v_fallback, iters=3):
     return np.where(known[..., None], v, v_fallback)
 
 
+args_margin = [10.0]
+
+
 def methods(a, c, v, t=0.5, thr_pair=60.0, thr_poor=90.0, still_thr=24.0, vb=None, tau=1.0):
     out = {}
     out['blend'] = (1 - t) * a + t * c
@@ -208,6 +211,36 @@ def methods(a, c, v, t=0.5, thr_pair=60.0, thr_poor=90.0, still_thr=24.0, vb=Non
         out['bi'] = np.where(none[..., None], spl, bi)
         # bi2: where both reached and agree, their mean (less noise)
         agree = both & (np.abs(Pc - Pa).sum(axis=2) < 30)
+        # bi+dir: a hole takes the vector of the nearest reached pixel in one of the four directions, whichever makes the moved pair agree best (a hole is mostly background
+        # uncovered, so one side's vector is right and the average of both is not)
+        F = np.where(pick_c[..., None], sc, -sa); reached = gc | ga
+        cands = [F * 0.0]
+        for axis, rev in ((1, False), (1, True), (0, False), (0, True)):
+            Fa = np.flip(F, axis) if rev else F; Ra = np.flip(reached, axis) if rev else reached
+            n = Ra.shape[axis]
+            pos = np.arange(n).reshape((1, n) if axis == 1 else (n, 1))
+            last = np.maximum.accumulate(np.where(Ra, pos, -1), axis=axis)
+            if axis == 1:
+                src = np.take_along_axis(Fa, np.clip(last, 0, n - 1)[..., None].repeat(2, axis=2), axis=1)
+            else:
+                src = np.take_along_axis(Fa, np.clip(last, 0, n - 1)[..., None].repeat(2, axis=2), axis=0)
+            src = np.where((last >= 0)[..., None], src, 0.0)
+            cands.append(np.flip(src, axis) if rev else src)
+        best_e = np.full(a.shape[:2], 1e9, np.float32); best_u = np.zeros_like(F)
+        for u in cands:
+            e = box(np.abs(moved(a, u, t) - moved(c, u, -(1 - t))).sum(axis=2), 5)
+            better = e < best_e
+            best_u = np.where(better[..., None], u, best_u); best_e = np.where(better, e, best_e)
+        hole_pair = (1 - t) * moved(a, best_u, t) + t * moved(c, best_u, -(1 - t))
+        out['bi+dir'] = np.where(none[..., None], hole_pair, bi)
+        # bi+all: the same candidates for every pixel, the pixel's own vector (where it has one) kept unless another one agrees clearly better
+        own_e = box(np.abs(moved(a, F, t) - moved(c, F, -(1 - t))).sum(axis=2), 5)
+        all_e = np.where(reached, own_e - args_margin[0], 1e9); all_u = np.where(reached[..., None], F, 0.0)
+        for u in cands:
+            e = box(np.abs(moved(a, u, t) - moved(c, u, -(1 - t))).sum(axis=2), 5)
+            better = e < all_e
+            all_u = np.where(better[..., None], u, all_u); all_e = np.where(better, e, all_e)
+        out['bi+all'] = (1 - t) * moved(a, all_u, t) + t * moved(c, all_u, -(1 - t))
         out['bi2'] = np.where(agree[..., None], 0.5 * (Pc + Pa), out['bi'])
         out['_ok'] = (float(ok_c.mean()), float(ok_a.mean()), float(gc.mean()), float(ga.mean()), float(none.mean()))
     # med3: the middle value per channel of (moved a, moved c, the unmoved mean): one wrong candidate cannot win
@@ -231,7 +264,9 @@ def main():
     ap.add_argument('--thr-pair', type=float, default=60.0)
     ap.add_argument('--thr-poor', type=float, default=90.0)
     ap.add_argument('--still', type=float, default=24.0)
+    ap.add_argument('--margin', type=float, default=10.0)
     args = ap.parse_args()
+    args_margin[0] = args.margin
     global SAMPLER
     if args.cubic:
         SAMPLER = bicubic
@@ -259,7 +294,7 @@ def main():
         print('%s t=%.2f  ' % (os.path.basename(p), t) + '  '.join('%s %.2f' % (k, x) for k, x in row.items()), flush=True)
     s = np.array(stats).mean(axis=0)
     print('%d triples, frames %dx%d; share of pixels: splat landed %.0f%%, still %.0f%%, moved pair disagreed %.0f%%' % (len(files), a.shape[1], a.shape[0], 100 * s[1], 100 * s[2], 100 * s[0]))
-    for k in ('blend', 'half', 'spl', 'spl+st', 'spl+occ', 'spl+rel', 'cand', 'ref', 'bi', 'bi2', 'med3', 'med5', 'oracle'):
+    for k in ('blend', 'half', 'spl', 'spl+st', 'spl+occ', 'spl+rel', 'cand', 'ref', 'bi', 'bi+dir', 'bi+all', 'bi2', 'med3', 'med5', 'oracle'):
         x = np.array(sums[k])
         print('  %-8s mean %.2f dB  (min %.2f, max %.2f)' % (k, x.mean(), x.min(), x.max()))
 
