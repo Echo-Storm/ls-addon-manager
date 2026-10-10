@@ -129,6 +129,13 @@ if(MSVC)
 endif()
 add_dependencies(nr_fgeval FSR3UPSC)   # (AMD's runtime, in the build's fsr folder)
 
+# nr_fgpresent: the frame generation presenter (src/addon/framegen11.cpp) on a real swap chain with the addon's Present hook, a synthetic moving scene, every frame shown
+# read back and checked (tools/fg_present_test.cpp)
+add_executable(nr_fgpresent tools/fg_present_test.cpp src/addon/framegen11.cpp src/addon/present_hook.cpp src/engine/flow_estimator.cpp src/engine/fg_engine.cpp src/engine/own_synth.cpp)
+target_include_directories(nr_fgpresent PRIVATE ${CMAKE_SOURCE_DIR}/src ${CMAKE_SOURCE_DIR}/third_party/ffx/include)
+target_link_libraries(nr_fgpresent PRIVATE d3d11 d3d12 dxgi d3dcompiler)
+add_dependencies(nr_fgpresent FSR3UPSC)   # (AMD's runtime, in the build's fsr folder)
+
 # nr_sreval: an upscaler scored offline on a recording (tools/sr_eval.cpp): each frame shrunk and upscaled back by the addon's own engine
 add_executable(nr_sreval tools/sr_eval.cpp src/addon/lsrec.cpp src/addon/agility.cpp src/engine/sr_engine.cpp src/engine/repeat_gate.cpp src/engine/flow_estimator.cpp)
 target_include_directories(nr_sreval PRIVATE ${CMAKE_SOURCE_DIR}/src ${NGX_DIR}/include ${CMAKE_SOURCE_DIR}/third_party/ffx/include ${XESS_DIR}/inc)
