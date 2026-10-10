@@ -1697,7 +1697,7 @@ ScalerView GetScalerView() {
     v.inW = g_scaleInW; v.inH = g_scaleInH; v.outW = g_scaleOutW; v.outH = g_scaleOutH;
     v.gpuMs = v.ready ? g_sr.GpuMs() : 0; v.motionMs = v.ready ? g_sr.MotionMs() : 0; v.runs = g_upscaled; v.nisSeen = g_nisSeen; v.perFrame = g_nisPerFrame;
     { std::lock_guard<std::mutex> lock(g_textMutex); v.second = g_scalerSecond; if (!v.starting && !v.failed) v.blocked = g_scalerBlocked; }
-    if (v.ready) v.provider = g_sr.Provider();
+    if (v.ready) { v.provider = g_sr.Provider(); v.repeatSkips = g_sr.RepeatSkips(); v.repeatChecks = g_sr.RepeatChecks(); }
     v.preparing = v.ready && g_sr.BusyMs() > 1500;
     return v;
 }
