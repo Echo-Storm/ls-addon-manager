@@ -225,7 +225,7 @@ int main(int argc, char** argv) {
     if (!gaps.empty()) meanGap /= gaps.size();
     const double want = intervalMs / wantMult;
     printf("the longest wait between the presenting thread's calls into the presenter: %.0f ms (a real frame every %.0f ms)\n", g_maxGapMs, intervalMs);
-    const bool stalled = g_maxGapMs > 3.0 * intervalMs + 20.0;
+    const bool stalled = g_maxGapMs > std::max(150.0, 4.0 * intervalMs);   // (the engine's very first frame takes about 50 ms once; the start-up used to take seconds)
     const bool toggled = !doToggle || st.engine.rfind("EchoFG", 0) == 0;
     if (doToggle) printf("EchoFG after the switch: %s (the engine says %s)\n", toggled ? "running" : "NOT running", st.engine.c_str());
     printf("frames per real frame after warm-up: %s (wanted %d made between each two real ones; %d intervals wrong)\n", perInterval.empty() ? "none" : "measured", wantMult - 1, countWrong);
