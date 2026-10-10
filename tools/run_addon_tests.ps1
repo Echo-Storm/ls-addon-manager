@@ -53,7 +53,7 @@ $suites = [ordered]@{
                    Build = @('installer', 'setup_core', 'setup_cli', 'pack_payload', 'LSAddonManagerSetup');
                    Script = "$root\installer\tests\setup_exe_test.ps1" }
     nr        = @{ When = '^addons/DLSS5NR01/(src|tools|tests|CMakeLists)|^manager/sdk/|^tools/run_hosttest_matrix';
-                   Build = @('nr', 'nr_reqtest', 'nr_taptest', 'nr_settingstest', 'nr_autotest', 'nr_tracetest', 'nr_diagtest', 'nr_composebench', 'nr_rectest', 'nr_lsrec', 'nr_sreval', 'DLSS5NR01', 'DLSS4DLAA', 'FSR3UPSC', 'nr_hosttest', 'nr_selftest');
+                   Build = @('nr', 'nr_reqtest', 'nr_taptest', 'nr_settingstest', 'nr_autotest', 'nr_tracetest', 'nr_diagtest', 'nr_composebench', 'nr_rectest', 'nr_lsrec', 'nr_sreval', 'nr_fgpresent', 'DLSS5NR01', 'DLSS4DLAA', 'FSR3UPSC', 'nr_hosttest', 'nr_selftest');
                    Runs = @(@('Neural Rendering requirements check', "$nrBuild\Release\nr_reqtest.exe", @()),
                             @('Neural Rendering settings and looks', "$nrBuild\Release\nr_settingstest.exe", @()),
                             @('Neural Rendering auto quality', "$nrBuild\Release\nr_autotest.exe", @()),
@@ -63,6 +63,8 @@ $suites = [ordered]@{
                             @('Neural Rendering frame trace (ring and export)', "$nrBuild\Release\nr_tracetest.exe", @()),
                             @('The recorder (codec and file)', "$nrBuild\Release\nr_rectest.exe", @()),
                             @('Neural Rendering frame tap', "$nrBuild\Release\nr_taptest.exe", @()),
+                            @('Frame generation presenter (our own synthesis x4, a real swap chain, every frame read back)', "$nrBuild\Release\nr_fgpresent.exe", @('mult=4')),
+                            @('Frame generation presenter (HDR frames, x3)', "$nrBuild\Release\nr_fgpresent.exe", @('mult=3', 'hdr=1')),
                             @('HDR: the upscaler keeps highlights (a made-up fp16 clip with bright glints; sharpening, lean, steady sharpening: no specks)', $env:ComSpec,
                               @('/c', "`"$nrBuild\Release\nr_lsrec.exe`" make `"$env:TEMP\nr_hdr_test.lsrec`" 1280 720 40 hdr=1 && `"$nrBuild\Release\nr_sreval.exe`" `"$env:TEMP\nr_hdr_test.lsrec`" `"$env:TEMP\nr_hdr_test_out`" count=30 shrink=150 backend=fsr hdr=1 hdrcheck=1 sharpen=80 restmix=50 steady=60 movecut=50 show=0")));
                    Matrix = $true }
