@@ -1086,8 +1086,7 @@ int main(int argc, char** argv) {
                 std::vector<uint16_t> mvBack(static_cast<size_t>(W) * H * 2);
                 {   static FlowEstimator est2; static ID3D12Resource *c2 = nullptr, *m2 = nullptr, *d2 = nullptr, *rb2 = nullptr; static D3D12_PLACED_SUBRESOURCE_FOOTPRINT bfp{}; static D3D12_RESOURCE_STATES c2State = D3D12_RESOURCE_STATE_COPY_DEST;
                     if (!c2) {
-                        est2.Init(g.dev, [](const char* m) { printf("  %s" "
-", m); }); est2.Ensure(W, H);
+                        est2.Init(g.dev, [](const char* m) { printf("  %s\n", m); }); est2.Ensure(W, H);
                         c2 = g.Texture(W, H, DXGI_FORMAT_R8G8B8A8_UNORM, false, D3D12_RESOURCE_STATE_COPY_DEST);
                         m2 = g.Texture(W, H, DXGI_FORMAT_R16G16_FLOAT, true, D3D12_RESOURCE_STATE_UNORDERED_ACCESS);
                         d2 = g.Texture(W, H, DXGI_FORMAT_R8_UNORM, true, D3D12_RESOURCE_STATE_UNORDERED_ACCESS);
