@@ -8,6 +8,7 @@
 #include <cstring>
 #include <atomic>
 #include <mutex>
+#include <thread>
 #include <utility>
 
 namespace nr::framegen {
@@ -43,6 +44,8 @@ struct State {
     LARGE_INTEGER saidAt{}; Stats said;                                                  // for the log, every 10 s
     // FSR 3.1 frame generation: the frame in and the frame made, shared with FgEngine's device, and a fence for the copy in
     FgEngine engine; std::wstring runtime; bool engineFailed = false;
+    // the engine starts on a thread of its own (FSR's runtime, the motion estimate's and EchoFG's shaders: a second or two): until it is ready the frames between are the blend
+    std::thread initThread; std::atomic<int> initState{ 0 }; std::string initError;   // initState: 0 idle, 1 starting, 2 started, 3 failed
     ID3D11Texture2D* in11 = nullptr; ID3D11Texture2D* out11 = nullptr; ID3D12Resource* in12 = nullptr; ID3D12Resource* out12 = nullptr;
     ID3D11Fence* copied11 = nullptr; ID3D12Fence* copied12 = nullptr; uint64_t copiedValue = 0;
     ID3D11Fence* made11 = nullptr; ID3D12Fence* made12 = nullptr; uint64_t madeValue = 0;   // the frame between is in out11 (a GPU wait here)
@@ -58,7 +61,10 @@ void Publish() { std::lock_guard<std::mutex> lock(g_statsMutex); g_published = g
 
 double Ms(const LARGE_INTEGER& a, const LARGE_INTEGER& b) { LARGE_INTEGER f; QueryPerformanceFrequency(&f); return (b.QuadPart - a.QuadPart) * 1000.0 / f.QuadPart; }
 
+void JoinInit() { if (g.initThread.joinable()) g.initThread.join(); }
+
 void ReleaseShared() {
+    JoinInit(); g.initState = 0;
     g.engine.Shutdown();
     SafeRelease(g.in12); SafeRelease(g.out12); SafeRelease(g.copied12); SafeRelease(g.in11); SafeRelease(g.out11); SafeRelease(g.copied11);
     SafeRelease(g.made12); SafeRelease(g.made11);
@@ -119,21 +125,36 @@ bool MakeShared(const D3D11_TEXTURE2D_DESC& back, ID3D11Texture2D*& t11, ID3D12R
     return t12 != nullptr;
 }
 
-// FgEngine and the textures and fence it shares with Lossless Scaling's device, for frames like the back buffer. False: the blend stands in.
+// FgEngine and the textures and fence it shares with Lossless Scaling's device, for frames like the back buffer. The engine starts on a thread of its own and this says false
+// (the blend stands in) until it is ready; a start that failed stays failed until the frames' size or format changes.
 bool EnsureEngine(const D3D11_TEXTURE2D_DESC& back, const LogFn& log) {
     if (g.engineFailed) return false;
+    if (g.initState == 1) return false;   // still starting
+    if (g.initThread.joinable()) g.initThread.join();   // (it has finished)
+    auto fail = [&](const char* why) { if (log) { std::string m = std::string("frame generation: ") + why + "; the blend stands in"; log(m.c_str()); } ReleaseShared(); g.engineFailed = true; return false; };
+    if (g.initState == 3) return fail(g.initError.c_str());
     IDXGIDevice* dxgi = nullptr; IDXGIAdapter* adapter = nullptr; DXGI_ADAPTER_DESC ad{};
     if (FAILED(g.dev->QueryInterface(IID_PPV_ARGS(&dxgi)))) return false;
     dxgi->GetAdapter(&adapter); dxgi->Release();
     if (!adapter) return false;
     adapter->GetDesc(&ad); adapter->Release();
     const bool hdr = back.Format == DXGI_FORMAT_R16G16B16A16_FLOAT;
-    if (g.engine.Matches(ad.AdapterLuid, back.Width, back.Height, back.Format, hdr) && g.in12 && g.out12 && g.copied12 && g.made12) return true;
-    ReleaseShared();
-    auto fail = [&](const char* why) { if (log) { std::string m = std::string("frame generation: ") + why + "; the blend stands in"; log(m.c_str()); } ReleaseShared(); g.engineFailed = true; return false; };
-    if (g.runtime.empty() || !g.ctx4) return fail("no FSR runtime, or no Direct3D 11.4");
-    if (!g.engine.Init(ad.AdapterLuid, g.runtime, back.Width, back.Height, back.Format, hdr, log)) return fail(g.engine.LastError());
-    // two shared fences: "copied" (the frame is in, for the engine's queue) and "made" (the frame between is out, for Lossless Scaling's)
+    if (!g.engine.Matches(ad.AdapterLuid, back.Width, back.Height, back.Format, hdr)) {
+        // no engine for these frames (the first, or a new size or format): the old one goes, a new one starts beside the frames
+        ReleaseShared();
+        if (g.runtime.empty() || !g.ctx4) return fail("no FSR runtime, or no Direct3D 11.4");
+        g.engine.SetOwnSynthesis(g.own.load());   // (EchoFG's shaders compile in the same start-up when it is wanted already)
+        g.initState = 1;
+        const LUID luid = ad.AdapterLuid; const std::wstring runtime = g.runtime; const UINT w = back.Width, h = back.Height; const DXGI_FORMAT fmt = back.Format; const LogFn logCopy = log;
+        g.initThread = std::thread([luid, runtime, w, h, fmt, hdr, logCopy] {
+            const bool ok = g.engine.Init(luid, runtime, w, h, fmt, hdr, logCopy);
+            if (!ok) g.initError = g.engine.LastError();
+            g.initState = ok ? 2 : 3;
+        });
+        return false;
+    }
+    if (g.in12 && g.out12 && g.copied12 && g.made12) return true;
+    // the engine is up: two shared fences, "copied" (the frame is in, for the engine's queue) and "made" (the frame between is out, for Lossless Scaling's)
     ID3D11Device5* dev5 = nullptr; g.dev->QueryInterface(IID_PPV_ARGS(&dev5));
     if (!dev5 || FAILED(dev5->CreateFence(0, D3D11_FENCE_FLAG_SHARED, IID_PPV_ARGS(&g.copied11))) || FAILED(dev5->CreateFence(0, D3D11_FENCE_FLAG_SHARED, IID_PPV_ARGS(&g.made11)))) {
         SafeRelease(dev5); return fail("the shared fences could not be made");

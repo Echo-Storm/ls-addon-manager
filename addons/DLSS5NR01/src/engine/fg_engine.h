@@ -7,9 +7,11 @@
 #include <windows.h>
 #include <d3d12.h>
 #include <dxgi1_6.h>
+#include <atomic>
 #include <cstdint>
 #include <functional>
 #include <string>
+#include <thread>
 #include "engine/flow_estimator.h"
 #include "engine/own_synth.h"
 
@@ -50,7 +52,7 @@ public:
     void SetAnalysisScale(int scale) { m_synth.SetAnalysisScale(scale); }
     // true: the frame between is made by this project's own synthesis (own_synth.h) instead of FSR 3.1; when it cannot start on this card (a frame format
     // without typed stores) FSR makes the frame as before. Set from the thread that calls Generate.
-    void SetOwnSynthesis(bool on) { m_own = on; }
+    void SetOwnSynthesis(bool on) { m_own = on; }   // (EchoFG's start-up runs beside the frames: it is used from the first frame after it is ready)
     bool UsingOwnSynthesis() const { return m_own && m_synthReady; }
     // How long the GPU took for a frame between (the motion, FSR, the copy out), smoothed over the frames it has finished; 0 before any.
     double GpuMs() const { return m_gpuMs; }
@@ -65,7 +67,7 @@ private:
     bool WaitFence(uint64_t value, DWORD ms);   // (setting up, a slot still busy, shutting down)
     void ReadSlot(int slot);                    // a slot the GPU has finished: its timing and motion statistics
 
-    LogFn m_log; std::string m_error; bool m_ready = false;
+    LogFn m_log; std::string m_error; std::atomic<bool> m_ready{ false };
     LUID m_card{}; uint32_t m_w = 0, m_h = 0; DXGI_FORMAT m_fmt = DXGI_FORMAT_UNKNOWN; bool m_hdr = false;
     ID3D12Device* m_dev = nullptr; ID3D12CommandQueue* m_queue = nullptr; ID3D12GraphicsCommandList* m_list = nullptr;
     ID3D12CommandAllocator* m_alloc[kSlots] = {}; uint64_t m_slotValue[kSlots] = {}; bool m_slotRead[kSlots] = {};
@@ -79,7 +81,12 @@ private:
     ID3D12RootSignature* m_guardRoot = nullptr; ID3D12PipelineState* m_guardPso = nullptr; ID3D12DescriptorHeap* m_guardHeap = nullptr; UINT m_descSize = 0;
     ID3D12Resource* m_before = nullptr; ID3D12Resource* m_guarded = nullptr; bool m_haveBefore = false;
     bool InitGuard();
-    OwnSynth m_synth; bool m_own = false, m_synthTried = false, m_synthReady = false, m_prevOwn = false;
+    // EchoFG's shaders (nine pipelines) and buffers are made on a thread of their own, so switching it on never stalls the presenting thread: until it is ready FSR makes the frames
+    OwnSynth m_synth; std::atomic<bool> m_own{ false }, m_synthReady{ false }; bool m_prevOwn = false;
+    std::atomic<int> m_synthState{ 0 };   // 0 not started, 1 starting, 2 ready, 3 could not start
+    std::thread m_synthThread;
+    void InitSynth();    // the work (on whichever thread)
+    void StartSynth();   // ... on a thread of its own
     Ffx* m_ffx = nullptr;
     uint64_t m_frameId = 0, m_runs = 0;
 };

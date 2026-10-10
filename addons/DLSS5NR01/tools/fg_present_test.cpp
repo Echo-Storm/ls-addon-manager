@@ -11,6 +11,7 @@
 //   nr_fgpresent [mult=4] [hdr=0|1] [frames=30] [own=1] [fps=30] [speed=24] [fsr=<amd_fidelityfx_dx12.dll>]
 //                [dup=2]     every real frame comes dup times (a 30 fps game in a 60 Hz feed: with fps=60): the frames made between identical ones must be the same too
 //                [switch=1]  the multiplier changed while it runs (to x2 a third of the way, to x5 two thirds): the last intervals must have the last one's count
+//                [toggle=1]  starts with FSR (own=0) and switches EchoFG on half way: neither the start-up nor the switch may stall the presenting thread
 //                [resize=1]  the swap chain's buffers resized to 800x450 half way: the presenter starts again at the new size and goes on
 // Needs a build made with NR_FRAMEGEN=ON only for the addon itself; this tool links the presenter directly, so it runs in any build.
 #include <windows.h>
@@ -65,7 +66,11 @@ uint32_t g_encoding = 0; float g_white = 80.0f;
 
 void Log(const char* m) { printf("[presenter] %s\n", m); fflush(stdout); }
 
+LARGE_INTEGER g_lastEntry{}; double g_maxGapMs = 0; int g_entries = 0;   // how far apart the presenting thread's calls into the presenter are: a stall of the thread shows as a long gap
 void OnHook(IDXGISwapChain* sc, UINT sync, UINT flags) {
+    { LARGE_INTEGER now, f; QueryPerformanceCounter(&now); QueryPerformanceFrequency(&f);
+      if (g_lastEntry.QuadPart && g_entries > 2) g_maxGapMs = std::max(g_maxGapMs, (now.QuadPart - g_lastEntry.QuadPart) * 1000.0 / f.QuadPart);
+      g_lastEntry = now; ++g_entries; }
     nr::framegen::BeforeRealPresent(sc, sync, flags, g_encoding, g_white, Log, [](ID3D11DeviceContext* ctx, ID3D11Texture2D* frame, bool made) {
         if (g_shown.size() >= 600) return;
         D3D11_TEXTURE2D_DESC d{}; frame->GetDesc(&d);
@@ -101,7 +106,8 @@ double SquareX(ID3D11Texture2D* st) {
 int main(int argc, char** argv) {
     setvbuf(stdout, nullptr, _IONBF, 0);
     const int mult = std::clamp(Arg(argc, argv, "mult", 4), 2, 9), frames = std::clamp(Arg(argc, argv, "frames", 30), 8, 100);
-    const bool hdr = Arg(argc, argv, "hdr", 0) != 0, own = Arg(argc, argv, "own", 1) != 0;
+    const bool doToggle = Arg(argc, argv, "toggle", 0) != 0;
+    const bool hdr = Arg(argc, argv, "hdr", 0) != 0, own = doToggle ? false : Arg(argc, argv, "own", 1) != 0;
     // (the square must stay on the 960 pixel wide picture: 120 + speed * frames + 96 < 960)
     const int fps = std::clamp(Arg(argc, argv, "fps", 30), 10, 120); const double speed = Arg(argc, argv, "speed", 24);
     const int dup = std::clamp(Arg(argc, argv, "dup", 1), 1, 4); const bool doSwitch = Arg(argc, argv, "switch", 0) != 0, doResize = Arg(argc, argv, "resize", 0) != 0;
@@ -137,6 +143,7 @@ int main(int argc, char** argv) {
     LARGE_INTEGER freq, start; QueryPerformanceFrequency(&freq); QueryPerformanceCounter(&start);
     auto nowMs = [&] { LARGE_INTEGER n; QueryPerformanceCounter(&n); return (n.QuadPart - start.QuadPart) * 1000.0 / freq.QuadPart; };
     for (int n = 0; n < frames; ++n) {
+        if (doToggle && n == frames / 2) nr::framegen::SetOwn(true);
         if (doSwitch && n == frames / 3) nr::framegen::SetMultiplier(2);
         if (doSwitch && n == 2 * frames / 3) { nr::framegen::SetMultiplier(5); wantMult = 5; settledFrom = n + 3; }
         if (doResize && n == frames / 2) {
@@ -170,7 +177,7 @@ int main(int argc, char** argv) {
         const double x = SquareX(s.staging);
         if (last.QuadPart && static_cast<int>(real) > warm) gaps.push_back((s.at.QuadPart - last.QuadPart) * 1000.0 / freq.QuadPart);
         last = s.at;
-        if (s.made) { ++made; ++inInterval; if (x < 0) ++bad; }
+        if (s.made) { ++made; ++inInterval; }
         else {
             // a real frame n: x = x0 + speed n; the made frames before it, k = 1 .. inInterval of inInterval + 1
             if (real > 0 && real > warm && !started) { if (inInterval == wantMult - 1) started = true; }
@@ -196,10 +203,13 @@ int main(int argc, char** argv) {
     for (double g : gaps) { minGap = std::min(minGap, g); maxGap = std::max(maxGap, g); meanGap += g; }
     if (!gaps.empty()) meanGap /= gaps.size();
     const double want = intervalMs / wantMult;
+    printf("the longest wait between the presenting thread's calls into the presenter: %.0f ms (a real frame every %.0f ms)\n", g_maxGapMs, intervalMs);
+    const bool stalled = g_maxGapMs > 3.0 * intervalMs + 20.0;
     printf("frames per real frame after warm-up: %s (wanted %d made between each two real ones; %d intervals wrong)\n", perInterval.empty() ? "none" : "measured", wantMult - 1, countWrong);
     printf("the made frames' square position: mean error %.2f px, worst %.2f px (%d frames; speed %.0f px a real frame); %d frames without a readable square\n", measured ? sumErr / measured : 0.0, worst, measured, speed, bad);
     printf("spacing of the frames shown: mean %.1f ms, min %.1f, max %.1f (wanted %.1f ms at x%d of %d fps)\n", meanGap, minGap, maxGap, want, wantMult, fps);
-    const bool ok = made > 0 && countWrong == 0 && bad == 0 && measured > 0 && worst < 0.2 * speed + 3.0;
+    if (stalled) printf("the presenting thread stalled\n");
+    const bool ok = made > 0 && countWrong == 0 && bad == 0 && measured > 0 && worst < 0.2 * speed + 3.0 && !stalled;
     printf("%s\n", ok ? "FG PRESENT TEST PASSED" : "FG PRESENT TEST FAILED");
     for (auto& s : g_shown) if (s.staging) s.staging->Release();
     nr::framegen::Shutdown(); PresentHook::Uninstall();

@@ -218,6 +218,7 @@ bool FgEngine::Init(const LUID& card, const std::wstring& runtimeDll, uint32_t w
     cfg.generationRect = { 0, 0, static_cast<int>(w), static_cast<int>(h) };
     if (m_ffx->fn.Configure(&m_ffx->ctx, &cfg.header) != FFX_API_RETURN_OK) return Fail("FSR frame generation could not be configured");
     m_frameId = 0; m_runs = 0; m_gpuMs = 0; m_ready = true;
+    if (m_own && m_synthState == 0) { m_synthState = 1; InitSynth(); }   // (this runs on the engine's start-up thread: EchoFG is ready with the engine)
     Log("frame generation engine: FSR 3.1 frame generation ready, %ux%u, format %d%s (dispatched directly)", w, h, static_cast<int>(fmt), hdr ? ", HDR" : "");
     return true;
 }
@@ -229,7 +230,8 @@ void FgEngine::Shutdown() {
         if (m_ffx->module) FreeLibrary(m_ffx->module);
         delete m_ffx; m_ffx = nullptr;
     }
-    m_estimator.Shutdown(); m_synth.Shutdown(); m_synthTried = m_synthReady = false;
+    if (m_synthThread.joinable()) m_synthThread.join();
+    m_estimator.Shutdown(); m_synth.Shutdown(); m_synthState = 0; m_synthReady = false;
     SafeRelease(m_motion); SafeRelease(m_distrust); SafeRelease(m_depth); SafeRelease(m_made); for (auto*& r : m_madeMore) SafeRelease(r);
     SafeRelease(m_before); SafeRelease(m_guarded); SafeRelease(m_guardPso); SafeRelease(m_guardRoot); SafeRelease(m_guardHeap); m_haveBefore = false;
     SafeRelease(m_stamps); SafeRelease(m_stampReadback);
@@ -264,6 +266,28 @@ void FgEngine::ReadSlot(int slot) {
     }
 }
 
+// EchoFG's start: the typed-store check, the nine pipelines (a second or less of shader compiling) and the buffers. Run on a thread of its own so that the presenting thread never waits for it.
+void FgEngine::InitSynth() {
+    D3D12_FEATURE_DATA_FORMAT_SUPPORT fs{}; fs.Format = StorageFormat(m_fmt);
+    const bool storable = SUCCEEDED(m_dev->CheckFeatureSupport(D3D12_FEATURE_FORMAT_SUPPORT, &fs, sizeof fs)) && (fs.Support2 & D3D12_FORMAT_SUPPORT2_UAV_TYPED_STORE);
+    if (!storable) {
+        Log("frame generation engine: EchoFG needs typed stores in the frames' format (%d); FSR makes the frames", static_cast<int>(m_fmt));
+        m_synthState = 3; return;
+    }
+    m_synth.SetTimestampFrequency(0);
+    const bool ok = m_synth.Init(m_dev, [this](const char* m) { Log("%s", m); }) && m_synth.Ensure(m_w, m_h);
+    Log(ok ? "frame generation engine: EchoFG ready" : "frame generation engine: EchoFG could not start; FSR makes the frames");
+    m_synthState = ok ? 2 : 3;
+    m_synthReady = ok;
+}
+
+void FgEngine::StartSynth() {
+    if (m_synthState != 0) return;
+    if (m_synthThread.joinable()) m_synthThread.join();
+    m_synthState = 1;
+    m_synthThread = std::thread([this] { InitSynth(); });
+}
+
 int FgEngine::GenerateFrames(ID3D12Resource* in, ID3D12Fence* copied, uint64_t n, ID3D12Resource* const* outs, int count, ID3D12Fence* made, uint64_t madeValue, float frameMs, bool reset,
                              uint32_t encoding, float whiteNits, bool guard) {
     if (!m_ready || count < 1 || !outs) return 0;
@@ -287,17 +311,7 @@ int FgEngine::GenerateFrames(ID3D12Resource* in, ID3D12Fence* copied, uint64_t n
     m_estimator.Record(m_list, slot, in, m_fmt, m_motion, m_distrust, 0.0f, encoding, whiteNits);
     Barrier(m_motion, D3D12_RESOURCE_STATE_UNORDERED_ACCESS, D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE);
     const bool first = reset || m_frameId == 0;
-    if (m_own && !m_synthTried) {   // our own synthesis, started when first asked for (its buffers are 9 x 4 bytes a pixel)
-        m_synthTried = true;
-        D3D12_FEATURE_DATA_FORMAT_SUPPORT fs{}; fs.Format = StorageFormat(m_fmt);
-        const bool storable = SUCCEEDED(m_dev->CheckFeatureSupport(D3D12_FEATURE_FORMAT_SUPPORT, &fs, sizeof fs)) && (fs.Support2 & D3D12_FORMAT_SUPPORT2_UAV_TYPED_STORE);
-        if (!storable) Log("frame generation engine: EchoFG needs typed stores in the frames' format (%d); FSR makes the frames", static_cast<int>(m_fmt));
-        else {
-            m_synth.SetTimestampFrequency(0);
-            m_synthReady = m_synth.Init(m_dev, [this](const char* m) { Log("%s", m); }) && m_synth.Ensure(m_w, m_h);
-            Log(m_synthReady ? "frame generation engine: EchoFG ready" : "frame generation engine: EchoFG could not start; FSR makes the frames");
-        }
-    }
+    if (m_own && m_synthState == 0) StartSynth();   // (ready some frames later: FSR makes the frames meanwhile)
     const bool ownNow = m_own && m_synthReady;
     int ownCount = 1;
     const bool switchedToFsr = !ownNow && m_prevOwn && m_runs > 0;   // FSR's last prepare was before our frames: it starts afresh
