@@ -615,7 +615,9 @@ int main(int argc, char** argv) {
     std::wstring exeDir; { wchar_t exe[MAX_PATH]; GetModuleFileNameW(nullptr, exe, MAX_PATH); exeDir = exe; exeDir = exeDir.substr(0, exeDir.find_last_of(L'\\')); }
 
     // the frames, in their SDR view
-    std::vector<std::vector<uint8_t>> frames(count); std::vector<double> times(count);
+    // ownhdr=1 (with own=1, an HDR recording): the synthesis is fed the recording's own half-float frames (encoding scRGB, the SDR white 200 nits as ToRgba8 takes it), scored in their SDR view
+    const bool ownHdr = Arg(argc, argv, "ownhdr", 0) != 0 && h.bytesPerPixel == 8;
+    std::vector<std::vector<uint8_t>> frames(count), raws(ownHdr ? count : 0); std::vector<double> times(count);
     { std::vector<uint8_t> px;
       // realonly=1: a recording of what was shown (frame generation of our own) holds frames made between too: only the real ones are taken,
       // which is exactly what the engine was given live
@@ -624,6 +626,7 @@ int main(int argc, char** argv) {
       for (int i = 0; first + i < static_cast<int>(rec.Count()) && kept < count; ++i) {
           if (realOnly && rec.FrameInfo(first + i).tag == nr::lsrec::kMadeBetween) continue;
           if (!rec.Read(first + i, px) || !ToRgba8(h, px, frames[kept])) { printf("frame %d could not be read or converted (format %u)\n", first + i, h.format); return 3; }
+          if (ownHdr) raws[kept] = px;
           times[kept] = h.qpcFrequency ? rec.FrameInfo(first + i).qpc * 1000.0 / static_cast<double>(h.qpcFrequency) : i * 16.7;   // ms
           ++kept;
       }
@@ -791,6 +794,51 @@ int main(int argc, char** argv) {
                     if (std::fabs(tk - ownT) < bestD) { bestD = std::fabs(tk - ownT); pickOut = k - 1; }
                 }
             }
+            // the HDR feed: half-float textures from the recording's own pixels, scRGB, the SDR white at 200 nits
+            static ID3D12Resource *hdrCur = nullptr, *hdrPrev = nullptr, *hdrOut = nullptr, *hdrUp = nullptr, *hdrBack = nullptr; static D3D12_PLACED_SUBRESOURCE_FOOTPRINT hfp{};
+            static D3D12_RESOURCE_STATES hdrPrevState = D3D12_RESOURCE_STATE_COPY_DEST, hdrCurState = D3D12_RESOURCE_STATE_COPY_DEST;
+            if (ownHdr) {
+                hdrCur = g.Texture(W, H, DXGI_FORMAT_R16G16B16A16_FLOAT, false, D3D12_RESOURCE_STATE_COPY_DEST);
+                hdrPrev = g.Texture(W, H, DXGI_FORMAT_R16G16B16A16_FLOAT, false, D3D12_RESOURCE_STATE_COPY_DEST);
+                hdrOut = g.Texture(W, H, DXGI_FORMAT_R16G16B16A16_FLOAT, true, D3D12_RESOURCE_STATE_UNORDERED_ACCESS);
+                D3D12_RESOURCE_DESC hd = hdrCur->GetDesc(); UINT hr = 0; UINT64 hrow = 0, ht = 0; g.dev->GetCopyableFootprints(&hd, 0, 1, 0, &hfp, &hr, &hrow, &ht);
+                hdrUp = g.Buffer(ht, D3D12_HEAP_TYPE_UPLOAD, D3D12_RESOURCE_STATE_GENERIC_READ); hdrBack = g.Buffer(ht, D3D12_HEAP_TYPE_READBACK, D3D12_RESOURCE_STATE_COPY_DEST);
+            }
+            const uint32_t hdrEncoding = h.content == nr::lsrec::kSdrView ? 0u : 1u;
+            const float hdrWhite = h.content == nr::lsrec::kOwnEncoding ? 200.0f : 80.0f;
+            auto hdrStep = [&](int i, float, std::vector<uint8_t>& picture) -> bool {
+                { uint8_t* m = nullptr; hdrUp->Map(0, nullptr, reinterpret_cast<void**>(&m));
+                  for (uint32_t y = 0; y < H; ++y) memcpy(m + hfp.Offset + y * hfp.Footprint.RowPitch, raws[i].data() + static_cast<size_t>(y) * W * 8, static_cast<size_t>(W) * 8);
+                  hdrUp->Unmap(0, nullptr); }
+                g.Barrier(hdrCur, hdrCurState, D3D12_RESOURCE_STATE_COPY_DEST);
+                D3D12_TEXTURE_COPY_LOCATION to{ hdrCur, D3D12_TEXTURE_COPY_TYPE_SUBRESOURCE_INDEX }; to.SubresourceIndex = 0;
+                D3D12_TEXTURE_COPY_LOCATION from{ hdrUp, D3D12_TEXTURE_COPY_TYPE_PLACED_FOOTPRINT }; from.PlacedFootprint = hfp;
+                g.list->CopyTextureRegion(&to, 0, 0, 0, &from, nullptr);
+                g.Barrier(hdrCur, D3D12_RESOURCE_STATE_COPY_DEST, D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE); hdrCurState = D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE;
+                if (i >= 2) {
+                    if (hdrPrevState != D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE) { g.Barrier(hdrPrev, hdrPrevState, D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE); hdrPrevState = D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE; }
+                    if (!syn.Record(g.list, 0, hdrPrev, DXGI_FORMAT_R16G16B16A16_FLOAT, hdrCur, DXGI_FORMAT_R16G16B16A16_FLOAT, motion, DXGI_FORMAT_R16G16B16A16_FLOAT, &(tgts[0] = { hdrOut, ownT }), 1, hdrEncoding, hdrWhite)) return false;
+                    g.Barrier(hdrOut, D3D12_RESOURCE_STATE_UNORDERED_ACCESS, D3D12_RESOURCE_STATE_COPY_SOURCE);
+                    D3D12_TEXTURE_COPY_LOCATION rt{ hdrBack, D3D12_TEXTURE_COPY_TYPE_PLACED_FOOTPRINT }; rt.PlacedFootprint = hfp;
+                    D3D12_TEXTURE_COPY_LOCATION rf{ hdrOut, D3D12_TEXTURE_COPY_TYPE_SUBRESOURCE_INDEX }; rf.SubresourceIndex = 0;
+                    g.list->CopyTextureRegion(&rt, 0, 0, 0, &rf, nullptr);
+                    g.Barrier(hdrOut, D3D12_RESOURCE_STATE_COPY_SOURCE, D3D12_RESOURCE_STATE_UNORDERED_ACCESS);
+                }
+                g.Barrier(hdrPrev, hdrPrevState, D3D12_RESOURCE_STATE_COPY_DEST);
+                g.Barrier(hdrCur, hdrCurState, D3D12_RESOURCE_STATE_COPY_SOURCE);
+                g.list->CopyResource(hdrPrev, hdrCur);
+                g.Barrier(hdrCur, D3D12_RESOURCE_STATE_COPY_SOURCE, D3D12_RESOURCE_STATE_COPY_DEST); hdrCurState = D3D12_RESOURCE_STATE_COPY_DEST;
+                hdrPrevState = D3D12_RESOURCE_STATE_COPY_DEST;
+                g.Submit();
+                if (i >= 2) {
+                    std::vector<uint8_t> px(static_cast<size_t>(W) * H * 8);
+                    uint8_t* m = nullptr; hdrBack->Map(0, nullptr, reinterpret_cast<void**>(&m));
+                    for (uint32_t y = 0; y < H; ++y) memcpy(px.data() + static_cast<size_t>(y) * W * 8, m + hfp.Offset + y * hfp.Footprint.RowPitch, static_cast<size_t>(W) * 8);
+                    D3D12_RANGE none{ 0, 0 }; hdrBack->Unmap(0, &none);
+                    ToRgba8(h, px, picture);
+                }
+                return true;
+            };
             step = [&](int i, float frameMs, std::vector<uint8_t>& picture) -> bool {
                 (void)frameMs;
                 if (i >= 2) {
@@ -813,6 +861,7 @@ int main(int argc, char** argv) {
                 if (i >= 2) { readPicture(readback, picture); double ms = 0; static std::vector<double> all; if (syn.ReadMs(0, ms)) all.push_back(ms); if (i + 2 >= count && !all.empty()) { std::sort(all.begin(), all.end()); printf("  own synthesis: the GPU median %.2f ms a frame, best %.2f, worst %.2f (%zu frames, %ux%u)\n", all[all.size() / 2], all.front(), all.back(), all.size(), W, H); } }
                 return true;
             };
+            if (ownHdr) step = hdrStep;
         } else
         if (useEngine) {   // engine=1: the addon's own FgEngine, given the frames through shared textures and fences as framegen11 gives them
             static nr::FgEngine eng;
