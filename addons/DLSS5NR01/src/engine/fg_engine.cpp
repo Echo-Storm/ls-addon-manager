@@ -291,11 +291,11 @@ int FgEngine::GenerateFrames(ID3D12Resource* in, ID3D12Fence* copied, uint64_t n
         m_synthTried = true;
         D3D12_FEATURE_DATA_FORMAT_SUPPORT fs{}; fs.Format = StorageFormat(m_fmt);
         const bool storable = SUCCEEDED(m_dev->CheckFeatureSupport(D3D12_FEATURE_FORMAT_SUPPORT, &fs, sizeof fs)) && (fs.Support2 & D3D12_FORMAT_SUPPORT2_UAV_TYPED_STORE);
-        if (!storable) Log("frame generation engine: our own synthesis needs typed stores in the frames' format (%d); FSR makes the frames", static_cast<int>(m_fmt));
+        if (!storable) Log("frame generation engine: EchoFG needs typed stores in the frames' format (%d); FSR makes the frames", static_cast<int>(m_fmt));
         else {
             m_synth.SetTimestampFrequency(0);
             m_synthReady = m_synth.Init(m_dev, [this](const char* m) { Log("%s", m); }) && m_synth.Ensure(m_w, m_h);
-            Log(m_synthReady ? "frame generation engine: our own synthesis ready" : "frame generation engine: our own synthesis could not start; FSR makes the frames");
+            Log(m_synthReady ? "frame generation engine: EchoFG ready" : "frame generation engine: EchoFG could not start; FSR makes the frames");
         }
     }
     const bool ownNow = m_own && m_synthReady;

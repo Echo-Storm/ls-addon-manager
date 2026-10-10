@@ -220,7 +220,7 @@ bool BeforeRealPresent(IDXGISwapChain* sc, UINT sync, UINT flags, uint32_t encod
             g.stats.byFsr += made; g.stats.fsrMs = g.engine.GpuMs();
         }
     }
-    g.stats.engine = g.engine.IsReady() ? (g.engine.UsingOwnSynthesis() ? "our own synthesis" : "FSR 3.1") : g.engineFailed ? std::string("blend (") + g.engine.LastError() + ")" : "blend";
+    g.stats.engine = g.engine.IsReady() ? (g.engine.UsingOwnSynthesis() ? "EchoFG" : "FSR 3.1 (EchoFG motion)") : g.engineFailed ? std::string("blend (") + g.engine.LastError() + ")" : "blend";
     ID3D11UnorderedAccessView* uav = nullptr;
     if (!byFsr) {
     if (FAILED(g.dev->CreateUnorderedAccessView(back, nullptr, &uav))) {
@@ -269,11 +269,11 @@ bool BeforeRealPresent(IDXGISwapChain* sc, UINT sync, UINT flags, uint32_t encod
     WaitUntil(after(g.leadMs + frames * g.intervalMs / (frames + 1)));
     if (log && Ms(g.saidAt, t1) >= 10000.0) {   // what it did, now and then
         if (g.saidAt.QuadPart) {
-            char m[320];
-            snprintf(m, sizeof m, "frame generation: %llu real frames %.1f ms apart, %llu made between (%llu by FSR 3.1, the GPU %.1f ms each; shown %.1f ms after the real frame "
+            char m[360];
+            snprintf(m, sizeof m, "frame generation: %llu real frames %.1f ms apart, %llu made between (%llu by %s, the GPU %.1f ms each; shown %.1f ms after the real frame "
                      "arrives; its present %.2f ms); Lossless Scaling's thread held %.1f ms a frame, back %.1f ms after",
                      static_cast<unsigned long long>(g.stats.real - g.said.real), g.intervalMs, static_cast<unsigned long long>(g.stats.generated - g.said.generated),
-                     static_cast<unsigned long long>(g.stats.byFsr - g.said.byFsr), g.stats.fsrMs, g.leadMs, g.stats.generatedMs,
+                     static_cast<unsigned long long>(g.stats.byFsr - g.said.byFsr), g.stats.engine.c_str(), g.stats.fsrMs, g.leadMs, g.stats.generatedMs,
                      g.heldCount ? g.heldSum / g.heldCount : 0.0, g.freeCount ? g.freeSum / g.freeCount : 0.0);
             log(m);
         }

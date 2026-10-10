@@ -559,13 +559,13 @@ void DrawPanel() {
             }
         }
         if (kFrameGen) {   // a prototype: only in a build made with it (product.h)
-            if (ImGui::Checkbox("Frame generation of our own (prototype)", &c.frameGen)) changed = true;
+            if (ImGui::Checkbox("EchoFG frame generation (prototype)", &c.frameGen)) changed = true;
             Tip("Doubles the frame rate with a frame made between each two real ones, shown in Lossless Scaling's own window. Turn Lossless Scaling's frame "
                 "generation OFF first (both at once would double twice). A prototype: the frame between is made by AMD's FSR 3.1 frame generation with the "
                 "motion measured from the frames (when it cannot, the two real frames mixed half and half). Real frames are shown half a frame later than without it.");
             if (c.frameGen) {
-                if (ImGui::Checkbox("  Make the frames with our own synthesis instead of FSR (test)", &c.frameGenOwn)) changed = true;
-                Tip("Off (the default): AMD's FSR 3.1 frame generation makes the frame between. On: this project's own passes do (motion splatted to the time of the frame, the motion the other way made from it, holes filled from the side that fits), with no part of FSR. Measured offline it scores about the same as FSR; live it is untested, which is what this switch is for. The guard below belongs to FSR and does nothing with it.");
+                if (ImGui::Checkbox("  EchoFG makes the frames itself instead of FSR 3.1 (test)", &c.frameGenOwn)) changed = true;
+                Tip("EchoFG is this project's frame generation. Off (the default): AMD's FSR 3.1 frame generation makes the frame between, fed EchoFG's motion estimate. On: EchoFG's own passes do (motion splatted to the time of the frame, the motion the other way made from it, holes filled from the side that fits), with no part of FSR. Measured offline it scores about the same as FSR; live it is untested, which is what this switch is for. The guard below belongs to FSR and does nothing with it.");
                 if (c.frameGenOwn) {
                     if (ImGui::SliderInt("  Frames for each real frame", &c.frameGenMultiplier, 2, 9, "x%d")) changed = true;
                     Tip("2 (the default): one frame made between each two real ones. 3 and up: that many frames per real frame (x4 = three made between), spaced evenly in time; every one costs the card about 1.2 ms more at 2560x1440 (about 2.7 ms at 4K), so watch the cost shown below. Only with our own synthesis: FSR makes one frame between.");
