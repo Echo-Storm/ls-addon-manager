@@ -60,6 +60,11 @@ Fixed in 3400db0 (see its message). Left, with why (each is real, none is a cras
 - **Updater** still accepts a zip with no GitHub digest (now said in the offer and the Setup is re-hashed before it runs); a release without a digest should probably be refused.
 - **Config**: deep nesting in config.json (tens of thousands of `[`) overflows the stack in `dump`; `WriteAtomically` has no flush.
 
+## Frame generation of our own: our own synthesis (2026-10-09; prototype, NR_FRAMEGEN=OFF in releases)
+
+`src/engine/own_synth.{h,cpp}`: our shaders make the frame between (docs/own-generator-plan.md has the lab results and the stages). Level with FSR 3.1 on our motion (within 0.05 to 0.2 dB on three clips), no AMD runtime for it. Setting "Make the frames with our own synthesis instead of FSR (test)" under the frame generation prototype (off by default; FSR is the fallback). Tools: `nr_fgeval own=1` / `engine=1 engineown=1`, `flowdump=N` + `tools/interp_flow_lab.py` for ideas on the CPU first.
+To do, in order: (1) the owner's live look, side by side with LSFG and with FSR; (2) cost: about 2.5 to 3.7 ms of GPU a generated frame at 1440p, unoptimised: half-size splat/hypothesis passes; (3) HDR frames (scRGB / PQ are sampled as they are) and multipliers x3+ (t = (i+1)/(N+1), the splat passes per t); (4) pacing and the capture's uneven game time; (5) the lab's open ideas: a better flow itself, or a learned method, for the remaining 4 to 5 dB to the oracle.
+
 ## Capture-card and duplicated sources (2026-10-08)
 
 - **Built 2026-10-09 (prototype, then live as a setting, off by default): the upscalers skip a picture that is exactly the one before** (docs/repeat-skip-spec.md; `scalerSkipRepeats`; measured offline on DLSS, FSR, XeSS). Open: the live look, Neural Rendering (NrEngine), and a count of skipped pictures in the panel.

@@ -86,6 +86,22 @@ What was learnt:
 
 Remaining ideas, in order of likely value: (1) the lab is at diminishing returns on cheap local rules (the gap to the oracle is texture and genuinely hidden content); the next real gains are a better flow itself or a learned method, both bigger jobs; (2) the HUD border over moving background, judged live; (3) a second, finer estimate in the holes only (they are 37% of the fast clip); (4) then shaders in `FgEngine` (stage 5 below), behind the existing off switch.
 
+### Stage 5 result: the shaders (same day): `src/engine/own_synth.{h,cpp}`
+
+The lab's method as compute passes in our own shaders, with no part of FSR: match error (5x5 mean), the vectors splatted to the frame's time (an atomic minimum on error, then the winner writes its vector), the reversed vectors made by splatting onto a's pixels (no second estimate: the lab's `--invert` kept 70-95% of the gain of a real second flow),
+those splatted to the time too, the hypothesis that agrees better per pixel, holes from the nearest reached pixel in four directions, the frame. `nr_fgeval own=1` (offline, kept frames) and `engine=1 engineown=1` (through `FgEngine`, as live) score it; the setting "Make the frames with our own synthesis instead of FSR (test)" (frame generation prototype, off by default) switches it live; FSR remains the fallback (a frame format without typed stores).
+
+| clip (2560x1440, 20 rebuilt frames) | FSR 3.1 + our motion | our synthesis (offline) | our synthesis (through FgEngine) | blend |
+|---|---|---|---|---|
+| fast | 24.61 | 24.40 | 24.40 | 20.50 |
+| calm 1 | 34.12 | 34.07 | 34.08 | 28.84 |
+| calm 2 | 31.09 | 31.05 | | 27.03 |
+
+- **Level with FSR (within 0.05 to 0.2 dB) on its own code, and no AMD runtime needed for it.** Looking at the pictures: the character (head, collar, emblem) intact, no fragments at the edge, where FSR's known weakness is; a little speckle in foliage at edges.
+- **Cost, unoptimised: about 2.5 to 3.7 ms of GPU per generated frame at 2560x1440** for the synthesis passes (the timing is noisy while the card is shared), on top of the motion estimate. Per pass (`NR_SYNTH_STOP=N` runs the first N): errors and splats ~1.1 ms, hypothesis passes ~1 ms, the final pass 0.3 ms. Obvious savings: run the splat and hypothesis passes at half size, one bigger pass per pair of splats.
+- **Not done**: HDR (scRGB / PQ frames are sampled as they are, which is only right-ish), the time t is fixed at 0.5 (a multiplier needs the timestamps (i+1)/(N+1): every pass but the splat and the last is per-frame-count anyway), pacing, a real-game live look.
+- **Two bugs found by running it through the engine**: FSR's own dispatch still ran after ours in the same list (overwrote the frame, and failed for lack of its prepare step); and the buffers are shared by frames in flight (a UAV barrier first in `Record` orders them).
+
 ## The plan
 
 Not a rewrite of FSR's job in one go; stages, each measured offline against `nr_fgeval`'s FSR number (30.4 dB on Silent Hill f) and then judged by eye live against LSFG (the only judge of "better than LSFG"):
