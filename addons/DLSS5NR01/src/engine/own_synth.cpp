@@ -4,6 +4,7 @@
 #include "engine/own_synth.h"
 #include <d3dcompiler.h>
 #include <cstdio>
+#include <cstdlib>
 #include <cstring>
 #include <string>
 
@@ -26,7 +27,8 @@ RWStructuredBuffer<uint> bK3 : register(u4);    // onto the time of the frame ma
 RWStructuredBuffer<uint> bV1 : register(u5);    // the winners' vectors (also, at the end, each pixel's vector F)
 RWStructuredBuffer<uint> bV2 : register(u6);
 RWStructuredBuffer<uint> bV3 : register(u7);
-RWTexture2D<float4> uOut : register(u8);
+RWStructuredBuffer<uint> bB : register(u8);     // the 5x5 mean of the match error being splatted
+RWTexture2D<float4> uOut : register(u9);
 SamplerState sLin : register(s0);
 cbuffer C : register(b0) { uint2 size; uint mode; uint phase; float t; float k; uint pad0; uint pad1; };
 
@@ -54,6 +56,14 @@ float Lev(float3 d) { return (abs(d.x) + abs(d.y) + abs(d.z)) * 255.0; }
     bE0[i] = asuint(Lev(tC[p].rgb - SmpA(float2(p) + tV[p])));
 }
 
+// the 5x5 mean of a match error (mode 0: c's, 1: a's), once, for the splats
+[numthreads(8, 8, 1)] void Box5(uint3 id : SV_DispatchThreadID) {
+    OOB
+    float e;
+    if (mode == 0) { BOX(bE0, p, 2, e); } else { BOX(bEa0, p, 2, e); }
+    bB[i] = asuint(e);
+}
+
 // the match error of every pixel of a that a vector landed on (the vector reversed)
 [numthreads(8, 8, 1)] void ErrA(uint3 id : SV_DispatchThreadID) {
     OOB
@@ -67,8 +77,9 @@ float Lev(float3 d) { return (abs(d.x) + abs(d.y) + abs(d.z)) * 255.0; }
 [numthreads(8, 8, 1)] void Splat(uint3 id : SV_DispatchThreadID) {
     OOB
     float2 vec; float err;
-    if (mode == 2) { if (bK2[i] == kEmpty) return; vec = -Unpack(bV2[i]); BOX(bEa0, p, 2, err); }
-    else { vec = tV[p]; BOX(bE0, p, 2, err); }
+    err = asfloat(bB[i]);
+    if (mode == 2) { if (bK2[i] == kEmpty) return; vec = -Unpack(bV2[i]); }
+    else vec = tV[p];
     const int2 d = int2(round(float2(p) + k * vec));
     if (!Inside(d)) return;
     const uint di = Idx(d);
@@ -114,7 +125,7 @@ float Lev(float3 d) { return (abs(d.x) + abs(d.y) + abs(d.z)) * 255.0; }
 
 float Agree(int2 p, float2 u) {   // the moved pair's disagreement over 5x5 around p, one vector
     float s = 0;
-    [loop] for (int j = -2; j <= 2; ++j) [loop] for (int x = -2; x <= 2; ++x) {
+    [unroll] for (int j = -2; j <= 2; j += 2) [unroll] for (int x = -2; x <= 2; x += 2) {   // 3x3 samples two apart: the 5x5's reach for 9 of its 25
         const float2 q = float2(p + int2(x, j));
         s += Lev(SmpA(q + t * u) - SmpC(q - (1.0 - t) * u));
     }
@@ -140,6 +151,9 @@ float Agree(int2 p, float2 u) {   // the moved pair's disagreement over 5x5 arou
         }
         float best = 1e30;
         [unroll] for (int c = 0; c < 5; ++c) {
+            bool seen = false;
+            [unroll] for (int b = 0; b < c; ++b) seen = seen || all(cand[b] == cand[c]);
+            if (seen) continue;
             const float e = Agree(p, cand[c]);
             if (e < best) { best = e; F = cand[c]; }
         }
@@ -171,7 +185,7 @@ bool OwnSynth::Init(ID3D12Device* dev, LogFn log) {
                         SUCCEEDED(dev->CreateRootSignature(0, blob->GetBufferPointer(), blob->GetBufferSize(), IID_PPV_ARGS(&m_root)));
     Rel(blob); Rel(error);
     if (!rootOk) { Log("own synthesis: the root signature could not be made"); Shutdown(); return false; }
-    static const char* const names[EntryCount] = { "Clear", "Err0", "ErrA", "Splat", "Hyp1", "Hyp2", "Synth" };
+    static const char* const names[EntryCount] = { "Clear", "Err0", "Box5", "ErrA", "Splat", "Hyp1", "Hyp2", "Synth" };
     for (int e = 0; e < EntryCount; ++e) {
         ID3DBlob* code = nullptr;
         if (FAILED(D3DCompile(kHlsl, strlen(kHlsl), "own_synth", nullptr, nullptr, names[e], "cs_5_0", D3DCOMPILE_OPTIMIZATION_LEVEL3, 0, &code, &error))) {
@@ -252,7 +266,9 @@ bool OwnSynth::Record(ID3D12GraphicsCommandList* list, int slot, ID3D12Resource*
     D3D12_GPU_DESCRIPTOR_HANDLE uavs = gpu; uavs.ptr += static_cast<UINT64>(kSrvs) * m_descriptorSize;
     list->SetComputeRootDescriptorTable(1, uavs);
     const UINT gx = (m_w + 7) / 8, gy = (m_h + 7) / 8;
+    static const int stopAt = [] { char b[16]; return GetEnvironmentVariableA("NR_SYNTH_STOP", b, 16) ? atoi(b) : 999; }(); int passNo = 0;   // (a test aid: NR_SYNTH_STOP=N runs only the first N passes, to time them)
     auto pass = [&](Entry e, uint32_t mode, uint32_t phase, float k) {
+        if (++passNo > stopAt) return;
         const Constants c{ m_w, m_h, mode, phase, t, k, 0, 0 };
         list->SetPipelineState(m_pso[e]);
         list->SetComputeRoot32BitConstants(2, sizeof(Constants) / 4, &c, 0);
@@ -262,9 +278,11 @@ bool OwnSynth::Record(ID3D12GraphicsCommandList* list, int slot, ID3D12Resource*
     };
     pass(Clear, 0, 0, 0.0f);
     pass(Err0, 0, 0, 0.0f);
+    pass(Box5, 0, 0, 0.0f);
     pass(Splat, 0, 0, 1.0f - t); pass(Splat, 0, 1, 1.0f - t);    // c's vectors to the frame made
     pass(Splat, 1, 0, 1.0f);     pass(Splat, 1, 1, 1.0f);        // c's vectors onto a's pixels
     pass(ErrA, 0, 0, 0.0f);
+    pass(Box5, 1, 0, 0.0f);
     pass(Splat, 2, 0, t);        pass(Splat, 2, 1, t);           // a's reversed vectors to the frame made
     pass(Hyp1, 0, 0, 0.0f);
     pass(Hyp2, 0, 0, 0.0f);

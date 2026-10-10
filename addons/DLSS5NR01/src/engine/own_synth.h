@@ -11,7 +11,7 @@
 //   5. a pixel neither reached takes the vector of the nearest reached pixel to its left, right, above or below (or none), whichever makes the moved
 //      pair agree best over 5x5 (a hole is background just uncovered: one side's vector is right, the average of both is not);
 //   6. the frame: (1 - t) a(q + t F) + t c(q - (1 - t) F), F the vector of that pixel.
-// Records into the caller's command list (like FlowEstimator::Record); buffers of its own (8 x 4 bytes a pixel).
+// Records into the caller's command list (like FlowEstimator::Record); buffers of its own (9 x 4 bytes a pixel).
 #pragma once
 #include <windows.h>
 #include <d3d12.h>
@@ -40,13 +40,13 @@ public:
                 ID3D12Resource* motion, ID3D12Resource* out, DXGI_FORMAT outFormat, float t);
 
 private:
-    enum Entry { Clear, Err0, ErrA, Splat, Hyp1, Hyp2, Synth, EntryCount };
-    static const int kBuffers = 8, kSrvs = 3, kUavs = kBuffers + 1, kPerSlot = kSrvs + kUavs;
+    enum Entry { Clear, Err0, Box5, ErrA, Splat, Hyp1, Hyp2, Synth, EntryCount };
+    static const int kBuffers = 9, kSrvs = 3, kUavs = kBuffers + 1, kPerSlot = kSrvs + kUavs;
     void Log(const char* msg) { if (m_log) m_log(msg); }
     LogFn m_log;
     ID3D12Device* m_dev = nullptr; ID3D12RootSignature* m_root = nullptr; ID3D12PipelineState* m_pso[EntryCount] = {};
     ID3D12DescriptorHeap* m_heap = nullptr; uint32_t m_descriptorSize = 0;
-    ID3D12Resource* m_buf[kBuffers] = {};   // E0, Ea0, K1, K2, K3, V1, V2, V3
+    ID3D12Resource* m_buf[kBuffers] = {};   // E0, Ea0, K1, K2, K3, V1, V2, V3, B
     uint32_t m_w = 0, m_h = 0; bool m_ready = false;
     ID3D12QueryHeap* m_stamps = nullptr; ID3D12Resource* m_stampReadback = nullptr; uint64_t m_freq = 0;
 };

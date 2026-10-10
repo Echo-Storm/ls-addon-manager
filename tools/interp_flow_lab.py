@@ -137,6 +137,9 @@ def fill_holes(v_sp, got, v_fallback, iters=3):
 args_margin = [10.0]
 
 
+AGREE_BOX = [5]
+
+
 def dirfill_pair(F, reached, a, c, t, base):
     """pixels not reached take the vector of the nearest reached pixel left, right, above or below (or none), whichever makes the moved pair agree best over 5x5"""
     cands = [F * 0.0]
@@ -150,7 +153,7 @@ def dirfill_pair(F, reached, a, c, t, base):
         cands.append(np.flip(src, axis) if rev else src)
     best_e = np.full(a.shape[:2], 1e9, np.float32); best_u = np.zeros_like(F)
     for u in cands:
-        e = box(np.abs(moved(a, u, t) - moved(c, u, -(1 - t))).sum(axis=2), 5)
+        e = box(np.abs(moved(a, u, t) - moved(c, u, -(1 - t))).sum(axis=2), AGREE_BOX[0])
         better = e < best_e
         best_u = np.where(better[..., None], u, best_u); best_e = np.where(better, e, best_e)
     hole = (1 - t) * moved(a, best_u, t) + t * moved(c, best_u, -(1 - t))
@@ -291,6 +294,7 @@ def main():
     ap.add_argument('--auto-t', action='store_true', help='per triple the time (0.2..0.8) at which the plain moved pair is closest to the truth: the game own pacing is uneven, the capture clock does not show it; the same t for every method')
     ap.add_argument('--cubic', action='store_true', help='Catmull-Rom sampling in place of bilinear')
     ap.add_argument('--invert', action='store_true', help='the vectors the other way made by inverting this way (no second estimate), not the dumped ones')
+    ap.add_argument('--agree', type=int, default=5, help='the window of the hole fill agreement test')
     ap.add_argument('--tau', type=float, default=1.0)
     ap.add_argument('--thr-pair', type=float, default=60.0)
     ap.add_argument('--thr-poor', type=float, default=90.0)
@@ -298,6 +302,7 @@ def main():
     ap.add_argument('--margin', type=float, default=10.0)
     args = ap.parse_args()
     args_margin[0] = args.margin
+    AGREE_BOX[0] = args.agree
     global SAMPLER
     if args.cubic:
         SAMPLER = bicubic
