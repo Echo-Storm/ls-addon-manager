@@ -142,6 +142,31 @@ int main(int argc, char** argv) {
     const double intervalMs = 1000.0 / fps, x0 = 120.0;
     LARGE_INTEGER freq, start; QueryPerformanceFrequency(&freq); QueryPerformanceCounter(&start);
     auto nowMs = [&] { LARGE_INTEGER n; QueryPerformanceCounter(&n); return (n.QuadPart - start.QuadPart) * 1000.0 / freq.QuadPart; };
+    auto drawFrame = [&](double x) {
+        ID3D11Texture2D* bb = nullptr; sc->GetBuffer(0, IID_PPV_ARGS(&bb));
+        ID3D11UnorderedAccessView* uav = nullptr; g_dev->CreateUnorderedAccessView(bb, nullptr, &uav);
+        const float c[4] = { static_cast<float>(x), 330.0f, 1.0f, 0.0f };
+        g_ctx->UpdateSubresource(cb, 0, nullptr, c, 0, 0);
+        g_ctx->CSSetShader(cs, nullptr, 0); g_ctx->CSSetConstantBuffers(0, 1, &cb); g_ctx->CSSetUnorderedAccessViews(0, 1, &uav, nullptr);
+        g_ctx->Dispatch((g_w + 7) / 8, (g_h + 7) / 8, 1);
+        ID3D11UnorderedAccessView* none = nullptr; g_ctx->CSSetUnorderedAccessViews(0, 1, &none, nullptr);
+        uav->Release(); bb->Release();
+        sc->Present(0, 0);
+        MSG msg; while (PeekMessageW(&msg, nullptr, 0, 0, PM_REMOVE)) DispatchMessageW(&msg);
+    };
+    {   // warm-up: the picture still, until the engine (and EchoFG, when wanted) is up; the presenting thread must not wait for it
+        const char* const wantEngine = own ? "EchoFG" : "FSR";
+        int ready = 0; double warmStart = nowMs();
+        for (int n = 0; n < 600 && ready < 3; ++n) {
+            while (nowMs() < warmStart + n * intervalMs) Sleep(0);
+            drawFrame(x0);
+            if (nr::framegen::GetStats().engine.rfind(wantEngine, 0) == 0) ++ready;
+        }
+        printf("warm-up: the engine was up after %.0f ms\n", nowMs() - warmStart);
+        for (auto& s : g_shown) if (s.staging) s.staging->Release();
+        g_shown.clear();
+        QueryPerformanceCounter(&start);
+    }
     for (int n = 0; n < frames; ++n) {
         if (doToggle && n == frames / 2) nr::framegen::SetOwn(true);
         if (doSwitch && n == frames / 3) nr::framegen::SetMultiplier(2);
@@ -151,16 +176,7 @@ int main(int argc, char** argv) {
             g_w = 800; g_h = 450; settledFrom = n + 4;
         }
         while (nowMs() < n * intervalMs) Sleep(0);
-        ID3D11Texture2D* bb = nullptr; sc->GetBuffer(0, IID_PPV_ARGS(&bb));
-        ID3D11UnorderedAccessView* uav = nullptr; g_dev->CreateUnorderedAccessView(bb, nullptr, &uav);
-        const float c[4] = { static_cast<float>(x0 + speed * (n / dup)), 330.0f, 1.0f, 0.0f };
-        g_ctx->UpdateSubresource(cb, 0, nullptr, c, 0, 0);
-        g_ctx->CSSetShader(cs, nullptr, 0); g_ctx->CSSetConstantBuffers(0, 1, &cb); g_ctx->CSSetUnorderedAccessViews(0, 1, &uav, nullptr);
-        g_ctx->Dispatch((g_w + 7) / 8, (g_h + 7) / 8, 1);
-        ID3D11UnorderedAccessView* none = nullptr; g_ctx->CSSetUnorderedAccessViews(0, 1, &none, nullptr);
-        uav->Release(); bb->Release();
-        sc->Present(0, 0);
-        MSG msg; while (PeekMessageW(&msg, nullptr, 0, 0, PM_REMOVE)) DispatchMessageW(&msg);
+        drawFrame(x0 + speed * (n / dup));
     }
     g_ctx->Flush();
     Sleep(300);
@@ -205,11 +221,13 @@ int main(int argc, char** argv) {
     const double want = intervalMs / wantMult;
     printf("the longest wait between the presenting thread's calls into the presenter: %.0f ms (a real frame every %.0f ms)\n", g_maxGapMs, intervalMs);
     const bool stalled = g_maxGapMs > 3.0 * intervalMs + 20.0;
+    const bool toggled = !doToggle || st.engine.rfind("EchoFG", 0) == 0;
+    if (doToggle) printf("EchoFG after the switch: %s (the engine says %s)\n", toggled ? "running" : "NOT running", st.engine.c_str());
     printf("frames per real frame after warm-up: %s (wanted %d made between each two real ones; %d intervals wrong)\n", perInterval.empty() ? "none" : "measured", wantMult - 1, countWrong);
     printf("the made frames' square position: mean error %.2f px, worst %.2f px (%d frames; speed %.0f px a real frame); %d frames without a readable square\n", measured ? sumErr / measured : 0.0, worst, measured, speed, bad);
     printf("spacing of the frames shown: mean %.1f ms, min %.1f, max %.1f (wanted %.1f ms at x%d of %d fps)\n", meanGap, minGap, maxGap, want, wantMult, fps);
     if (stalled) printf("the presenting thread stalled\n");
-    const bool ok = made > 0 && countWrong == 0 && bad == 0 && measured > 0 && worst < 0.2 * speed + 3.0 && !stalled;
+    const bool ok = made > 0 && countWrong == 0 && bad == 0 && measured > 0 && worst < 0.2 * speed + 3.0 && !stalled && toggled;
     printf("%s\n", ok ? "FG PRESENT TEST PASSED" : "FG PRESENT TEST FAILED");
     for (auto& s : g_shown) if (s.staging) s.staging->Release();
     nr::framegen::Shutdown(); PresentHook::Uninstall();
