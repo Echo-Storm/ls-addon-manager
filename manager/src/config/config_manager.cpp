@@ -1,5 +1,8 @@
 #include "config_manager.h"
 #include "../log/logger.h"
+#include "json_depth.h"
+#include <algorithm>
+#include <iterator>
 #include <filesystem>
 #include <fstream>
 #include <system_error>
@@ -49,16 +52,26 @@ std::string Utf8(const std::wstring& text) {
 // Writes `text` to a temporary file beside `path`, then swaps it in. Returns false, after logging why, when that did not work.
 bool WriteAtomically(const std::wstring& path, const std::string& text) {
     const std::wstring temp = path + L".tmp";
-    {
-        std::ofstream out(temp, std::ios::binary | std::ios::trunc);
-        out << text;
-        out.flush();
-        if (!out) {
+    {   // written and flushed to the disk before it replaces the file: a power cut between the two leaves the old settings or the new, not an empty file
+        HANDLE h = CreateFileW(temp.c_str(), GENERIC_WRITE, 0, nullptr, CREATE_ALWAYS, FILE_ATTRIBUTE_NORMAL, nullptr);
+        bool ok = h != INVALID_HANDLE_VALUE;
+        if (ok) {
+            size_t done = 0;
+            while (ok && done < text.size()) {
+                DWORD wrote = 0;
+                ok = WriteFile(h, text.data() + done, static_cast<DWORD>(std::min<size_t>(text.size() - done, 1u << 20)), &wrote, nullptr) && wrote > 0;
+                done += wrote;
+            }
+            ok = ok && FlushFileBuffers(h);
+            CloseHandle(h);
+        }
+        if (!ok) {
             LOG_ERROR("Config", "Could not write %s", Utf8(temp).c_str());
+            DeleteFileW(temp.c_str());
             return false;
         }
     }
-    if (!MoveFileExW(temp.c_str(), path.c_str(), MOVEFILE_REPLACE_EXISTING)) {
+    if (!MoveFileExW(temp.c_str(), path.c_str(), MOVEFILE_REPLACE_EXISTING | MOVEFILE_WRITE_THROUGH)) {
         LOG_ERROR("Config", "Could not replace config.json (error %lu)", GetLastError());
         DeleteFileW(temp.c_str());
         return false;
@@ -95,7 +108,9 @@ void ConfigManager::Load(const std::wstring& path) {
             LOG_ERROR("Config", "config.json exists but cannot be opened (another program has it?): the settings of this session are not saved, and the file is left as it is");
             return;
         }
-        json parsed = json::parse(in, nullptr, /*allow_exceptions=*/false);
+        const std::string text((std::istreambuf_iterator<char>(in)), std::istreambuf_iterator<char>());
+        // (nesting tens of thousands deep would overflow the stack when the settings are written back: such a file is treated as damaged)
+        json parsed = eam::JsonNestsDeeperThan(text) ? json(json::value_t::discarded) : json::parse(text, nullptr, /*allow_exceptions=*/false);
         if (parsed.is_object()) {
             m_data = std::move(parsed);
             m_loaded = true;
@@ -115,7 +130,7 @@ void ConfigManager::Load(const std::wstring& path) {
         // Somebody may want to repair this file, and the next Save would replace it: keep a copy.
         CopyFileW(path.c_str(), (path + L".corrupt").c_str(), FALSE);
         LOG_ERROR("Config", "config.json is %s; kept a copy as config.json.corrupt and started fresh",
-                  parsed.is_discarded() ? "not valid JSON" : "not a JSON object");
+                  parsed.is_discarded() ? "not valid JSON (or nested too deeply)" : "not a JSON object");
     }
 
     MigrateFromIni();

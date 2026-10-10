@@ -165,6 +165,32 @@ static void TestConfig(const fs::path& T) {
         Check("...and saving then writes a valid file", ReadJson(p)["addons"]["x"]["k"] == mark);
     }
 
+    {   // a file that nests tens of thousands deep would overflow the stack when the settings are written back: it is damaged, not parsed
+        const fs::path dir = base / "bad_deep";
+        fs::create_directories(dir);
+        const fs::path p = dir / "config.json";
+        const std::string deep = std::string(200000, '[') + std::string(200000, ']');
+        WriteFile(p, deep);
+        C.Load(p.wstring());
+        Check("a file nested 200000 deep is refused (and the manager is still here)", C.Get("x", "k", "dflt") == "dflt");
+        std::ifstream kept(fs::path(p) += ".corrupt");
+        const std::string keptText((std::istreambuf_iterator<char>(kept)), std::istreambuf_iterator<char>());
+        Check("...kept as config.json.corrupt", keptText == deep);
+        C.Set("x", "k", "v");
+        C.Save();
+        Check("...and saving writes a valid file", ReadJson(p)["addons"]["x"]["k"] == "v");
+        // brackets inside a text value are not nesting
+        const fs::path dir2 = base / "brackets_in_text";
+        fs::create_directories(dir2);
+        const fs::path p2 = dir2 / "config.json";
+        WriteFile(p2, std::string("{\"addons\":{\"b\":{\"k\":\"") + std::string(500, '[') + "\"}}}");
+        C.Load(p2.wstring());
+        Check("brackets inside a text value do not count as nesting", C.Get("b", "k", "dflt") == std::string(500, '['));
+        Check("a settings backup nested too deeply is refused with a message", !eam::ParseSettingsBackup(deep).message.empty() && eam::ParseSettingsBackup(deep).addonCount == 0);
+        // the file is written whole: no leftover temporary
+        Check("saving leaves no config.json.tmp behind", !fs::exists(fs::path(p) += ".tmp"));
+    }
+
     {   // a second file loaded later starts from a clean slate
         const fs::path one = base / "first" / "config.json", two = base / "second" / "config.json";
         fs::create_directories(one.parent_path());

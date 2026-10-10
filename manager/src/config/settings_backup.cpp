@@ -1,4 +1,5 @@
 #include "settings_backup.h"
+#include "json_depth.h"
 #include <windows.h>
 #include <fstream>
 
@@ -26,6 +27,7 @@ BackupParse ParseSettingsBackup(const std::string& text) {
     BackupParse r;
     if (text.empty()) { r.message = "That file is empty."; return r; }
     if (text.size() > 8u * 1024 * 1024) { r.message = "That file is too large to be a settings backup."; return r; }
+    if (eam::JsonNestsDeeperThan(text)) { r.message = "That file is not valid settings data (it nests too deeply to be settings)."; return r; }
     json j;
     try { j = json::parse(text); }
     catch (const std::exception&) { r.message = "That file is not valid settings data (it could not be read as JSON)."; return r; }

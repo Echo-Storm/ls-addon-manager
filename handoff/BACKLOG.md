@@ -58,7 +58,7 @@ Fixed in 3400db0 (see its message). Left, with why (each is real, none is a cras
 - **Per-dispatch cost**: `FindNisPass` (scalers) reads the bindings again after `FrameTap::Bound` did; one read could serve both.
 - **NIS viewport cache** (`nis_pass.cpp`) is never re-read for the same pass key if LS changes its output viewport without changing the key.
 - **Updater** still accepts a zip with no GitHub digest (now said in the offer and the Setup is re-hashed before it runs); a release without a digest should probably be refused.
-- **Config**: deep nesting in config.json (tens of thousands of `[`) overflows the stack in `dump`; `WriteAtomically` has no flush.
+- **Fixed 2026-10-09:** config.json (and an imported settings backup) nested more than 64 deep is treated as damaged (kept as config.json.corrupt) instead of overflowing the stack in `dump`; `WriteAtomically` writes the temporary file through and flushes it to the disk before the swap (core_test covers both). Also already done and listed above by mistake: the `NrEngine::EndBuild` wait is bounded (20 s) and the cadence probe has a process-wide owner (`EAM_SOURCE_CADENCE`).
 
 ## Frame generation of our own: our own synthesis (2026-10-09; prototype, NR_FRAMEGEN=OFF in releases)
 
