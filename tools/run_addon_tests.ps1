@@ -65,6 +65,7 @@ $suites = [ordered]@{
                             @('Neural Rendering frame tap', "$nrBuild\Release\nr_taptest.exe", @()),
                             @('Frame generation presenter (our own synthesis x4, a real swap chain, every frame read back)', "$nrBuild\Release\nr_fgpresent.exe", @('mult=4')),
                             @('Frame generation presenter (HDR frames, x3)', "$nrBuild\Release\nr_fgpresent.exe", @('mult=3', 'hdr=1')),
+                            @('Frame generation presenter (EchoFG switched on while it runs: no stall of the presenting thread)', "$nrBuild\Release\nr_fgpresent.exe", @('mult=2', 'toggle=1', 'frames=150', 'speed=4')),
                             @('HDR: the upscaler keeps highlights (a made-up fp16 clip with bright glints; sharpening, lean, steady sharpening: no specks)', $env:ComSpec,
                               @('/c', "`"$nrBuild\Release\nr_lsrec.exe`" make `"$env:TEMP\nr_hdr_test.lsrec`" 1280 720 40 hdr=1 && `"$nrBuild\Release\nr_sreval.exe`" `"$env:TEMP\nr_hdr_test.lsrec`" `"$env:TEMP\nr_hdr_test_out`" count=30 shrink=150 backend=fsr hdr=1 hdrcheck=1 sharpen=80 restmix=50 steady=60 movecut=50 show=0")));
                    Matrix = $true }
