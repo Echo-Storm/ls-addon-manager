@@ -32,6 +32,7 @@ struct Config {
     // picture again (ScalerLink::Upscale). A CPU wait tried before made repeats more frequent on a busy GPU and is gone (2026-09-25).
     bool scalerGpuWait = true;
     bool frameGen = false;   // the FSR Upscaler's frame generation of our own (a prototype, framegen11.h)
+    int frameGenMultiplier = 2;          // ...frames shown for each real one, 2 to 9 (more than 2 only with our own synthesis)
     bool frameGenOwn = false;            // ...the frame between by our own synthesis (own_synth.h) instead of FSR 3.1 (a test)
     bool frameGenGuard = true;           // ...its guard against pasted background (FgEngine::Generate)
     bool scalerFastMotion = true;       // the upscalers lean on the frame in fast motion (SrEngine::SetFastMotion; off: never, as before 0.9.13)

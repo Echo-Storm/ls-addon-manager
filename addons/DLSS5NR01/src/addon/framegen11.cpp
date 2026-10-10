@@ -46,7 +46,8 @@ struct State {
     ID3D11Fence* copied11 = nullptr; ID3D12Fence* copied12 = nullptr; uint64_t copiedValue = 0;
     ID3D11Fence* made11 = nullptr; ID3D12Fence* made12 = nullptr; uint64_t madeValue = 0;   // the frame between is in out11 (a GPU wait here)
     ID3D11DeviceContext4* ctx4 = nullptr;
-    bool resetNext = true; bool guard = true; bool own = false;
+    bool resetNext = true; bool guard = true; bool own = false; int multiplier = 2;   // multiplier: frames shown for each real one (more than 2 only with our own synthesis)
+    ID3D11Texture2D* more11[OwnSynth::kMaxTargets] = {}; ID3D12Resource* more12[OwnSynth::kMaxTargets] = {};   // the 2nd, 3rd... frame between (the first is out11)
     // for the log: how long Lossless Scaling's thread is held here, and how soon after it comes back with the next real frame
     LARGE_INTEGER returned{}; double heldSum = 0, freeSum = 0; uint64_t heldCount = 0, freeCount = 0;
 } g;
@@ -58,6 +59,8 @@ void ReleaseShared() {
     g.engine.Shutdown();
     SafeRelease(g.in12); SafeRelease(g.out12); SafeRelease(g.copied12); SafeRelease(g.in11); SafeRelease(g.out11); SafeRelease(g.copied11);
     SafeRelease(g.made12); SafeRelease(g.made11);
+    for (auto*& r : g.more11) SafeRelease(r);
+    for (auto*& r : g.more12) SafeRelease(r);
     g.copiedValue = 0; g.madeValue = 0; g.resetNext = true;
 }
 void ReleaseTextures() {
@@ -99,6 +102,20 @@ bool EnsureTextures(const D3D11_TEXTURE2D_DESC& back, const LogFn& log) {
     return true;
 }
 
+// A texture of the frames' kind shared with FgEngine's device: made on Lossless Scaling's, opened on the engine's.
+bool MakeShared(const D3D11_TEXTURE2D_DESC& back, ID3D11Texture2D*& t11, ID3D12Resource*& t12) {
+    D3D11_TEXTURE2D_DESC d{}; d.Width = back.Width; d.Height = back.Height; d.MipLevels = 1; d.ArraySize = 1; d.Format = back.Format;
+    d.SampleDesc.Count = 1; d.Usage = D3D11_USAGE_DEFAULT; d.BindFlags = D3D11_BIND_SHADER_RESOURCE;
+    d.MiscFlags = D3D11_RESOURCE_MISC_SHARED | D3D11_RESOURCE_MISC_SHARED_NTHANDLE;
+    if (FAILED(g.dev->CreateTexture2D(&d, nullptr, &t11))) return false;
+    IDXGIResource1* r = nullptr; HANDLE th = nullptr;
+    if (FAILED(t11->QueryInterface(IID_PPV_ARGS(&r)))) return false;
+    const HRESULT hr = r->CreateSharedHandle(nullptr, DXGI_SHARED_RESOURCE_READ | DXGI_SHARED_RESOURCE_WRITE, nullptr, &th); r->Release();
+    if (FAILED(hr)) return false;
+    t12 = g.engine.OpenSharedTexture(th); CloseHandle(th);
+    return t12 != nullptr;
+}
+
 // FgEngine and the textures and fence it shares with Lossless Scaling's device, for frames like the back buffer. False: the blend stands in.
 bool EnsureEngine(const D3D11_TEXTURE2D_DESC& back, const LogFn& log) {
     if (g.engineFailed) return false;
@@ -126,19 +143,7 @@ bool EnsureEngine(const D3D11_TEXTURE2D_DESC& back, const LogFn& log) {
         return f12 != nullptr;
     };
     if (!shareFence(g.copied11, g.copied12) || !shareFence(g.made11, g.made12)) return fail("the fences could not be shared");
-    auto shared = [&](ID3D11Texture2D*& t11, ID3D12Resource*& t12) {
-        D3D11_TEXTURE2D_DESC d{}; d.Width = back.Width; d.Height = back.Height; d.MipLevels = 1; d.ArraySize = 1; d.Format = back.Format;
-        d.SampleDesc.Count = 1; d.Usage = D3D11_USAGE_DEFAULT; d.BindFlags = D3D11_BIND_SHADER_RESOURCE;
-        d.MiscFlags = D3D11_RESOURCE_MISC_SHARED | D3D11_RESOURCE_MISC_SHARED_NTHANDLE;
-        if (FAILED(g.dev->CreateTexture2D(&d, nullptr, &t11))) return false;
-        IDXGIResource1* r = nullptr; HANDLE th = nullptr;
-        if (FAILED(t11->QueryInterface(IID_PPV_ARGS(&r)))) return false;
-        const HRESULT hr = r->CreateSharedHandle(nullptr, DXGI_SHARED_RESOURCE_READ | DXGI_SHARED_RESOURCE_WRITE, nullptr, &th); r->Release();
-        if (FAILED(hr)) return false;
-        t12 = g.engine.OpenSharedTexture(th); CloseHandle(th);
-        return t12 != nullptr;
-    };
-    if (!shared(g.in11, g.in12) || !shared(g.out11, g.out12)) return fail("the shared frames could not be made");
+    if (!MakeShared(back, g.in11, g.in12) || !MakeShared(back, g.out11, g.out12)) return fail("the shared frames could not be made");
     g.resetNext = true;
     return true;
 }
@@ -191,19 +196,25 @@ bool BeforeRealPresent(IDXGISwapChain* sc, UINT sync, UINT flags, uint32_t encod
     }
 
     // the frame between: FSR's (the frame copied over to FgEngine, the frame made copied back), or the blend
-    bool byFsr = false;
+    bool byFsr = false; int made = 0;   // made: how many frames between the engine made (0 with the blend)
     if (EnsureEngine(bd, log)) {
         g.ctx->CopyResource(g.in11, back);
         g.ctx4->Signal(g.copied11, ++g.copiedValue);
         g.ctx->Flush();   // the copy and the signal on the GPU's way before the engine waits for them
         // queued, not waited for: Lossless Scaling's queue waits on the GPU for "made" before the frame between is copied in
         g.engine.SetOwnSynthesis(g.own);
-        byFsr = g.engine.Generate(g.in12, g.copied12, g.copiedValue, g.out12, g.made12, ++g.madeValue, static_cast<float>(g.intervalMs), g.resetNext, encoding, whiteNits, g.guard);
+        // frames between wanted: the multiplier less one, when our own synthesis can make that many (it is known to after its first frame); else the one at half way
+        int want = g.own ? std::clamp(g.multiplier, 2, OwnSynth::kMaxTargets + 1) - 1 : 1;
+        want = std::min(want, g.engine.MaxFramesBetween());
+        for (int k = 1; k < want; ++k) if (!g.more12[k] && !MakeShared(bd, g.more11[k], g.more12[k])) { SafeRelease(g.more11[k]); SafeRelease(g.more12[k]); want = k; break; }
+        ID3D12Resource* outs[OwnSynth::kMaxTargets]; outs[0] = g.out12; for (int k = 1; k < want; ++k) outs[k] = g.more12[k];
+        made = g.engine.GenerateFrames(g.in12, g.copied12, g.copiedValue, outs, want, g.made12, ++g.madeValue, static_cast<float>(g.intervalMs), g.resetNext, encoding, whiteNits, g.guard);
         g.resetNext = false;
+        byFsr = made > 0;
         if (byFsr) {
             g.ctx4->Wait(g.made11, g.madeValue);
             g.ctx->CopyResource(back, g.out11);
-            ++g.stats.byFsr; g.stats.fsrMs = g.engine.GpuMs();
+            g.stats.byFsr += made; g.stats.fsrMs = g.engine.GpuMs();
         }
     }
     g.stats.engine = g.engine.IsReady() ? (g.engine.UsingOwnSynthesis() ? "our own synthesis" : "FSR 3.1") : g.engineFailed ? std::string("blend (") + g.engine.LastError() + ")" : "blend";
@@ -237,8 +248,20 @@ bool BeforeRealPresent(IDXGISwapChain* sc, UINT sync, UINT flags, uint32_t encod
     PresentHook::PresentOriginal(sc, sync, flags);   // the frame between goes out now...
     LARGE_INTEGER t1; QueryPerformanceCounter(&t1);
     ++g.stats.generated; g.stats.generatedMs = 0.9 * g.stats.generatedMs + 0.1 * Ms(t0, t1);
-    // ...and the real frame half a frame after it is shown, back in the swap chain's next back buffer
-    WaitUntil(after(g.leadMs + 0.5 * g.intervalMs));
+    // ...the others, if a multiplier asked for more, each in the next back buffer at its own time, evenly spaced...
+    const int frames = std::max(1, made);
+    for (int k = 1; k < frames; ++k) {
+        WaitUntil(after(g.leadMs + k * g.intervalMs / (frames + 1)));
+        ID3D11Texture2D* nb = nullptr;
+        if (FAILED(sc->GetBuffer(0, IID_PPV_ARGS(&nb))) || !nb) break;
+        g.ctx->CopyResource(nb, g.more11[k]);
+        if (shown) shown(g.ctx, nb, true);
+        nb->Release();
+        PresentHook::PresentOriginal(sc, sync, flags);
+        ++g.stats.generated;
+    }
+    // ...and the real frame after them, back in the swap chain's next back buffer
+    WaitUntil(after(g.leadMs + frames * g.intervalMs / (frames + 1)));
     if (log && Ms(g.saidAt, t1) >= 10000.0) {   // what it did, now and then
         if (g.saidAt.QuadPart) {
             char m[320];
@@ -262,6 +285,7 @@ bool BeforeRealPresent(IDXGISwapChain* sc, UINT sync, UINT flags, uint32_t encod
 
 void SetRuntime(const std::wstring& dll) { std::lock_guard<std::mutex> lock(g_mutex); g.runtime = dll; } void SetGuard(bool on) { std::lock_guard<std::mutex> lock(g_mutex); g.guard = on; }
 void SetOwn(bool on) { std::lock_guard<std::mutex> lock(g_mutex); g.own = on; }
+void SetMultiplier(int n) { std::lock_guard<std::mutex> lock(g_mutex); g.multiplier = std::clamp(n, 2, OwnSynth::kMaxTargets + 1); }
 void Reset() { std::lock_guard<std::mutex> lock(g_mutex); g.haveBefore = false; g.lastReal = {}; g.intervalMs = 0; g.leadMs = 0; g.resetNext = true; }
 void Shutdown() { std::lock_guard<std::mutex> lock(g_mutex); ReleaseAll(); if (g.timer) { CloseHandle(g.timer); g.timer = nullptr; } }
 Stats GetStats() { std::lock_guard<std::mutex> lock(g_mutex); return g.stats; }

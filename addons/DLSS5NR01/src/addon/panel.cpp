@@ -564,6 +564,10 @@ void DrawPanel() {
             if (c.frameGen) {
                 if (ImGui::Checkbox("  Make the frames with our own synthesis instead of FSR (test)", &c.frameGenOwn)) changed = true;
                 Tip("Off (the default): AMD's FSR 3.1 frame generation makes the frame between. On: this project's own passes do (motion splatted to the time of the frame, the motion the other way made from it, holes filled from the side that fits), with no part of FSR. Measured offline it scores about the same as FSR; live it is untested, which is what this switch is for. The guard below belongs to FSR and does nothing with it.");
+                if (c.frameGenOwn) {
+                    if (ImGui::SliderInt("  Frames for each real frame", &c.frameGenMultiplier, 2, 9, "x%d")) changed = true;
+                    Tip("2 (the default): one frame made between each two real ones. 3 and up: that many frames per real frame (x4 = three made between), spaced evenly in time; every one costs the card about 1.2 ms more at 2560x1440 (about 2.7 ms at 4K), so watch the cost shown below. Only with our own synthesis: FSR makes one frame between.");
+                }
                 if (ImGui::Checkbox("  Keep the character clean in turns", &c.frameGenGuard)) changed = true;
                 Tip("On (the default): where the two real frames agree and hardly move (a character the camera follows, a HUD) but the frame made "
                     "between shows something else, the real frames' own picture goes there. In a quick camera turn, FSR pastes the scene sweeping past "
