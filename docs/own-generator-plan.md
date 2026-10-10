@@ -82,7 +82,9 @@ What was learnt:
 - **A flow defined at the frame's own time (idea 2) was not built**: nudging the splatted vector per pixel to the best local agreement (`ref`) gained +0.0, so a flow re-estimated at t would start from the same ceiling. Skipped for now.
 - **FSR on the 4K WoW clips scores *below* a blend in `nr_fgeval`** (23 against 29 dB), but those runs had the second estimator active (see above), so the number is not to be trusted; rerun without `flowdump` before drawing anything from it.
 
-Remaining ideas, in order of likely value: (1) a confidence per pixel from the match error and the consistency, used to blend between the moved and the unmoved picture (the oracle gap is mostly here); (2) the HUD border over moving background, judged live; (3) a second, finer estimate in the holes only (they are 37% of the fast clip); (4) then shaders in `FgEngine` (stage 5 below), behind the existing off switch.
+- **A soft confidence (blend toward the unmoved mean as far as the moved pair disagrees, up to 50-80%) gained +0.0 to +0.07 dB**: hedging does not close the oracle gap, and would ghost to the eye. Dropped.
+
+Remaining ideas, in order of likely value: (1) the lab is at diminishing returns on cheap local rules (the gap to the oracle is texture and genuinely hidden content); the next real gains are a better flow itself or a learned method, both bigger jobs; (2) the HUD border over moving background, judged live; (3) a second, finer estimate in the holes only (they are 37% of the fast clip); (4) then shaders in `FgEngine` (stage 5 below), behind the existing off switch.
 
 ## The plan
 

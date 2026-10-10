@@ -241,6 +241,13 @@ def methods(a, c, v, t=0.5, thr_pair=60.0, thr_poor=90.0, still_thr=24.0, vb=Non
             better = e < all_e
             all_u = np.where(better[..., None], u, all_u); all_e = np.where(better, e, all_e)
         out['bi+all'] = (1 - t) * moved(a, all_u, t) + t * moved(c, all_u, -(1 - t))
+        # bi+conf: the final picture blended toward the unmoved mean by how little the moved pair agrees there (soft, a hedge where the motion is doubtful)
+        fin = np.where(none[..., None], hole_pair, bi)
+        pu = np.where(none[..., None], best_u, np.where(pick_c[..., None], sc, -sa))
+        pe = box(np.abs(moved(a, pu, t) - moved(c, pu, -(1 - t))).sum(axis=2), 5)
+        for name, lo, hi, cap in (('bi+conf1', 30.0, 120.0, 0.5), ('bi+conf2', 60.0, 200.0, 0.5), ('bi+conf3', 30.0, 120.0, 0.8)):
+            w = np.clip((pe - lo) / (hi - lo), 0, 1)[..., None] * cap
+            out[name] = (1 - w) * fin + w * out['blend']
         out['bi2'] = np.where(agree[..., None], 0.5 * (Pc + Pa), out['bi'])
         out['_ok'] = (float(ok_c.mean()), float(ok_a.mean()), float(gc.mean()), float(ga.mean()), float(none.mean()))
     # med3: the middle value per channel of (moved a, moved c, the unmoved mean): one wrong candidate cannot win
@@ -294,7 +301,7 @@ def main():
         print('%s t=%.2f  ' % (os.path.basename(p), t) + '  '.join('%s %.2f' % (k, x) for k, x in row.items()), flush=True)
     s = np.array(stats).mean(axis=0)
     print('%d triples, frames %dx%d; share of pixels: splat landed %.0f%%, still %.0f%%, moved pair disagreed %.0f%%' % (len(files), a.shape[1], a.shape[0], 100 * s[1], 100 * s[2], 100 * s[0]))
-    for k in ('blend', 'half', 'spl', 'spl+st', 'spl+occ', 'spl+rel', 'cand', 'ref', 'bi', 'bi+dir', 'bi+all', 'bi2', 'med3', 'med5', 'oracle'):
+    for k in ('blend', 'half', 'spl', 'spl+st', 'spl+occ', 'spl+rel', 'cand', 'ref', 'bi', 'bi+dir', 'bi+all', 'bi+conf1', 'bi+conf2', 'bi+conf3', 'bi2', 'med3', 'med5', 'oracle'):
         x = np.array(sums[k])
         print('  %-8s mean %.2f dB  (min %.2f, max %.2f)' % (k, x.mean(), x.min(), x.max()))
 
