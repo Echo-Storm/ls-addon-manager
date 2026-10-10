@@ -1,5 +1,6 @@
 # build output and release packages
 build/
+build_fg/
 out/
 dist/
 *.obj

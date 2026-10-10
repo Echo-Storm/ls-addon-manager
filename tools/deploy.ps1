@@ -4,24 +4,25 @@
 #   * refuses while Lossless Scaling itself is running (it holds the DLLs open), unless -StopLS is given AND the game is not running;
 #   * backs the old file up into <LS folder>\backups\ (never deletes) with a timestamp before replacing it;
 #   * host: if Lossless.dll is still Lossless Scaling's own, it is renamed Lossless_original.dll first (the manager needs it there).
-#   powershell -File deploy.ps1 -What host|nr|dlaa|fsr|xess|vsr|upscalers|all [-StopLS] [-LiftConflicts] [-LsDir '<Lossless Scaling folder>']   (or set the LS_DIR environment variable) [-Game WowB]
+#   powershell -File deploy.ps1 -What host|nr|dlaa|fsr|xess|vsr|upscalers|all [-StopLS] [-LiftConflicts] [-LsDir '<Lossless Scaling folder>']   (or set the LS_DIR environment variable) [-Game WowB] [-BuildDir build_fg]
 param(
     [Parameter(Mandatory = $true)][ValidateSet('host', 'nr', 'dlaa', 'fsr', 'xess', 'vsr', 'upscalers', 'all')][string]$What,
     [switch]$StopLS,
     [switch]$LiftConflicts,   # with the upscalers: empties "conflicts" in the deployed addon.json files, so that DLSS, FSR, XeSS and VSR can all be switched on for the comparison (Ctrl+Shift+F9)
     [string]$LsDir = $(if ($env:LS_DIR) { $env:LS_DIR } else { 'C:\Program Files (x86)\Steam\steamapps\common\Lossless Scaling' }),
-    [string]$Game = 'WowB'
+    [string]$Game = 'WowB',
+    [string]$BuildDir = 'build'   # the addons' build folder under addons\DLSS5NR01: 'build_fg' for the frame generation test build (tools\build_framegen_test.ps1)
 )
 $root = Split-Path $PSScriptRoot -Parent   # the repository folder
 $items = @{
     host     = @{ Src = "$root\manager\build\Release\Lossless.dll"; Dst = "$LsDir\Lossless.dll"; Extra = @("$root\manager\manager-icon.ico", "$root\manager\manager-icon.png") }
-    nr       = @{ Src = "$root\addons\DLSS5NR01\build\Release\DLSS5NR01.dll"; Dst = "$LsDir\addons\DLSS5NR01\DLSS5NR01.dll"; Extra = @("$root\addons\DLSS5NR01\build\Release\nvngx.dll_dlss5nr01.dll", "$root\addons\DLSS5NR01\build\Release\nr_selftest.exe", "$root\addons\DLSS5NR01\addon.json", "$root\addons\DLSS5NR01\icon.svg",
+    nr       = @{ Src = "$root\addons\DLSS5NR01\$BuildDir\Release\DLSS5NR01.dll"; Dst = "$LsDir\addons\DLSS5NR01\DLSS5NR01.dll"; Extra = @("$root\addons\DLSS5NR01\$BuildDir\Release\nvngx.dll_dlss5nr01.dll", "$root\addons\DLSS5NR01\$BuildDir\Release\nr_selftest.exe", "$root\addons\DLSS5NR01\addon.json", "$root\addons\DLSS5NR01\icon.svg",
                   @{ Src = "$root\addons\DLSS5NR01\external\ngx\LICENSE.txt"; Rel = 'NVIDIA-LICENSE.txt' }) }
-    dlaa     = @{ Src = "$root\addons\DLSS5NR01\build\Release\DLSS4DLAA.dll"; Dst = "$LsDir\addons\DLSS4DLAA\DLSS4DLAA.dll"; Extra = @("$root\addons\DLSS5NR01\products\DLSS4DLAA\addon.json", "$root\addons\DLSS5NR01\products\DLSS4DLAA\icon.svg",
-                  @{ Src = "$root\addons\DLSS5NR01\build\Release\dlss\nvngx_dlss.dll"; Rel = 'dlss\nvngx_dlss.dll' }, @{ Src = "$root\addons\DLSS5NR01\external\ngx\LICENSE.txt"; Rel = 'NVIDIA-LICENSE.txt' },
+    dlaa     = @{ Src = "$root\addons\DLSS5NR01\$BuildDir\Release\DLSS4DLAA.dll"; Dst = "$LsDir\addons\DLSS4DLAA\DLSS4DLAA.dll"; Extra = @("$root\addons\DLSS5NR01\products\DLSS4DLAA\addon.json", "$root\addons\DLSS5NR01\products\DLSS4DLAA\icon.svg",
+                  @{ Src = "$root\addons\DLSS5NR01\$BuildDir\Release\dlss\nvngx_dlss.dll"; Rel = 'dlss\nvngx_dlss.dll' }, @{ Src = "$root\addons\DLSS5NR01\external\ngx\LICENSE.txt"; Rel = 'NVIDIA-LICENSE.txt' },
                   @{ Src = "$root\addons\DLSS5NR01\LICENSE"; Rel = 'LICENSE.txt' }) }
-    fsr      = @{ Src = "$root\addons\DLSS5NR01\build\Release\FSR3UPSC.dll"; Dst = "$LsDir\addons\FSR3UPSC\FSR3UPSC.dll"; Extra = @("$root\addons\DLSS5NR01\products\FSR3UPSC\addon.json", "$root\addons\DLSS5NR01\products\FSR3UPSC\icon.svg",
-                  @{ Src = "$root\addons\DLSS5NR01\build\Release\fsr\amd_fidelityfx_dx12.dll"; Rel = 'fsr\amd_fidelityfx_dx12.dll' },
+    fsr      = @{ Src = "$root\addons\DLSS5NR01\$BuildDir\Release\FSR3UPSC.dll"; Dst = "$LsDir\addons\FSR3UPSC\FSR3UPSC.dll"; Extra = @("$root\addons\DLSS5NR01\products\FSR3UPSC\addon.json", "$root\addons\DLSS5NR01\products\FSR3UPSC\icon.svg",
+                  @{ Src = "$root\addons\DLSS5NR01\$BuildDir\Release\fsr\amd_fidelityfx_dx12.dll"; Rel = 'fsr\amd_fidelityfx_dx12.dll' },
                   @{ Src = "$root\addons\DLSS5NR01\external\fsr4\amd_fidelityfx_dx12.dll"; Rel = 'runtimes\FSR\0dd77d9c\amd_fidelityfx_dx12.dll' },
                   @{ Src = "$root\addons\DLSS5NR01\products\FSR3UPSC\FSR4-ABOUT.txt"; Rel = 'runtimes\FSR\0dd77d9c\ABOUT.txt' },
                   @{ Src = "$root\addons\DLSS5NR01\third_party\ffx4\LICENSE.txt"; Rel = 'runtimes\FSR\0dd77d9c\LICENSE.txt' },
@@ -29,9 +30,9 @@ $items = @{
                   @{ Src = "$root\addons\DLSS5NR01\external\agility\LICENSE.txt"; Rel = 'runtimes\FSR\0dd77d9c\Microsoft-D3D12-LICENSE.txt' },
                   @{ Src = "$root\addons\DLSS5NR01\third_party\ffx\LICENSE.txt"; Rel = 'AMD-FidelityFX-LICENSE.txt' },
                   @{ Src = "$root\addons\DLSS5NR01\LICENSE"; Rel = 'LICENSE.txt' }) }
-    vsr      = @{ Src = "$root\addons\DLSS5NR01\build\Release\VSRUPSC.dll"; Dst = "$LsDir\addons\VSRUPSC\VSRUPSC.dll"; Extra = @("$root\addons\DLSS5NR01\products\VSRUPSC\addon.json", "$root\addons\DLSS5NR01\products\VSRUPSC\icon.svg") }   # (the prototype; 'all' leaves it out)
-    xess     = @{ Src = "$root\addons\DLSS5NR01\build\Release\XESSUPSC.dll"; Dst = "$LsDir\addons\XESSUPSC\XESSUPSC.dll"; Extra = @("$root\addons\DLSS5NR01\products\XESSUPSC\addon.json", "$root\addons\DLSS5NR01\products\XESSUPSC\icon.svg",
-                  @{ Src = "$root\addons\DLSS5NR01\build\Release\xess\libxess.dll"; Rel = 'xess\libxess.dll' },
+    vsr      = @{ Src = "$root\addons\DLSS5NR01\$BuildDir\Release\VSRUPSC.dll"; Dst = "$LsDir\addons\VSRUPSC\VSRUPSC.dll"; Extra = @("$root\addons\DLSS5NR01\products\VSRUPSC\addon.json", "$root\addons\DLSS5NR01\products\VSRUPSC\icon.svg") }   # (the prototype; 'all' leaves it out)
+    xess     = @{ Src = "$root\addons\DLSS5NR01\$BuildDir\Release\XESSUPSC.dll"; Dst = "$LsDir\addons\XESSUPSC\XESSUPSC.dll"; Extra = @("$root\addons\DLSS5NR01\products\XESSUPSC\addon.json", "$root\addons\DLSS5NR01\products\XESSUPSC\icon.svg",
+                  @{ Src = "$root\addons\DLSS5NR01\$BuildDir\Release\xess\libxess.dll"; Rel = 'xess\libxess.dll' },
                   @{ Src = "$root\addons\DLSS5NR01\external\xess\LICENSE.txt"; Rel = 'Intel-XeSS-LICENSE.txt' },
                   @{ Src = "$root\addons\DLSS5NR01\LICENSE"; Rel = 'LICENSE.txt' }) }
 }
