@@ -30,11 +30,12 @@ import numpy as np
 def load_triple(path, scale):
     with open(path, 'rb') as f:
         magic, w, h, tm = struct.unpack('<4I', f.read(16))
-        if magic != 0x31544C46:
+        if magic not in (0x31544C46, 0x32544C46):
             raise ValueError('not a flow triple: ' + path)
         n = w * h
         fr = [np.frombuffer(f.read(n * 4), np.uint8).reshape(h, w, 4)[..., :3].astype(np.float32) for _ in range(3)]
         mv = np.frombuffer(f.read(n * 4), np.float16).reshape(h, w, 2).astype(np.float32)
+        mvb = np.frombuffer(f.read(n * 4), np.float16).reshape(h, w, 2).astype(np.float32) if magic == 0x32544C46 else None
 
     def small(img):
         hh, ww = h // scale * scale, w // scale * scale
@@ -42,7 +43,8 @@ def load_triple(path, scale):
         return i.reshape(hh // scale, scale, ww // scale, scale, -1).mean(axis=(1, 3))
     a, b, c = (small(x) for x in fr)
     v = small(mv) / scale          # vectors in the small frame's pixels
-    return a, b, c, v, tm / 1000.0 if tm else 0.5
+    vb = small(mvb) / scale if mvb is not None else None   # the other way: a pixel of a to where it is in c
+    return a, b, c, v, tm / 1000.0 if tm else 0.5, vb
 
 
 def psnr(a, b):
@@ -217,7 +219,7 @@ def main():
         sys.exit('no triple_*.bin in the folder (nr_fgeval ... flowdump=N)')
     sums = {}; stats = []
     for p in files:
-        a, b, c, v, t = load_triple(p, args.scale)
+        a, b, c, v, t, vb = load_triple(p, args.scale)
         if args.t >= 0: t = args.t
         if args.auto_t:
             t = max((0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8), key=lambda q: psnr((1 - q) * moved(a, v, q) + q * moved(c, v, -(1 - q)), b))

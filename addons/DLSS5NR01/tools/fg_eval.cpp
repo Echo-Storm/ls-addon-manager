@@ -1082,14 +1082,53 @@ int main(int argc, char** argv) {
             if (guardApart > 0) frameMv = mv;
             if (flowDump > 0 && flowDumped < flowDump && i >= 2 && stride == 2) {   // flowdump=N: the first N triples (kept frame before, frame between, this kept frame) and this frame's vectors, raw, for tools\interp_lab.py
                 wchar_t name[64]; swprintf(name, 64, L"\\triple_%05d.bin", first + i);
+                // the vectors the other way (a pixel of the frame before to where it is in this frame): a second estimator fed this frame, then the frame before
+                std::vector<uint16_t> mvBack(static_cast<size_t>(W) * H * 2);
+                {   static FlowEstimator est2; static ID3D12Resource *c2 = nullptr, *m2 = nullptr, *d2 = nullptr, *rb2 = nullptr; static D3D12_PLACED_SUBRESOURCE_FOOTPRINT bfp{}; static D3D12_RESOURCE_STATES c2State = D3D12_RESOURCE_STATE_COPY_DEST;
+                    if (!c2) {
+                        est2.Init(g.dev, [](const char* m) { printf("  %s
+", m); }); est2.Ensure(W, H);
+                        c2 = g.Texture(W, H, DXGI_FORMAT_R8G8B8A8_UNORM, false, D3D12_RESOURCE_STATE_COPY_DEST);
+                        m2 = g.Texture(W, H, DXGI_FORMAT_R16G16_FLOAT, true, D3D12_RESOURCE_STATE_UNORDERED_ACCESS);
+                        d2 = g.Texture(W, H, DXGI_FORMAT_R8_UNORM, true, D3D12_RESOURCE_STATE_UNORDERED_ACCESS);
+                        D3D12_RESOURCE_DESC md = m2->GetDesc(); UINT br = 0; UINT64 brow = 0, bt = 0; g.dev->GetCopyableFootprints(&md, 0, 1, 0, &bfp, &br, &brow, &bt);
+                        rb2 = g.Buffer(bt, D3D12_HEAP_TYPE_READBACK, D3D12_RESOURCE_STATE_COPY_DEST);
+                    }
+                    est2.Forget();
+                    for (int pass = 0; pass < 2; ++pass) {
+                        const std::vector<uint8_t>& src = pass == 0 ? frames[i] : frames[i - 2];
+                        { uint8_t* m = nullptr; upload->Map(0, nullptr, reinterpret_cast<void**>(&m));
+                          for (uint32_t y = 0; y < H; ++y) memcpy(m + fp.Offset + y * fp.Footprint.RowPitch, src.data() + static_cast<size_t>(y) * W * 4, W * 4);
+                          upload->Unmap(0, nullptr); }
+                        g.Begin();
+                        g.Barrier(c2, c2State, D3D12_RESOURCE_STATE_COPY_DEST);
+                        D3D12_TEXTURE_COPY_LOCATION to2{ c2, D3D12_TEXTURE_COPY_TYPE_SUBRESOURCE_INDEX }; to2.SubresourceIndex = 0;
+                        D3D12_TEXTURE_COPY_LOCATION from2{ upload, D3D12_TEXTURE_COPY_TYPE_PLACED_FOOTPRINT }; from2.PlacedFootprint = fp;
+                        g.list->CopyTextureRegion(&to2, 0, 0, 0, &from2, nullptr);
+                        g.Barrier(c2, D3D12_RESOURCE_STATE_COPY_DEST, D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE); c2State = D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE;
+                        est2.Record(g.list, 0, c2, DXGI_FORMAT_R8G8B8A8_UNORM, m2, d2);
+                        if (pass == 1) {
+                            g.Barrier(m2, D3D12_RESOURCE_STATE_UNORDERED_ACCESS, D3D12_RESOURCE_STATE_COPY_SOURCE);
+                            D3D12_TEXTURE_COPY_LOCATION rt2{ rb2, D3D12_TEXTURE_COPY_TYPE_PLACED_FOOTPRINT }; rt2.PlacedFootprint = bfp;
+                            D3D12_TEXTURE_COPY_LOCATION rf2{ m2, D3D12_TEXTURE_COPY_TYPE_SUBRESOURCE_INDEX }; rf2.SubresourceIndex = 0;
+                            g.list->CopyTextureRegion(&rt2, 0, 0, 0, &rf2, nullptr);
+                            g.Barrier(m2, D3D12_RESOURCE_STATE_COPY_SOURCE, D3D12_RESOURCE_STATE_UNORDERED_ACCESS);
+                        }
+                        g.Submit(); est2.ReadStats(0);
+                    }
+                    uint8_t* m = nullptr; rb2->Map(0, nullptr, reinterpret_cast<void**>(&m));
+                    for (uint32_t y = 0; y < H; ++y) memcpy(mvBack.data() + static_cast<size_t>(y) * W * 2, m + bfp.Offset + y * bfp.Footprint.RowPitch, W * 4);
+                    D3D12_RANGE none2{ 0, 0 }; rb2->Unmap(0, &none2);
+                }
                 if (FILE* f = _wfopen((outDir + name).c_str(), L"wb")) {
                     const double span = times[i] - times[i - 2];   // when the frame between was shown, as a share of the way from the frame before to this one (uneven pacing in the capture), in thousandths
-                    const uint32_t head[4] = { 0x31544C46u /* "FLT1" */, W, H, span > 0.0 ? static_cast<uint32_t>(std::clamp((times[i - 1] - times[i - 2]) / span, 0.0, 1.0) * 1000.0 + 0.5) : 500u };
+                    const uint32_t head[4] = { 0x32544C46u /* "FLT2" */, W, H, span > 0.0 ? static_cast<uint32_t>(std::clamp((times[i - 1] - times[i - 2]) / span, 0.0, 1.0) * 1000.0 + 0.5) : 500u };
                     fwrite(head, 4, 4, f);
                     fwrite(frames[i - 2].data(), 1, static_cast<size_t>(W) * H * 4, f);   // a: RGBA8
                     fwrite(frames[i - 1].data(), 1, static_cast<size_t>(W) * H * 4, f);   // b: the truth
                     fwrite(frames[i].data(), 1, static_cast<size_t>(W) * H * 4, f);       // c
                     fwrite(mv.data(), 2, static_cast<size_t>(W) * H * 2, f);              // half floats (x, y): from a pixel of c to where it was in a, in pixels
+                    fwrite(mvBack.data(), 2, static_cast<size_t>(W) * H * 2, f);         // and the other way: from a pixel of a to where it is in c
                     fclose(f); ++flowDumped;
                 }
             }
