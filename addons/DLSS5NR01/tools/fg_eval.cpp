@@ -799,7 +799,7 @@ int main(int argc, char** argv) {
                 g.Barrier(cur, D3D12_RESOURCE_STATE_COPY_SOURCE, D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE);
                 prevState = D3D12_RESOURCE_STATE_COPY_DEST;
                 g.Submit();
-                if (i >= 2) { readPicture(readback, picture); double ms = 0; static double sum = 0; static int n = 0; if (syn.ReadMs(0, ms)) { sum += ms; ++n; } if (i + 2 >= count && n) printf("  own synthesis: the GPU %.2f ms a frame (%d frames, %ux%u)\n", sum / n, n, W, H); }
+                if (i >= 2) { readPicture(readback, picture); double ms = 0; static std::vector<double> all; if (syn.ReadMs(0, ms)) all.push_back(ms); if (i + 2 >= count && !all.empty()) { std::sort(all.begin(), all.end()); printf("  own synthesis: the GPU median %.2f ms a frame, best %.2f, worst %.2f (%zu frames, %ux%u)\n", all[all.size() / 2], all.front(), all.back(), all.size(), W, H); } }
                 return true;
             };
         } else
