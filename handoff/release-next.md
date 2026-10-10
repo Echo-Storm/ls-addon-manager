@@ -28,6 +28,10 @@ State: everything below is on local `main` (the branch `claude/infallible-diffie
 5. **The lighter option when the card is full** (upscaler panel, "...when the card is full (test)", a GPU-bound game with frame generation): the log says when it goes on and off; compare the picture with it off, in fast motion especially (the offline loss there is 1.5-1.7 dB).
 6. **Closing a scaled game by its X** a few times; if the taskbar or Explorer misbehaves afterwards, run `tools\shell_events.ps1` and send its output with the time.
 
+## Test games (the owner's choice, 2026-10-09: small ones, not the huge titles)
+
+SUPERHOT (still frames: repeat skip, cadence note), Tomb Raider 2013 (a character with hair turning against scenery: the generator's hard case), DOOM 2016 (fastest camera, static HUD over motion; motion blur / chromatic aberration / grain off), Saints Row 2 from GOG (natively 30 fps: leave GOG's cap on; the capture-card case, the log should say "comes 2 times" at 60 Hz), WoW for lighting. Any game becomes a 30 fps source with an NVIDIA Control Panel or RTSS cap. Windowed or borderless.
+
 ## Frame generation of our own: the live look (a prototype; NOT in releases; its own test build)
 
 Build and deploy (the normal build, `addons\DLSS5NR01\build`, has it compiled out, as releases do): `powershell -File tools\build_framegen_test.ps1`, then close Lossless Scaling and the game and `powershell -File tools\deploy.ps1 -What fsr -BuildDir build_fg -LsDir '<folder>'`. Lossless Scaling's own frame generation OFF. Without a GPU needed for Lossless Scaling first: `addons\DLSS5NR01\build_fg\Release\nr_fgpresent.exe mult=4` (the presenter on a real swap chain; prints FG PRESENT TEST PASSED).
