@@ -1,7 +1,7 @@
 # The next release: what is in it, what to test first, what to do on release day (written 2026-10-09)
 
 State: everything below is on local `main` (the branch `claude/infallible-diffie-3f06ab` is the same commits); nothing is pushed or released. The version in `manager/CMakeLists.txt`,
-`manager/sdk/include/eam/version.h`, the five `addon.json` files and the README is still 0.9.38: pick the number (0.10.0 for a release this size?) and bump all of them (tools/ci.ps1 checks they agree).
+`manager/sdk/include/eam/version.h`, the five `addon.json` files and the README is still 0.9.38: the number is the owner's call and he said (2026-10-09) he wants it to be **"1 alpha"**: the version strings are numeric only (`ParseVersion` in manager/src/update/update_check.cpp reads major.minor.patch and builds the zip name `LSAddonManager-<x.y.z>-x64.zip` from it), so use the number 1.0.0 everywhere (tools/ci.ps1 checks they agree) and say "alpha" in the release title / notes (a GitHub pre-release flag would hide it from the updater if it asks for the latest release only: check `kReleasesUrl` / the endpoint first, and decide whether alpha testers should be offered it).
 
 ## What it contains (CHANGELOG.md "Unreleased" has the full wording)
 
