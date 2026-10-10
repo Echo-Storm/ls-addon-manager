@@ -57,7 +57,23 @@ What was learnt:
 - **Uneven pacing is real in recordings**: in 3 of 10 triples of the fast clip the real middle frame shows the picture at t = 0.3, not 0.5 (the capture clock says 0.5; the game itself advanced unevenly). Those triples looked like generator failures (blend and half-way both scored 21 to 22 dB) and scored 25 dB at t = 0.3. Scores should be read with that in mind (`--auto-t` picks the best t per triple for every method alike), and a real generator should not expect "half way" to be the truth.
 - A **UI/HUD rule** could not be tested: these clips have none. It needs a clip with a static HUD over moving background (WoW, or a game with a minimap); it must be a *local, relative* test, not "frames agree".
 
-What the oracle gap needs (not found yet): knowing, per pixel, *which frame sees it* (covered / uncovered) rather than guessing from match error. That is a second flow (a to c as well as c to a, so forward-backward consistency can say which side is occluded), which our estimator does not make; it costs a second pass of the estimate (about a second search). That is the next experiment: have `flowdump` write the flow in both directions (needs the estimator run on the frames swapped) and test the consistency check in the lab.
+### Stage 2 result: both flows (same day)
+
+`flowdump` now also writes the vectors the other way (the estimator run on the pair swapped; note it disturbs `nr_fgeval`'s own FSR score in that run, so use the dump run for the dump only). Method **bi**: the vectors of both directions, each splatted to the frame's time, used only where the flow the other way agrees
+(forward-backward consistency; the threshold hardly matters), per output pixel the hypothesis whose moved pair agrees better; where neither reached, `spl`.
+
+| | fast clip | calm s2 | calm s3 |
+|---|---|---|---|
+| half | 26.28 | 39.88 | 37.03 |
+| spl | 27.14 | 40.17 | 37.66 |
+| **bi** | **27.60** | **40.28** | **37.92** |
+| oracle | 32.83 | 43.68 | 41.57 |
+
+- **bi beats spl on every triple, by +0.1 to +0.5 dB (most on the fast clip); against the plain half-way gather it is +0.4 to +1.3 dB.** Real, small, and it costs a second flow estimate (about the cost of the first).
+- On the fast clip 37% of output pixels are reached by neither flow, and the consistency check marks only 59% of vectors good: that is where the remaining error is. The oracle gap (4 to 5 dB) is **not** closed by local rules on this information; what is left is mostly hole and occluded areas and sub-pixel precision on texture.
+- This is a level with FSR frame generation (+4 dB over blend on these clips) and small improvements on top, not a different league; whether it looks better than LSFG is a live judgement.
+
+Next ideas, in order of likely value: (1) hole filling by *direction*: a hole next to a covered area should take the background's vector, not the average of both sides; (2) a coarse-to-fine estimate at the frame's time (a flow defined at t directly, instead of splatting a flow defined at c); (3) a clip with a static HUD for the interface rule; (4) a learned or hand-designed confidence per pixel from the match error and consistency, used to blend between moved and unmoved.
 
 ## The plan
 

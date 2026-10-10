@@ -134,7 +134,7 @@ def fill_holes(v_sp, got, v_fallback, iters=3):
     return np.where(known[..., None], v, v_fallback)
 
 
-def methods(a, c, v, t=0.5, thr_pair=60.0, thr_poor=90.0, still_thr=24.0):
+def methods(a, c, v, t=0.5, thr_pair=60.0, thr_poor=90.0, still_thr=24.0, vb=None, tau=1.0):
     out = {}
     out['blend'] = (1 - t) * a + t * c
     # half: vectors read at the output pixel
@@ -188,11 +188,33 @@ def methods(a, c, v, t=0.5, thr_pair=60.0, thr_poor=90.0, still_thr=24.0):
             better = e < ref_e
             ref_v = np.where(better[..., None], u, ref_v); ref_e = np.where(better, e, ref_e)
     out['ref'] = (1 - t) * moved(a, ref_v, t) + t * moved(c, ref_v, -(1 - t))
+    if vb is not None:
+        # bi: both flows; a vector is used only where the flow the other way agrees (forward-backward consistency), so what only one frame sees is not matched to the wrong place
+        res_c = np.hypot(*np.moveaxis(v + moved(vb, v, 1.0), 2, 0))      # at a pixel of c: where it was in a, and back
+        res_a = np.hypot(*np.moveaxis(vb + moved(v, vb, 1.0), 2, 0))     # at a pixel of a: where it is in c, and back
+        ok_c = res_c < tau + 0.15 * np.hypot(v[..., 0], v[..., 1]); ok_a = res_a < tau + 0.15 * np.hypot(vb[..., 0], vb[..., 1])
+        err_c = match_error(a, c, v); err_a = match_error(c, a, vb)
+        sc, ec, gc = splat(v, np.where(ok_c, err_c, 1e6), t); ga = None
+        sa, ea, ga = splat(vb, np.where(ok_a, err_a, 1e6), 1 - t)
+        gc = gc & (ec < 1e5); ga = ga & (ea < 1e5)
+        Ac = moved(a, sc, t); Cc = moved(c, sc, -(1 - t)); Pc = (1 - t) * Ac + t * Cc
+        Aa = moved(a, sa, -t); Ca = moved(c, sa, 1 - t); Pa = (1 - t) * Aa + t * Ca
+        dc = box(np.abs(Ac - Cc).sum(axis=2), 3); da = box(np.abs(Aa - Ca).sum(axis=2), 3)
+        both = gc & ga
+        pick_c = np.where(both, dc <= da, gc)
+        bi = np.where(pick_c[..., None], Pc, Pa)
+        # where neither flow reached: the plain splat with filled vectors (as spl)
+        none = ~(gc | ga)
+        out['bi'] = np.where(none[..., None], spl, bi)
+        # bi2: where both reached and agree, their mean (less noise)
+        agree = both & (np.abs(Pc - Pa).sum(axis=2) < 30)
+        out['bi2'] = np.where(agree[..., None], 0.5 * (Pc + Pa), out['bi'])
+        out['_ok'] = (float(ok_c.mean()), float(ok_a.mean()), float(gc.mean()), float(ga.mean()), float(none.mean()))
     # med3: the middle value per channel of (moved a, moved c, the unmoved mean): one wrong candidate cannot win
     out['med3'] = np.median(np.stack([ca, cc, out['blend']], axis=0), axis=0)
     # med5: the middle of (moved a, moved c, their mean, a, c)
     out['med5'] = np.median(np.stack([ca, cc, spl, a, c], axis=0), axis=0)
-    out['_cands'] = [out['blend'], a, c, spl, ca, cc, cand, out['ref']]
+    out['_cands'] = [out['blend'], a, c, spl, ca, cc, cand, out['ref']] + ([out['bi']] if 'bi' in out else [])
     out['_bad'] = float(bad.mean()); out['_got'] = float(got.mean()); out['_still'] = float(still.mean())
     return out
 
@@ -205,6 +227,7 @@ def main():
     ap.add_argument('--t', type=float, default=-1, help='the time of the frame between, 0..1 (default: the one in the file, from the capture times)')
     ap.add_argument('--auto-t', action='store_true', help='per triple the time (0.2..0.8) at which the plain moved pair is closest to the truth: the game own pacing is uneven, the capture clock does not show it; the same t for every method')
     ap.add_argument('--cubic', action='store_true', help='Catmull-Rom sampling in place of bilinear')
+    ap.add_argument('--tau', type=float, default=1.0)
     ap.add_argument('--thr-pair', type=float, default=60.0)
     ap.add_argument('--thr-poor', type=float, default=90.0)
     ap.add_argument('--still', type=float, default=24.0)
@@ -223,7 +246,9 @@ def main():
         if args.t >= 0: t = args.t
         if args.auto_t:
             t = max((0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8), key=lambda q: psnr((1 - q) * moved(a, v, q) + q * moved(c, v, -(1 - q)), b))
-        m = methods(a, c, v, t, args.thr_pair, args.thr_poor, args.still)
+        m = methods(a, c, v, t, args.thr_pair, args.thr_poor, args.still, vb, args.tau)
+        okst = m.pop('_ok', None)
+        if okst and not stats: print('  consistent shares (c, a), reached shares (c, a, none): %s' % ' '.join('%.2f' % x for x in okst))
         cands = m.pop('_cands'); bad = m.pop('_bad'); got = m.pop('_got'); still = m.pop('_still')
         errs = np.stack([np.abs(x - b).sum(axis=2) for x in cands], axis=0)
         m['oracle'] = np.take_along_axis(np.stack(cands, axis=0), np.argmin(errs, axis=0)[None, ..., None], axis=0)[0]
@@ -234,7 +259,7 @@ def main():
         print('%s t=%.2f  ' % (os.path.basename(p), t) + '  '.join('%s %.2f' % (k, x) for k, x in row.items()), flush=True)
     s = np.array(stats).mean(axis=0)
     print('%d triples, frames %dx%d; share of pixels: splat landed %.0f%%, still %.0f%%, moved pair disagreed %.0f%%' % (len(files), a.shape[1], a.shape[0], 100 * s[1], 100 * s[2], 100 * s[0]))
-    for k in ('blend', 'half', 'spl', 'spl+st', 'spl+occ', 'spl+rel', 'cand', 'ref', 'med3', 'med5', 'oracle'):
+    for k in ('blend', 'half', 'spl', 'spl+st', 'spl+occ', 'spl+rel', 'cand', 'ref', 'bi', 'bi2', 'med3', 'med5', 'oracle'):
         x = np.array(sums[k])
         print('  %-8s mean %.2f dB  (min %.2f, max %.2f)' % (k, x.mean(), x.min(), x.max()))
 
