@@ -783,6 +783,7 @@ int main(int argc, char** argv) {
             { UINT64 qf = 0; g.queue->GetTimestampFrequency(&qf); syn.SetTimestampFrequency(qf); }
             syn.SetAnalysisScale(Arg(argc, argv, "ownscale", 2));   // ownscale=1: the analysis at every pixel (the reference), 2: at half size (the default)
             if (!syn.Init(g.dev, [](const char* m) { printf("  %s\n", m); }) || !syn.Ensure(W, H)) { printf("own synthesis could not start\n"); return 4; }
+            printf("  own synthesis: analysis cells of %d x %d pixels\n", syn.AnalysisScale(), syn.AnalysisScale());
             prevTex = g.Texture(W, H, DXGI_FORMAT_R8G8B8A8_UNORM, false, D3D12_RESOURCE_STATE_COPY_DEST);
             {   // ownmult=N: N - 1 frames between each pair (at k / N), the one nearest owt= is scored; 2 (default): one, at owt
                 const int mult = std::clamp(Arg(argc, argv, "ownmult", 2), 2, nr::OwnSynth::kMaxTargets + 1);
