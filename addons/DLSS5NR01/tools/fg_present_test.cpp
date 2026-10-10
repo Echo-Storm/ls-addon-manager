@@ -171,7 +171,7 @@ int main(int argc, char** argv) {
         if (doToggle && n == frames / 2) nr::framegen::SetOwn(true);
         if (doSwitch && n == frames / 3) nr::framegen::SetMultiplier(2);
         if (doSwitch && n == 2 * frames / 3) { nr::framegen::SetMultiplier(5); wantMult = 5; settledFrom = n + 3; }
-        if (doResize && n == frames / 2) {
+        if (doResize && n == 20) {
             if (FAILED(sc->ResizeBuffers(0, 800, 450, DXGI_FORMAT_UNKNOWN, 0))) { printf("the resize failed\n"); return 2; }
             g_w = 800; g_h = 450; settledFrom = n + 4;
         }

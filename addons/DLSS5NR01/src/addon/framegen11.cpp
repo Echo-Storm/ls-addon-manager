@@ -125,6 +125,26 @@ bool MakeShared(const D3D11_TEXTURE2D_DESC& back, ID3D11Texture2D*& t11, ID3D12R
     return t12 != nullptr;
 }
 
+// The two shared fences, "copied" (the frame is in, for the engine's queue) and "made" (the frame between is out, for Lossless Scaling's), and the shared frames: in, out,
+// and `extras` more for a multiplier. Null when all was made, else why not. Runs on the engine's start-up thread (the device is free-threaded; nothing here uses the immediate context).
+const char* MakeShares(const D3D11_TEXTURE2D_DESC& back, int extras) {
+    ID3D11Device5* dev5 = nullptr; g.dev->QueryInterface(IID_PPV_ARGS(&dev5));
+    if (!dev5 || FAILED(dev5->CreateFence(0, D3D11_FENCE_FLAG_SHARED, IID_PPV_ARGS(&g.copied11))) || FAILED(dev5->CreateFence(0, D3D11_FENCE_FLAG_SHARED, IID_PPV_ARGS(&g.made11)))) {
+        SafeRelease(dev5); return "the shared fences could not be made";
+    }
+    dev5->Release();
+    auto shareFence = [&](ID3D11Fence* f11, ID3D12Fence*& f12) {
+        HANDLE h = nullptr;
+        if (FAILED(f11->CreateSharedHandle(nullptr, GENERIC_ALL, nullptr, &h))) return false;
+        f12 = g.engine.OpenSharedFence(h); CloseHandle(h);
+        return f12 != nullptr;
+    };
+    if (!shareFence(g.copied11, g.copied12) || !shareFence(g.made11, g.made12)) return "the fences could not be shared";
+    if (!MakeShared(back, g.in11, g.in12) || !MakeShared(back, g.out11, g.out12)) return "the shared frames could not be made";
+    for (int k = 1; k <= extras && k < OwnSynth::kMaxTargets; ++k) if (!g.more12[k] && !MakeShared(back, g.more11[k], g.more12[k])) { SafeRelease(g.more11[k]); SafeRelease(g.more12[k]); break; }   // (a multiplier asks for them again when it needs them)
+    return nullptr;
+}
+
 // FgEngine and the textures and fence it shares with Lossless Scaling's device, for frames like the back buffer. The engine starts on a thread of its own and this says false
 // (the blend stands in) until it is ready; a start that failed stays failed until the frames' size or format changes.
 bool EnsureEngine(const D3D11_TEXTURE2D_DESC& back, const LogFn& log) {
@@ -146,28 +166,17 @@ bool EnsureEngine(const D3D11_TEXTURE2D_DESC& back, const LogFn& log) {
         g.engine.SetOwnSynthesis(g.own.load());   // (EchoFG's shaders compile in the same start-up when it is wanted already)
         g.initState = 1;
         const LUID luid = ad.AdapterLuid; const std::wstring runtime = g.runtime; const UINT w = back.Width, h = back.Height; const DXGI_FORMAT fmt = back.Format; const LogFn logCopy = log;
-        g.initThread = std::thread([luid, runtime, w, h, fmt, hdr, logCopy] {
-            const bool ok = g.engine.Init(luid, runtime, w, h, fmt, hdr, logCopy);
+        const D3D11_TEXTURE2D_DESC desc = back; const int extras = std::clamp(g.multiplier.load(), 2, OwnSynth::kMaxTargets + 1) - 2;
+        g.initThread = std::thread([luid, runtime, w, h, fmt, hdr, logCopy, desc, extras] {
+            bool ok = g.engine.Init(luid, runtime, w, h, fmt, hdr, logCopy);
             if (!ok) g.initError = g.engine.LastError();
+            else if (const char* why = MakeShares(desc, extras)) { g.initError = why; ok = false; }   // (the shared frames and fences with it: nothing is left to make on the presenting thread)
             g.initState = ok ? 2 : 3;
         });
         return false;
     }
     if (g.in12 && g.out12 && g.copied12 && g.made12) return true;
-    // the engine is up: two shared fences, "copied" (the frame is in, for the engine's queue) and "made" (the frame between is out, for Lossless Scaling's)
-    ID3D11Device5* dev5 = nullptr; g.dev->QueryInterface(IID_PPV_ARGS(&dev5));
-    if (!dev5 || FAILED(dev5->CreateFence(0, D3D11_FENCE_FLAG_SHARED, IID_PPV_ARGS(&g.copied11))) || FAILED(dev5->CreateFence(0, D3D11_FENCE_FLAG_SHARED, IID_PPV_ARGS(&g.made11)))) {
-        SafeRelease(dev5); return fail("the shared fences could not be made");
-    }
-    dev5->Release();
-    auto shareFence = [&](ID3D11Fence* f11, ID3D12Fence*& f12) {
-        HANDLE h = nullptr;
-        if (FAILED(f11->CreateSharedHandle(nullptr, GENERIC_ALL, nullptr, &h))) return false;
-        f12 = g.engine.OpenSharedFence(h); CloseHandle(h);
-        return f12 != nullptr;
-    };
-    if (!shareFence(g.copied11, g.copied12) || !shareFence(g.made11, g.made12)) return fail("the fences could not be shared");
-    if (!MakeShared(back, g.in11, g.in12) || !MakeShared(back, g.out11, g.out12)) return fail("the shared frames could not be made");
+    if (const char* why = MakeShares(back, 0)) return fail(why);   // (the engine is up but the shared frames are gone: made again here)
     g.resetNext = true;
     return true;
 }
