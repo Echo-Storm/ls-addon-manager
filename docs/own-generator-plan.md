@@ -37,6 +37,28 @@ Method scores, mean PSNR of the rebuilt frame against the real one:
   the quality of the motion (sub-block, edge-aware, confident) and above all the **synthesis around it: occlusion and disocclusion** (what is covered, what is uncovered), which is where hedging loses and committing wins.
 - **Headroom**: an oracle that picks, per pixel, the best of (frame a, frame c, blend, motion-compensated) with the truth in hand reaches +4.7 dB over the blend on the fast clip with these weak candidates; a good selection rule is worth a lot.
 
+## Stage 1 result: synthesis on our own flow (2026-10-09, `tools/interp_flow_lab.py`)
+
+`nr_fgeval ... flowdump=N` writes raw triples (frame before, the real frame between, this frame, this project's per-pixel vectors, the time of the frame between); the lab rebuilds the middle frame with each method and scores it. 3 Silent Hill f clips, 10 triples each, frames 4x smaller (so the dB
+are not comparable to the full-size FSR numbers, only to each other). Vectors: the estimator's, the same that feed FSR frame generation.
+
+| method | fast clip (s1) | calm (s2) | calm (s3) |
+|---|---|---|---|
+| blend | 21.2 | 31.0 | 28.8 |
+| half: gather both frames half way along the vector read at the output pixel | 26.3 | 39.9 | 37.0 |
+| **spl: vectors first splatted to where their pixels are at the frame's time** (best match wins a spot, holes filled from neighbours) | **27.1** | **40.2** | **37.7** |
+| oracle (best candidate per pixel, truth known; not a method) | 32.4 | 43.6 | 41.5 |
+
+What was learnt:
+- **Good vectors do the work: +5 to +9 dB over a blend with the plain half-way gather** (the same size of lead FSR frame generation shows). The synthesis on top is worth about **+0.3 to +0.9 dB, consistently, from splatting** the vectors to the frame's time so that each output pixel reads a vector that belongs to it.
+- **Catmull-Rom sampling in place of bilinear: +0.4 dB on the calm clip, nothing on the fast one.** Small; cheap in a shader.
+- **Rules that fell back to the unmoved mean or took one side where the moved pair disagrees all LOST** (-0.2 to -3.5 dB): a "still" test (the two frames agree without motion) is wrong in a camera pan, where flat areas agree unmoved too; the occlusion pick (holes take a, poor matches take c) took the wrong side more often than the right one. Per-channel medians of the candidates lost too (-0.3 to -0.8). So **blind rules are not the way to the oracle's 4 to 5 dB**; they need the right information (see below).
+- **Vector selection among neighbours and per-pixel nudging (+-1 px) at the output pixel: +0.0.** The estimator's vectors are already as good as local search on pair agreement can make them.
+- **Uneven pacing is real in recordings**: in 3 of 10 triples of the fast clip the real middle frame shows the picture at t = 0.3, not 0.5 (the capture clock says 0.5; the game itself advanced unevenly). Those triples looked like generator failures (blend and half-way both scored 21 to 22 dB) and scored 25 dB at t = 0.3. Scores should be read with that in mind (`--auto-t` picks the best t per triple for every method alike), and a real generator should not expect "half way" to be the truth.
+- A **UI/HUD rule** could not be tested: these clips have none. It needs a clip with a static HUD over moving background (WoW, or a game with a minimap); it must be a *local, relative* test, not "frames agree".
+
+What the oracle gap needs (not found yet): knowing, per pixel, *which frame sees it* (covered / uncovered) rather than guessing from match error. That is a second flow (a to c as well as c to a, so forward-backward consistency can say which side is occluded), which our estimator does not make; it costs a second pass of the estimate (about a second search). That is the next experiment: have `flowdump` write the flow in both directions (needs the estimator run on the frames swapped) and test the consistency check in the lab.
+
 ## The plan
 
 Not a rewrite of FSR's job in one go; stages, each measured offline against `nr_fgeval`'s FSR number (30.4 dB on Silent Hill f) and then judged by eye live against LSFG (the only judge of "better than LSFG"):
