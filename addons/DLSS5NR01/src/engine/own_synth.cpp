@@ -259,6 +259,9 @@ bool OwnSynth::Record(ID3D12GraphicsCommandList* list, int slot, ID3D12Resource*
         if (FAILED(m_dev->CreateQueryHeap(&qd, IID_PPV_ARGS(&m_stamps))) || FAILED(m_dev->CreateCommittedResource(&rp, D3D12_HEAP_FLAG_NONE, &rd, D3D12_RESOURCE_STATE_COPY_DEST, nullptr, IID_PPV_ARGS(&m_stampReadback)))) { Rel(m_stamps); Rel(m_stampReadback); m_freq = 0; }
     }
     if (m_stamps) list->EndQuery(m_stamps, D3D12_QUERY_TYPE_TIMESTAMP, static_cast<UINT>(slot % kSlots) * 2);
+    {   // the buffers are shared by every frame in flight: the frame before's passes must be done with them (a UAV barrier orders the queue's work, lists included)
+        D3D12_RESOURCE_BARRIER b{}; b.Type = D3D12_RESOURCE_BARRIER_TYPE_UAV; b.UAV.pResource = nullptr; list->ResourceBarrier(1, &b);
+    }
     ID3D12DescriptorHeap* heaps[] = { m_heap };
     list->SetDescriptorHeaps(1, heaps);
     list->SetComputeRootSignature(m_root);
