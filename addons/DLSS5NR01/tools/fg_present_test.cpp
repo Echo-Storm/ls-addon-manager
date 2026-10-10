@@ -110,7 +110,7 @@ double SquareX(ID3D11Texture2D* st) {
 
 int main(int argc, char** argv) {
     setvbuf(stdout, nullptr, _IONBF, 0);
-    const int mult = std::clamp(Arg(argc, argv, "mult", 4), 2, 9), frames = std::clamp(Arg(argc, argv, "frames", 30), 8, 100);
+    const int mult = std::clamp(Arg(argc, argv, "mult", 4), 2, 9), frames = std::clamp(Arg(argc, argv, "frames", 30), 8, 400);
     const bool doToggle = Arg(argc, argv, "toggle", 0) != 0;
     const bool hdr = Arg(argc, argv, "hdr", 0) != 0, own = doToggle ? false : Arg(argc, argv, "own", 1) != 0;
     // (the square must stay on the 960 pixel wide picture: 120 + speed * frames + 96 < 960)
