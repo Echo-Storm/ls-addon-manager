@@ -834,6 +834,10 @@ int main(int argc, char** argv) {
             static ID3D12Resource *inMine = nullptr, *inTheirs = nullptr, *outMine = nullptr, *outTheirs = nullptr;
             static ID3D12Fence *copiedMine = nullptr, *copiedTheirs = nullptr, *madeMine = nullptr, *madeTheirs = nullptr;
             sharedTex(inMine, inTheirs); sharedTex(outMine, outTheirs); sharedFence(copiedMine, copiedTheirs); sharedFence(madeMine, madeTheirs);
+            // enginemult=N (with engineown=1): N - 1 frames between each pair through FgEngine::GenerateFrames, the one nearest owt= scored
+            const int engMult = std::clamp(Arg(argc, argv, "enginemult", 2), 2, nr::OwnSynth::kMaxTargets + 1);
+            static ID3D12Resource* moreMine[nr::OwnSynth::kMaxTargets] = {}; static ID3D12Resource* moreTheirs[nr::OwnSynth::kMaxTargets] = {};
+            for (int k = 1; k < engMult - 1; ++k) sharedTex(moreMine[k], moreTheirs[k]);
             if (!inTheirs || !outTheirs || !copiedTheirs || !madeTheirs) { printf("FgEngine: the shared resources could not be made\n"); return 4; }
             step = [&](int i, float frameMs, std::vector<uint8_t>& picture) -> bool {
                 const uint64_t v = static_cast<uint64_t>(i) + 1;
@@ -841,12 +845,15 @@ int main(int argc, char** argv) {
                 g.list->CopyResource(inMine, cur);   // (a shared texture in COMMON takes a copy without a barrier: simultaneous access)
                 g.Barrier(cur, D3D12_RESOURCE_STATE_COPY_SOURCE, D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE);
                 g.Submit(); g.queue->Signal(copiedMine, v);
-                const bool made = eng.Generate(inTheirs, copiedTheirs, v, outTheirs, madeTheirs, v, frameMs, i == 0);
+                ID3D12Resource* outsT[nr::OwnSynth::kMaxTargets]; outsT[0] = outTheirs; for (int k = 1; k < engMult - 1; ++k) outsT[k] = moreTheirs[k];
+                const int madeN = eng.GenerateFrames(inTheirs, copiedTheirs, v, outsT, engMult - 1, madeTheirs, v, frameMs, i == 0);
+                const bool made = madeN > 0;
+                int pick = 0; { float bestD = 9.0f; for (int k = 0; k < madeN; ++k) { const float tk = static_cast<float>(k + 1) / (madeN + 1); if (std::fabs(tk - ownT) < bestD) { bestD = std::fabs(tk - ownT); pick = k; } } }
                 g.queue->Wait(madeMine, v);
                 if (!made) return true;
                 g.Begin();
                 D3D12_TEXTURE_COPY_LOCATION to{ readback, D3D12_TEXTURE_COPY_TYPE_PLACED_FOOTPRINT }; to.PlacedFootprint = fp;
-                D3D12_TEXTURE_COPY_LOCATION from{ outMine, D3D12_TEXTURE_COPY_TYPE_SUBRESOURCE_INDEX }; from.SubresourceIndex = 0;
+                D3D12_TEXTURE_COPY_LOCATION from{ pick == 0 ? outMine : moreMine[pick], D3D12_TEXTURE_COPY_TYPE_SUBRESOURCE_INDEX }; from.SubresourceIndex = 0;
                 g.list->CopyTextureRegion(&to, 0, 0, 0, &from, nullptr);
                 g.Submit();
                 readPicture(readback, picture);
