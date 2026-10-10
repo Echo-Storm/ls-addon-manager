@@ -47,7 +47,7 @@ set(NR_ADDON_SOURCES
     src/addon/bridge.cpp src/addon/nis_pass.cpp src/addon/compare.cpp src/addon/frame_tap.cpp src/addon/gpu_timer11.cpp src/addon/frame_trace.cpp src/addon/diagnosis.cpp src/addon/source_cadence.cpp
     src/addon/present_hook.cpp src/addon/compose11.cpp src/addon/requirements.cpp src/addon/scaler11.cpp src/addon/framegen11.cpp src/addon/hdr.cpp src/addon/lsrec.cpp src/addon/recorder.cpp
     src/engine/nr_engine.cpp
-    src/engine/dlaa_model.cpp src/engine/sr_engine.cpp src/engine/repeat_gate.cpp src/engine/flow_estimator.cpp src/engine/fg_engine.cpp
+    src/engine/dlaa_model.cpp src/engine/sr_engine.cpp src/engine/repeat_gate.cpp src/engine/flow_estimator.cpp src/engine/fg_engine.cpp src/engine/own_synth.cpp
     ${imgui_SOURCE_DIR}/imgui.cpp ${imgui_SOURCE_DIR}/imgui_draw.cpp
     ${imgui_SOURCE_DIR}/imgui_tables.cpp ${imgui_SOURCE_DIR}/imgui_widgets.cpp)
 function(nr_addon target)

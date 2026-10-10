@@ -221,7 +221,7 @@ void FgEngine::Shutdown() {
         if (m_ffx->module) FreeLibrary(m_ffx->module);
         delete m_ffx; m_ffx = nullptr;
     }
-    m_estimator.Shutdown();
+    m_estimator.Shutdown(); m_synth.Shutdown(); m_synthTried = m_synthReady = false;
     SafeRelease(m_motion); SafeRelease(m_distrust); SafeRelease(m_depth); SafeRelease(m_made);
     SafeRelease(m_before); SafeRelease(m_guarded); SafeRelease(m_guardPso); SafeRelease(m_guardRoot); SafeRelease(m_guardHeap); m_haveBefore = false;
     SafeRelease(m_stamps); SafeRelease(m_stampReadback);
@@ -275,10 +275,28 @@ bool FgEngine::Generate(ID3D12Resource* in, ID3D12Fence* copied, uint64_t n, ID3
     m_estimator.Record(m_list, slot, in, m_fmt, m_motion, m_distrust, 0.0f, encoding, whiteNits);
     Barrier(m_motion, D3D12_RESOURCE_STATE_UNORDERED_ACCESS, D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE);
     const bool first = reset || m_frameId == 0;
+    if (m_own && !m_synthTried) {   // our own synthesis, started when first asked for (its buffers are 9 x 4 bytes a pixel)
+        m_synthTried = true;
+        D3D12_FEATURE_DATA_FORMAT_SUPPORT fs{}; fs.Format = StorageFormat(m_fmt);
+        const bool storable = SUCCEEDED(m_dev->CheckFeatureSupport(D3D12_FEATURE_FORMAT_SUPPORT, &fs, sizeof fs)) && (fs.Support2 & D3D12_FORMAT_SUPPORT2_UAV_TYPED_STORE);
+        if (!storable) Log("frame generation engine: our own synthesis needs typed stores in the frames' format (%d); FSR makes the frames", static_cast<int>(m_fmt));
+        else {
+            m_synth.SetTimestampFrequency(0);
+            m_synthReady = m_synth.Init(m_dev, [this](const char* m) { Log("%s", m); }) && m_synth.Ensure(m_w, m_h);
+            Log(m_synthReady ? "frame generation engine: our own synthesis ready" : "frame generation engine: our own synthesis could not start; FSR makes the frames");
+        }
+    }
+    const bool ownNow = m_own && m_synthReady;
     ffxConfigureDescFrameGeneration& cfg = m_ffx->cfg;
     cfg.frameID = m_frameId;   // configure, prepare and dispatch with the same frame ID (else FSR takes it as a reset)
-    bool ok = m_ffx->fn.Configure(&m_ffx->ctx, &cfg.header) == FFX_API_RETURN_OK;
-    if (ok) {
+    bool ok = ownNow ? true : m_ffx->fn.Configure(&m_ffx->ctx, &cfg.header) == FFX_API_RETURN_OK;
+    if (ownNow) {   // the frame between from the frame before, this frame and the motion, by our own passes (nothing of FSR is dispatched)
+        if (!first && m_haveBefore) {
+            Barrier(m_before, D3D12_RESOURCE_STATE_COPY_DEST, D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE);
+            ok = m_synth.Record(m_list, slot, m_before, StorageFormat(m_fmt), in, m_fmt, m_motion, m_made, StorageFormat(m_fmt), 0.5f);
+            Barrier(m_before, D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE, D3D12_RESOURCE_STATE_COPY_DEST);
+        } else ok = false;
+    } else if (ok) {
         ffxDispatchDescFrameGenerationPrepare prep{}; prep.header.type = FFX_API_DISPATCH_DESC_TYPE_FRAMEGENERATION_PREPARE;
         prep.frameID = m_frameId; prep.commandList = m_list; prep.renderSize = { m_w, m_h }; prep.jitterOffset = { 0, 0 }; prep.motionVectorScale = { 1.0f, 1.0f };
         prep.frameTimeDelta = frameMs; prep.cameraNear = 0.1f; prep.cameraFar = 1000.0f; prep.cameraFovAngleVertical = 1.0f; prep.viewSpaceToMetersFactor = 1.0f;
@@ -299,7 +317,7 @@ bool FgEngine::Generate(ID3D12Resource* in, ID3D12Fence* copied, uint64_t n, ID3
         if (!ok) Log("frame generation engine: FSR's frame generation failed");
     }
     const bool produced = ok && !first;
-    const bool guarding = produced && guard && m_guardPso && m_haveBefore && !reset;
+    const bool guarding = produced && !ownNow && guard && m_guardPso && m_haveBefore && !reset;   // (the guard is FSR's: ours does not paste)
     if (guarding) {   // the guard against pasted background: FSR's frame, the frame before, this frame and its motion -> m_guarded
         Barrier(m_made, D3D12_RESOURCE_STATE_UNORDERED_ACCESS, D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE);
         Barrier(m_before, D3D12_RESOURCE_STATE_COPY_DEST, D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE);

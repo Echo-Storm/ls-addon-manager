@@ -11,6 +11,7 @@
 #include <functional>
 #include <string>
 #include "engine/flow_estimator.h"
+#include "engine/own_synth.h"
 
 namespace nr {
 
@@ -37,6 +38,10 @@ public:
     // is far from both, the real frames' mix goes there: a character the camera follows, pasted over by the scene sweeping past in a turn).
     bool Generate(ID3D12Resource* in, ID3D12Fence* copied, uint64_t n, ID3D12Resource* out, ID3D12Fence* made, uint64_t madeValue, float frameMs, bool reset,
                   uint32_t encoding = 0, float whiteNits = 80.0f, bool guard = true);
+    // true: the frame between is made by this project's own synthesis (own_synth.h) instead of FSR 3.1; when it cannot start on this card (a frame format
+    // without typed stores) FSR makes the frame as before. Set from the thread that calls Generate.
+    void SetOwnSynthesis(bool on) { m_own = on; }
+    bool UsingOwnSynthesis() const { return m_own && m_synthReady; }
     // How long the GPU took for a frame between (the motion, FSR, the copy out), smoothed over the frames it has finished; 0 before any.
     double GpuMs() const { return m_gpuMs; }
     const char* LastError() const { return m_error.c_str(); }
@@ -63,6 +68,7 @@ private:
     ID3D12RootSignature* m_guardRoot = nullptr; ID3D12PipelineState* m_guardPso = nullptr; ID3D12DescriptorHeap* m_guardHeap = nullptr; UINT m_descSize = 0;
     ID3D12Resource* m_before = nullptr; ID3D12Resource* m_guarded = nullptr; bool m_haveBefore = false;
     bool InitGuard();
+    OwnSynth m_synth; bool m_own = false, m_synthTried = false, m_synthReady = false;
     Ffx* m_ffx = nullptr;
     uint64_t m_frameId = 0, m_runs = 0;
 };

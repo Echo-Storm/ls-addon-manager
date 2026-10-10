@@ -562,6 +562,8 @@ void DrawPanel() {
                 "generation OFF first (both at once would double twice). A prototype: the frame between is made by AMD's FSR 3.1 frame generation with the "
                 "motion measured from the frames (when it cannot, the two real frames mixed half and half). Real frames are shown half a frame later than without it.");
             if (c.frameGen) {
+                if (ImGui::Checkbox("  Make the frames with our own synthesis instead of FSR (test)", &c.frameGenOwn)) changed = true;
+                Tip("Off (the default): AMD's FSR 3.1 frame generation makes the frame between. On: this project's own passes do (motion splatted to the time of the frame, the motion the other way made from it, holes filled from the side that fits), with no part of FSR. Measured offline it scores about the same as FSR; live it is untested, which is what this switch is for. The guard below belongs to FSR and does nothing with it.");
                 if (ImGui::Checkbox("  Keep the character clean in turns", &c.frameGenGuard)) changed = true;
                 Tip("On (the default): where the two real frames agree and hardly move (a character the camera follows, a HUD) but the frame made "
                     "between shows something else, the real frames' own picture goes there. In a quick camera turn, FSR pastes the scene sweeping past "
