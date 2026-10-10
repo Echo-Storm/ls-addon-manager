@@ -28,6 +28,16 @@ State: everything below is on local `main` (the branch `claude/infallible-diffie
 5. **The lighter option when the card is full** (upscaler panel, "...when the card is full (test)", a GPU-bound game with frame generation): the log says when it goes on and off; compare the picture with it off, in fast motion especially (the offline loss there is 1.5-1.7 dB).
 6. **Closing a scaled game by its X** a few times; if the taskbar or Explorer misbehaves afterwards, run `tools\shell_events.ps1` and send its output with the time.
 
+## Frame generation of our own: the live look (a prototype; NOT in releases; its own test build)
+
+Build and deploy (the normal build, `addons\DLSS5NR01\build`, has it compiled out, as releases do): `powershell -File tools\build_framegen_test.ps1`, then close Lossless Scaling and the game and `powershell -File tools\deploy.ps1 -What fsr -BuildDir build_fg -LsDir '<folder>'`. Lossless Scaling's own frame generation OFF. Without a GPU needed for Lossless Scaling first: `addons\DLSS5NR01\build_fg\Release\nr_fgpresent.exe mult=4` (the presenter on a real swap chain; prints FG PRESENT TEST PASSED).
+
+1. FSR Upscaler panel: "Frame generation of our own (prototype)" on, "Make the frames with our own synthesis instead of FSR (test)" on, x2. Pass: the panel line says "our own synthesis"; the picture looks like FSR's x2 (it scores the same offline) and, in a turn, the character is not torn; the log (`FSR3UPSC.log`, every 10 s) lists real / made frames and the GPU ms.
+2. A/B against FSR's own (checkbox off) and against Lossless Scaling's LSFG x2 (frame generation of ours off, LS's on): the owner's eyes are the judge. Things to look at: the HUD edges over moving background, thin moving lines, the character against sky and leaves in a turn, foliage speckle at edges (the known flaw), ghosting in a sudden stop.
+3. x3 and x4 ("Frames for each real frame"): even motion, no stutter between the real frame and the made ones; the cost shown in the panel (about 1.2 ms of GPU for each frame more at 2560x1440).
+4. HDR (Windows HDR on, scRGB or HDR10 frames): same picture quality, no banding or blown highlights in the made frames (offline: scRGB scored the same as SDR; HDR10 PQ is the same code, untried).
+5. Switch things while it runs (the multiplier, own synthesis on/off, the game's window size): no freeze, no black frame (offline: nr_fgpresent switch=1 and resize=1 pass).
+
 ## Release day (the procedure that has worked; memory: release-state, verify-package-contents)
 
 1. Bump the version everywhere; CHANGELOG heading "## Unreleased" -> the version and date; README "New in".
