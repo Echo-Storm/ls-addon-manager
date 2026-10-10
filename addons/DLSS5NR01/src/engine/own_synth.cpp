@@ -74,7 +74,15 @@ float2 VecAt(int2 a) {                                                          
 [numthreads(8, 8, 1)] void Box5(uint3 id : SV_DispatchThreadID) {
     OOB
     float e;
-    if (mode == 0) { BOX(bE0, p, 2, e); bB[i] = asuint(e); } else { BOX(bEa0, p, 2, e); bB2[i] = asuint(e); }
+    if (mode == 0) { BOX(bE0, p, 2, e); bB[i] = asuint(e); }
+    else {   // a's errors: the cells nothing reached (1e4) do not count; a cell with none around it keeps the marker
+        float sum = 0, cnt = 0;
+        [loop] for (int j = -2; j <= 2; ++j) [loop] for (int x = -2; x <= 2; ++x) {
+            const float v = asfloat(bEa0[Idx(clamp(p + int2(x, j), int2(0, 0), int2(size) - 1))]);
+            if (v < 9999.0) { sum += v; cnt += 1.0; }
+        }
+        bB2[i] = asuint(cnt > 0 ? sum / cnt : 1e4);
+    }
 }
 
 // the match error of every cell of a that a vector landed on (the vector reversed)
@@ -95,7 +103,7 @@ float2 VecAt(int2 a) {                                                          
     const int2 d = int2(round(float2(p) + k * vec / float(scale)));
     if (!Inside(d)) return;
     const uint di = Idx(d);
-    const uint key = (min(uint(err * 16.0), 65535u) << 16) | (i & 0xFFFF);
+    const uint key = (min(uint(err * 16.0), 65535u) << 16) | ((i ^ (i >> 16)) & 0xFFFF);
     if (phase == 0) {
         if (mode == 0) InterlockedMin(bK1[di], key); else if (mode == 1) InterlockedMin(bK2[di], key); else InterlockedMin(bK3[di], key);
     } else {
@@ -184,7 +192,8 @@ float Agree(int2 p, float2 u) {   // the moved pair's disagreement around a cell
         const float e = Lev(SmpA(q + t * u) - SmpC(q - (1.0 - t) * u));
         if (e < best) { best = e; F = u; }
     }
-    uOut[p] = float4(FromSdr((1.0 - t) * SmpA(q + t * F) + t * SmpC(q - (1.0 - t) * F), encoding, white), 1.0);
+    // the blend is made on the frames' own values (linear light in scRGB, PQ in HDR10: wide-gamut colours and negative scRGB survive); the SDR view only chooses where to look
+    uOut[p] = float4((1.0 - t) * tA.SampleLevel(sLin, (q + t * F + 0.5) / float2(fsize), 0).rgb + t * tC.SampleLevel(sLin, (q - (1.0 - t) * F + 0.5) / float2(fsize), 0).rgb, 1.0);
 }
 )";
 
@@ -257,7 +266,12 @@ bool OwnSynth::Ensure(uint32_t w, uint32_t h) {
     D3D12_HEAP_PROPERTIES hp{}; hp.Type = D3D12_HEAP_TYPE_DEFAULT;
     D3D12_RESOURCE_DESC d{}; d.Dimension = D3D12_RESOURCE_DIMENSION_BUFFER; d.Width = static_cast<UINT64>(m_aw) * m_ah * 4; d.Height = 1; d.DepthOrArraySize = 1; d.MipLevels = 1;
     d.SampleDesc.Count = 1; d.Layout = D3D12_TEXTURE_LAYOUT_ROW_MAJOR; d.Flags = D3D12_RESOURCE_FLAG_ALLOW_UNORDERED_ACCESS;
-    for (auto& b : m_buf) if (FAILED(m_dev->CreateCommittedResource(&hp, D3D12_HEAP_FLAG_NONE, &d, D3D12_RESOURCE_STATE_UNORDERED_ACCESS, nullptr, IID_PPV_ARGS(&b)))) { Log("own synthesis: buffers could not be made"); return false; }
+    for (auto& b : m_buf) if (FAILED(m_dev->CreateCommittedResource(&hp, D3D12_HEAP_FLAG_NONE, &d, D3D12_RESOURCE_STATE_UNORDERED_ACCESS, nullptr, IID_PPV_ARGS(&b)))) {
+        Log("own synthesis: buffers could not be made");
+        for (auto& r : m_buf) Rel(r);
+        m_w = m_h = m_aw = m_ah = 0;
+        return false;
+    }
     m_w = w; m_h = h;
     return true;
 }
