@@ -164,7 +164,7 @@ int main(int argc, char** argv) {
     if (Arg(argc, argv, "list", 0)) { double t0 = 0; for (size_t i = 0; i < g_shown.size() && i < 400; ++i) { if (!i) t0 = static_cast<double>(g_shown[0].at.QuadPart); printf("  shown %2zu  %s  x %7.1f  at %7.1f ms\n", i, g_shown[i].made ? "made" : "real", SquareX(g_shown[i].staging), (g_shown[i].at.QuadPart - t0) * 1000.0 / freq.QuadPart); } }
     int made = 0, real = 0, bad = 0, orderBad = 0, interval = 0, inInterval = 0; double worst = 0, sumErr = 0; int measured = 0;
     std::vector<double> gaps; LARGE_INTEGER last{}; int countWrong = 0, warm = std::max(6, settledFrom);
-    std::vector<int> perInterval;
+    std::vector<int> perInterval; bool started = false;   // (the engine's first frames take a while: the first shaders compile; checks start at the first interval with the right count)
     for (size_t i = 0; i < g_shown.size(); ++i) {
         const Shown& s = g_shown[i];
         const double x = SquareX(s.staging);
@@ -173,7 +173,8 @@ int main(int argc, char** argv) {
         if (s.made) { ++made; ++inInterval; if (x < 0) ++bad; }
         else {
             // a real frame n: x = x0 + speed n; the made frames before it, k = 1 .. inInterval of inInterval + 1
-            if (real > 0 && real > warm) {
+            if (real > 0 && real > warm && !started) { if (inInterval == wantMult - 1) started = true; }
+            else if (real > 0 && real > warm) {
                 perInterval.push_back(inInterval);
                 if (inInterval != wantMult - 1) ++countWrong;
                 for (int k = 1; k <= inInterval; ++k) {
