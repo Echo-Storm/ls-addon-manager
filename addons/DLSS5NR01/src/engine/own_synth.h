@@ -33,8 +33,8 @@ public:
     bool Init(ID3D12Device* dev, LogFn log);
     void Shutdown();
     bool IsReady() const { return m_ready; }
-    // The analysis cells: 1 pixel (the quality reference) or 2 (default: a quarter of the work). Takes effect at the next Ensure.
-    void SetAnalysisScale(int scale) { m_wantScale = scale == 1 ? 1 : 2; }
+    // The analysis cells: 1 pixel (the quality reference), 2 (default: a quarter of the work) or 4. Takes effect at the next Ensure.
+    void SetAnalysisScale(int scale) { m_wantScale = scale <= 1 ? 1 : scale >= 4 ? 4 : 2; }
     int AnalysisScale() const { return m_scale; }
     // Buffers for frames of this size (the old ones are released at once: the caller has waited for the GPU, or sizes do not change while running).
     bool Ensure(uint32_t w, uint32_t h);
