@@ -2,6 +2,7 @@
 #define NOMINMAX
 #endif
 #include "engine/own_synth.h"
+#include "engine/hdr_hlsl.h"
 #include <d3dcompiler.h>
 #include <cstdio>
 #include <cstdlib>
@@ -15,7 +16,8 @@ namespace {
 template <class T> void Rel(T*& p) { if (p) { p->Release(); p = nullptr; } }
 
 // See own_synth.h for what each pass does. All state lives in eight structured buffers of uints (floats as bits, vectors as two halves).
-const char* const kHlsl = R"(
+// HDR frames (scRGB, HDR10) are compared and blended in their SDR view (hdr_hlsl.h, as the upscalers do) and the frame made goes back into their own encoding.
+const char* const kHlsl = NR_HDR_HLSL R"(
 Texture2D<float4> tA : register(t0);
 Texture2D<float4> tC : register(t1);
 Texture2D<float2> tV : register(t2);
@@ -30,11 +32,12 @@ RWStructuredBuffer<uint> bV3 : register(u7);
 RWStructuredBuffer<uint> bB : register(u8);     // the 5x5 mean of the match error being splatted
 RWTexture2D<float4> uOut : register(u9);
 SamplerState sLin : register(s0);
-cbuffer C : register(b0) { uint2 size; uint mode; uint phase; float t; float k; uint pad0; uint pad1; };
+cbuffer C : register(b0) { uint2 size; uint mode; uint phase; float t; float k; uint encoding; float white; };
 
 static const uint kEmpty = 0xFFFFFFFF;
-float3 SmpA(float2 p) { return tA.SampleLevel(sLin, (p + 0.5) / float2(size), 0).rgb; }
-float3 SmpC(float2 p) { return tC.SampleLevel(sLin, (p + 0.5) / float2(size), 0).rgb; }
+float3 View(float3 c) { return ToSdr(c, encoding, white); }
+float3 SmpA(float2 p) { return View(tA.SampleLevel(sLin, (p + 0.5) / float2(size), 0).rgb); }
+float3 SmpC(float2 p) { return View(tC.SampleLevel(sLin, (p + 0.5) / float2(size), 0).rgb); }
 uint Pack(float2 v) { return f32tof16(v.x) | (f32tof16(v.y) << 16); }
 float2 Unpack(uint u) { return float2(f16tof32(u & 0xFFFF), f16tof32(u >> 16)); }
 uint Idx(int2 p) { return uint(p.y) * size.x + uint(p.x); }
@@ -53,7 +56,7 @@ float Lev(float3 d) { return (abs(d.x) + abs(d.y) + abs(d.z)) * 255.0; }
 // the match error of every pixel of c at its vector
 [numthreads(8, 8, 1)] void Err0(uint3 id : SV_DispatchThreadID) {
     OOB
-    bE0[i] = asuint(Lev(tC[p].rgb - SmpA(float2(p) + tV[p])));
+    bE0[i] = asuint(Lev(View(tC[p].rgb) - SmpA(float2(p) + tV[p])));
 }
 
 // the 5x5 mean of a match error (mode 0: c's, 1: a's), once, for the splats
@@ -68,7 +71,7 @@ float Lev(float3 d) { return (abs(d.x) + abs(d.y) + abs(d.z)) * 255.0; }
 [numthreads(8, 8, 1)] void ErrA(uint3 id : SV_DispatchThreadID) {
     OOB
     float e = 1e4;
-    if (bK2[i] != kEmpty) e = Lev(tA[p].rgb - SmpC(float2(p) - Unpack(bV2[i])));
+    if (bK2[i] != kEmpty) e = Lev(View(tA[p].rgb) - SmpC(float2(p) - Unpack(bV2[i])));
     bEa0[i] = asuint(e);
 }
 
@@ -159,11 +162,11 @@ float Agree(int2 p, float2 u) {   // the moved pair's disagreement over 5x5 arou
         }
     }
     const float2 q = float2(p);
-    uOut[p] = float4((1.0 - t) * SmpA(q + t * F) + t * SmpC(q - (1.0 - t) * F), 1.0);
+    uOut[p] = float4(FromSdr((1.0 - t) * SmpA(q + t * F) + t * SmpC(q - (1.0 - t) * F), encoding, white), 1.0);
 }
 )";
 
-struct Constants { uint32_t w, h, mode, phase; float t, k; uint32_t pad0, pad1; };
+struct Constants { uint32_t w, h, mode, phase; float t, k; uint32_t encoding; float white; };
 
 } // namespace
 
@@ -236,7 +239,7 @@ bool OwnSynth::Ensure(uint32_t w, uint32_t h) {
 }
 
 bool OwnSynth::Record(ID3D12GraphicsCommandList* list, int slot, ID3D12Resource* before, DXGI_FORMAT beforeFormat, ID3D12Resource* now, DXGI_FORMAT nowFormat,
-                      ID3D12Resource* motion, ID3D12Resource* out, DXGI_FORMAT outFormat, float t) {
+                      ID3D12Resource* motion, ID3D12Resource* out, DXGI_FORMAT outFormat, float t, uint32_t encoding, float whiteNits) {
     if (!m_ready || !m_buf[0] || !before || !now || !motion || !out) return false;
     D3D12_CPU_DESCRIPTOR_HANDLE cpu = m_heap->GetCPUDescriptorHandleForHeapStart(); cpu.ptr += static_cast<SIZE_T>(slot % kSlots) * kPerSlot * m_descriptorSize;
     D3D12_GPU_DESCRIPTOR_HANDLE gpu = m_heap->GetGPUDescriptorHandleForHeapStart(); gpu.ptr += static_cast<UINT64>(slot % kSlots) * kPerSlot * m_descriptorSize;
@@ -272,7 +275,7 @@ bool OwnSynth::Record(ID3D12GraphicsCommandList* list, int slot, ID3D12Resource*
     static const int stopAt = [] { char b[16]; return GetEnvironmentVariableA("NR_SYNTH_STOP", b, 16) ? atoi(b) : 999; }(); int passNo = 0;   // (a test aid: NR_SYNTH_STOP=N runs only the first N passes, to time them)
     auto pass = [&](Entry e, uint32_t mode, uint32_t phase, float k) {
         if (++passNo > stopAt) return;
-        const Constants c{ m_w, m_h, mode, phase, t, k, 0, 0 };
+        const Constants c{ m_w, m_h, mode, phase, t, k, encoding, whiteNits > 0.0f ? whiteNits : 80.0f };
         list->SetPipelineState(m_pso[e]);
         list->SetComputeRoot32BitConstants(2, sizeof(Constants) / 4, &c, 0);
         list->Dispatch(gx, gy, 1);

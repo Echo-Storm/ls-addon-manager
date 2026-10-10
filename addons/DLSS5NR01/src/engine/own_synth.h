@@ -32,12 +32,13 @@ public:
     bool Ensure(uint32_t w, uint32_t h);
     // before, now: the frames (NON_PIXEL_SHADER_RESOURCE, any format a shader reads as colour, same size); motion: RG16F pixel vectors c to a
     // (NON_PIXEL_SHADER_RESOURCE); out: the frame made (UNORDERED_ACCESS, a format that takes typed stores, same size). t: the time of the frame made
-    // between them (0 = before, 1 = now). Leaves the list's descriptor heap and root signature changed.
+    // between them (0 = before, 1 = now). encoding, whiteNits: what the frames hold (hdr_hlsl.h: 0 SDR, 1 scRGB, 2 HDR10) and the SDR white; HDR frames are compared
+    // and blended in their SDR view and the frame made goes back into their encoding. Leaves the list's descriptor heap and root signature changed.
     // With a timestamp frequency (the queue's) the passes are timed on the GPU: ReadMs(slot) after the slot's work has finished.
     void SetTimestampFrequency(uint64_t f) { m_freq = f; }
     bool ReadMs(int slot, double& ms);
     bool Record(ID3D12GraphicsCommandList* list, int slot, ID3D12Resource* before, DXGI_FORMAT beforeFormat, ID3D12Resource* now, DXGI_FORMAT nowFormat,
-                ID3D12Resource* motion, ID3D12Resource* out, DXGI_FORMAT outFormat, float t);
+                ID3D12Resource* motion, ID3D12Resource* out, DXGI_FORMAT outFormat, float t, uint32_t encoding = 0, float whiteNits = 80.0f);
 
 private:
     enum Entry { Clear, Err0, Box5, ErrA, Splat, Hyp1, Hyp2, Synth, EntryCount };

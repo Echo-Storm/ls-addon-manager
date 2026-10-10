@@ -293,7 +293,7 @@ bool FgEngine::Generate(ID3D12Resource* in, ID3D12Fence* copied, uint64_t n, ID3
     if (ownNow) {   // the frame between from the frame before, this frame and the motion, by our own passes (nothing of FSR is dispatched)
         if (!first && m_haveBefore) {
             Barrier(m_before, D3D12_RESOURCE_STATE_COPY_DEST, D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE);
-            ok = m_synth.Record(m_list, slot, m_before, StorageFormat(m_fmt), in, m_fmt, m_motion, m_made, StorageFormat(m_fmt), 0.5f);
+            ok = m_synth.Record(m_list, slot, m_before, StorageFormat(m_fmt), in, m_fmt, m_motion, m_made, StorageFormat(m_fmt), 0.5f, encoding, whiteNits);
             Barrier(m_before, D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE, D3D12_RESOURCE_STATE_COPY_DEST);
         } else ok = false;
     } else if (ok) {
