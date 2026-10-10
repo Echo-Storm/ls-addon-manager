@@ -30,12 +30,14 @@ import numpy as np
 def load_triple(path, scale):
     with open(path, 'rb') as f:
         magic, w, h, tm = struct.unpack('<4I', f.read(16))
-        if magic not in (0x31544C46, 0x32544C46):
+        if magic not in (0x31544C46, 0x32544C46, 0x33544C46):
             raise ValueError('not a flow triple: ' + path)
         n = w * h
         fr = [np.frombuffer(f.read(n * 4), np.uint8).reshape(h, w, 4)[..., :3].astype(np.float32) for _ in range(3)]
         mv = np.frombuffer(f.read(n * 4), np.float16).reshape(h, w, 2).astype(np.float32)
-        mvb = np.frombuffer(f.read(n * 4), np.float16).reshape(h, w, 2).astype(np.float32) if magic == 0x32544C46 else None
+        mvb = np.frombuffer(f.read(n * 4), np.float16).reshape(h, w, 2).astype(np.float32) if magic >= 0x32544C46 else None
+        a0 = np.frombuffer(f.read(n * 4), np.uint8).reshape(h, w, 4)[..., :3].astype(np.float32) if magic == 0x33544C46 else None
+        wp = np.frombuffer(f.read(n * 4), np.float16).reshape(h, w, 2).astype(np.float32) if magic == 0x33544C46 else None
 
     def small(img):
         hh, ww = h // scale * scale, w // scale * scale
@@ -44,7 +46,9 @@ def load_triple(path, scale):
     a, b, c = (small(x) for x in fr)
     v = small(mv) / scale          # vectors in the small frame's pixels
     vb = small(mvb) / scale if mvb is not None else None   # the other way: a pixel of a to where it is in c
-    return a, b, c, v, tm / 1000.0 if tm else 0.5, vb
+    a0s = small(a0) if a0 is not None else None
+    wps = small(wp) / scale if wp is not None else None   # from a pixel of a to where it was in a0 (the motion of the pair before)
+    return a, b, c, v, tm / 1000.0 if tm else 0.5, vb, a0s, wps
 
 
 def psnr(a, b):
@@ -160,7 +164,7 @@ def dirfill_pair(F, reached, a, c, t, base):
     return np.where(reached[..., None], base, hole)
 
 
-def methods(a, c, v, t=0.5, thr_pair=60.0, thr_poor=90.0, still_thr=24.0, vb=None, tau=1.0):
+def methods(a, c, v, t=0.5, thr_pair=60.0, thr_poor=90.0, still_thr=24.0, vb=None, tau=1.0, a0=None, wp=None):
     out = {}
     out['blend'] = (1 - t) * a + t * c
     # half: vectors read at the output pixel
@@ -257,6 +261,26 @@ def methods(a, c, v, t=0.5, thr_pair=60.0, thr_poor=90.0, still_thr=24.0, vb=Non
             best_u = np.where(better[..., None], u, best_u); best_e = np.where(better, e, best_e)
         hole_pair = (1 - t) * moved(a, best_u, t) + t * moved(c, best_u, -(1 - t))
         out['bi+dir'] = np.where(none[..., None], hole_pair, bi)
+        if a0 is not None:
+            # the third frame, three ways. The vector field of the result so far (c's convention: c(x) ~ a(x + F)):
+            Fin = np.where(none[..., None], best_u, F)
+            # (1) the upper bound: a0 along the same vector (constant velocity: a(y) ~ a0(y + F), the content at q is at q + t F in a and q + (1 + t) F in a0) as one more candidate colour
+            out['_a0cand'] = moved(a0, Fin, 1.0 + t)
+            out['_ctrlcand'] = moved(a, Fin, 1.0 + t)   # the control: the same geometry from a frame we have (an extra candidate that carries no new picture)
+            # (2) a motion prior: the pair before's motion, carried along itself (the motion that would continue): v_pred(x) = w(x + w(x))
+            wpred = moved(wp, wp, 1.0)
+            bu = best_u.copy(); be = np.full(a.shape[:2], 1e9, np.float32)
+            for u in cands + [wpred]:
+                e = box(np.abs(moved(a, u, t) - moved(c, u, -(1 - t))).sum(axis=2), AGREE_BOX[0])
+                bt = e < be; bu = np.where(bt[..., None], u, bu); be = np.where(bt, e, be)
+            out['bi+dir+w'] = np.where(none[..., None], (1 - t) * moved(a, bu, t) + t * moved(c, bu, -(1 - t)), bi)
+            # (3) the prior for every pixel: it replaces a pixel's vector where it makes the moved pair agree clearly better
+            own_e = box(np.abs(moved(a, Fin, t) - moved(c, Fin, -(1 - t))).sum(axis=2), AGREE_BOX[0])
+            w_e = box(np.abs(moved(a, wpred, t) - moved(c, wpred, -(1 - t))).sum(axis=2), AGREE_BOX[0])
+            use_w = w_e + args_margin[0] < own_e
+            Fw = np.where(use_w[..., None], wpred, Fin)
+            out['bi+w-all'] = (1 - t) * moved(a, Fw, t) + t * moved(c, Fw, -(1 - t))
+            out['_wshare'] = float(use_w.mean())
         # bi+all: the same candidates for every pixel, the pixel's own vector (where it has one) kept unless another one agrees clearly better
         own_e = box(np.abs(moved(a, F, t) - moved(c, F, -(1 - t))).sum(axis=2), 5)
         all_e = np.where(reached, own_e - args_margin[0], 1e9); all_u = np.where(reached[..., None], F, 0.0)
@@ -295,6 +319,7 @@ def main():
     ap.add_argument('--cubic', action='store_true', help='Catmull-Rom sampling in place of bilinear')
     ap.add_argument('--invert', action='store_true', help='the vectors the other way made by inverting this way (no second estimate), not the dumped ones')
     ap.add_argument('--agree', type=int, default=5, help='the window of the hole fill agreement test')
+    ap.add_argument('--third', action='store_true', help='only the triples that carry the older frame (nr_fgeval flowdump from the third kept frame on), and the methods that use it')
     ap.add_argument('--tau', type=float, default=1.0)
     ap.add_argument('--thr-pair', type=float, default=60.0)
     ap.add_argument('--thr-poor', type=float, default=90.0)
@@ -313,27 +338,37 @@ def main():
         sys.exit('no triple_*.bin in the folder (nr_fgeval ... flowdump=N)')
     sums = {}; stats = []
     for p in files:
-        a, b, c, v, t, vb = load_triple(p, args.scale)
+        a, b, c, v, t, vb, a0, wp = load_triple(p, args.scale)
+        if args.third and a0 is None: continue   # --third: only the files that carry the older frame
         if args.t >= 0: t = args.t
         if args.auto_t:
             t = max((0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8), key=lambda q: psnr((1 - q) * moved(a, v, q) + q * moved(c, v, -(1 - q)), b))
         if args.invert:   # the other way made from this way: each pixel of c's vector put on the pixel of a it points to (the best match wins), reversed; no second estimate
             iv, _, got_i = splat(v, match_error(a, c, v), 0.0)
             vb = fill_holes(-iv, got_i, -v)
-        m = methods(a, c, v, t, args.thr_pair, args.thr_poor, args.still, vb, args.tau)
+        m = methods(a, c, v, t, args.thr_pair, args.thr_poor, args.still, vb, args.tau, a0, wp)
         okst = m.pop('_ok', None)
         if okst and not stats: print('  consistent shares (c, a), reached shares (c, a, none): %s' % ' '.join('%.2f' % x for x in okst))
         cands = m.pop('_cands'); bad = m.pop('_bad'); got = m.pop('_got'); still = m.pop('_still')
+        a0cand = m.pop('_a0cand', None); wshare = m.pop('_wshare', None); ctrl = m.pop('_ctrlcand', None)
         errs = np.stack([np.abs(x - b).sum(axis=2) for x in cands], axis=0)
         m['oracle'] = np.take_along_axis(np.stack(cands, axis=0), np.argmin(errs, axis=0)[None, ..., None], axis=0)[0]
+        if a0cand is not None:   # the same choice with the older frame's colour as one more candidate
+            c2 = cands + [a0cand]; e2 = np.stack([np.abs(x - b).sum(axis=2) for x in c2], axis=0)
+            m['oracle+a0'] = np.take_along_axis(np.stack(c2, axis=0), np.argmin(e2, axis=0)[None, ..., None], axis=0)[0]
+            c3 = cands + [ctrl]; e3 = np.stack([np.abs(x - b).sum(axis=2) for x in c3], axis=0)
+            m['oracle+ctrl'] = np.take_along_axis(np.stack(c3, axis=0), np.argmin(e3, axis=0)[None, ..., None], axis=0)[0]
+            m['_wsharetxt'] = None
+        m.pop('_wsharetxt', None)
         row = {k: psnr(np.clip(x, 0, 255), b) for k, x in m.items()}
+        if wshare is not None: row['_wshare%'] = 100 * wshare
         for k, x in row.items():
             sums.setdefault(k, []).append(x)
         stats.append((bad, got, still))
         print('%s t=%.2f  ' % (os.path.basename(p), t) + '  '.join('%s %.2f' % (k, x) for k, x in row.items()), flush=True)
     s = np.array(stats).mean(axis=0)
     print('%d triples, frames %dx%d; share of pixels: splat landed %.0f%%, still %.0f%%, moved pair disagreed %.0f%%' % (len(files), a.shape[1], a.shape[0], 100 * s[1], 100 * s[2], 100 * s[0]))
-    for k in ('blend', 'half', 'spl', 'spl+st', 'spl+occ', 'spl+rel', 'cand', 'ref', 'spl+dir', 'bi', 'bi+dir', 'bi+all', 'bi+conf1', 'bi+conf2', 'bi+conf3', 'bi2', 'med3', 'med5', 'oracle'):
+    for k in ('blend', 'half', 'spl', 'spl+st', 'spl+occ', 'spl+rel', 'cand', 'ref', 'spl+dir', 'bi', 'bi+dir', 'bi+dir+w', 'bi+w-all', 'bi+all', 'bi+conf1', 'bi+conf2', 'bi+conf3', 'bi2', 'med3', 'med5', 'oracle', 'oracle+ctrl', 'oracle+a0'):
         x = np.array(sums[k])
         print('  %-8s mean %.2f dB  (min %.2f, max %.2f)' % (k, x.mean(), x.min(), x.max()))
 

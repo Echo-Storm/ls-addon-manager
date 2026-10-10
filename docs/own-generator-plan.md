@@ -126,8 +126,22 @@ A reviewer who had not seen the work read the shaders, `FgEngine` and the presen
 **Off the presenting thread (same day, after the review).** Switching frame generation on used to hold Lossless Scaling's presenting thread for about 3 seconds (AMD's runtime, the motion estimate's six shaders, EchoFG's nine pipelines, the shared frames): the engine and EchoFG now start on a thread of their own, the shared fences and frames are made there too, and until it is ready the frames between are the plain blend (the real frames go on at their rate). `nr_fgpresent` measures it: the longest wait between the presenting thread's calls into the presenter is one real-frame interval, also across the start (about 1.3 s for FSR's frames, 3.4 s with EchoFG), a resize (the engine restarts at the new size, blend meanwhile) and switching EchoFG on mid-run (FSR makes the frames for about 2 s, then EchoFG). One 50 ms hitch remains in the engine's very first frame.
 After the fixes: the three clips score 24.41 / 34.10 / 31.11 dB (24.46 / 34.10 / 31.11 before: the sentinel change cost 0.05 dB on the fast clip), HDR 34.09, and every `nr_fgpresent` scenario passes (x2 to x8, HDR, FSR, dup, switch, resize).
 
-## The plan
+### A third, older frame (same day): does not pay
 
+The idea: the area just uncovered in the frame between may be visible in the frame before the frame before (a0), and the pair before's motion may say where the holes' content goes. `nr_fgeval flowdump` writes a0 and the motion from a to it (FLT3 files from the third kept frame on); `interp_flow_lab.py --third` tests it on 9 to 10 triples of each of three clips.
+
+| (mean of the clip) | fast s1 | calm s2 | calm s3 |
+|---|---|---|---|
+| bi+dir (the method as it is) | 28.15 | 40.28 | 38.10 |
+| holes also try the motion carried on from the pair before | 28.08 | 40.27 | 38.06 |
+| that motion tried at every pixel, replacing ours where the moved pair agrees clearly better | 28.06 | 40.28 | 38.08 |
+| oracle (best candidate per pixel, truth known) | 32.79 | 43.65 | 41.67 |
+| ... plus a *control* candidate (the same geometry sampled from a, a frame we have) | 33.32 | 43.94 | 41.97 |
+| ... plus a0 along the same vector | 33.76 | 44.07 | 42.14 |
+
+- **The motion prior from the pair before changes nothing** (it wins at 0.2 to 1 % of the pixels, and loses a hair of score: -0.03 to -0.07 dB).
+- **The older frame's picture is worth little even with a perfect choice**: an extra candidate raises a per-pixel oracle by itself (the control: +0.3 to +0.5 dB); a0 adds only 0.13 to 0.44 dB beyond that, in the *oracle*; a real selection rule would get a fraction of it. Against a third frame's cost (another frame kept, another copy a frame, the estimator's older motion kept too) it does not pay.
+- **Verdict: not built.** The remaining gap to the oracle is not content hidden in the two frames we have and visible in an older one; it is fine texture and hidden content in both. A better flow or a learned method are what is left.
 Not a rewrite of FSR's job in one go; stages, each measured offline against `nr_fgeval`'s FSR number (30.4 dB on Silent Hill f) and then judged by eye live against LSFG (the only judge of "better than LSFG"):
 
 1. **Our estimator's flow into the lab** (`nr_fgeval` can write it; the lab reads it): test synthesis ideas on motion that is already good, instead of block matching. This isolates the synthesis question.
