@@ -808,6 +808,7 @@ int main(int argc, char** argv) {
             DXGI_ADAPTER_DESC1 ad{}; { IDXGIFactory6* f6 = nullptr; CreateDXGIFactory2(0, IID_PPV_ARGS(&f6)); IDXGIAdapter1* a = nullptr; f6->EnumAdapterByGpuPreference(0, DXGI_GPU_PREFERENCE_HIGH_PERFORMANCE, IID_PPV_ARGS(&a)); a->GetDesc1(&ad); a->Release(); f6->Release(); }
             std::wstring dll = Wide(ArgText(argc, argv, "fsr").c_str()); if (dll.empty()) dll = exeDir + L"\\fsr\\amd_fidelityfx_dx12.dll";
             if (!eng.Init(ad.AdapterLuid, dll, W, H, DXGI_FORMAT_R8G8B8A8_UNORM, false, [](const char* m) { printf("  %s\n", m); })) { printf("FgEngine: %s\n", eng.LastError()); return 4; }
+            eng.SetOwnSynthesis(Arg(argc, argv, "engineown", 0) != 0);   // engineown=1: with engine=1, the frames by our own synthesis (FgEngine's own mode)
             auto sharedTex = [&](ID3D12Resource*& mine, ID3D12Resource*& theirs) {
                 D3D12_HEAP_PROPERTIES heap{}; heap.Type = D3D12_HEAP_TYPE_DEFAULT;
                 D3D12_RESOURCE_DESC d{}; d.Dimension = D3D12_RESOURCE_DIMENSION_TEXTURE2D; d.Width = W; d.Height = H; d.DepthOrArraySize = 1; d.MipLevels = 1; d.SampleDesc.Count = 1;
@@ -838,7 +839,7 @@ int main(int argc, char** argv) {
                 g.list->CopyTextureRegion(&to, 0, 0, 0, &from, nullptr);
                 g.Submit();
                 readPicture(readback, picture);
-                if (i >= 2 && i % 20 == 0) printf("  FgEngine: the GPU %.2f ms a frame between\n", eng.GpuMs());
+                if (i >= 2 && i % 20 == 0) printf("  FgEngine (%s): the GPU %.2f ms a frame between\n", eng.GpuMs());
                 return true;
             };
         } else if (direct) {
