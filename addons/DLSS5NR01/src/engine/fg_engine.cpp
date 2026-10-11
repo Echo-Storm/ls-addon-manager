@@ -246,6 +246,24 @@ void FgEngine::Shutdown() {
 ID3D12Resource* FgEngine::OpenSharedTexture(HANDLE h) { ID3D12Resource* r = nullptr; if (m_dev) m_dev->OpenSharedHandle(h, IID_PPV_ARGS(&r)); return r; }
 ID3D12Fence* FgEngine::OpenSharedFence(HANDLE h) { ID3D12Fence* f = nullptr; if (m_dev) m_dev->OpenSharedHandle(h, IID_PPV_ARGS(&f)); return f; }
 
+bool FgEngine::Warm(ID3D12Resource* in, ID3D12Resource* const* outs, int count) {
+    if (!m_ready || !in || !m_before || !m_made || FAILED(m_alloc[0]->Reset()) || FAILED(m_list->Reset(m_alloc[0], nullptr))) return false;
+    Barrier(in, D3D12_RESOURCE_STATE_COMMON, D3D12_RESOURCE_STATE_COPY_SOURCE);
+    m_list->CopyResource(m_before, in);   // (m_before stays in its copy-destination state)
+    Barrier(in, D3D12_RESOURCE_STATE_COPY_SOURCE, D3D12_RESOURCE_STATE_COMMON);
+    Barrier(m_made, D3D12_RESOURCE_STATE_UNORDERED_ACCESS, D3D12_RESOURCE_STATE_COPY_SOURCE);
+    for (int j = 0; j < count; ++j) if (outs[j]) {
+        Barrier(outs[j], D3D12_RESOURCE_STATE_COMMON, D3D12_RESOURCE_STATE_COPY_DEST);
+        m_list->CopyResource(outs[j], m_made);
+        Barrier(outs[j], D3D12_RESOURCE_STATE_COPY_DEST, D3D12_RESOURCE_STATE_COMMON);
+    }
+    Barrier(m_made, D3D12_RESOURCE_STATE_COPY_SOURCE, D3D12_RESOURCE_STATE_UNORDERED_ACCESS);
+    m_list->Close();
+    ID3D12CommandList* l[] = { m_list }; m_queue->ExecuteCommandLists(1, l);
+    m_queue->Signal(m_fence, ++m_fenceValue);
+    return WaitFence(m_fenceValue, 5000);
+}
+
 void FgEngine::ReadSlot(int slot) {
     if (m_slotRead[slot] || !m_slotValue[slot] || m_fence->GetCompletedValue() < m_slotValue[slot]) return;
     m_slotRead[slot] = true;

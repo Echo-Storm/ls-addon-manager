@@ -156,7 +156,8 @@ const char* MakeShares(const D3D11_TEXTURE2D_DESC& back, int extras) {
     };
     if (!shareFence(g.copied11, g.copied12) || !shareFence(g.made11, g.made12)) return "the fences could not be shared";
     if (!MakeShared(back, g.in11, g.in12) || !MakeShared(back, g.out11, g.out12)) return "the shared frames could not be made";
-    for (int k = 1; k <= extras && k < OwnSynth::kMaxTargets; ++k) if (!g.more12[k] && !MakeShared(back, g.more11[k], g.more12[k])) { SafeRelease(g.more11[k]); SafeRelease(g.more12[k]); break; }   // (a multiplier asks for them again when it needs them)
+    for (int k = 1; k <= extras && k < OwnSynth::kMaxTargets; ++k) if (!g.more12[k] && !MakeShared(back, g.more11[k], g.more12[k])) { SafeRelease(g.more11[k]); SafeRelease(g.more12[k]); break; }
+    { ID3D12Resource* outs[OwnSynth::kMaxTargets] = { g.out12 }; for (int k = 1; k < OwnSynth::kMaxTargets; ++k) outs[k] = g.more12[k]; g.engine.Warm(g.in12, outs, OwnSynth::kMaxTargets); }   // (the first use of shared frames is slow at 4K: here, not on the presenting thread)   // (a multiplier asks for them again when it needs them)
     return nullptr;
 }
 
