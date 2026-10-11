@@ -6,7 +6,7 @@
   "min_host_version": "1.2.0",
   "dependencies": [],
   "conflicts": [],
-  "wip": true,
+  "wip": false,
   "tags": [
     "graphics",
     "frame-generation"
