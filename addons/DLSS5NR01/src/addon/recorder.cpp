@@ -99,9 +99,9 @@ void Recorder::Keep(std::shared_ptr<lsrec::Frame> frame) {
 
 // Unmaps what the workers are done with and maps what the GPU has finished copying (without waiting, unless waitForWorkers: then until every
 // staging texture is free, for a change of size or the end).
-void Recorder::Collect(bool waitForWorkers) {
+bool Recorder::Collect(bool waitForWorkers) {
     ID3D11DeviceContext* const ctx = m_ctx;
-    if (!ctx) return;
+    if (!ctx) return true;
     for (int round = 0; round < 4000; ++round) {
         bool busy = false;
         for (Slot& s : m_slots) {
@@ -115,14 +115,16 @@ void Recorder::Collect(bool waitForWorkers) {
             }
             busy = busy || s.state != Slot::Free;
         }
-        if (!waitForWorkers || !busy) return;
+        if (!busy) return true;
+        if (!waitForWorkers) return false;
         if (m_workers.empty()) {   // nothing will finish them: give the memory back as it is
             for (Slot& s : m_slots) if (s.state == Slot::Working) { ctx->Unmap(s.staging, 0); s.state = Slot::Free; }
-            return;
+            return true;
         }
         Sleep(1);
     }
-    Log("recorder: the compression threads did not finish in time");
+    Log("recorder: the compression threads did not finish in time; the staging memory is left alone until they do");
+    return false;
 }
 
 void Recorder::DropStaging() {
@@ -138,7 +140,7 @@ void Recorder::Offer(ID3D11DeviceContext* ctx, ID3D11Texture2D* frame, uint32_t 
     const bool on = m_on.load();
     if (!on && !m_dev) return;   // off, and nothing to give back
     Collect(false);
-    if (!on) { Collect(true); DropStaging(); StopWorkers(); return; }
+    if (!on) { if (Collect(true)) { DropStaging(); StopWorkers(); } return; }   // (not all free: the workers are still reading; tried again with the next frame)
 
     D3D11_TEXTURE2D_DESC d; frame->GetDesc(&d);
     const DXGI_FORMAT view = Bridge::ViewFormat(d.Format);
@@ -151,7 +153,8 @@ void Recorder::Offer(ID3D11DeviceContext* ctx, ID3D11Texture2D* frame, uint32_t 
     ID3D11Device* dev = nullptr; frame->GetDevice(&dev);
     const uint32_t keepW = cropW && cropW < d.Width ? cropW : d.Width, keepH = cropH && cropH < d.Height ? cropH : d.Height;
     if (d.Width != m_srcW || d.Height != m_srcH || keepW != m_w || keepH != m_h || d.Format != m_fmt || source != m_source || content != m_content || dev != m_dev || ctx != m_ctx) {
-        Collect(true); DropStaging();
+        if (!Collect(true)) { if (dev) dev->Release(); ++m_missed; return; }   // the workers still read the old staging memory: this frame is left out, the change is made when they are done
+        DropStaging();
         m_dev = dev; m_dev->AddRef(); m_ctx = ctx; m_ctx->AddRef();
         {
             std::lock_guard<std::mutex> lock(m_keepMutex);

@@ -52,7 +52,7 @@ private:
     struct Job { Slot* slot; uint32_t generation, w, h, bpp; };
     void Log(const char* fmt, ...);
     void Worker();
-    void Collect(bool waitForWorkers);   // on m_ctx
+    bool Collect(bool waitForWorkers);   // on m_ctx; true when no staging texture is in use any more (with waitForWorkers: false means the workers did not finish in time: nothing may be unmapped or released then)
     void DropStaging();
     void Keep(std::shared_ptr<lsrec::Frame> frame);
     void StartWorkers();
