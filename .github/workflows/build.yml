@@ -19,3 +19,6 @@ jobs:
       - name: Build and test
         shell: pwsh
         run: powershell -NoProfile -File tools/ci.ps1
+      - name: Dev tool self-test
+        shell: pwsh
+        run: python tools/dev.py selftest
