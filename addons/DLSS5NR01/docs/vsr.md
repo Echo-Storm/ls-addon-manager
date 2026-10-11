@@ -2,7 +2,7 @@
 
 NVIDIA's RTX Video Super Resolution (VSR) in place of Lossless Scaling's NIS scaling. VSR is a trained network that looks at one frame and sharpens the picture it upscales: text, interface and
 still scenes come out crisp where the temporal upscalers (DLSS, FSR, XeSS in this project) can only stay smooth, because Lossless Scaling gives them no camera jitter to gather detail from
-(issue #8). It is a prototype: off until you switch it on, built only with your own copy of NVIDIA's SDK, not part of the release packages.
+(issue #8). It is a prototype and **work in progress since 0.10.0**: its manifest says `wip`, so the manager lists it greyed out and never loads it, and it is not in the release package. Its source stays in the repository (`src/vsr`); a build of your own, with your own copy of NVIDIA's SDK, can have `wip` set to false for trying it.
 
 ## What you need
 

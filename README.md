@@ -241,6 +241,15 @@ an **Update available** badge stays in the header (also after *Not now*) to open
   so and gives **Ask again** and **End it now**. Your settings carry over, and the Setup that runs is hashed again just before it starts.
 - **Not now** asks again after the next check; **Don't ask again for this release** waits for a newer one (the About tab still offers it).
 
+<table>
+<tr>
+<td valign="top" width="50%"><b>The offer</b><br><img src="docs/images/update-offer.png" alt="The update offer with the release notes"></td>
+<td valign="top" width="50%"><b>Downloaded and checked</b><br><img src="docs/images/update-ready.png" alt="The offer once the download is ready: Close it and install, Install when I close it"></td>
+</tr>
+</table>
+
+(The pictures show a sample release.)
+
 That check, and a download you ask for, are the only times the manager goes online. To update by hand, download the zip and run Setup: it offers **Update**.
 
 ## If something goes wrong

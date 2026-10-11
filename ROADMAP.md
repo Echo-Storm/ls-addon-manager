@@ -3,7 +3,7 @@
 What 1.0 should mean: someone who has never seen this project can **install it, keep it up to date, understand what it does and does not do, and get help**, without
 editing files by hand, and the promises it makes (the addon API, the settings file, safety) are stable. This page is honest about where each part stands.
 
-Status on 2026-09-27, at version 0.9.12 (the current work is on `main`).
+Status on 2026-10-11, at version 0.10.0 (released; the current work is on `main`). Since the table below was written: the update flow closes Lossless Scaling for you and waits for the game, the addons notice a repeating source, two upscaler tests (skip a repeated picture, lighter upscaling when the card is full), and the Video Super Resolution prototype is marked work in progress again.
 
 | # | For 1.0 | State | Notes |
 |---|---------|-------|-------|
