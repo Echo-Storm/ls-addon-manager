@@ -102,14 +102,6 @@ int main() {
     host.values["saturation"] = "9"; host.values["passes"] = "-4"; host.values["debugView"] = "12";
     Loaded wild = LoadSettings(&host, "DLSS5NR01");
     Check("values edited out of range in the file are kept to their range", Same(wild.config.p.saturation, 2.0f) && wild.config.p.passes == 1 && wild.config.p.debugView == 5);
-    {   // frame generation of our own: FSR and x2 by default (off), the multiplier kept to 2..9, both round trip
-        Config d; Check("our own synthesis is off and the multiplier x2 by default", !d.frameGenOwn && d.frameGenMultiplier == 2 && !LoadSettings(&host, "DLSS5NR01").config.frameGenOwn);
-        Config g; g.frameGenOwn = true; g.frameGenMultiplier = 4; SaveSettings(&host, "DLSS5NR01", g, {});
-        Check("...and both come back from the settings", LoadSettings(&host, "DLSS5NR01").config.frameGenOwn && LoadSettings(&host, "DLSS5NR01").config.frameGenMultiplier == 4);
-        host.values["frameGenMultiplier"] = "40"; Check("a multiplier out of range is kept to 2 to 9", LoadSettings(&host, "DLSS5NR01").config.frameGenMultiplier == 9);
-        host.values["frameGenMultiplier"] = "1"; Check("...from 2", LoadSettings(&host, "DLSS5NR01").config.frameGenMultiplier == 2);
-        host.values.erase("frameGenMultiplier"); host.values.erase("frameGenOwn");
-    }
     {   // how often the model runs: one by default, kept to 1..4, and it round trips
         Check("the model runs on every 2nd frame by default (since 0.9.28)", Config().modelEvery == 2 && LoadSettings(&host, "DLSS5NR01").config.modelEvery == 2);
         Config m; m.modelEvery = 3; SaveSettings(&host, "DLSS5NR01", m, {});
@@ -129,7 +121,7 @@ int main() {
         Check("...Run the model, the card limit and its percent", l.modelEvery == d.modelEvery && l.gpuLimit == d.gpuLimit && Same(l.gpuLimitPercent, d.gpuLimitPercent));
         Check("...the model's look (resolution ceiling, smoothing, sharpen, dark guard)", Same(l.p.workingScale, d.p.workingScale) && Same(l.p.deltaSmooth, d.p.deltaSmooth) && Same(l.p.sharpen, d.p.sharpen) && Same(l.p.darkGuard, d.p.darkGuard));
         Check("...the switches", l.enabled == d.enabled && l.hotkeys == d.hotkeys && l.presentMode == d.presentMode && l.freshFlow == d.freshFlow && l.lsFirst == d.lsFirst && l.gameAuto == d.gameAuto &&
-                                 l.scalerGpuWait == d.scalerGpuWait && l.scalerFastMotion == d.scalerFastMotion && l.scalerReuseMotion == d.scalerReuseMotion && l.frameGenGuard == d.frameGenGuard && l.scalerPerGame == d.scalerPerGame);
+                                 l.scalerGpuWait == d.scalerGpuWait && l.scalerFastMotion == d.scalerFastMotion && l.scalerReuseMotion == d.scalerReuseMotion && l.scalerPerGame == d.scalerPerGame);
         Check("...the numbers", l.dlaaPreset == d.dlaaPreset && l.watchdogMs == d.watchdogMs && Same(l.scalerLeanRest, d.scalerLeanRest) && Same(l.scalerMoveCut, d.scalerMoveCut) && Same(l.scalerSteadySharp, d.scalerSteadySharp) &&
                                   l.recordBudgetMb == d.recordBudgetMb && Same(l.recordSeconds, d.recordSeconds) && l.keyAB == d.keyAB && l.keyRecord == d.keyRecord && l.defaultsVersion == d.defaultsVersion);
     }

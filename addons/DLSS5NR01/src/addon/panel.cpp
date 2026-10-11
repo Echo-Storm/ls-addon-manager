@@ -1,6 +1,5 @@
 // The addon's settings panel, drawn by the manager in its window (the window's thread). It works on a copy of the settings and hands the copy
 // back (Commit) when something changed. The sections start closed; the person opens what they need.
-#include "addon/framegen11.h"
 #include "engine/sr_engine.h"
 #include "addon/state.h"
 #include "addon/present_hook.h"
@@ -558,31 +557,6 @@ void DrawPanel() {
                 }
             }
         }
-        if (kFrameGen) {   // a prototype: only in a build made with it (product.h)
-            if (ImGui::Checkbox("EchoFG frame generation (prototype)", &c.frameGen)) changed = true;
-            Tip("Doubles the frame rate with a frame made between each two real ones, shown in Lossless Scaling's own window. Turn Lossless Scaling's frame "
-                "generation OFF first (both at once would double twice). A prototype: the frame between is made by AMD's FSR 3.1 frame generation with the "
-                "motion measured from the frames (when it cannot, the two real frames mixed half and half). Real frames are shown half a frame later than without it.");
-            if (c.frameGen) {
-                if (ImGui::Checkbox("  EchoFG makes the frames itself instead of FSR 3.1 (test)", &c.frameGenOwn)) changed = true;
-                Tip("EchoFG is this project's frame generation. Off (the default): AMD's FSR 3.1 frame generation makes the frame between, fed EchoFG's motion estimate. On: EchoFG's own passes do (motion splatted to the time of the frame, the motion the other way made from it, holes filled from the side that fits), with no part of FSR. Measured offline it scores about the same as FSR; live it is untested, which is what this switch is for. The guard below belongs to FSR and does nothing with it.");
-                if (c.frameGenOwn) {
-                    if (ImGui::SliderFloat("  Soften where the motion is doubtful", &c.frameGenSoften, 0.0f, 1.0f, "%.2f")) changed = true;
-                    Tip("Where EchoFG cannot tell where things went (a very fast turn at a low frame rate, something uncovered, thin moving lines) the frame it makes leans toward the plain mix of the two real frames, as far as this says: a faint double image there instead of pieces in the wrong place. 0: never (the motion as measured, whatever it is); 0.6 (the default); 1: as much as it will. Try a fast camera turn with 0 and with 1.");
-                    if (ImGui::SliderInt("  Frames for each real frame", &c.frameGenMultiplier, 2, 9, "x%d")) changed = true;
-                    Tip("2 (the default): one frame made between each two real ones. 3 and up: that many frames per real frame (x4 = three made between), spaced evenly in time; every one costs the card about 1.2 ms more at 2560x1440 (about 2.7 ms at 4K), so watch the cost shown below. Only with our own synthesis: FSR makes one frame between.");
-                }
-                if (ImGui::Checkbox("  Put the presents one to a refresh of the display", &c.frameGenAlign)) changed = true;
-                Tip("On (the default): each frame is shown in a refresh of its own, so none is replaced by the next within the same refresh (without this about a fifth of the frames were, at 90 frames a second on a 120 Hz screen: a frame that is never seen). Costs up to half a refresh of delay. Has no effect when the display's refresh is not steady (a variable refresh rate, G-Sync); the log says whether it is in use.");
-                if (ImGui::Checkbox("  Keep the character clean in turns", &c.frameGenGuard)) changed = true;
-                Tip("On (the default): where the two real frames agree and hardly move (a character the camera follows, a HUD) but the frame made "
-                    "between shows something else, the real frames' own picture goes there. In a quick camera turn, FSR pastes the scene sweeping past "
-                    "over the character (leaves on the hair); this takes most of it back. Off: FSR's frame as it made it.");
-                const nr::framegen::Stats st = nr::framegen::GetStats();
-                ImGui::TextDisabled("  %llu real, %llu made between (%llu by %s, %.1f ms each); real frames every %.1f ms", (unsigned long long)st.real,
-                                    (unsigned long long)st.generated, (unsigned long long)st.byFsr, st.engine.empty() ? "FSR" : st.engine.c_str(), st.fsrMs, st.realIntervalMs);
-            }
-        }
         if (ImGui::Checkbox("Wait on the GPU rather than repeat a picture", &c.scalerGpuWait)) changed = true;
         Tip("When the upscaler has not finished a new picture by the time Lossless Scaling needs one (two frames close together, as adaptive frame generation makes "
             "them), the picture before would be shown again: a small judder. On (the default), Lossless Scaling's frame waits on the GPU for the new picture instead, "
@@ -820,12 +794,6 @@ void DrawPanel() {
         Tip("One setting for all the addons: switch it on here or in any other addon's panel. Off (the default) costs nothing. On: every frame is copied off the graphics card and compressed on a few background threads, which "
             "takes some processor time and the memory below. Nothing waits for it: a frame that comes while all the copies are busy is left out.");
         if (!c.recordOn) ImGui::BeginDisabled();
-        if (kFrameGen) {
-            if (ImGui::Checkbox("Record what is shown", &c.recordShown)) changed = true;
-            Tip("The frames as they go to the screen (after the upscaler, the frames Lossless Scaling or our own frame generation made between included), the middle 1920x1080 of them at the screen's size (every "
-                "presented frame of a 4K screen in full is more than the card can copy), instead of the frame going to the upscaler. For looking into what you see: flicker, shimmer, a frame generation artefact. The frames are big (4K, HDR "
-                "twice that), so fewer seconds fit: raise the memory, or keep 2 to 3 seconds. Off: the frame going to the upscaler, to try the upscaler on it offline.");
-        }
         { const float d = 5.0f; changed |= eam::ui::SliderFloat("Seconds kept", &c.recordSeconds, 1.0f, 30.0f, "%.0f s", 0, &d); }
         Tip("How far back a saved recording goes. More seconds take more memory.");
         { float mb = static_cast<float>(c.recordBudgetMb); const float d = 3072.0f;

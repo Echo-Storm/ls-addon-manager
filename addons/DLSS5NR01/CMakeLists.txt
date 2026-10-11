@@ -45,9 +45,9 @@ set(NR_ADDON_SOURCES
     src/addon/addon.cpp src/addon/runtime.cpp src/addon/panel.cpp src/addon/tasks.cpp src/addon/settings.cpp src/addon/log.cpp
     src/addon/screenshot.cpp src/addon/screenshot_pixels.cpp src/addon/hud_editor.cpp src/addon/auto_quality.cpp src/addon/gpu_load.cpp src/addon/agility.cpp
     src/addon/bridge.cpp src/addon/nis_pass.cpp src/addon/compare.cpp src/addon/frame_tap.cpp src/addon/gpu_timer11.cpp src/addon/frame_trace.cpp src/addon/diagnosis.cpp src/addon/source_cadence.cpp
-    src/addon/present_hook.cpp src/addon/compose11.cpp src/addon/requirements.cpp src/addon/scaler11.cpp src/addon/framegen11.cpp src/addon/hdr.cpp src/addon/lsrec.cpp src/addon/recorder.cpp
+    src/addon/present_hook.cpp src/addon/compose11.cpp src/addon/requirements.cpp src/addon/scaler11.cpp src/addon/hdr.cpp src/addon/lsrec.cpp src/addon/recorder.cpp
     src/engine/nr_engine.cpp
-    src/engine/dlaa_model.cpp src/engine/sr_engine.cpp src/engine/repeat_gate.cpp src/engine/flow_estimator.cpp src/engine/fg_engine.cpp src/engine/own_synth.cpp
+    src/engine/dlaa_model.cpp src/engine/sr_engine.cpp src/engine/repeat_gate.cpp src/engine/flow_estimator.cpp
     ${imgui_SOURCE_DIR}/imgui.cpp ${imgui_SOURCE_DIR}/imgui_draw.cpp
     ${imgui_SOURCE_DIR}/imgui_tables.cpp ${imgui_SOURCE_DIR}/imgui_widgets.cpp)
 function(nr_addon target)
@@ -76,11 +76,8 @@ endif()
 
 nr_addon(FSR3UPSC)
 target_compile_definitions(FSR3UPSC PRIVATE NR_PRODUCT_FSR)
-# frame generation of our own, a prototype: never in a release until it is ready (-DNR_FRAMEGEN=ON for a test build)
-option(NR_FRAMEGEN "Frame generation of our own in the FSR Upscaler (a prototype)" OFF)
-if(NR_FRAMEGEN)
-    target_compile_definitions(FSR3UPSC PRIVATE NR_FRAMEGEN=1)
-endif()
+# (frame generation of our own is the ECHOFG addon below, made only with -DNR_FRAMEGEN=ON)
+option(NR_FRAMEGEN "EchoFG frame generation, an addon of its own (a prototype: test builds only)" OFF)
 # AMD's FidelityFX runtime (FSR 3.1), in an fsr folder next to the built addon (as in the release): tools/fetch_ffx_sdk.ps1 fetches it
 set(FFX_DLL ${CMAKE_SOURCE_DIR}/external/ffx/bin/amd_fidelityfx_dx12.dll)
 if(EXISTS ${FFX_DLL})

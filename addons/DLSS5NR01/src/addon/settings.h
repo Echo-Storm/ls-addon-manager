@@ -31,12 +31,6 @@ struct Config {
     // The upscalers: when no newer picture is finished, Lossless Scaling's queue waits on the GPU for the next one rather than show the same
     // picture again (ScalerLink::Upscale). A CPU wait tried before made repeats more frequent on a busy GPU and is gone (2026-09-25).
     bool scalerGpuWait = true;
-    bool frameGen = false;   // the FSR Upscaler's frame generation of our own (a prototype, framegen11.h)
-    int frameGenMultiplier = 2;          // ...frames shown for each real one, 2 to 9 (more than 2 only with our own synthesis)
-    float frameGenSoften = 0.6f;         // ...EchoFG leans toward the plain mix of the two frames where its motion is doubtful, 0 to 1
-    bool frameGenOwn = false;            // ...the frame between by our own synthesis (own_synth.h) instead of FSR 3.1 (a test)
-    bool frameGenAlign = true;           // ...its presents put one to a refresh of the display (2026-10-11: without it about a fifth landed in the refresh of the one before)
-    bool frameGenGuard = true;           // ...its guard against pasted background (FgEngine::Generate)
     bool scalerFastMotion = true;       // the upscalers lean on the frame in fast motion (SrEngine::SetFastMotion; off: never, as before 0.9.13)
     float scalerLeanRest = 0.5f;        // the least share of the plain resample in the picture even at rest, 0..1 (SrEngine::SetLeanRest)
     float scalerMoveCut = 0.5f;         // sharpening is cut by this much where the picture moves fast, 0..1 (SrEngine::SetMoveCut)

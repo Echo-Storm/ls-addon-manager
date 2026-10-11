@@ -15,7 +15,6 @@
 #include "addon/diagnosis.h"
 #include "addon/vram.h"
 #include "addon/present_hook.h"
-#include "addon/framegen11.h"
 #include "addon/screenshot.h"
 #include "addon/scaler11.h"
 #include "addon/compare.h"
@@ -293,7 +292,6 @@ void LogProgress(const NrStats& st) {
 std::atomic<bool> g_lastPassGenerated{ false };   // the last NIS pass showed a generated frame
 // The comparison of the upscalers (compare.h): when NIS is the mode shown, this addon (if it is the lowest loaded) labels NIS's picture right after NIS drew it
 struct ComparePending { bool valid = false; uint32_t x = 0, y = 0, w = 0, h = 0, enc = 0; float white = 200.0f; } g_comparePending;
-bool g_frameGenWasOn = false;   // frame generation has run (the presenting thread's)
 std::atomic<IDXGISwapChain*> g_fgChain{ nullptr };   // Lossless Scaling's output swap chain as NIS's back buffer names it (the upscalers' frame generation)
 void OnPresent(IDXGISwapChain* sc, UINT sync, UINT flags);
 void Compose(IDXGISwapChain* sc);
@@ -911,8 +909,8 @@ void PresentGuarded(IDXGISwapChain* sc) {   // no objects here: __try cannot unw
 std::string g_compareSavePending;   // a mode's recording waiting to be saved (the recorder was still saving the one before): nothing new is recorded meanwhile, so the next mode's frames do not end up in it
 void RecordShownFrame(IDXGISwapChain* sc) {
     if (!g_compareSavePending.empty()) return;
-    bool on, shown, ownFrameGen; { std::lock_guard<std::mutex> lock(g_settingsMutex); on = g_config.recordOn; shown = g_config.recordShown; ownFrameGen = kFrameGen && g_config.frameGen; }
-    if (!on || !shown || ownFrameGen) return;
+    bool on, shown; { std::lock_guard<std::mutex> lock(g_settingsMutex); on = g_config.recordOn; shown = g_config.recordShown; }
+    if (!on || !shown) return;
     if (compare::Active()) { if (!compare::Records(kCompareMode) || !compare::BurstOpen()) return; }   // comparing: one addon records, in bursts, whichever mode is shown (CompareSegments saves each mode's)
     else if (!compare::MyTurn(kCompareMode, kCompareMode)) return;   // (several upscalers loaded: the one that acts records)
     ID3D11Texture2D* back = nullptr;
@@ -964,24 +962,6 @@ void OnPresent(IDXGISwapChain* sc, UINT sync, UINT flags) {
         CompareSegments();
         if (sc == g_fgChain.load(std::memory_order_acquire)) RecordShownFrame(sc);   // (before the corner square)
         ScalerMarkerGuarded(sc);   // the corner square after a hotkey
-        bool frameGen; { std::lock_guard<std::mutex> lock(g_settingsMutex); frameGen = g_config.frameGen; }
-        if (kFrameGen && frameGen && sc == g_fgChain.load(std::memory_order_acquire)) {   // Lossless Scaling's output swap chain only (not the manager's window)
-            static const bool runtimeSet = (nr::framegen::SetRuntime(g_addonDir + L"\\fsr\\amd_fidelityfx_dx12.dll"), true);   // the shipped FSR 3.1 (FSR 4's build has no frame generation)
-            (void)runtimeSet;
-            float white = 80.0f; uint32_t encoding = 0;
-            { ID3D11Texture2D* back = nullptr;   // what its frames hold (scRGB or HDR10 on an HDR display), for measuring their motion in their SDR view
-              if (SUCCEEDED(sc->GetBuffer(0, IID_PPV_ARGS(&back))) && back) { D3D11_TEXTURE2D_DESC d; back->GetDesc(&d); back->Release(); encoding = static_cast<uint32_t>(FrameEncodingOf(d.Format, sc, &white)); } }
-            bool recordShown, guard, own, align; int multiplier; float soften; { std::lock_guard<std::mutex> lock(g_settingsMutex); recordShown = g_config.recordShown; guard = g_config.frameGenGuard; align = g_config.frameGenAlign; own = g_config.frameGenOwn; multiplier = g_config.frameGenMultiplier; soften = g_config.frameGenSoften; }
-            nr::framegen::SetGuard(guard); nr::framegen::SetOwn(own); nr::framegen::SetMultiplier(multiplier); nr::framegen::SetSoften(soften); nr::framegen::SetAlign(align);
-            nr::framegen::ShownFn shown;   // "record what is shown": every frame presented, the frames between and the real ones, tagged
-            if (recordShown) shown = [](ID3D11DeviceContext* ctx, ID3D11Texture2D* frame, bool made) { Record(ctx, frame, lsrec::kPresented, 0, made ? lsrec::kMadeBetween : lsrec::kReal, true); };   // (the middle 1920x1080, as RecordShownFrame does: every presented frame of a 4K HDR picture in full, 66 MB each at 60 a second, loaded the card and the processor in the owner's first test)
-            nr::framegen::BeforeRealPresent(sc, sync, flags, encoding, white, [](const char* m) { Log("%s", m); }, shown);
-            g_frameGenWasOn = true;
-        }
-        else if (kFrameGen && g_frameGenWasOn && !frameGen && sc == g_fgChain.load(std::memory_order_acquire)) {   // switched off: its engine, device and textures go (they were about 100 MB at 4K)
-            nr::framegen::Shutdown();
-            g_frameGenWasOn = false;
-        }
         return;
     }   // the upscaler: its picture over NIS's (Handoff::AtPresent); no Enable of its own
     { std::lock_guard<std::mutex> lock(g_settingsMutex); if (!g_config.enabled) return; }
@@ -1466,11 +1446,10 @@ bool ScalerPass(ID3D11DeviceContext* ctx, uint32_t x, uint32_t y, uint32_t z) {
                 g_linkTries = 0;
             }
             int handoffMode; { std::lock_guard<std::mutex> settings(g_settingsMutex); handoffMode = g_config.scalerHandoff; }
-            bool frameGenOn; { std::lock_guard<std::mutex> settings(g_settingsMutex); frameGenOn = kFrameGen && g_config.frameGen; }
             // Present is hooked in every mode: the hotkeys' corner square is drawn there (and, at Present, the picture goes over NIS's)
             if (!PresentHook::Installed() && !PresentHook::Install(dev, OnPresent, [](const char* m) { Log("%s", m); }))
                 Log("%s upscaler: could not hook Present; no corner square after a hotkey%s", kUpscalerName,
-                    handoffMode == static_cast<int>(ScalerLink::Handoff::AtPresent) || frameGenOn ? ", and the picture cannot go over NIS's there" : "");
+                    handoffMode == static_cast<int>(ScalerLink::Handoff::AtPresent) ? ", and the picture cannot go over NIS's there" : "");
             if (g_linkDevice == dev && g_compare.load() != 2 && myTurn) {   // "original only" lets NIS run, for comparing
                 NrParams p; unsigned preset; int handoff, motion; bool gpuWait, steadyFast, shapes, easu, reuseMotion, lightGen, lightAuto, skipRepeats; float limitPercent; float stability, edges, leanFrom, leanRest, steadySharp, moveCut;
                 { std::lock_guard<std::mutex> settings(g_settingsMutex); p = g_config.p; preset = g_config.dlaaPreset; handoff = g_config.scalerHandoff; motion = g_config.motionSource;
