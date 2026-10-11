@@ -2,7 +2,7 @@
 
 <p align="center"><b>Lossless Scaling, extended.</b><br>DLSS 5 Neural Rendering, DLSS, FSR and XeSS upscaling for games that never had them, and an addon manager that keeps it all in one window.</p>
 
-<p align="center"><img src="docs/images/addons.png" alt="The manager: the addons at the left, Neural Rendering's panel at the right, the machine's load in the header" width="100%"></p>
+<p align="center"><img src="docs/images/addons.png" alt="The manager: the addons at the left (the prototypes greyed out, marked WIP), Neural Rendering's panel at the right, the machine's load in the header" width="100%"></p>
 
 **Addon Manager for Lossless Scaling** loads alongside [Lossless Scaling](https://store.steampowered.com/app/993090/Lossless_Scaling/) and gives it an addon system,
 with four addons that do what Lossless Scaling alone cannot:
