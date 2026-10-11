@@ -50,7 +50,7 @@ struct State {
     ID3D11Fence* copied11 = nullptr; ID3D12Fence* copied12 = nullptr; uint64_t copiedValue = 0;
     ID3D11Fence* made11 = nullptr; ID3D12Fence* made12 = nullptr; uint64_t madeValue = 0;   // the frame between is in out11 (a GPU wait here)
     ID3D11DeviceContext4* ctx4 = nullptr;
-    bool resetNext = true; std::atomic<bool> guard{ true }, own{ false }; std::atomic<int> multiplier{ 2 };   // multiplier: frames shown for each real one (more than 2 only with our own synthesis)
+    bool resetNext = true; std::atomic<bool> guard{ true }, own{ false }; std::atomic<int> multiplier{ 2 }; std::atomic<float> soften{ 0.6f };   // multiplier: frames shown for each real one (more than 2 only with our own synthesis)
     ID3D11Texture2D* more11[OwnSynth::kMaxTargets] = {}; ID3D12Resource* more12[OwnSynth::kMaxTargets] = {};   // the 2nd, 3rd... frame between (the first is out11)
     // for the log: how long Lossless Scaling's thread is held here, and how soon after it comes back with the next real frame
     LARGE_INTEGER returned{}; double heldSum = 0, freeSum = 0; uint64_t heldCount = 0, freeCount = 0;
@@ -238,7 +238,7 @@ bool BeforeRealPresent(IDXGISwapChain* sc, UINT sync, UINT flags, uint32_t encod
         g.ctx4->Signal(g.copied11, ++g.copiedValue);
         g.ctx->Flush();   // the copy and the signal on the GPU's way before the engine waits for them
         // queued, not waited for: Lossless Scaling's queue waits on the GPU for "made" before the frame between is copied in
-        g.engine.SetOwnSynthesis(g.own.load());
+        g.engine.SetOwnSynthesis(g.own.load()); g.engine.SetSoften(g.soften.load());
         // frames between wanted: the multiplier less one, when our own synthesis can make that many (it is known to after its first frame); else the one at half way
         int want = g.own ? std::clamp(g.multiplier.load(), 2, OwnSynth::kMaxTargets + 1) - 1 : 1;
         want = std::min(want, g.engine.MaxFramesBetween());
@@ -328,6 +328,7 @@ bool BeforeRealPresent(IDXGISwapChain* sc, UINT sync, UINT flags, uint32_t encod
 void SetRuntime(const std::wstring& dll) { std::lock_guard<std::mutex> lock(g_mutex); g.runtime = dll; }
 void SetGuard(bool on) { g.guard = on; }   // (no lock: the presenter holds its own through its waits)
 void SetOwn(bool on) { g.own = on; }
+void SetSoften(float amount) { g.soften = std::clamp(amount, 0.0f, 1.0f); }
 void SetMultiplier(int n) { g.multiplier = std::clamp(n, 2, OwnSynth::kMaxTargets + 1); }
 void Reset() { std::lock_guard<std::mutex> lock(g_mutex); g.haveBefore = false; g.lastReal = {}; g.intervalMs = 0; g.leadMs = 0; g.resetNext = true; }
 void Shutdown() {

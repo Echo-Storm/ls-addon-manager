@@ -600,6 +600,7 @@ int main(int argc, char** argv) {
     // engine=1: the addon's own FgEngine (src/engine/fg_engine.cpp) makes the frames, through shared textures and fences, as live
     const bool useEngine = Arg(argc, argv, "engine", 0) != 0;
     // own=1: the frame between made by this project's own synthesis (src/engine/own_synth.cpp: both flows, splatted to the time, holes filled by direction) instead of FSR; owt=N: its time in thousandths (500)
+    const float ownSoft = Arg(argc, argv, "ownsoft", 60) / 100.0f;   // ownsoft=N: how far EchoFG leans toward the plain mix where its motion is doubtful, percent (60)
     const bool useOwn = Arg(argc, argv, "own", 0) != 0; const float ownT = Arg(argc, argv, "owt", 500) / 1000.0f;
     // guard=N: the guard against pasted background (Guard): the frame made must be N levels further from both real frames than they are from
     // each other; guardagree=N: how alike the real frames must be (levels); the reach for a character's shift scales with the width
@@ -821,7 +822,7 @@ int main(int argc, char** argv) {
                 g.Barrier(hdrCur, D3D12_RESOURCE_STATE_COPY_DEST, D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE); hdrCurState = D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE;
                 if (i >= 2) {
                     if (hdrPrevState != D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE) { g.Barrier(hdrPrev, hdrPrevState, D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE); hdrPrevState = D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE; }
-                    if (!syn.Record(g.list, 0, hdrPrev, DXGI_FORMAT_R16G16B16A16_FLOAT, hdrCur, DXGI_FORMAT_R16G16B16A16_FLOAT, motion, DXGI_FORMAT_R16G16B16A16_FLOAT, &(tgts[0] = { hdrOut, ownT }), 1, hdrEncoding, hdrWhite)) return false;
+                    if (!syn.Record(g.list, 0, hdrPrev, DXGI_FORMAT_R16G16B16A16_FLOAT, hdrCur, DXGI_FORMAT_R16G16B16A16_FLOAT, motion, DXGI_FORMAT_R16G16B16A16_FLOAT, &(tgts[0] = { hdrOut, ownT }), 1, hdrEncoding, hdrWhite, ownSoft)) return false;
                     g.Barrier(hdrOut, D3D12_RESOURCE_STATE_UNORDERED_ACCESS, D3D12_RESOURCE_STATE_COPY_SOURCE);
                     D3D12_TEXTURE_COPY_LOCATION rt{ hdrBack, D3D12_TEXTURE_COPY_TYPE_PLACED_FOOTPRINT }; rt.PlacedFootprint = hfp;
                     D3D12_TEXTURE_COPY_LOCATION rf{ hdrOut, D3D12_TEXTURE_COPY_TYPE_SUBRESOURCE_INDEX }; rf.SubresourceIndex = 0;
@@ -847,7 +848,7 @@ int main(int argc, char** argv) {
                 (void)frameMs;
                 if (i >= 2) {
                     if (prevState != D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE) { g.Barrier(prevTex, prevState, D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE); prevState = D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE; }
-                    if (!syn.Record(g.list, 0, prevTex, DXGI_FORMAT_R8G8B8A8_UNORM, cur, DXGI_FORMAT_R8G8B8A8_UNORM, motion, DXGI_FORMAT_R8G8B8A8_UNORM, tgts.data(), static_cast<int>(tgts.size()))) { printf("own synthesis failed\n"); return false; }
+                    if (!syn.Record(g.list, 0, prevTex, DXGI_FORMAT_R8G8B8A8_UNORM, cur, DXGI_FORMAT_R8G8B8A8_UNORM, motion, DXGI_FORMAT_R8G8B8A8_UNORM, tgts.data(), static_cast<int>(tgts.size()), 0, 80.0f, ownSoft)) { printf("own synthesis failed\n"); return false; }
                     ID3D12Resource* outTex = outs[pickOut];
                     g.Barrier(outTex, D3D12_RESOURCE_STATE_UNORDERED_ACCESS, D3D12_RESOURCE_STATE_COPY_SOURCE);
                     D3D12_TEXTURE_COPY_LOCATION to{ readback, D3D12_TEXTURE_COPY_TYPE_PLACED_FOOTPRINT }; to.PlacedFootprint = fp;

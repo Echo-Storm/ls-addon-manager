@@ -10,6 +10,7 @@
 //   4. per cell the hypothesis whose two moved samples agree better (3x3 mean of the disagreement) is taken;
 //   5. a cell neither reached takes the vector of the nearest reached cell to its left, right, above or below (or none), whichever makes the moved
 //      pair agree best (a hole is background just uncovered: one side's vector is right, the average of both is not);
+//   5b. every cell keeps how well its moved pair agrees (its doubt); the frame leans toward the plain mix of the two frames where the doubt is large (`soften`)
 //   6. the frame, at the frame's own size: each pixel takes, of the 2x2 nearest cells' vectors, the one under which the moved pair agrees best at this
 //      pixel, and makes (1 - t) a(q + t F) + t c(q - (1 - t) F).
 // Steps 1 to 5 run on cells of `scale` x `scale` pixels (1: every pixel; 2: half size, a quarter of the work and of the memory). For several times t
@@ -43,7 +44,8 @@ public:
     // (hdr_hlsl.h: 0 SDR, 1 scRGB, 2 HDR10) and the SDR white; HDR frames are compared and blended in their SDR view and the frames made go back into their
     // encoding. Leaves the list's descriptor heap and root signature changed.
     bool Record(ID3D12GraphicsCommandList* list, int slot, ID3D12Resource* before, DXGI_FORMAT beforeFormat, ID3D12Resource* now, DXGI_FORMAT nowFormat,
-                ID3D12Resource* motion, DXGI_FORMAT outFormat, const Target* targets, int count, uint32_t encoding = 0, float whiteNits = 80.0f);
+                ID3D12Resource* motion, DXGI_FORMAT outFormat, const Target* targets, int count, uint32_t encoding = 0, float whiteNits = 80.0f, float soften = 0.6f);
+    // soften 0..1: how far a frame leans toward the plain mix of the two real frames where its motion is doubtful (0: never; 1: up to 80 % where it is clearly wrong)
     // With a timestamp frequency (the queue's) the passes are timed on the GPU: ReadMs(slot) after the slot's work has finished.
     void SetTimestampFrequency(uint64_t f) { m_freq = f; }
     bool ReadMs(int slot, double& ms);

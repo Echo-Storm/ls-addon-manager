@@ -52,6 +52,7 @@ public:
     void SetAnalysisScale(int scale) { m_synth.SetAnalysisScale(scale); }
     // true: the frame between is made by this project's own synthesis (own_synth.h) instead of FSR 3.1; when it cannot start on this card (a frame format
     // without typed stores) FSR makes the frame as before. Set from the thread that calls Generate.
+    void SetSoften(float amount) { m_soften = amount; }   // EchoFG: how far the frames lean toward the plain mix where the motion is doubtful (0 to 1; 0.6 by default)
     void SetOwnSynthesis(bool on) { m_own = on; }   // (EchoFG's start-up runs beside the frames: it is used from the first frame after it is ready)
     bool UsingOwnSynthesis() const { return m_own && m_synthReady; }
     // How long the GPU took for a frame between (the motion, FSR, the copy out), smoothed over the frames it has finished; 0 before any.
@@ -82,7 +83,7 @@ private:
     ID3D12Resource* m_before = nullptr; ID3D12Resource* m_guarded = nullptr; bool m_haveBefore = false;
     bool InitGuard();
     // EchoFG's shaders (nine pipelines) and buffers are made on a thread of their own, so switching it on never stalls the presenting thread: until it is ready FSR makes the frames
-    OwnSynth m_synth; std::atomic<bool> m_own{ false }, m_synthReady{ false }; bool m_prevOwn = false;
+    OwnSynth m_synth; std::atomic<bool> m_own{ false }, m_synthReady{ false }; bool m_prevOwn = false; std::atomic<float> m_soften{ 0.6f };
     std::atomic<int> m_synthState{ 0 };   // 0 not started, 1 starting, 2 ready, 3 could not start
     std::thread m_synthThread;
     void InitSynth();    // the work (on whichever thread)

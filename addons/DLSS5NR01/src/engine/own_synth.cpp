@@ -4,6 +4,7 @@
 #include "engine/own_synth.h"
 #include "engine/hdr_hlsl.h"
 #include <d3dcompiler.h>
+#include <algorithm>
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
@@ -35,7 +36,7 @@ RWStructuredBuffer<uint> bB2 : register(u9);    // the same for a's
 RWStructuredBuffer<uint> bFL : register(u10);   // which hypothesis a cell took: 0 none, 1 from c, 2 from a, 3 filled from a neighbour
 RWTexture2D<float4> uOut : register(u11);
 SamplerState sLin : register(s0);
-cbuffer C : register(b0) { uint2 size; uint2 fsize; uint mode; uint phase; float t; float k; uint encoding; float white; uint scale; uint pad; };
+cbuffer C : register(b0) { uint2 size; uint2 fsize; uint mode; uint phase; float t; float k; uint encoding; float white; uint scale; float soft; };
 
 static const uint kEmpty = 0xFFFFFFFF;
 float3 View(float3 c) { return ToSdr(c, encoding, white); }
@@ -140,6 +141,7 @@ float2 VecAt(int2 a) {                                                          
     if (h1 && h3) which = dc <= da ? 1u : 2u; else if (h1) which = 1u; else if (h3) which = 2u;
     if (which == 2u) bV1[i] = Pack(-Unpack(bV3[i]));
     bFL[i] = which;
+    bK1[i] = asuint(which == 1u ? dc : which == 2u ? da : 1e4);   // how doubtful the cell's motion is: the moved pair's disagreement (this cell's key is no longer needed)
 }
 
 float Agree(int2 p, float2 u) {   // the moved pair's disagreement around a cell, nine samples a cell apart, one vector
@@ -176,6 +178,7 @@ float Agree(int2 p, float2 u) {   // the moved pair's disagreement around a cell
         if (e < best) { best = e; F = cand[c]; }
     }
     bV1[i] = Pack(F); bFL[i] = 3u;
+    bK1[i] = asuint(best / 9.0);   // (nine samples summed)
 }
 
 // the frame, at the frames' size: of the (up to) 2x2 nearest cells, the vector under which the moved pair agrees best here
@@ -185,19 +188,24 @@ float Agree(int2 p, float2 u) {   // the moved pair's disagreement around a cell
     const float2 q = float2(p);
     const int2 a0 = int2(floor((q - 0.5 * float(int(scale) - 1)) / float(scale)));
     const int n = scale == 1u ? 1 : 2;
-    float2 F = float2(0, 0); float best = 1e30;
+    float2 F = float2(0, 0); float best = 1e30, doubt = 0;
     [loop] for (int j = 0; j < n; ++j) [loop] for (int x = 0; x < n; ++x) {
         const int2 a = clamp(a0 + int2(x, j), int2(0, 0), int2(size) - 1);
         const float2 u = Unpack(bV1[Idx(a)]);
         const float e = Lev(SmpA(q + t * u) - SmpC(q - (1.0 - t) * u));
-        if (e < best) { best = e; F = u; }
+        if (e < best) { best = e; F = u; doubt = asfloat(bK1[Idx(a)]); }
     }
     // the blend is made on the frames' own values (linear light in scRGB, PQ in HDR10: wide-gamut colours and negative scRGB survive); the SDR view only chooses where to look
-    uOut[p] = float4((1.0 - t) * tA.SampleLevel(sLin, (q + t * F + 0.5) / float2(fsize), 0).rgb + t * tC.SampleLevel(sLin, (q - (1.0 - t) * F + 0.5) / float2(fsize), 0).rgb, 1.0);
+    const float3 moved = (1.0 - t) * tA.SampleLevel(sLin, (q + t * F + 0.5) / float2(fsize), 0).rgb + t * tC.SampleLevel(sLin, (q - (1.0 - t) * F + 0.5) / float2(fsize), 0).rgb;
+    // where the cell's motion is doubtful (the moved pair disagrees: wrong vectors, covered or uncovered things) the frame leans toward the plain mix of the two frames, as far as `soft` allows:
+    // a ghost where the motion is not known instead of pieces in the wrong place (docs/own-generator-plan.md, "bi+conf": +0.1 to +0.2 dB, more the faster the motion)
+    const float w = saturate((doubt - 30.0) / 90.0) * 0.8 * soft;
+    const float3 mixed = (1.0 - t) * tA.SampleLevel(sLin, (q + 0.5) / float2(fsize), 0).rgb + t * tC.SampleLevel(sLin, (q + 0.5) / float2(fsize), 0).rgb;
+    uOut[p] = float4(lerp(moved, mixed, w), 1.0);
 }
 )";
 
-struct Constants { uint32_t w, h, fw, fh, mode, phase; float t, k; uint32_t encoding; float white; uint32_t scale, pad; };
+struct Constants { uint32_t w, h, fw, fh, mode, phase; float t, k; uint32_t encoding; float white; uint32_t scale; float soft; };
 
 } // namespace
 
@@ -277,7 +285,7 @@ bool OwnSynth::Ensure(uint32_t w, uint32_t h) {
 }
 
 bool OwnSynth::Record(ID3D12GraphicsCommandList* list, int slot, ID3D12Resource* before, DXGI_FORMAT beforeFormat, ID3D12Resource* now, DXGI_FORMAT nowFormat,
-                      ID3D12Resource* motion, DXGI_FORMAT outFormat, const Target* targets, int count, uint32_t encoding, float whiteNits) {
+                      ID3D12Resource* motion, DXGI_FORMAT outFormat, const Target* targets, int count, uint32_t encoding, float whiteNits, float soften) {
     if (!m_ready || !m_buf[0] || !before || !now || !motion || !targets || count < 1 || count > kMaxTargets) return false;
     for (int j = 0; j < count; ++j) if (!targets[j].out) return false;
     D3D12_CPU_DESCRIPTOR_HANDLE cpu = m_heap->GetCPUDescriptorHandleForHeapStart(); cpu.ptr += static_cast<SIZE_T>(slot % kSlots) * kPerSlot * m_descriptorSize;
@@ -318,7 +326,7 @@ bool OwnSynth::Record(ID3D12GraphicsCommandList* list, int slot, ID3D12Resource*
     float t = 0.5f;
     auto pass = [&](Entry e, uint32_t mode, uint32_t phase, float k, bool full = false) {
         if (++passNo > stopAt) return;
-        const Constants c{ m_aw, m_ah, m_w, m_h, mode, phase, t, k, encoding, whiteNits > 0.0f ? whiteNits : 80.0f, static_cast<uint32_t>(m_scale), 0 };
+        const Constants c{ m_aw, m_ah, m_w, m_h, mode, phase, t, k, encoding, whiteNits > 0.0f ? whiteNits : 80.0f, static_cast<uint32_t>(m_scale), std::clamp(soften, 0.0f, 1.0f) };
         list->SetPipelineState(m_pso[e]);
         list->SetComputeRoot32BitConstants(2, sizeof(Constants) / 4, &c, 0);
         list->Dispatch(full ? fx : gx, full ? fy : gy, 1);

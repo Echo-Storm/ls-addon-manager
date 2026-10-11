@@ -567,6 +567,8 @@ void DrawPanel() {
                 if (ImGui::Checkbox("  EchoFG makes the frames itself instead of FSR 3.1 (test)", &c.frameGenOwn)) changed = true;
                 Tip("EchoFG is this project's frame generation. Off (the default): AMD's FSR 3.1 frame generation makes the frame between, fed EchoFG's motion estimate. On: EchoFG's own passes do (motion splatted to the time of the frame, the motion the other way made from it, holes filled from the side that fits), with no part of FSR. Measured offline it scores about the same as FSR; live it is untested, which is what this switch is for. The guard below belongs to FSR and does nothing with it.");
                 if (c.frameGenOwn) {
+                    if (ImGui::SliderFloat("  Soften where the motion is doubtful", &c.frameGenSoften, 0.0f, 1.0f, "%.2f")) changed = true;
+                    Tip("Where EchoFG cannot tell where things went (a very fast turn at a low frame rate, something uncovered, thin moving lines) the frame it makes leans toward the plain mix of the two real frames, as far as this says: a faint double image there instead of pieces in the wrong place. 0: never (the motion as measured, whatever it is); 0.6 (the default); 1: as much as it will. Try a fast camera turn with 0 and with 1.");
                     if (ImGui::SliderInt("  Frames for each real frame", &c.frameGenMultiplier, 2, 9, "x%d")) changed = true;
                     Tip("2 (the default): one frame made between each two real ones. 3 and up: that many frames per real frame (x4 = three made between), spaced evenly in time; every one costs the card about 1.2 ms more at 2560x1440 (about 2.7 ms at 4K), so watch the cost shown below. Only with our own synthesis: FSR makes one frame between.");
                 }
