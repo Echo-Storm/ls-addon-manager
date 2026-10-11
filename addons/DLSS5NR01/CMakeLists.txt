@@ -92,7 +92,7 @@ endif()
 # ECHOFG: EchoFG frame generation, an addon of its own (src/echofg/echofg_addon.cpp), a prototype: built only in a test build (-DNR_FRAMEGEN=ON), never in a release until it is ready.
 # It needs AMD's FidelityFX runtime for its FSR 3.1 alternative, in an fsr folder next to it (the FSR Upscaler's copy).
 if(NR_FRAMEGEN)
-    add_library(ECHOFG SHARED src/echofg/echofg_addon.cpp src/addon/present_hook.cpp src/addon/framegen11.cpp src/addon/recorder.cpp src/addon/lsrec.cpp src/addon/hdr.cpp src/addon/bridge.cpp
+    add_library(ECHOFG SHARED src/echofg/echofg_addon.cpp src/addon/present_hook.cpp src/addon/framegen11.cpp src/addon/recorder.cpp src/addon/lsrec.cpp src/addon/hdr.cpp src/echofg/bridge_formats.cpp
         src/engine/fg_engine.cpp src/engine/own_synth.cpp src/engine/flow_estimator.cpp
         ${imgui_SOURCE_DIR}/imgui.cpp ${imgui_SOURCE_DIR}/imgui_draw.cpp ${imgui_SOURCE_DIR}/imgui_tables.cpp ${imgui_SOURCE_DIR}/imgui_widgets.cpp)
     target_include_directories(ECHOFG PRIVATE src ${CMAKE_SOURCE_DIR}/third_party/ffx/include ${CMAKE_SOURCE_DIR}/../../manager/sdk/include ${imgui_SOURCE_DIR})
