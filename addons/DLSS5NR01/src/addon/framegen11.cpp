@@ -248,10 +248,12 @@ bool BeforeRealPresent(IDXGISwapChain* sc, UINT sync, UINT flags, uint32_t encod
     LARGE_INTEGER stageA; QueryPerformanceCounter(&stageA);
     const bool engineUp = EnsureEngine(bd, log);
     LARGE_INTEGER stageB; QueryPerformanceCounter(&stageB);
-    LARGE_INTEGER stageFlushed = stageB;
+    LARGE_INTEGER stageFlushed = stageB, stageCopied = stageB, stageSignalled = stageB;
     if (engineUp) {
         g.ctx->CopyResource(g.in11, back);
+        QueryPerformanceCounter(&stageCopied);
         g.ctx4->Signal(g.copied11, ++g.copiedValue);
+        QueryPerformanceCounter(&stageSignalled);
         g.ctx->Flush();   // the copy and the signal on the GPU's way before the engine waits for them
         QueryPerformanceCounter(&stageFlushed);
         // queued, not waited for: Lossless Scaling's queue waits on the GPU for "made" before the frame between is copied in
@@ -265,7 +267,7 @@ bool BeforeRealPresent(IDXGISwapChain* sc, UINT sync, UINT flags, uint32_t encod
         g.resetNext = false;
         LARGE_INTEGER stageC; QueryPerformanceCounter(&stageC);
         { static int said = 0; const double ensureMs = Ms(stageA, stageB), engineMs = Ms(stageB, stageC);
-          if ((ensureMs > 40.0 || engineMs > 40.0) && said < 6 && log) { ++said; char m[200]; snprintf(m, sizeof m, "frame generation: a slow frame on the presenting thread: the engine check %.0f ms, the engine's frame %.0f ms (copying the frame over %.0f ms)", ensureMs, engineMs, Ms(stageB, stageFlushed)); log(m); } }
+          if ((ensureMs > 40.0 || engineMs > 40.0) && said < 6 && log) { ++said; char m[200]; snprintf(m, sizeof m, "frame generation: a slow frame on the presenting thread: the engine check %.0f ms, the engine's frame %.0f ms (copying the frame over %.0f ms: the copy %.0f, the signal %.0f, the flush %.0f)", ensureMs, engineMs, Ms(stageB, stageFlushed), Ms(stageB, stageCopied), Ms(stageCopied, stageSignalled), Ms(stageSignalled, stageFlushed)); log(m); } }
         byFsr = made > 0;
         if (g.engine.IsReady()) g.ctx4->Wait(g.made11, g.madeValue);   // (the engine signals it on every path: the next copy into in11 must follow its reading of it, also when it made none)
         if (byFsr) {
