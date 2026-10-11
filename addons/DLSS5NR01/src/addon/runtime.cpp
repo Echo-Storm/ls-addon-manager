@@ -974,7 +974,7 @@ void OnPresent(IDXGISwapChain* sc, UINT sync, UINT flags) {
             bool recordShown, guard, own; int multiplier; float soften; { std::lock_guard<std::mutex> lock(g_settingsMutex); recordShown = g_config.recordShown; guard = g_config.frameGenGuard; own = g_config.frameGenOwn; multiplier = g_config.frameGenMultiplier; soften = g_config.frameGenSoften; }
             nr::framegen::SetGuard(guard); nr::framegen::SetOwn(own); nr::framegen::SetMultiplier(multiplier); nr::framegen::SetSoften(soften);
             nr::framegen::ShownFn shown;   // "record what is shown": every frame presented, the frames between and the real ones, tagged
-            if (recordShown) shown = [](ID3D11DeviceContext* ctx, ID3D11Texture2D* frame, bool made) { Record(ctx, frame, lsrec::kPresented, 0, made ? lsrec::kMadeBetween : lsrec::kReal); };
+            if (recordShown) shown = [](ID3D11DeviceContext* ctx, ID3D11Texture2D* frame, bool made) { Record(ctx, frame, lsrec::kPresented, 0, made ? lsrec::kMadeBetween : lsrec::kReal, true); };   // (the middle 1920x1080, as RecordShownFrame does: every presented frame of a 4K HDR picture in full, 66 MB each at 60 a second, loaded the card and the processor in the owner's first test)
             nr::framegen::BeforeRealPresent(sc, sync, flags, encoding, white, [](const char* m) { Log("%s", m); }, shown);
             g_frameGenWasOn = true;
         }

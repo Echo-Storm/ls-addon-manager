@@ -226,7 +226,8 @@ bool Recorder::Save(const std::wstring& folder, const std::string& game, bool cl
         const bool ok = lsrec::Write(path, header, list, &error);
         const double seconds = frames.size() > 1 && header.qpcFrequency ? static_cast<double>(frames.back()->header.qpc - frames.front()->header.qpc) / header.qpcFrequency : 0.0;
         char text[768];
-        if (ok) snprintf(text, sizeof text, "Saved %.1f s (%zu frames, %.0f MB) to %s", seconds, frames.size(), bytes / 1048576.0, Utf8(path).c_str());
+        const uint64_t left = m_missed.load();   // frames offered while every staging texture was busy (the card or the processor could not keep up), since recording started
+        if (ok) snprintf(text, sizeof text, "Saved %.1f s (%zu frames, %.0f MB) to %s%s", seconds, frames.size(), bytes / 1048576.0, Utf8(path).c_str(), left ? " (some frames were left out: the card or the processor could not keep up; see the missed count in the panel)" : "");
         else snprintf(text, sizeof text, "Could not save %s: %s", Utf8(path).c_str(), error.c_str());
         Log("recorder: %s", text);
         { std::lock_guard<std::mutex> lock(m_resultMutex); m_result = text; m_resultOk = ok; }
