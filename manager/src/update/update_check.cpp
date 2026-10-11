@@ -304,9 +304,11 @@ void SetDispatchCounter(uint32_t (*counter)()) { g_dispatchCounter = counter; }
 bool ScalingNow() {
     static uint32_t last = 0;
     static ULONGLONG changedAt = 0;
+    static bool seen = false;
     const uint32_t n = g_dispatchCounter ? g_dispatchCounter() : 0;
     const ULONGLONG now = GetTickCount64();
-    if (n != last) { last = n; changedAt = now; }
+    if (!seen) { seen = true; last = n; }   // (the first reading only says where the count is: passes that ran before the manager looked are not 'scaling now')
+    else if (n != last) { last = n; changedAt = now; }
     return changedAt && now - changedAt < 10000;
 }
 

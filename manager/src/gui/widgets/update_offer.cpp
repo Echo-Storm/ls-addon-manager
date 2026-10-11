@@ -79,6 +79,7 @@ void UpdateOffer() {
         ImGui::SameLine();
         if (ui::Button("Install when I close it", ui::icons::kCheck)) {
             std::string error;
+            g_closeAskedAt = 0; g_closeAsked = 0;   // (nothing is asked this time: an earlier "Close it and install" must not show here)
             if (!update::StartSetup(LosslessScalingFolder(), error)) ToastShow("Setup could not be started: " + error, ToastType::Error, 8.0f);
         }
         ImGui::SameLine();

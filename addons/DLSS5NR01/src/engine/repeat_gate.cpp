@@ -86,8 +86,22 @@ bool RepeatGate::Init(ID3D12Device* dev, ID3D12CommandQueue* queue) {
     return true;
 }
 
+bool RepeatGate::WaitFor(uint64_t value, unsigned ms) {
+    // The event is shared by every wait, and a wait that timed out leaves its request pending: it may set the event later, for an earlier value. So the event is cleared first and what
+    // woke the wait is checked against the fence, until the value is reached or the time is up.
+    const ULONGLONG until = GetTickCount64() + ms;
+    while (m_fence->GetCompletedValue() < value) {
+        const ULONGLONG now = GetTickCount64();
+        if (now >= until) return false;
+        ResetEvent(static_cast<HANDLE>(m_event));
+        if (FAILED(m_fence->SetEventOnCompletion(value, static_cast<HANDLE>(m_event)))) return false;
+        WaitForSingleObject(static_cast<HANDLE>(m_event), static_cast<DWORD>(until - now));
+    }
+    return true;
+}
+
 void RepeatGate::Shutdown() {
-    if (m_fence && m_event && m_fence->GetCompletedValue() < m_fenceValue) { m_fence->SetEventOnCompletion(m_fenceValue, static_cast<HANDLE>(m_event)); WaitForSingleObject(static_cast<HANDLE>(m_event), 2000); }
+    if (m_fence && m_event && m_fence->GetCompletedValue() < m_fenceValue) WaitFor(m_fenceValue, 2000);
     for (auto& a : m_copyAlloc) Rel(a);
     Rel(m_prev); Rel(m_list); Rel(m_alloc); Rel(m_readback); Rel(m_zero); Rel(m_flag); Rel(m_heap); Rel(m_pso); Rel(m_root); Rel(m_fence);
     if (m_event) { CloseHandle(static_cast<HANDLE>(m_event)); m_event = nullptr; }
@@ -108,8 +122,7 @@ bool RepeatGate::EnsurePrev(const D3D12_RESOURCE_DESC& want) {
 RepeatGate::Result RepeatGate::Compare(ID3D12Resource* in, DXGI_FORMAT viewFormat, ID3D12Fence* copied, uint64_t copiedValue, float tolerance, unsigned waitMs) {
     if (!m_ready || !in) return Result::Different;
     if (m_fence->GetCompletedValue() < m_fenceValue) {   // the call before is still on the card (it timed out): its list and allocator are not free
-        m_fence->SetEventOnCompletion(m_fenceValue, static_cast<HANDLE>(m_event));
-        if (WaitForSingleObject(static_cast<HANDLE>(m_event), waitMs) != WAIT_OBJECT_0) { ++m_timedOut; m_havePrev = false; return Result::Different; }
+        if (!WaitFor(m_fenceValue, waitMs)) { ++m_timedOut; m_havePrev = false; return Result::Different; }
     }
     LARGE_INTEGER q0, q1, freq; QueryPerformanceCounter(&q0); QueryPerformanceFrequency(&freq);
     if (!EnsurePrev(in->GetDesc())) return Result::Different;
@@ -154,14 +167,13 @@ RepeatGate::Result RepeatGate::Compare(ID3D12Resource* in, DXGI_FORMAT viewForma
     ID3D12CommandList* lists[] = { m_list };
     m_queue->ExecuteCommandLists(1, lists);
     m_queue->Signal(m_fence, ++m_fenceValue);
-    m_fence->SetEventOnCompletion(m_fenceValue, static_cast<HANDLE>(m_event));
     const bool hadPrev = compare;
     m_havePrev = true;   // (this input is being copied in whatever comes of the wait)
-    if (WaitForSingleObject(static_cast<HANDLE>(m_event), waitMs) != WAIT_OBJECT_0) {
+    if (!WaitFor(m_fenceValue, waitMs)) {
         ++m_timedOut;
         // The compare is let finish (50 ms at most) before the picture is worked on: with it still in flight the pictures that followed came out wrong (measured with a 1 ms wait: 31.4 dB
         // against 33.4 in `nr_sreval dup=2`, every time; finished first, 33.4 every time). The engine stops asking for a while when this happens (SrEngine, kGateBackoffMs).
-        WaitForSingleObject(static_cast<HANDLE>(m_event), 50);
+        WaitFor(m_fenceValue, 50);
         return Result::Different;
     }
     QueryPerformanceCounter(&q1); m_lastMs = (q1.QuadPart - q0.QuadPart) * 1000.0 / freq.QuadPart;
@@ -176,8 +188,7 @@ bool RepeatGate::CopyPicture(ID3D12Resource* src, ID3D12Resource* dst) {
     if (src == dst) return true;   // the same picture (a caller that writes every output into one texture): already there, and a resource cannot be copied onto itself
     const int i = m_copyNext; m_copyNext = (m_copyNext + 1) % kCopyRing;
     if (m_copyDone[i] && m_fence->GetCompletedValue() < m_copyDone[i]) {   // this allocator's last copy still on the card
-        m_fence->SetEventOnCompletion(m_copyDone[i], static_cast<HANDLE>(m_event));
-        if (WaitForSingleObject(static_cast<HANDLE>(m_event), 3000) != WAIT_OBJECT_0) return false;
+        if (!WaitFor(m_copyDone[i], 3000)) return false;
     }
     m_copyAlloc[i]->Reset(); m_list->Reset(m_copyAlloc[i], nullptr);
     Transition(src, D3D12_RESOURCE_STATE_COMMON, D3D12_RESOURCE_STATE_COPY_SOURCE);

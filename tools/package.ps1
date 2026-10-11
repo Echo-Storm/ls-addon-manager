@@ -10,7 +10,7 @@ param(
     [string]$Version = '',
     [switch]$SkipBuild,
     [switch]$AllowMissing,
-    [switch]$IncludeWip   # also package addons marked work in progress (none are now)
+    [switch]$IncludeWip   # also package addons marked work in progress (the Video Super Resolution prototype is one: it is in the repository, not in the package)
 )
 $ErrorActionPreference = 'Stop'
 $root = Split-Path $PSScriptRoot -Parent
@@ -59,7 +59,7 @@ $addons = @(
     # Video Super Resolution (prototype): its own small addon (src\vsr). It is in the package so that people can test it (the owner, 2026-10-02: strip it later, no one can test without it;
     # a download option for NVIDIA's files is to come). The files of NVIDIA's Video Effects SDK it needs (about 66 MB of the SDK's 1.6 GB, found by taking files out until it stopped working)
     # go in its vfx folder, where it looks by default (setting vfxDir), with the SDK's licences. Packaging needs the SDK in external\vfx_x64.
-    @{ Id = 'VSRUPSC'; Dir = "$root\addons\DLSS5NR01\products\VSRUPSC"; Bin = "$root\addons\DLSS5NR01\build\Release"; Files = @('VSRUPSC.dll');
+    @{ Id = 'VSRUPSC'; Wip = $true; Dir = "$root\addons\DLSS5NR01\products\VSRUPSC"; Bin = "$root\addons\DLSS5NR01\build\Release"; Files = @('VSRUPSC.dll');
        Extra = @{ 'LICENSE.txt' = "$root\addons\DLSS5NR01\LICENSE";
                   'vfx\bin\NVCVImage.dll' = "$root\addons\DLSS5NR01\external\vfx_x64\bin\NVCVImage.dll";
                   'vfx\bin\NVVideoEffects.dll' = "$root\addons\DLSS5NR01\external\vfx_x64\bin\NVVideoEffects.dll";
@@ -200,9 +200,8 @@ Install by hand (Lossless Scaling 3.2.2.0 was the tested version)
    one of the upscalers runs at a time), choose NIS as the Scaling Type in Lossless Scaling, and run the game in a window smaller than the
    screen (for example 2560x1440 on a 4K screen); at the screen's own size they anti-alias. 4:3 windows work too.
    Guide: https://github.com/Echo-Storm/ls-addon-manager/blob/main/addons/DLSS5NR01/docs/upscalers.md
-7. Video Super Resolution (prototype, for testing) is the fourth of them: NVIDIA's RTX Video Super Resolution in place of NIS, for a picture that is still. It is included with the
-   NVIDIA Video Effects SDK files it needs (in addons/VSRUPSC/vfx), needs an NVIDIA RTX card and arrives switched off like the others. Ctrl+Shift+F9 steps through ways of drawing
-   it and NIS, with a label in the corner, for comparing. From 1.0 NVIDIA's files will not be provided: you will need your own copy of the SDK, or a download you start yourself (NOTICE.md).
+7. Video Super Resolution (a prototype, NVIDIA's RTX Video Super Resolution in place of NIS) is a work in progress: its source is in the repository (addons/DLSS5NR01/src/vsr), it is not in this package and
+   nothing of NVIDIA's Video Effects SDK is included.
 
 Updating: close Lossless Scaling, extract the new release's files (step 3) and copy them over the old ones. Your settings (addons\config.json) carry over.
 From 0.1.0: Neural Rendering is now addons\DLSS5NR01 (it was addons\LSP-NeuralRender) and its saved settings and looks move to the new name by themselves

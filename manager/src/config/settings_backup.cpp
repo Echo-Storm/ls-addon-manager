@@ -81,7 +81,7 @@ ImportResult ImportSettings(const std::string& text, const json& current, const 
     apply(cfg);
     r.ok = true; r.previousSavedAs = prev;
     r.message = p.message + " Restart Lossless Scaling to apply them. Your previous settings were kept as " + prev.filename().string() + "." +
-                " The security level" + (skippedPaths ? " and the locations of model and runtime files (" + std::to_string(skippedPaths) + ")" : std::string()) + " were not imported.";
+                " The security level" + (skippedPaths ? " and the locations of model and runtime files (" + std::to_string(skippedPaths) + ") were" : " was") + " not imported.";
     return r;
 }
 

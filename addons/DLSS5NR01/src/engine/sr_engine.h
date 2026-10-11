@@ -64,6 +64,7 @@ public:
     // Forgets which runs were submitted and went through, for a bridge or link that starts counting its frames from 1 again (after it was
     // made anew): a record of the earlier numbering must not vouch for a new frame. Only while the engine's thread is idle.
     void ResetTracking() {
+        m_forgetOutputs.store(true);   // (the link made new shared pictures: the last output the repeat skip kept points into the old ones; Run lets go of it before it is used)
         { std::lock_guard<std::mutex> lock(m_jobMutex); if (m_busy || !m_jobs.empty()) return; }
         m_submitted = 0; for (auto& v : m_okRing) v = 0;
     }
@@ -230,6 +231,7 @@ private:
     static constexpr int kMaxRepeatStreak = 8;
     static constexpr unsigned kGateBackoffMs = 10000;
     uint64_t m_gateOffUntil = 0, m_gateSeenTimeouts = 0; int m_gateSlowStreak = 0;
+    std::atomic<bool> m_forgetOutputs{ false };
     std::atomic<bool> m_skipRepeats{ false }; std::atomic<unsigned> m_repeatWaitMs{ 10 };
     std::unique_ptr<nr::RepeatGate> m_gate; ID3D12Resource* m_lastOut = nullptr; uint64_t m_lastKey = 0; int m_repeatStreak = 0; uint64_t m_repeatSkips = 0, m_repeatChecks = 0, m_repeatBusy = 0;
 };

@@ -1191,6 +1191,7 @@ bool SrEngine::Run(ID3D12Resource* in, uint32_t inW, uint32_t inH, DXGI_FORMAT i
     // A picture that is exactly the one before (nr::RepeatGate): not worked on again, the last output is copied into this one. The key says what else must be the same for the old output to be
     // right; a setting changed meanwhile is caught by running every kMaxRepeatStreak-th repeat for real.
     uint64_t repeatKey = 0;
+    if (m_forgetOutputs.exchange(false)) { m_lastOut = nullptr; if (m_gate) m_gate->Forget(); }   // (a new link: the pictures it made are not the ones the last output was in)
     if (m_skipRepeats.load() && !cheap) {
         if (!m_gate) {
             m_gate = std::make_unique<nr::RepeatGate>();

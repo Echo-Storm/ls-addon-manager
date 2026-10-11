@@ -99,13 +99,13 @@ Like every file here, Setup is **unsigned**, so Windows SmartScreen may warn you
 | **DLSS Upscaler** | NVIDIA DLSS in place of NIS: upscaling, or DLAA at the screen's own size | NVIDIA RTX | off |
 | **FSR Upscaler** | AMD FSR 3.1 or FSR 4 in the same place | any DirectX 12 card | off |
 | **XeSS Upscaler** | Intel XeSS in the same place | any card with Shader Model 6.4 | off |
-| **Video Super Resolution** (test) | NVIDIA's RTX Video Super Resolution in the same place, for a picture that is still | NVIDIA RTX | off |
+| **Video Super Resolution** (work in progress) | NVIDIA's RTX Video Super Resolution in the same place, for a picture that is still: in the repository, not in the package | NVIDIA RTX | not available yet |
 
 Every runtime the upscalers need comes with them. Only one upscaler runs at a time; any of them works beside Neural Rendering.
 
 
 > [!NOTE]
-> The Video Super Resolution test addon comes with the NVIDIA Video Effects SDK files it needs (in `addons/VSRUPSC/vfx`). They are in the test packages only for now, so that it can be tried. From 1.0 they will not be provided: the addon will need your own copy of NVIDIA's Video Effects SDK, or a download you start yourself.
+> The Video Super Resolution addon is a work in progress: its source is in `addons/DLSS5NR01/src/vsr`, it is listed greyed out in the manager and is not in the package. It will need your own copy of NVIDIA's Video Effects SDK, or a download you start yourself.
 
 ### DLSS 5 Neural Rendering
 

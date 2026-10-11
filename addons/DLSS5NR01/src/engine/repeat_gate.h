@@ -33,6 +33,7 @@ public:
 private:
     void Transition(ID3D12Resource* r, D3D12_RESOURCE_STATES from, D3D12_RESOURCE_STATES to);
     bool EnsurePrev(const D3D12_RESOURCE_DESC& desc);
+    bool WaitFor(uint64_t value, unsigned ms);   // until the fence has reached `value` (a signal left over from an earlier, timed out wait does not count)
     ID3D12Device* m_dev = nullptr; ID3D12CommandQueue* m_queue = nullptr; bool m_ready = false;
     ID3D12RootSignature* m_root = nullptr; ID3D12PipelineState* m_pso = nullptr; ID3D12DescriptorHeap* m_heap = nullptr; UINT m_descriptorSize = 0;
     ID3D12Resource* m_flag = nullptr; ID3D12Resource* m_zero = nullptr; ID3D12Resource* m_readback = nullptr;
