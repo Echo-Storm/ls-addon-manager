@@ -4,9 +4,9 @@
 #   * refuses while Lossless Scaling itself is running (it holds the DLLs open), unless -StopLS is given AND the game is not running;
 #   * backs the old file up into <LS folder>\backups\ (never deletes) with a timestamp before replacing it;
 #   * host: if Lossless.dll is still Lossless Scaling's own, it is renamed Lossless_original.dll first (the manager needs it there).
-#   powershell -File deploy.ps1 -What host|nr|dlaa|fsr|xess|vsr|upscalers|all [-StopLS] [-LiftConflicts] [-LsDir '<Lossless Scaling folder>']   (or set the LS_DIR environment variable) [-Game WowB] [-BuildDir build_fg]
+#   powershell -File deploy.ps1 -What host|nr|dlaa|fsr|xess|vsr|echofg|upscalers|all [-StopLS] [-LiftConflicts] [-LsDir '<Lossless Scaling folder>']   (or set the LS_DIR environment variable) [-Game WowB] [-BuildDir build_fg]
 param(
-    [Parameter(Mandatory = $true)][ValidateSet('host', 'nr', 'dlaa', 'fsr', 'xess', 'vsr', 'upscalers', 'all')][string]$What,
+    [Parameter(Mandatory = $true)][ValidateSet('host', 'nr', 'dlaa', 'fsr', 'xess', 'vsr', 'echofg', 'upscalers', 'all')][string]$What,
     [switch]$StopLS,
     [switch]$LiftConflicts,   # with the upscalers: empties "conflicts" in the deployed addon.json files, so that DLSS, FSR, XeSS and VSR can all be switched on for the comparison (Ctrl+Shift+F9)
     [string]$LsDir = $(if ($env:LS_DIR) { $env:LS_DIR } else { 'C:\Program Files (x86)\Steam\steamapps\common\Lossless Scaling' }),
@@ -31,6 +31,10 @@ $items = @{
                   @{ Src = "$root\addons\DLSS5NR01\third_party\ffx\LICENSE.txt"; Rel = 'AMD-FidelityFX-LICENSE.txt' },
                   @{ Src = "$root\addons\DLSS5NR01\LICENSE"; Rel = 'LICENSE.txt' }) }
     vsr      = @{ Src = "$root\addons\DLSS5NR01\$BuildDir\Release\VSRUPSC.dll"; Dst = "$LsDir\addons\VSRUPSC\VSRUPSC.dll"; Extra = @("$root\addons\DLSS5NR01\products\VSRUPSC\addon.json", "$root\addons\DLSS5NR01\products\VSRUPSC\icon.svg") }   # (the prototype; 'all' leaves it out)
+    echofg   = @{ Src = "$root\addons\DLSS5NR01\$BuildDir\Release\ECHOFG.dll"; Dst = "$LsDir\addons\ECHOFG\ECHOFG.dll"; Extra = @("$root\addons\DLSS5NR01\products\ECHOFG\addon.json", "$root\addons\DLSS5NR01\products\ECHOFG\icon.svg",
+                  @{ Src = "$root\addons\DLSS5NR01\$BuildDir\Release\fsr\amd_fidelityfx_dx12.dll"; Rel = 'fsr\amd_fidelityfx_dx12.dll' },
+                  @{ Src = "$root\addons\DLSS5NR01\third_party\ffx\LICENSE.txt"; Rel = 'AMD-FidelityFX-LICENSE.txt' },
+                  @{ Src = "$root\addons\DLSS5NR01\LICENSE"; Rel = 'LICENSE.txt' }) }   # (EchoFG frame generation, the test build only (build_fg); 'all' leaves it out)
     xess     = @{ Src = "$root\addons\DLSS5NR01\$BuildDir\Release\XESSUPSC.dll"; Dst = "$LsDir\addons\XESSUPSC\XESSUPSC.dll"; Extra = @("$root\addons\DLSS5NR01\products\XESSUPSC\addon.json", "$root\addons\DLSS5NR01\products\XESSUPSC\icon.svg",
                   @{ Src = "$root\addons\DLSS5NR01\$BuildDir\Release\xess\libxess.dll"; Rel = 'xess\libxess.dll' },
                   @{ Src = "$root\addons\DLSS5NR01\external\xess\LICENSE.txt"; Rel = 'Intel-XeSS-LICENSE.txt' },

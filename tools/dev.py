@@ -249,11 +249,11 @@ def cmd_status(a):
     if not mgr.exists() or os.path.getmtime(mgr) < newest - 2:
         stale.append('Lossless.dll')
     print('builds   %s' % ('up to date with the sources' if not stale else 'OLDER than the sources: ' + ', '.join(stale)))
-    fg = Path(c['bin_fg']) / 'FSR3UPSC.dll'
+    fg = Path(c['bin_fg']) / 'ECHOFG.dll'
     print('EchoFG   %s' % ('built (%s)' % datetime.datetime.fromtimestamp(os.path.getmtime(fg)).strftime('%m-%d %H:%M') if fg.exists() else 'no test build (tools\\build_framegen_test.ps1)'))
     # what is deployed
     ls = Path(c['ls_dir'])
-    pairs = [(ls / 'Lossless.dll', mgr), (ls / 'addons' / 'FSR3UPSC' / 'FSR3UPSC.dll', fg if fg.exists() else b / 'FSR3UPSC.dll'),
+    pairs = [(ls / 'Lossless.dll', mgr), (ls / 'addons' / 'FSR3UPSC' / 'FSR3UPSC.dll', b / 'FSR3UPSC.dll'), (ls / 'addons' / 'ECHOFG' / 'ECHOFG.dll', fg),
              (ls / 'addons' / 'DLSS5NR01' / 'DLSS5NR01.dll', b / 'DLSS5NR01.dll'), (ls / 'addons' / 'DLSS4DLAA' / 'DLSS4DLAA.dll', b / 'DLSS4DLAA.dll'),
              (ls / 'addons' / 'XESSUPSC' / 'XESSUPSC.dll', b / 'XESSUPSC.dll')]
     diff = [d.name for d, s in pairs if d.exists() and s.exists() and not same_file(d, s)]
@@ -446,10 +446,10 @@ def cmd_deploy(a):
     bad = [l for l in text.splitlines() if re.search(r'COULD NOT|not built|refus|running', l)]
     say('ok' if rc == 0 and not bad else 'FAIL', 'deploy all', '%d files%s' % (len(re.findall(r'^\[', text, re.M)), '' if not bad else ': ' + bad[0][:120]))
     if a.fg and rc == 0:
-        rc2, text2, _ = ps(ROOT / 'tools' / 'deploy.ps1', '-What', 'fsr', '-BuildDir', 'build_fg', '-LsDir', c['ls_dir'], timeout=600, tag='deploy_fg')
-        d = Path(c['ls_dir']) / 'addons' / 'FSR3UPSC' / 'FSR3UPSC.dll'; s = Path(c['bin_fg']) / 'FSR3UPSC.dll'
+        rc2, text2, _ = ps(ROOT / 'tools' / 'deploy.ps1', '-What', 'echofg', '-BuildDir', 'build_fg', '-LsDir', c['ls_dir'], timeout=600, tag='deploy_fg')
+        d = Path(c['ls_dir']) / 'addons' / 'ECHOFG' / 'ECHOFG.dll'; s = Path(c['bin_fg']) / 'ECHOFG.dll'
         same = d.exists() and s.exists() and same_file(d, s)
-        say('ok' if rc2 == 0 and same else 'FAIL', 'deploy EchoFG build', 'FSR3UPSC.dll %s' % ('matches build_fg' if same else 'DOES NOT match'))
+        say('ok' if rc2 == 0 and same else 'FAIL', 'deploy EchoFG build', 'ECHOFG.dll %s' % ('matches build_fg' if same else 'DOES NOT match'))
         rc = rc2 if rc2 else (0 if same else 1)
     return rc
 
