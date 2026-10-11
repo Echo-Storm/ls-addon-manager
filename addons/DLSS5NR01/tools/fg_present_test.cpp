@@ -13,10 +13,18 @@
 //                [switch=1]  the multiplier changed while it runs (to x2 a third of the way, to x5 two thirds): the last intervals must have the last one's count
 //                [toggle=1]  starts with FSR (own=0) and switches EchoFG on half way: neither the start-up nor the switch may stall the presenting thread
 //                [resize=1]  the swap chain's buffers resized to 800x450 half way: the presenter starts again at the new size and goes on
+//   How the swap chain is presented (the display timing study, board E3: what the owner's Lossless Scaling settings do to the frames' present):
+//                [sync=0|1|2]   the sync interval of every Present (Lossless Scaling's Sync mode)
+//                [tearing=1]    the swap chain allows tearing, and a Present with sync=0 asks for it ("Off (allow tearing)")
+//                [latency=N]    a waitable swap chain with maximum frame latency N: the thread waits on it before each frame (Lossless Scaling's "Max frame latency")
+//                [buffers=N]    the number of back buffers (2..6, default 3)
+//                [size=2|4]     the picture 1920x1080 or 3840x2160 instead of 960x540
+//               It then prints how long each Present call took (the real frame's includes the presenter's work and its waits; the made frames' alone) and the display's present count.
 // Needs a build made with NR_FRAMEGEN=ON only for the addon itself; this tool links the presenter directly, so it runs in any build.
 #include <windows.h>
 #include <d3d11_4.h>
 #include <dxgi1_2.h>
+#include <dxgi1_3.h>
 #include <d3dcompiler.h>
 #include <DirectXPackedVector.h>
 #include <algorithm>
@@ -117,7 +125,9 @@ int main(int argc, char** argv) {
     const int fps = std::clamp(Arg(argc, argv, "fps", 30), 10, 120); const double speed = Arg(argc, argv, "speed", 24);
     const int dup = std::clamp(Arg(argc, argv, "dup", 1), 1, 4); const bool doSwitch = Arg(argc, argv, "switch", 0) != 0, doResize = Arg(argc, argv, "resize", 0) != 0;
     int wantMult = mult, settledFrom = 0;   // the multiplier the last intervals should have, and the first real frame from which the checks look
-    g_w = 960; g_h = 540; g_fmt = hdr ? DXGI_FORMAT_R16G16B16A16_FLOAT : DXGI_FORMAT_R8G8B8A8_UNORM;
+    const int sizeX = std::clamp(Arg(argc, argv, "size", 1), 1, 4), syncInt = std::clamp(Arg(argc, argv, "sync", 0), 0, 2), latencyN = std::clamp(Arg(argc, argv, "latency", 0), 0, 8), buffersN = std::clamp(Arg(argc, argv, "buffers", 3), 2, 6);
+    const bool tearing = Arg(argc, argv, "tearing", 0) != 0;
+    g_w = 960 * sizeX; g_h = 540 * sizeX; g_fmt = hdr ? DXGI_FORMAT_R16G16B16A16_FLOAT : DXGI_FORMAT_R8G8B8A8_UNORM;
     g_encoding = hdr ? 1u : 0u; g_white = 80.0f;
     std::wstring fsr;
     { const std::string a = ArgText(argc, argv, "fsr"); if (!a.empty()) fsr = std::wstring(a.begin(), a.end());
@@ -129,11 +139,16 @@ int main(int argc, char** argv) {
     if (FAILED(D3D11CreateDevice(nullptr, D3D_DRIVER_TYPE_HARDWARE, nullptr, D3D11_CREATE_DEVICE_BGRA_SUPPORT, levels, 2, D3D11_SDK_VERSION, &g_dev, nullptr, &g_ctx))) { printf("no device\n"); return 2; }
     IDXGIDevice* dxgi = nullptr; IDXGIAdapter* adapter = nullptr; IDXGIFactory2* factory = nullptr;
     g_dev->QueryInterface(IID_PPV_ARGS(&dxgi)); dxgi->GetAdapter(&adapter); adapter->GetParent(IID_PPV_ARGS(&factory));
-    DXGI_SWAP_CHAIN_DESC1 sd{}; sd.Width = g_w; sd.Height = g_h; sd.Format = g_fmt; sd.SampleDesc.Count = 1; sd.BufferCount = 3;
+    DXGI_SWAP_CHAIN_DESC1 sd{}; sd.Width = g_w; sd.Height = g_h; sd.Format = g_fmt; sd.SampleDesc.Count = 1; sd.BufferCount = buffersN;
+    sd.Flags = (tearing ? DXGI_SWAP_CHAIN_FLAG_ALLOW_TEARING : 0u) | (latencyN ? DXGI_SWAP_CHAIN_FLAG_FRAME_LATENCY_WAITABLE_OBJECT : 0u);
     sd.BufferUsage = DXGI_USAGE_RENDER_TARGET_OUTPUT | DXGI_USAGE_UNORDERED_ACCESS; sd.SwapEffect = DXGI_SWAP_EFFECT_FLIP_DISCARD;
     IDXGISwapChain1* sc1 = nullptr;
     if (FAILED(factory->CreateSwapChainForHwnd(g_dev, hwnd, &sd, nullptr, nullptr, &sc1))) { printf("no swap chain\n"); return 2; }
     IDXGISwapChain* sc = sc1;
+    HANDLE waitable = nullptr;
+    if (latencyN) { IDXGISwapChain2* sc2 = nullptr; if (SUCCEEDED(sc1->QueryInterface(IID_PPV_ARGS(&sc2)))) { sc2->SetMaximumFrameLatency(static_cast<UINT>(latencyN)); waitable = sc2->GetFrameLatencyWaitableObject(); sc2->Release(); } }
+    const UINT presentFlags = (tearing && syncInt == 0) ? DXGI_PRESENT_ALLOW_TEARING : 0u;
+    std::vector<double> realPresentMs;   // how long the real frame's Present call took (the presenter's work and waits are in it)
 
     ID3DBlob* code = nullptr; ID3DBlob* err = nullptr;
     if (FAILED(D3DCompile(kScene, strlen(kScene), "scene", nullptr, nullptr, "main", "cs_5_0", D3DCOMPILE_OPTIMIZATION_LEVEL3, 0, &code, &err))) { printf("scene shader: %s\n", err ? static_cast<const char*>(err->GetBufferPointer()) : "?"); return 2; }
@@ -148,6 +163,7 @@ int main(int argc, char** argv) {
     LARGE_INTEGER freq, start; QueryPerformanceFrequency(&freq); QueryPerformanceCounter(&start);
     auto nowMs = [&] { LARGE_INTEGER n; QueryPerformanceCounter(&n); return (n.QuadPart - start.QuadPart) * 1000.0 / freq.QuadPart; };
     auto drawFrame = [&](double x) {
+        if (waitable) WaitForSingleObjectEx(waitable, 200, TRUE);
         ID3D11Texture2D* bb = nullptr; sc->GetBuffer(0, IID_PPV_ARGS(&bb));
         ID3D11UnorderedAccessView* uav = nullptr; g_dev->CreateUnorderedAccessView(bb, nullptr, &uav);
         const float c[4] = { static_cast<float>(x), 330.0f, 1.0f, 0.0f };
@@ -156,7 +172,9 @@ int main(int argc, char** argv) {
         g_ctx->Dispatch((g_w + 7) / 8, (g_h + 7) / 8, 1);
         ID3D11UnorderedAccessView* none = nullptr; g_ctx->CSSetUnorderedAccessViews(0, 1, &none, nullptr);
         uav->Release(); bb->Release();
-        sc->Present(0, 0);
+        LARGE_INTEGER p0, p1; QueryPerformanceCounter(&p0);
+        sc->Present(static_cast<UINT>(syncInt), presentFlags);
+        QueryPerformanceCounter(&p1); realPresentMs.push_back((p1.QuadPart - p0.QuadPart) * 1000.0 / freq.QuadPart);
         MSG msg; while (PeekMessageW(&msg, nullptr, 0, 0, PM_REMOVE)) DispatchMessageW(&msg);
     };
     {   // warm-up: the picture still, until the engine (and EchoFG, when wanted) is up; the presenting thread must not wait for it
@@ -231,6 +249,13 @@ int main(int argc, char** argv) {
     printf("frames per real frame after warm-up: %s (wanted %d made between each two real ones; %d intervals wrong)\n", perInterval.empty() ? "none" : "measured", wantMult - 1, countWrong);
     printf("the made frames' square position: mean error %.2f px, worst %.2f px (%d frames; speed %.0f px a real frame); %d frames without a readable square\n", measured ? sumErr / measured : 0.0, worst, measured, speed, bad);
     printf("spacing of the frames shown: mean %.1f ms, min %.1f, max %.1f (wanted %.1f ms at x%d of %d fps)\n", meanGap, minGap, maxGap, want, wantMult, fps);
+    {   // the study: how long the Present calls took
+        std::vector<double> rp(realPresentMs.begin() + std::min<size_t>(realPresentMs.size(), 8 + 2 * static_cast<size_t>(std::max(0, settledFrom))), realPresentMs.end());   // (after the warm-up frames and the engine's start)
+        std::sort(rp.begin(), rp.end());
+        if (!rp.empty()) printf("Present of the real frame (with the presenter's work and waits): median %.1f ms, 90%% %.1f, worst %.1f; of each frame between: %.1f ms (smoothed)   [sync=%d tearing=%d latency=%d buffers=%d size=%d]\n",
+            rp[rp.size() / 2], rp[std::min(rp.size() - 1, rp.size() * 9 / 10)], rp.back(), st.generatedMs, syncInt, tearing ? 1 : 0, latencyN, buffersN, sizeX);
+        DXGI_FRAME_STATISTICS fs{}; if (SUCCEEDED(sc->GetFrameStatistics(&fs))) printf("display: %u presents counted, %u refreshes\n", fs.PresentCount, fs.PresentRefreshCount);
+    }
     if (stalled) printf("the presenting thread stalled\n");
     const bool ok = made > 0 && countWrong == 0 && bad == 0 && measured > 0 && worst < 0.2 * speed + 3.0 && !stalled && toggled;
     printf("%s\n", ok ? "FG PRESENT TEST PASSED" : "FG PRESENT TEST FAILED");
