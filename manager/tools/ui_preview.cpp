@@ -23,6 +23,7 @@
 #include "src/gui/widgets/toast.h"
 #include "src/gui/widgets/update_offer.h"
 #include "src/update/update_check.h"
+#include "src/update/updater.h"
 #include "src/gui/widgets/status_bar.h"
 #include "src/gui/widgets/header_bar.h"
 #include "src/host/system_stats.h"
