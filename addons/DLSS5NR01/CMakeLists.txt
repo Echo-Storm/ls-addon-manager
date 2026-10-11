@@ -89,6 +89,26 @@ if(EXISTS ${FFX_DLL})
         COMMAND ${CMAKE_COMMAND} -E copy_if_different ${FFX_DLL} $<TARGET_FILE_DIR:FSR3UPSC>/fsr)
 endif()
 
+# ECHOFG: EchoFG frame generation, an addon of its own (src/echofg/echofg_addon.cpp), a prototype: built only in a test build (-DNR_FRAMEGEN=ON), never in a release until it is ready.
+# It needs AMD's FidelityFX runtime for its FSR 3.1 alternative, in an fsr folder next to it (the FSR Upscaler's copy).
+if(NR_FRAMEGEN)
+    add_library(ECHOFG SHARED src/echofg/echofg_addon.cpp src/addon/present_hook.cpp src/addon/framegen11.cpp src/addon/recorder.cpp src/addon/lsrec.cpp src/addon/hdr.cpp src/addon/bridge.cpp
+        src/engine/fg_engine.cpp src/engine/own_synth.cpp src/engine/flow_estimator.cpp
+        ${imgui_SOURCE_DIR}/imgui.cpp ${imgui_SOURCE_DIR}/imgui_draw.cpp ${imgui_SOURCE_DIR}/imgui_tables.cpp ${imgui_SOURCE_DIR}/imgui_widgets.cpp)
+    target_include_directories(ECHOFG PRIVATE src ${CMAKE_SOURCE_DIR}/third_party/ffx/include ${CMAKE_SOURCE_DIR}/../../manager/sdk/include ${imgui_SOURCE_DIR})
+    target_link_libraries(ECHOFG PRIVATE d3d12 d3d11 dxgi d3dcompiler user32 gdi32 advapi32 shlwapi ole32 shell32 windowscodecs bcrypt)
+    set_target_properties(ECHOFG PROPERTIES PREFIX "" OUTPUT_NAME "ECHOFG")
+    if(MSVC)
+        target_compile_options(ECHOFG PRIVATE $<$<CONFIG:Release>:/Zi>)
+        target_link_options(ECHOFG PRIVATE $<$<CONFIG:Release>:/DEBUG /OPT:REF /OPT:ICF /MAP>)
+    endif()
+    if(EXISTS ${FFX_DLL})
+        add_custom_command(TARGET ECHOFG POST_BUILD
+            COMMAND ${CMAKE_COMMAND} -E make_directory $<TARGET_FILE_DIR:ECHOFG>/fsr
+            COMMAND ${CMAKE_COMMAND} -E copy_if_different ${FFX_DLL} $<TARGET_FILE_DIR:ECHOFG>/fsr)
+    endif()
+endif()
+
 if(EXISTS ${XESS_DIR}/inc/xess/xess_d3d12.h)
     nr_addon(XESSUPSC)
     target_compile_definitions(XESSUPSC PRIVATE NR_PRODUCT_XESS)

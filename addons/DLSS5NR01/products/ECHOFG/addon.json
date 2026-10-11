@@ -1,0 +1,15 @@
+{
+  "name": "EchoFG frame generation (prototype)",
+  "version": "0.9.38",
+  "author": "Echo-Storm",
+  "description": "A prototype, made only in test builds. Multiplies the frame rate: with Lossless Scaling's own frame generation OFF, EchoFG shows 1 to 8 frames made between each two real ones, evenly spaced, in Lossless Scaling's own window (EchoFG's own passes, or AMD's FSR 3.1 frame generation fed our motion estimate). Choose NIS as the Scaling Type. Works beside the upscaler addons, or without them. The real frames are shown about one frame later than without it.",
+  "min_host_version": "1.2.0",
+  "dependencies": [],
+  "conflicts": [],
+  "wip": true,
+  "tags": [
+    "graphics",
+    "frame-generation"
+  ],
+  "enabled_by_default": false
+}

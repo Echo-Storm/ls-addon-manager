@@ -3,6 +3,7 @@
 #include <atomic>
 #include <cstdint>
 #include <cstdio>
+#include <cstdlib>
 
 // Why patch the function table and not the code: something else in the process (the NVIDIA overlay, which hooks Present at the first present)
 // hooks dxgi's Present after us and calls on to an untouched copy of the code, which quietly bypasses a code hook placed before it (seen in the
@@ -21,6 +22,10 @@ void** g_patched = nullptr;
 PresentFn g_present = nullptr;
 Present1Fn g_present1 = nullptr;
 void** g_table = nullptr;
+// The function the table held before ANY addon of the family patched it (the DXGI runtime's own Present, or a hook that was there first). The first addon to patch records it in the process's
+// environment; PresentOriginal goes there directly, so a frame an addon presents of its own (frame generation) does not run the other addons' callbacks, whichever of them was loaded first.
+constexpr const char* kOriginalVariable = "ECHO_DXGI_PRESENT_ORIG";
+PresentFn g_trueOriginal = nullptr;
 std::atomic<PresentHook::Callback> g_callback{ nullptr };
 std::atomic<unsigned> g_hits{ 0 };
 thread_local int t_nesting = 0;
@@ -93,6 +98,11 @@ bool PresentHook::Install(ID3D11Device* dev, Callback cb, LogFn log) {
     void* const present = Swap(table, kPresentSlot, (void*)&OnPresent);
     if (!present) { log("PresentHook: the swap chain's function table could not be made writable"); g_callback.store(nullptr); return false; }
     g_present = (PresentFn)present;
+    {   // the first of the family records the true original; the others use it
+        char text[40] = {};
+        if (GetEnvironmentVariableA(kOriginalVariable, text, sizeof text) > 0 && text[0]) g_trueOriginal = reinterpret_cast<PresentFn>(static_cast<uintptr_t>(strtoull(text, nullptr, 16)));
+        else { snprintf(text, sizeof text, "%llx", static_cast<unsigned long long>(reinterpret_cast<uintptr_t>(present))); SetEnvironmentVariableA(kOriginalVariable, text); g_trueOriginal = g_present; }
+    }
     g_present1 = (Present1Fn)Swap(table, kPresent1Slot, (void*)&OnPresent1);   // null: Present1 is simply not seen
     g_table = g_patched = table;
     HMODULE self = nullptr;
@@ -111,7 +121,10 @@ void PresentHook::Uninstall() {
 }
 
 bool PresentHook::Installed() { return g_table != nullptr; }
-HRESULT PresentHook::PresentOriginal(IDXGISwapChain* sc, UINT sync, UINT flags) { return g_present ? g_present(sc, sync, flags) : E_FAIL; }
+HRESULT PresentHook::PresentOriginal(IDXGISwapChain* sc, UINT sync, UINT flags) {
+    const PresentFn f = g_trueOriginal ? g_trueOriginal : g_present;
+    return f ? f(sc, sync, flags) : E_FAIL;
+}
 unsigned PresentHook::Hits() { return g_hits.load(std::memory_order_relaxed); }
 
 void PresentHook::DumpState(LogFn log) {

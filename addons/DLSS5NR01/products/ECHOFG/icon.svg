@@ -1,0 +1,6 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round">
+  <!-- EchoFG: a stack of frames, the front one solid and the ones made between it and the one before fading behind it (Echo-Storm, MIT) -->
+  <rect x="3" y="3" width="11" height="11" rx="2" opacity="0.35"/>
+  <rect x="6.5" y="6.5" width="11" height="11" rx="2" opacity="0.65"/>
+  <rect x="10" y="10" width="11" height="11" rx="2"/>
+</svg>
