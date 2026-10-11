@@ -572,6 +572,8 @@ void DrawPanel() {
                     if (ImGui::SliderInt("  Frames for each real frame", &c.frameGenMultiplier, 2, 9, "x%d")) changed = true;
                     Tip("2 (the default): one frame made between each two real ones. 3 and up: that many frames per real frame (x4 = three made between), spaced evenly in time; every one costs the card about 1.2 ms more at 2560x1440 (about 2.7 ms at 4K), so watch the cost shown below. Only with our own synthesis: FSR makes one frame between.");
                 }
+                if (ImGui::Checkbox("  Put the presents one to a refresh of the display", &c.frameGenAlign)) changed = true;
+                Tip("On (the default): each frame is shown in a refresh of its own, so none is replaced by the next within the same refresh (without this about a fifth of the frames were, at 90 frames a second on a 120 Hz screen: a frame that is never seen). Costs up to half a refresh of delay. Has no effect when the display's refresh is not steady (a variable refresh rate, G-Sync); the log says whether it is in use.");
                 if (ImGui::Checkbox("  Keep the character clean in turns", &c.frameGenGuard)) changed = true;
                 Tip("On (the default): where the two real frames agree and hardly move (a character the camera follows, a HUD) but the frame made "
                     "between shows something else, the real frames' own picture goes there. In a quick camera turn, FSR pastes the scene sweeping past "

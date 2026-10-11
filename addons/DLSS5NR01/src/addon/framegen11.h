@@ -22,6 +22,7 @@ bool BeforeRealPresent(IDXGISwapChain* sc, UINT sync, UINT flags, uint32_t encod
 void SetOwn(bool on);    // the frame between by our own synthesis (FgEngine::SetOwnSynthesis) instead of FSR 3.1; off by default
 void SetSoften(float amount);   // EchoFG: 0 to 1, how far the frames lean toward the plain mix where the motion is doubtful
 void SetMultiplier(int n);   // frames shown for each real one (2 to 9); more than 2 only with our own synthesis (SetOwn)
+void SetAlign(bool on);   // each present in a refresh of its own, when the display's refresh is steady; on by default
 void SetGuard(bool on);   // the guard against pasted background (FgEngine::Generate); on by default
 void SetRuntime(const std::wstring& amdFidelityFxDll);   // AMD's runtime FgEngine loads (the FSR Upscaler's shipped FSR 3.1)
 void Reset();      // forgets the frame before (switched off, a new swap chain)

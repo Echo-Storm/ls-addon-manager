@@ -154,6 +154,10 @@ def parse_presenter(text):
     return {'ok': ok, 'mean': float(sq.group(1)) if sq else None, 'worst': float(sq.group(2)) if sq else None, 'gap': int(gap.group(1)) if gap else None}
 
 
+RE_DISPLAY = re.compile(r'the display showed \d+ presents one by one, refreshes after the present before: 0:(\d+) 1:(\d+) 2:(\d+) 3:(\d+) 4:(\d+) 5\+:(\d+)')
+RE_BACK = re.compile(r'back ([\d.]+) ms after')
+
+
 def summarise_log(lines):
     """the last session of a log: counts and extremes"""
     start = 0
@@ -171,6 +175,24 @@ def summarise_log(lines):
         gpu = [float(m.group(6)) for m in gen if int(m.group(4)) > 0]; present = [float(m.group(8)) for m in gen]
         out['fg'] = {'real': real, 'made': made, 'by': by, 'interval_ms': round(sum(float(m.group(2)) for m in gen) / len(gen), 1),
                      'gpu_ms': (min(gpu), max(gpu)) if gpu else None, 'present_ms': (min(present), max(present)), 'held_ms': round(sum(float(m.group(9)) for m in gen) / len(gen), 1)}
+    # per engine: what the display did (refreshes between presents: 0 = two presents in one refresh, the first never seen) and how much slack the presenting thread had
+    eng = {}
+    for i, l in enumerate(s):
+        m = RE_FGGEN.search(l)
+        d = RE_DISPLAY.search(s[i + 1]) if m and i + 1 < len(s) else None
+        if not m or not d:
+            continue
+        name = m.group(5)
+        e = eng.setdefault(name, {'presents': 0, 'zero': 0, 'gaps': [0, 0, 0, 0, 0, 0], 'present_ms': [], 'back_ms': []})
+        g = [int(x) for x in d.groups()[:6]]
+        e['presents'] += sum(g); e['zero'] += g[0]
+        e['gaps'] = [a + b for a, b in zip(e['gaps'], g)]
+        e['present_ms'].append(float(m.group(8)))
+        b = RE_BACK.search(l)
+        if b:
+            e['back_ms'].append(float(b.group(1)))
+    out['by_engine'] = {k: {'presents': v['presents'], 'zero_share': round(v['zero'] / v['presents'], 3) if v['presents'] else 0.0, 'gaps': v['gaps'],
+                            'present_ms': round(sum(v['present_ms']) / len(v['present_ms']), 1), 'back_ms': round(sum(v['back_ms']) / len(v['back_ms']), 1) if v['back_ms'] else None} for k, v in eng.items()}
     stalls = [int(m.group(1)) for m in (RE_STALL.search(l) for l in s) if m]
     out['stalls'] = (len(stalls), max(stalls)) if stalls else (0, 0)
     slow = [int(m.group(1)) for m in (RE_SLOWPIC.search(l) for l in s) if m]
@@ -250,6 +272,8 @@ def cmd_logs(a):
     else:
         print('frame generation: not in this session')
     print('stalls: %d (longest %d ms); slow pictures: %d (worst %d ms)' % (s['stalls'] + s['slow_pictures']))
+    for k, v in sorted(s.get('by_engine', {}).items()):
+        print('by %-22s %5d presents seen, %2.0f%% in the same refresh as the one before (gaps 0/1/2/3: %s), its present %.1f ms%s' % (k, v['presents'], 100 * v['zero_share'], '/'.join(str(x) for x in v['gaps'][:4]), v['present_ms'], ', thread back %.1f ms before the next real frame' % v['back_ms'] if v['back_ms'] is not None else ''))
     for k, label in (('engine_changes', 'engine'), ('cadence', 'cadence'), ('skip', 'repeat skip'), ('recorder', 'recorder'), ('display', 'display')):
         for l in s.get(k, []):
             print('%s: %s' % (label, l))
@@ -932,6 +956,16 @@ def cmd_selftest(a):
               '[23:55:08.913] FSR upscaler: a picture took 55 ms to finish (the graphics card is held up']
     s = summarise_log(sample)
     check('summarise_log fg', s['fg']['real'] == 374 and s['fg']['by'] == {'EchoFG': 260} and s['fg']['gpu_ms'] == (9.4, 9.4))
+    s2 = summarise_log(['[1] FSR3UPSC initialised (host version 0x10200), addon dir x',
+                        '[23:54:53.695] frame generation: 300 real frames 33.0 ms apart, 600 made between (600 by EchoFG, the GPU 9.4 ms each; shown 10.0 ms after the real frame arrives; its present 6.50 ms); Lossless Scaling\'s thread held 30 ms a frame, back 1.5 ms after',
+                        '[23:54:53.696] frame generation: the display showed 800 presents one by one, refreshes after the present before: 0:160 1:440 2:200 3:0 4:0 5+:0; 10 more were not seen one by one'])
+    check('summarise_log display', s2['by_engine'].get('EchoFG', {}).get('zero_share') == 0.2 and s2['by_engine']['EchoFG']['back_ms'] == 1.5)
+    import tempfile
+    b = {'about': 'x', 'synced': '', 'items': [{'id': 'A1', 'title': 'one', 'status': 'next', 'area': 'x'}, {'id': 'A2', 'title': 'two "q"', 'status': 'blocked', 'blocked_on': 'owner (a)', 'area': 'y'}]}
+    check('board_dump', json.loads(board_dump(b)) == b and board_dump(b).count('\n') == 8)
+    page = render_board_html(b, {'t': {'ok': True, 'summary': 'fine'}}, [{'number': 1, 'title': 'issue', 'updatedAt': '2026-01-01'}], 'status', None)
+    check('board html', 'LS Project Manager' in page and 'A2' in page and 'waiting on owner' in page and 'class="mv"' not in page)
+    check('board html live', 'class="mv"' in render_board_html(b, {}, [], '', 'tok') and 'const TOKEN="tok"' in render_board_html(b, {}, [], '', 'tok'))
     check('summarise_log stalls', s['stalls'] == (1, 3172) and s['slow_pictures'] == (1, 55))
     print('selftest: %s' % ('ok' if not fails else '%d failed' % fails))
     return 1 if fails else 0

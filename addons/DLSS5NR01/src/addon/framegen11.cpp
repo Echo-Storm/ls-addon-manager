@@ -53,6 +53,8 @@ struct State {
     bool resetNext = true; std::atomic<bool> guard{ true }, own{ false }; std::atomic<int> multiplier{ 2 }; std::atomic<float> soften{ 0.6f };   // multiplier: frames shown for each real one (more than 2 only with our own synthesis)
     ID3D11Texture2D* more11[OwnSynth::kMaxTargets] = {}; ID3D12Resource* more12[OwnSynth::kMaxTargets] = {};   // the 2nd, 3rd... frame between (the first is out11)
     // what the display did with the presents (DXGI's frame statistics): the refreshes between two consecutive presents, counted, for the log (a steady x2 is all ones)
+    // the display's refresh clock (from the frame statistics): where the last refresh was, the period (smoothed, and how much it varies: a variable refresh rate does not hold still), the slot the last present was put in
+    std::atomic<bool> align{ true }; LARGE_INTEGER vsyncQpc{}, anchorQpc{}; UINT anchorCount = 0; double refreshMs = 0, refreshDev = 1.0; int refreshSamples = 0; long long lastSlot = -1000000;
     UINT lastPresentCount = 0, lastRefreshCount = 0; uint64_t refreshGaps[6] = {}, presentsSeenOnce = 0, presentsSkipped = 0, statsFailed = 0;
     // for the log: how long Lossless Scaling's thread is held here, and how soon after it comes back with the next real frame
     LARGE_INTEGER returned{}; double heldSum = 0, freeSum = 0; uint64_t heldCount = 0, freeCount = 0;
@@ -65,6 +67,16 @@ void Publish() { std::lock_guard<std::mutex> lock(g_statsMutex); g_published = g
 void SampleDisplay(IDXGISwapChain* sc) {
     DXGI_FRAME_STATISTICS fs{};
     if (FAILED(sc->GetFrameStatistics(&fs))) { ++g.statsFailed; return; }
+    if (fs.SyncQPCTime.QuadPart && fs.SyncRefreshCount) {
+        g.vsyncQpc = fs.SyncQPCTime;
+        if (!g.anchorCount) { g.anchorQpc = fs.SyncQPCTime; g.anchorCount = fs.SyncRefreshCount; }
+        else if (fs.SyncRefreshCount >= g.anchorCount + 60) {   // (a period from a long stretch: exact enough)
+            LARGE_INTEGER f; QueryPerformanceFrequency(&f);
+            const double p = (fs.SyncQPCTime.QuadPart - g.anchorQpc.QuadPart) * 1000.0 / f.QuadPart / (fs.SyncRefreshCount - g.anchorCount);
+            if (p > 2.0 && p < 40.0) { g.refreshDev = g.refreshMs > 0 ? 0.7 * g.refreshDev + 0.3 * std::fabs(p - g.refreshMs) / g.refreshMs : 1.0; g.refreshMs = g.refreshMs > 0 ? 0.7 * g.refreshMs + 0.3 * p : p; ++g.refreshSamples; }
+            g.anchorQpc = fs.SyncQPCTime; g.anchorCount = fs.SyncRefreshCount;
+        }
+    }
     if (fs.PresentCount == g.lastPresentCount) return;
     if (g.lastPresentCount) {
         const UINT presents = fs.PresentCount - g.lastPresentCount;
@@ -72,6 +84,20 @@ void SampleDisplay(IDXGISwapChain* sc) {
         else g.presentsSkipped += presents - 1;   // (looked too late to see each one: counted, not timed)
     }
     g.lastPresentCount = fs.PresentCount; g.lastRefreshCount = fs.PresentRefreshCount;
+}
+
+// whether presents can be put one to a refresh: the clock is known and steady (two long stretches agree within 2%)
+bool AlignActive() { return g.align.load() && g.refreshMs > 0 && g.refreshSamples >= 2 && g.refreshDev < 0.02 && g.vsyncQpc.QuadPart; }
+// `due` moved to the middle of the refresh it falls in (the next one, if the one before has a present already): its present then lands in a refresh of its own, with half a refresh to spare either way
+LARGE_INTEGER SnapToRefresh(const LARGE_INTEGER& due) {
+    if (!AlignActive()) return due;
+    LARGE_INTEGER f; QueryPerformanceFrequency(&f);
+    const double period = g.refreshMs * f.QuadPart / 1000.0;
+    long long slot = static_cast<long long>(std::floor((due.QuadPart - g.vsyncQpc.QuadPart) / period));
+    if (slot <= g.lastSlot) slot = g.lastSlot + 1;
+    g.lastSlot = slot;
+    LARGE_INTEGER r; r.QuadPart = g.vsyncQpc.QuadPart + static_cast<LONGLONG>((slot + 0.5) * period);
+    return r;
 }
 
 double Ms(const LARGE_INTEGER& a, const LARGE_INTEGER& b) { LARGE_INTEGER f; QueryPerformanceFrequency(&f); return (b.QuadPart - a.QuadPart) * 1000.0 / f.QuadPart; }
@@ -304,16 +330,18 @@ bool BeforeRealPresent(IDXGISwapChain* sc, UINT sync, UINT flags, uint32_t encod
     g.leadMs = std::min(std::max(work, 0.97 * g.leadMs + 0.03 * work), std::max(0.0, g.intervalMs / (frames + 1) - 1.0));
     LARGE_INTEGER f; QueryPerformanceFrequency(&f);
     auto after = [&](double ms) { LARGE_INTEGER t; t.QuadPart = arrived.QuadPart + static_cast<LONGLONG>(ms * f.QuadPart / 1000.0); return t; };
-    LARGE_INTEGER t0; QueryPerformanceCounter(&t0);
     SampleDisplay(sc);
-    PresentHook::PresentOriginal(sc, sync, flags);   // the frame between goes out now...
+    const LARGE_INTEGER capDue = after(std::max(0.0, g.intervalMs - 1.5));   // (nothing is moved past the next real frame's arrival)
+    if (AlignActive()) { LARGE_INTEGER d = after(g.leadMs); if (d.QuadPart < madeAt.QuadPart) d = madeAt; const LARGE_INTEGER s = SnapToRefresh(d); WaitUntil(s.QuadPart < capDue.QuadPart ? s : capDue); }
+    LARGE_INTEGER t0; QueryPerformanceCounter(&t0);
+    PresentHook::PresentOriginal(sc, sync, flags);   // the frame between goes out now (in a refresh of its own, when the display's refresh is steady)...
     SampleDisplay(sc);
     LARGE_INTEGER t1; QueryPerformanceCounter(&t1);
     ++g.stats.generated; g.stats.generatedMs = 0.9 * g.stats.generatedMs + 0.1 * Ms(t0, t1);
     Publish();
     // ...the others, if a multiplier asked for more, each in the next back buffer at its own time, evenly spaced...
     for (int k = 1; k < frames; ++k) {
-        WaitUntil(after(g.leadMs + k * g.intervalMs / (frames + 1)));
+        { const LARGE_INTEGER s = SnapToRefresh(after(g.leadMs + k * g.intervalMs / (frames + 1))); WaitUntil(s.QuadPart < capDue.QuadPart ? s : capDue); }
         ID3D11Texture2D* nb = nullptr;
         if (FAILED(sc->GetBuffer(0, IID_PPV_ARGS(&nb))) || !nb) break;
         g.ctx->CopyResource(nb, g.more11[k]);
@@ -325,7 +353,7 @@ bool BeforeRealPresent(IDXGISwapChain* sc, UINT sync, UINT flags, uint32_t encod
         ++g.stats.generated;
     }
     // ...and the real frame after them, back in the swap chain's next back buffer
-    WaitUntil(after(g.leadMs + frames * g.intervalMs / (frames + 1)));
+    { const LARGE_INTEGER s = SnapToRefresh(after(g.leadMs + frames * g.intervalMs / (frames + 1))); WaitUntil(s.QuadPart < capDue.QuadPart ? s : capDue); }
     if (log && Ms(g.saidAt, t1) >= 10000.0) {   // what it did, now and then
         if (g.saidAt.QuadPart) {
             char m[360];
@@ -342,6 +370,10 @@ bool BeforeRealPresent(IDXGISwapChain* sc, UINT sync, UINT flags, uint32_t encod
                          static_cast<unsigned long long>(g.refreshGaps[3]), static_cast<unsigned long long>(g.refreshGaps[4]), static_cast<unsigned long long>(g.refreshGaps[5]), static_cast<unsigned long long>(g.presentsSkipped),
                          g.statsFailed ? " (the statistics were refused at times)" : "");
                 log(d);
+                char al[200];
+                if (AlignActive()) snprintf(al, sizeof al, "frame generation: the presents are put one to a refresh of the display (a steady %.2f Hz refresh)", 1000.0 / g.refreshMs);
+                else snprintf(al, sizeof al, "frame generation: the presents are not aligned to the display's refresh (%s)", !g.align.load() ? "switched off" : g.refreshMs <= 0 ? "its rate is not known yet" : g.refreshDev >= 0.02 ? "the refresh is not steady: a variable refresh rate?" : "not enough statistics yet");
+                log(al);
             }
             memset(g.refreshGaps, 0, sizeof g.refreshGaps); g.presentsSeenOnce = g.presentsSkipped = g.statsFailed = 0;
         }
@@ -358,6 +390,7 @@ bool BeforeRealPresent(IDXGISwapChain* sc, UINT sync, UINT flags, uint32_t encod
 }
 
 void SetRuntime(const std::wstring& dll) { std::lock_guard<std::mutex> lock(g_mutex); g.runtime = dll; }
+void SetAlign(bool on) { g.align = on; }
 void SetGuard(bool on) { g.guard = on; }   // (no lock: the presenter holds its own through its waits)
 void SetOwn(bool on) { g.own = on; }
 void SetSoften(float amount) { g.soften = std::clamp(amount, 0.0f, 1.0f); }

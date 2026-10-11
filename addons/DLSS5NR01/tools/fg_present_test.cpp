@@ -18,6 +18,7 @@
 //                [tearing=1]    the swap chain allows tearing, and a Present with sync=0 asks for it ("Off (allow tearing)")
 //                [latency=N]    a waitable swap chain with maximum frame latency N: the thread waits on it before each frame (Lossless Scaling's "Max frame latency")
 //                [buffers=N]    the number of back buffers (2..6, default 3)
+//                [align=0|1]    the presenter's "one present to a refresh" (default 1); the 10 second log line says what the display did with the presents (needs frames long enough: fps=30 frames=400)
 //                [size=2|4]     the picture 1920x1080 or 3840x2160 instead of 960x540
 //               It then prints how long each Present call took (the real frame's includes the presenter's work and its waits; the made frames' alone) and the display's present count.
 // Needs a build made with NR_FRAMEGEN=ON only for the addon itself; this tool links the presenter directly, so it runs in any build.
@@ -157,7 +158,7 @@ int main(int argc, char** argv) {
     ID3D11Buffer* cb = nullptr; g_dev->CreateBuffer(&bd, nullptr, &cb);
 
     if (!PresentHook::Install(g_dev, OnHook, Log)) { printf("the Present hook could not be installed\n"); return 2; }
-    nr::framegen::SetRuntime(fsr); nr::framegen::SetOwn(own); nr::framegen::SetMultiplier(mult);
+    nr::framegen::SetRuntime(fsr); nr::framegen::SetOwn(own); nr::framegen::SetMultiplier(mult); nr::framegen::SetAlign(Arg(argc, argv, "align", 1) != 0);
 
     const double intervalMs = 1000.0 / fps, x0 = 120.0;
     LARGE_INTEGER freq, start; QueryPerformanceFrequency(&freq); QueryPerformanceCounter(&start);
