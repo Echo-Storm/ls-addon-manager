@@ -1,4 +1,4 @@
-# Drafts for the open issues (2026-10-09). Not posted: read, change, then post.
+# Replies to the open issues (drafted 2026-10-09). ALL POSTED on 2026-10-11 at the owner's go-ahead (#11, #14, #16, #18, #19); kept as the record of what was said.
 
 ## #19 DLSS Upscaling Low Perf? (dual GPU, 5070 shows the picture, 5080 renders, 2.5k1k -> 5k2k)
 
