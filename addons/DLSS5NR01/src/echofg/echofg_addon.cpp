@@ -167,7 +167,7 @@ void OnPresent(IDXGISwapChain* sc, UINT sync, UINT flags) {
     (void)recorderLogSet;
     g_recorder.Configure(g_recordOn, g_recordSeconds, static_cast<uint32_t>(g_recordBudgetMb.load()));
     nr::framegen::ShownFn shown;   // every frame presented, the frames between and the real ones, tagged; the middle 1920x1080 only (4K HDR frames in full are more than the card can copy)
-    if (g_recordOn) shown = [](ID3D11DeviceContext* ctx, ID3D11Texture2D* frame, bool made) { g_recorder.Offer(ctx, frame, lsrec::kPresented, 0, made ? lsrec::kMadeBetween : lsrec::kReal, 1920, 1080); };
+    if (g_recordOn) shown = [](ID3D11DeviceContext* ctx, ID3D11Texture2D* frame, bool made) { g_recorder.Offer(ctx, frame, nr::lsrec::kPresented, 0, made ? nr::lsrec::kMadeBetween : nr::lsrec::kReal, 1920, 1080); };
     g_wasOn = true;
     nr::framegen::BeforeRealPresent(sc, sync, flags, encoding, white, [](const char* m) { Log("%s", m); }, shown);
 }
