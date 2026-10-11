@@ -31,8 +31,6 @@ public:
     }
     ID3D12Resource* OpenSharedTexture(HANDLE h);
     ID3D12Fence* OpenSharedFence(HANDLE h);
-    // Touches the shared frames once on the engine's queue (a copy into and out of them), so the first frame's hand-over does not pay for it (a third of a second at 4K). Start-up thread only, before frames are made.
-    bool Warm(ID3D12Resource* in, ID3D12Resource* const* outs, int count);
     // Frame n is in `in` once `copied` reaches n. Queues the making of the frame between frame n - 1 and n into `out` (COMMON, shared) and
     // the signal made = madeValue after it, and returns at once: true when a frame between is on its way (wait for `made` on the GPU before
     // reading `out`); false when there is none this time (the first frame, a reset, an error: `made` is still signalled, `out` untouched).
