@@ -312,6 +312,7 @@ int FgEngine::GenerateFrames(ID3D12Resource* in, ID3D12Fence* copied, uint64_t n
     // the frame's motion (the estimate keeps the frame before), then FSR's preparation and its frame between, on this list
     Barrier(in, D3D12_RESOURCE_STATE_COMMON, D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE);
     const double beforeEstimator = sinceMs();
+    double beforeSynth = 0.0, afterSynth = 0.0;
     m_estimator.Record(m_list, slot, in, m_fmt, m_motion, m_distrust, 0.0f, encoding, whiteNits);
     const double afterEstimator = sinceMs();
     Barrier(m_motion, D3D12_RESOURCE_STATE_UNORDERED_ACCESS, D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE);
@@ -342,10 +343,9 @@ int FgEngine::GenerateFrames(ID3D12Resource* in, ID3D12Fence* copied, uint64_t n
             }
             if (ok) {
                 Barrier(m_before, D3D12_RESOURCE_STATE_COPY_DEST, D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE);
-                const double beforeSynth = sinceMs();
+                beforeSynth = sinceMs();
                 ok = m_synth.Record(m_list, slot, m_before, StorageFormat(m_fmt), in, m_fmt, m_motion, StorageFormat(m_fmt), targets, ownCount, encoding, whiteNits, m_soften.load());
-                static int slowSaid = 0;   // a frame that took long on the presenting thread, and where: the first frame at 4K takes a third of a second
-                if (sinceMs() > 40.0 && slowSaid < 4) { ++slowSaid; Log("frame generation engine: a slow frame (%.0f ms): before the motion %.0f, the motion's commands %.0f, between %.0f, EchoFG's commands %.0f", sinceMs(), beforeEstimator, afterEstimator - beforeEstimator, beforeSynth - afterEstimator, sinceMs() - beforeSynth); }
+                afterSynth = sinceMs();
                 Barrier(m_before, D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE, D3D12_RESOURCE_STATE_COPY_DEST);
             }
         } else ok = false;
@@ -425,8 +425,12 @@ int FgEngine::GenerateFrames(ID3D12Resource* in, ID3D12Fence* copied, uint64_t n
         if (m_stampReadback) m_list->ResolveQueryData(m_stamps, D3D12_QUERY_TYPE_TIMESTAMP, static_cast<UINT>(slot * 2), 2, m_stampReadback, static_cast<UINT64>(slot) * 16);
     }
     m_list->Close();
+    const double beforeExecute = sinceMs();
     m_queue->Wait(copied, n);   // Lossless Scaling's copy of the frame first
     ID3D12CommandList* l[] = { m_list }; m_queue->ExecuteCommandLists(1, l);
+    const double total = sinceMs();
+    static int slowSaid = 0;   // a frame that took long on the presenting thread, and where (the first frame at 4K took a third of a second)
+    if (total > 40.0 && slowSaid < 4) { ++slowSaid; Log("frame generation engine: a slow frame (%.0f ms): before the motion %.0f, the motion's commands %.0f, EchoFG's commands %.0f, closing %.0f, handing to the GPU %.0f", total, beforeEstimator, afterEstimator - beforeEstimator, afterSynth > 0.0 ? afterSynth - beforeSynth : 0.0, beforeExecute - std::max(afterSynth, afterEstimator), total - beforeExecute); }
     m_queue->Signal(made, madeValue);
     m_queue->Signal(m_fence, ++m_fenceValue);
     m_slotValue[slot] = m_fenceValue; m_slotRead[slot] = false;
