@@ -6,7 +6,7 @@ of the 0.9.8 session are in `scripts/`. **Read `handoff/BOARD.md` first (every o
 
 ## State (2026-10-09)
 
-- **The latest release is 0.9.38** (check `gh release list`, not the changelog). **Nothing since is pushed or released**: local `main` (and the branch `claude/infallible-diffie-3f06ab`, the same
+- **The latest release is 0.10.0** (2026-10-11; check `gh release list`, not the changelog). **Nothing since is pushed or released**: local `main` (and the branch `claude/infallible-diffie-3f06ab`, the same
   commits) holds a large unreleased body of work, all in CHANGELOG.md "Unreleased" and listed with its test steps in [release-next.md](release-next.md). The owner has said it is not time to release
   (the version number is not decided either) and will test a build first; push, tag or release only when asked.
 - **What is in it** (the headline items; the changelog has the rest): the update flow (close Lossless Scaling and install, a header badge, a daily quiet-time check), the repeat skip (pictures exactly
