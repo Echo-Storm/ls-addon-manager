@@ -4,11 +4,11 @@ Everything needed to continue on another machine, without the old conversation. 
 of the 0.9.8 session are in `scripts/`. **Read `handoff/BOARD.md` first (every open item, what it waits on; `python tools/dev.py serve` shows it as a page, `python tools/dev.py find`/`map` search the code cheaply), then, in this order: this file, [release-next.md](release-next.md) (what is unreleased and how to test it), [BACKLOG.md](BACKLOG.md)
 (all open work), and `docs/own-generator-plan.md` if the work is frame generation.**
 
-## State (2026-10-09)
+## State (2026-10-11)
 
-- **The latest release is 0.10.0** (2026-10-11; check `gh release list`, not the changelog). **Nothing since is pushed or released**: local `main` (and the branch `claude/infallible-diffie-3f06ab`, the same
-  commits) holds a large unreleased body of work, all in CHANGELOG.md "Unreleased" and listed with its test steps in [release-next.md](release-next.md). The owner has said it is not time to release
-  (the version number is not decided either) and will test a build first; push, tag or release only when asked.
+- **The latest release is 0.10.0** (2026-10-11, tag v0.10.0 at 483f1f4; check `gh release list`, not the changelog). Everything that was "Unreleased" is in it. **After it, only local `main` has commits** (not pushed):
+  tooling (`tools/dev.py`, the board), EchoFG as the `ECHOFG` addon (test builds only), the new defaults test. Push, tag or release only when asked. EchoFG and VSR are work in progress (`wip` in their addon.json: listed, greyed out,
+  not packaged); a test build is made with `python tools/dev.py build --fg` and `deploy --fg` (the deployed ECHOFG addon.json is unlocked for it).
 - **What is in it** (the headline items; the changelog has the rest): the update flow (close Lossless Scaling and install, a header badge, a daily quiet-time check), the repeat skip (pictures exactly
   like the one before are not upscaled again), the lighter-upscaling auto option, the source-cadence note (a 30 fps game seen at 60 or 120 Hz), and many fixes from three independent reviews.
 - **Frame generation of our own, named EchoFG** (a prototype: CMake `NR_FRAMEGEN=OFF` in every release, off by default in a test build): our own shaders now make the frames between (`addons/DLSS5NR01/src/engine/own_synth.*`),
