@@ -449,7 +449,7 @@ def cmd_deploy(a):
     bad = [l for l in text.splitlines() if re.search(r'COULD NOT|not built|refus|running', l)]
     say('ok' if rc == 0 and not bad else 'FAIL', 'deploy all', '%d files%s' % (len(re.findall(r'^\[', text, re.M)), '' if not bad else ': ' + bad[0][:120]))
     if a.fg and rc == 0:
-        rc2, text2, _ = ps(ROOT / 'tools' / 'deploy.ps1', '-What', 'echofg', '-BuildDir', 'build_fg', '-LsDir', c['ls_dir'], timeout=600, tag='deploy_fg')
+        rc2, text2, _ = ps(ROOT / 'tools' / 'deploy.ps1', '-What', 'echofg', '-BuildDir', 'build_fg', '-UnlockWip', '-LsDir', c['ls_dir'], timeout=600, tag='deploy_fg')
         d = Path(c['ls_dir']) / 'addons' / 'ECHOFG' / 'ECHOFG.dll'; s = Path(c['bin_fg']) / 'ECHOFG.dll'
         same = d.exists() and s.exists() and same_file(d, s)
         say('ok' if rc2 == 0 and same else 'FAIL', 'deploy EchoFG build', 'ECHOFG.dll %s' % ('matches build_fg' if same else 'DOES NOT match'))

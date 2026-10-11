@@ -8,6 +8,7 @@
 param(
     [Parameter(Mandatory = $true)][ValidateSet('host', 'nr', 'dlaa', 'fsr', 'xess', 'vsr', 'echofg', 'upscalers', 'all')][string]$What,
     [switch]$StopLS,
+    [switch]$UnlockWip,       # a test build: the deployed addon.json of a work-in-progress addon (EchoFG, VSR) says wip: false, so that the manager lets it be switched on (the repository's file stays as it is)
     [switch]$LiftConflicts,   # with the upscalers: empties "conflicts" in the deployed addon.json files, so that DLSS, FSR, XeSS and VSR can all be switched on for the comparison (Ctrl+Shift+F9)
     [string]$LsDir = $(if ($env:LS_DIR) { $env:LS_DIR } else { 'C:\Program Files (x86)\Steam\steamapps\common\Lossless Scaling' }),
     [string]$Game = 'WowB',
@@ -92,6 +93,10 @@ foreach ($n in $names) {
             exit 4
         }
         Write-Host "[$n] $($f.Dst)"
+    }
+    if ($UnlockWip -and ($n -eq 'echofg' -or $n -eq 'vsr')) {   # a test build: the copy in the Lossless Scaling folder may be switched on
+        $manifest = Join-Path (Split-Path $it.Dst) 'addon.json'
+        if (Test-Path $manifest) { (Get-Content $manifest -Raw) -replace '"wip"\s*:\s*true', '"wip": false' | Set-Content $manifest -NoNewline -Encoding UTF8; Write-Host "[$n] $manifest: wip off (a test build)" }
     }
 }
 # ReShade passthrough and Windowed mode are built into the manager now. If the old standalone addon folders are still in addons\, move them
