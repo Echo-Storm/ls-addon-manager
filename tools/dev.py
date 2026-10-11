@@ -233,7 +233,7 @@ def cmd_status(a):
         tags = git('tag', '--sort=-v:refname').splitlines(); print('release  %s (latest local tag; gh not available)' % (tags[0] if tags else '?'))
     # the builds against the sources
     # (the builds are the main checkout's: older than its last commit that touched the sources, or than uncommitted source changes there)
-    ct = git('log', '-1', '--format=%ct', '--', 'addons/DLSS5NR01/src', 'manager/src', 'addons/DLSS5NR01/CMakeLists.txt', where=MAIN)
+    ct = git('log', '-1', '--format=%ct', '--', 'addons/DLSS5NR01/src', 'manager/src', 'addons/DLSS5NR01/CMakeLists.txt', ':!addons/DLSS5NR01/src/echofg', ':!addons/DLSS5NR01/src/addon/framegen11.*', ':!addons/DLSS5NR01/src/engine/fg_engine.*', ':!addons/DLSS5NR01/src/engine/own_synth.*', where=MAIN)   # (the EchoFG addon has its own build)
     newest = float(ct) if ct else 0
     dirty = [l[3:] for l in git('status', '--short', '--', 'addons/DLSS5NR01/src', 'manager/src', where=MAIN).splitlines()]
     newest = max([newest] + [os.path.getmtime(MAIN / d) for d in dirty if (MAIN / d).exists()])
