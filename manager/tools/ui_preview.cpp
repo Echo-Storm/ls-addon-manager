@@ -254,6 +254,15 @@ int main(int argc, char** argv) {
             ImGui::PushStyleColor(ImGuiCol_Separator, eam::ui::theme::V(eam::ui::theme::kBorder)); ImGui::Separator(); ImGui::PopStyleColor();
             ImGui::Dummy(ImVec2(0, S(4)));
             for (int i = 0; i < 4; ++i) { widgets::AddonCard(*list[i], i, i == selected); ImGui::Dummy(ImVec2(0, S(1))); }
+            {   // work in progress, as the manager lists them: greyed out, with a WIP tag, and no switch that works (EAM_PREVIEW_WIP=1)
+                static AddonInfo wip1, wip2;
+                if (env("EAM_PREVIEW_WIP") == "1") {
+                    wip1.id = "ECHOFG"; wip1.manifest.name = "EchoFG frame generation (prototype)"; wip1.manifest.version = EAM_VERSION_STRING; wip1.manifest.author = "Echo-Storm"; wip1.manifest.wip = true; wip1.enabled = false;
+                    wip2.id = "VSRUPSC"; wip2.manifest.name = "Video Super Resolution (prototype)"; wip2.manifest.version = EAM_VERSION_STRING; wip2.manifest.author = "Echo-Storm"; wip2.manifest.wip = true; wip2.enabled = false;
+                    widgets::AddonCard(wip1, 4, false); ImGui::Dummy(ImVec2(0, S(1)));
+                    widgets::AddonCard(wip2, 5, false); ImGui::Dummy(ImVec2(0, S(1)));
+                }
+            }
             {   // as tab_addons.cpp: the runtimes at the bottom of the list
                 std::vector<RuntimeFile> rows = RuntimeFiles({ a, b, c, d }, lsDir);   // the addons as the scene has them now (on or off)
                 for (RuntimeFile& r : rows) r.loaded = r.addonOn && r.exists && r.addonId == "DLSS5NR01";   // the preview loads none: one running, one waiting, one off
@@ -306,8 +315,13 @@ int main(int argc, char** argv) {
             ImGui::EndChild();
         });
     };
-    shot.Frame([&] { addonsTab(0); }, 12);
-    shot.Save((out + "/preview_addons.bmp").c_str());
+    {   // the header badge of a waiting update shows in the picture of the window (EAM_PREVIEW_WIP=1 also: the main picture of the README)
+        update::Status st;
+        if (env("EAM_PREVIEW_WIP") == "1") { st.state = update::State::Available; st.current = EAM_VERSION_STRING; st.latest = "0.11.0"; st.checkedAt = 1; st.zipUrl = "x"; update::SetStatusForTest(st); }
+        shot.Frame([&] { addonsTab(0); }, 12);
+        shot.Save((out + "/preview_addons.bmp").c_str());
+        update::SetStatusForTest(update::Status());
+    }
     shot.Frame([&] { addonsTab(2); }, 12);
     shot.Save((out + "/preview_upscaler.bmp").c_str());
 
