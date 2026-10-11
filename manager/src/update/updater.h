@@ -32,6 +32,7 @@ void StartDownload(const Status& available);   // Available with a zip; one alre
 void CancelDownload();
 Progress CurrentProgress();
 void ForgetDownload();                         // back to Idle (after a failure, or when the person closes the offer)
+void SetProgressForTest(const Progress& p);    // the UI preview: the offer as it looks in a phase of the download (nothing is downloaded)
 
 // Starts the checked Setup on the Lossless Scaling folder; false with the reason if it could not be started.
 bool StartSetup(const std::wstring& lsDir, std::string& error);

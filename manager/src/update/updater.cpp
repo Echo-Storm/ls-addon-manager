@@ -221,6 +221,8 @@ void ForgetDownload() {
     if (!g_busy) g_progress = Progress{};
 }
 
+void SetProgressForTest(const Progress& p) { std::lock_guard<std::mutex> lk(g_mu); g_progress = p; }
+
 bool StartSetup(const std::wstring& lsDir, std::string& error) {
     Progress p;
     { std::lock_guard<std::mutex> lk(g_mu); p = g_progress; }
