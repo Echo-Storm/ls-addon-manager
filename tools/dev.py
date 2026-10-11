@@ -52,6 +52,8 @@ DEFAULTS = {
         {'name': 'calm2', 'file': 'shf-win64-shipping_2026-09-27_04-15-29.lsrec'},
         {'name': 'wow4k-a', 'file': 'wowb_2026-09-27_23-54-07.lsrec', 'first': 20},
         {'name': 'wow4k-b', 'file': 'wowb_2026-09-27_23-54-14.lsrec', 'first': 20},
+        {'name': 'sr2-a', 'file': 'Lossless Scaling_2026-10-11_02-32-14.lsrec'},   # the owner's Saints Row 2, fast camera pans (60-260 px a frame at 46 fps, 1080p middle of the 4K picture)
+        {'name': 'sr2-b', 'file': 'Lossless Scaling_2026-10-11_02-32-36.lsrec'},
     ],
 }
 
