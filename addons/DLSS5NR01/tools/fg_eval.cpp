@@ -624,11 +624,13 @@ int main(int argc, char** argv) {
       // which is exactly what the engine was given live
       const bool realOnly = Arg(argc, argv, "realonly", 0) != 0;
       int kept = 0;
-      for (int i = 0; first + i < static_cast<int>(rec.Count()) && kept < count; ++i) {
-          if (realOnly && rec.FrameInfo(first + i).tag == nr::lsrec::kMadeBetween) continue;
-          if (!rec.Read(first + i, px) || !ToRgba8(h, px, frames[kept])) { printf("frame %d could not be read or converted (format %u)\n", first + i, h.format); return 3; }
+      // step=N: every Nth recorded frame only (the motion between kept frames N times as big: a fast turn at a low frame rate)
+      const int step = std::max(1, Arg(argc, argv, "step", 1));
+      for (int i = 0; first + i * step < static_cast<int>(rec.Count()) && kept < count; ++i) {
+          if (realOnly && rec.FrameInfo(first + i * step).tag == nr::lsrec::kMadeBetween) continue;
+          if (!rec.Read(first + i * step, px) || !ToRgba8(h, px, frames[kept])) { printf("frame %d could not be read or converted (format %u)\n", first + i, h.format); return 3; }
           if (ownHdr) raws[kept] = px;
-          times[kept] = h.qpcFrequency ? rec.FrameInfo(first + i).qpc * 1000.0 / static_cast<double>(h.qpcFrequency) : i * 16.7;   // ms
+          times[kept] = h.qpcFrequency ? rec.FrameInfo(first + i * step).qpc * 1000.0 / static_cast<double>(h.qpcFrequency) : i * 16.7;   // ms
           ++kept;
       }
       if (kept < count) { frames.resize(kept); times.resize(kept); count = kept; }
