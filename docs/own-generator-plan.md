@@ -142,6 +142,26 @@ The idea: the area just uncovered in the frame between may be visible in the fra
 - **The motion prior from the pair before changes nothing** (it wins at 0.2 to 1 % of the pixels, and loses a hair of score: -0.03 to -0.07 dB).
 - **The older frame's picture is worth little even with a perfect choice**: an extra candidate raises a per-pixel oracle by itself (the control: +0.3 to +0.5 dB); a0 adds only 0.13 to 0.44 dB beyond that, in the *oracle*; a real selection rule would get a fraction of it. Against a third frame's cost (another frame kept, another copy a frame, the estimator's older motion kept too) it does not pay.
 - **Verdict: not built.** The remaining gap to the oracle is not content hidden in the two frames we have and visible in an older one; it is fine texture and hidden content in both. A better flow or a learned method are what is left.
+### Fast motion at a low frame rate (2026-10-11, after the owner's first live test: "fast motion really bad, tearing and glitches")
+
+The owner's Saints Row 2 test (a native 30 fps game, 3840x2160 HDR, EchoFG x2) had torn-looking frames in fast camera motion. `nr_fgeval step=N` keeps every Nth recorded frame, so the motion between the kept frames is N times as big (a fast turn at 30 fps). Mean score of the rebuilt frames (dB), same clips:
+
+| clip | motion | FSR 3.1 | EchoFG | blend |
+|---|---|---|---|---|
+| fast s1 | x1 | 25.29 | 25.19 | 21.70 |
+| | x2 | 21.69 | 21.69 | 19.79 |
+| | x3 | 20.08 | 20.21 | 19.10 |
+| | x4 | 17.70 | 19.18 | 18.37 |
+| calm s3 | x1 | 30.21 | 30.25 | 26.55 |
+| | x4 | 24.85 | 25.16 | 24.65 |
+
+- **At three to four times the motion of my fastest clips both generators are no better than a plain blend**, and FSR falls below it: that regime (180 px between frames at 2560 wide, 7 % of the width) is a fast turn at 30 fps. The picture (`docs/images/echofg-vs-fsr-4x-motion.jpg`: the real frame, EchoFG, FSR 3.1, the same frame) shows both breaking, FSR worse (the character smeared and torn), EchoFG with blocky patches on the periodic wooden wall, flecks in the hair and fragmented leaves.
+- **So the tearing was probably not EchoFG alone**: the same wrong motion breaks FSR's frames more. It is the case a generator should degrade gracefully in, and ours does so only a little.
+- **Softening where the motion is doubtful** (a setting, "Soften where the motion is doubtful", 0.6 by default: the frame leans toward the plain mix of the two real frames where the moved pair disagrees, up to 80 % times the setting): +0.1 dB at normal motion, +0.2 to +0.25 dB at 3 to 4x. It does **not** remove the blocky wall patches: those cells' vectors are wrong but the moved pair agrees (a periodic texture: the aperture problem), so nothing flags them as doubtful.
+- **Next**: the real frames from the owner's own session ("Record what is shown", then Ctrl+Shift+F1 within a few seconds of a glitch: his log said the recorder was armed but nothing was saved); then what to try for the periodic-texture cells (the vector field checked against its neighbours before the synthesis; a motion limit that blends outright when the average vector is a large part of the picture's width).
+
+## The plan
+
 Not a rewrite of FSR's job in one go; stages, each measured offline against `nr_fgeval`'s FSR number (30.4 dB on Silent Hill f) and then judged by eye live against LSFG (the only judge of "better than LSFG"):
 
 1. **Our estimator's flow into the lab** (`nr_fgeval` can write it; the lab reads it): test synthesis ideas on motion that is already good, instead of block matching. This isolates the synthesis question.
