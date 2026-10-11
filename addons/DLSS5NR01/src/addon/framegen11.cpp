@@ -54,7 +54,7 @@ struct State {
     ID3D11Texture2D* more11[OwnSynth::kMaxTargets] = {}; ID3D12Resource* more12[OwnSynth::kMaxTargets] = {};   // the 2nd, 3rd... frame between (the first is out11)
     // what the display did with the presents (DXGI's frame statistics): the refreshes between two consecutive presents, counted, for the log (a steady x2 is all ones)
     // the display's refresh clock (from the frame statistics): where the last refresh was, the period (smoothed, and how much it varies: a variable refresh rate does not hold still), the slot the last present was put in
-    std::atomic<bool> align{ true }; LARGE_INTEGER vsyncQpc{}, anchorQpc{}; UINT anchorCount = 0; double refreshMs = 0, refreshDev = 1.0; int refreshSamples = 0; long long lastSlot = -1000000;
+    std::atomic<bool> align{ true }; LARGE_INTEGER vsyncQpc{}, anchorQpc{}; UINT vsyncCount = 0, anchorCount = 0; double refreshMs = 0, refreshDev = 1.0; int refreshSamples = 0; long long lastSlot = -1000000;
     UINT lastPresentCount = 0, lastRefreshCount = 0; uint64_t refreshGaps[6] = {}, presentsSeenOnce = 0, presentsSkipped = 0, statsFailed = 0;
     // for the log: how long Lossless Scaling's thread is held here, and how soon after it comes back with the next real frame
     LARGE_INTEGER returned{}; double heldSum = 0, freeSum = 0; uint64_t heldCount = 0, freeCount = 0;
@@ -68,7 +68,7 @@ void SampleDisplay(IDXGISwapChain* sc) {
     DXGI_FRAME_STATISTICS fs{};
     if (FAILED(sc->GetFrameStatistics(&fs))) { ++g.statsFailed; return; }
     if (fs.SyncQPCTime.QuadPart && fs.SyncRefreshCount) {
-        g.vsyncQpc = fs.SyncQPCTime;
+        g.vsyncQpc = fs.SyncQPCTime; g.vsyncCount = fs.SyncRefreshCount;
         if (!g.anchorCount) { g.anchorQpc = fs.SyncQPCTime; g.anchorCount = fs.SyncRefreshCount; }
         else if (fs.SyncRefreshCount >= g.anchorCount + 60) {   // (a period from a long stretch: exact enough)
             LARGE_INTEGER f; QueryPerformanceFrequency(&f);
@@ -93,10 +93,11 @@ LARGE_INTEGER SnapToRefresh(const LARGE_INTEGER& due) {
     if (!AlignActive()) return due;
     LARGE_INTEGER f; QueryPerformanceFrequency(&f);
     const double period = g.refreshMs * f.QuadPart / 1000.0;
-    long long slot = static_cast<long long>(std::floor((due.QuadPart - g.vsyncQpc.QuadPart) / period));
+    const long long ahead = static_cast<long long>(std::floor((due.QuadPart - g.vsyncQpc.QuadPart) / period));   // refreshes after the last one seen
+    long long slot = static_cast<long long>(g.vsyncCount) + ahead;   // (counted from the display's own refresh count: the same slot is the same number whenever it is asked)
     if (slot <= g.lastSlot) slot = g.lastSlot + 1;
     g.lastSlot = slot;
-    LARGE_INTEGER r; r.QuadPart = g.vsyncQpc.QuadPart + static_cast<LONGLONG>((slot + 0.5) * period);
+    LARGE_INTEGER r; r.QuadPart = g.vsyncQpc.QuadPart + static_cast<LONGLONG>((static_cast<double>(slot - static_cast<long long>(g.vsyncCount)) + 0.5) * period);
     return r;
 }
 
