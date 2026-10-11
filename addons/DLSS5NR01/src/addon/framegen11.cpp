@@ -52,12 +52,27 @@ struct State {
     ID3D11DeviceContext4* ctx4 = nullptr;
     bool resetNext = true; std::atomic<bool> guard{ true }, own{ false }; std::atomic<int> multiplier{ 2 }; std::atomic<float> soften{ 0.6f };   // multiplier: frames shown for each real one (more than 2 only with our own synthesis)
     ID3D11Texture2D* more11[OwnSynth::kMaxTargets] = {}; ID3D12Resource* more12[OwnSynth::kMaxTargets] = {};   // the 2nd, 3rd... frame between (the first is out11)
+    // what the display did with the presents (DXGI's frame statistics): the refreshes between two consecutive presents, counted, for the log (a steady x2 is all ones)
+    UINT lastPresentCount = 0, lastRefreshCount = 0; uint64_t refreshGaps[6] = {}, presentsSeenOnce = 0, presentsSkipped = 0, statsFailed = 0;
     // for the log: how long Lossless Scaling's thread is held here, and how soon after it comes back with the next real frame
     LARGE_INTEGER returned{}; double heldSum = 0, freeSum = 0; uint64_t heldCount = 0, freeCount = 0;
 } g;
 std::mutex g_mutex;                 // the presenter's state: held through a call of BeforeRealPresent (its waits included)
 std::mutex g_statsMutex; Stats g_published;   // what the panel reads: a copy made at two points of each call, under a lock of its own
 void Publish() { std::lock_guard<std::mutex> lock(g_statsMutex); g_published = g.stats; }
+
+// What the display has shown so far: when a present has come on screen since the last look, how many refreshes after the one before. (Windowed flip-model swap chains report this too.)
+void SampleDisplay(IDXGISwapChain* sc) {
+    DXGI_FRAME_STATISTICS fs{};
+    if (FAILED(sc->GetFrameStatistics(&fs))) { ++g.statsFailed; return; }
+    if (fs.PresentCount == g.lastPresentCount) return;
+    if (g.lastPresentCount) {
+        const UINT presents = fs.PresentCount - g.lastPresentCount;
+        if (presents == 1) { const UINT gap = fs.PresentRefreshCount - g.lastRefreshCount; ++g.refreshGaps[std::min<UINT>(gap, 5)]; ++g.presentsSeenOnce; }
+        else g.presentsSkipped += presents - 1;   // (looked too late to see each one: counted, not timed)
+    }
+    g.lastPresentCount = fs.PresentCount; g.lastRefreshCount = fs.PresentRefreshCount;
+}
 
 double Ms(const LARGE_INTEGER& a, const LARGE_INTEGER& b) { LARGE_INTEGER f; QueryPerformanceFrequency(&f); return (b.QuadPart - a.QuadPart) * 1000.0 / f.QuadPart; }
 
@@ -286,7 +301,9 @@ bool BeforeRealPresent(IDXGISwapChain* sc, UINT sync, UINT flags, uint32_t encod
     LARGE_INTEGER f; QueryPerformanceFrequency(&f);
     auto after = [&](double ms) { LARGE_INTEGER t; t.QuadPart = arrived.QuadPart + static_cast<LONGLONG>(ms * f.QuadPart / 1000.0); return t; };
     LARGE_INTEGER t0; QueryPerformanceCounter(&t0);
+    SampleDisplay(sc);
     PresentHook::PresentOriginal(sc, sync, flags);   // the frame between goes out now...
+    SampleDisplay(sc);
     LARGE_INTEGER t1; QueryPerformanceCounter(&t1);
     ++g.stats.generated; g.stats.generatedMs = 0.9 * g.stats.generatedMs + 0.1 * Ms(t0, t1);
     Publish();
@@ -298,7 +315,9 @@ bool BeforeRealPresent(IDXGISwapChain* sc, UINT sync, UINT flags, uint32_t encod
         g.ctx->CopyResource(nb, g.more11[k]);
         if (shown) shown(g.ctx, nb, true);
         nb->Release();
+        SampleDisplay(sc);
         PresentHook::PresentOriginal(sc, sync, flags);
+        SampleDisplay(sc);
         ++g.stats.generated;
     }
     // ...and the real frame after them, back in the swap chain's next back buffer
@@ -312,6 +331,15 @@ bool BeforeRealPresent(IDXGISwapChain* sc, UINT sync, UINT flags, uint32_t encod
                      static_cast<unsigned long long>(g.stats.byFsr - g.said.byFsr), g.stats.engine.c_str(), g.stats.fsrMs, g.leadMs, g.stats.generatedMs,
                      g.heldCount ? g.heldSum / g.heldCount : 0.0, g.freeCount ? g.freeSum / g.freeCount : 0.0);
             log(m);
+            if (g.presentsSeenOnce + g.presentsSkipped > 0) {   // the display's side: refreshes between consecutive presents (0 = shown within the same refresh, a tear or a replaced frame; 1 = every refresh)
+                char d[300];
+                snprintf(d, sizeof d, "frame generation: the display showed %llu presents one by one, refreshes after the present before: 0:%llu 1:%llu 2:%llu 3:%llu 4:%llu 5+:%llu; %llu more were not seen one by one%s",
+                         static_cast<unsigned long long>(g.presentsSeenOnce), static_cast<unsigned long long>(g.refreshGaps[0]), static_cast<unsigned long long>(g.refreshGaps[1]), static_cast<unsigned long long>(g.refreshGaps[2]),
+                         static_cast<unsigned long long>(g.refreshGaps[3]), static_cast<unsigned long long>(g.refreshGaps[4]), static_cast<unsigned long long>(g.refreshGaps[5]), static_cast<unsigned long long>(g.presentsSkipped),
+                         g.statsFailed ? " (the statistics were refused at times)" : "");
+                log(d);
+            }
+            memset(g.refreshGaps, 0, sizeof g.refreshGaps); g.presentsSeenOnce = g.presentsSkipped = g.statsFailed = 0;
         }
         g.saidAt = t1; g.said = g.stats; g.heldSum = g.freeSum = 0; g.heldCount = g.freeCount = 0;
     }
