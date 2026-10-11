@@ -40,7 +40,7 @@ std::wstring g_addonDir;
 nr::Recorder g_recorder;
 
 // the settings, read from the host's config twice a second (the presenting thread reads them every frame: atomics)
-std::atomic<bool> g_enabled{ false }, g_own{ true }, g_align{ true }, g_guard{ true }, g_recordOn{ false }, g_hotkeys{ true };
+std::atomic<bool> g_enabled{ true }, g_own{ true }, g_align{ true }, g_guard{ true }, g_recordOn{ false }, g_hotkeys{ true };
 std::atomic<int> g_multiplier{ 2 }, g_recordBudgetMb{ 3072 };
 std::atomic<float> g_soften{ 0.6f }, g_recordSeconds{ 5.0f };
 std::mutex g_textMutex;
@@ -85,7 +85,7 @@ void ReadConfig() {
     if (g_configAt.load() && now - g_configAt.load() < 250) return;
     g_configAt = now;
     auto flag = [](const char* key, bool def) { return std::string(g_host->GetConfig(kId, key, def ? "1" : "0")) == "1"; };
-    g_enabled = flag("enabled", false); g_own = flag("own", true); g_align = flag("align", true); g_guard = flag("guard", true);
+    g_enabled = flag("enabled", true);   // (the manager's switch for the addon is the real one: this only pauses) g_own = flag("own", true); g_align = flag("align", true); g_guard = flag("guard", true);
     g_recordOn = flag("recordOn", false); g_hotkeys = flag("hotkeys", true);
     g_multiplier = std::clamp(atoi(g_host->GetConfig(kId, "multiplier", "2")), 2, 9);
     g_soften = std::clamp(static_cast<float>(atof(g_host->GetConfig(kId, "soften", "0.6"))), 0.0f, 1.0f);
@@ -214,7 +214,7 @@ EAM_EXPORT void AddonInitialize(IHost* host, ImGuiContext* ctx, void* allocFunc,
     host->SubscribeEvent(EAM_EVENT_D3D11_DEVICE_CHANGED, OnDevice, nullptr);
     if (host->GetD3D11Device()) OnDevice(0, nullptr, 0, nullptr);   // (scaling is already running: the device exists)
     Log("%s %s initialised (enabled %d, %s, x%d)", kName, kVersion, g_enabled ? 1 : 0, g_own ? "EchoFG" : "FSR 3.1", g_multiplier.load());
-    host->SetStatus(kId, g_enabled ? "On: waits for Lossless Scaling's frames" : "Off (tick Use EchoFG frame generation)", g_enabled ? 1 : 0);
+    host->SetStatus(kId, g_enabled ? "On: waits for Lossless Scaling's frames" : "Paused (tick EchoFG is on)", g_enabled ? 1 : 0);
 }
 
 EAM_EXPORT void AddonShutdown() {
@@ -233,7 +233,7 @@ EAM_EXPORT void AddonRenderSettings() {
                        "It needs Lossless Scaling scaling with NIS (the game in a window smaller than the screen, or fullscreen scaling), so that the frames can be written. It works beside any upscaler addon, or none.");
     ImGui::Spacing();
     bool on = g_enabled;
-    if (ImGui::Checkbox("Use EchoFG frame generation", &on)) Set("enabled", on ? "1" : "0");
+    if (ImGui::Checkbox("EchoFG is on (untick to pause it without switching the addon off)", &on)) Set("enabled", on ? "1" : "0");
     if (ImGui::IsItemHovered()) ImGui::SetTooltip("Turn Lossless Scaling's own frame generation OFF first: with both on, the frames are doubled twice. A prototype: the real frames are shown a little later than without it (about one real frame).");
     int engine = g_own ? 0 : 1;
     ImGui::SetNextItemWidth(260);
