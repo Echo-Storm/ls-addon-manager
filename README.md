@@ -14,9 +14,10 @@ Around them, the manager installs and switches addons, shows the machine's load 
 updates itself. It is free, MIT-licensed and unofficial: not affiliated with the Lossless Scaling developers. Read the [disclaimer](DISCLAIMER.md) before installing.
 
 [![build](https://github.com/Echo-Storm/ls-addon-manager/actions/workflows/build.yml/badge.svg)](https://github.com/Echo-Storm/ls-addon-manager/actions/workflows/build.yml)
-&nbsp; **0.9.38**, on the way to 1.0 ([roadmap](ROADMAP.md)) &nbsp;·&nbsp; Lossless Scaling 3.2.2.0 &nbsp;·&nbsp; Windows 10 or 11, x64
+&nbsp; **0.10.0**, on the way to 1.0 ([roadmap](ROADMAP.md)) &nbsp;·&nbsp; Lossless Scaling 3.2.2.0 &nbsp;·&nbsp; Windows 10 or 11, x64
 
 > [!TIP]
+> **New in 0.10.0: updates that close Lossless Scaling for you, a check that waits for the game, two upscaler tests (skip a picture that repeats; lighter upscaling when the card is full), the addons notice a repeating source, many fixes from three reviews, and the Video Super Resolution prototype marked work in progress (not in the package).**
 > **New in 0.9.38: the end of the 0.9.37 test** (the upscalers name each other as conflicts again). Ctrl+Shift+F9 still steps between NIS and the upscaler that is on, with a label.
 > **New in 0.9.37: a test of the upscalers side by side** (Ctrl+Shift+F9), and tools to pack recordings.
 > **New in 0.9.36: smaller fixes** (the Video Super Resolution test addon needs only its switch in the manager; the build now runs the addon's offline tests).
