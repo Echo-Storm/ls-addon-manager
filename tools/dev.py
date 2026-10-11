@@ -30,6 +30,7 @@ import sys
 import time
 from pathlib import Path
 
+NOWIN = getattr(subprocess, 'CREATE_NO_WINDOW', 0)   # no console window flashing up when this runs without one (the desktop launcher)
 HERE = Path(__file__).resolve().parent
 ROOT = HERE.parent
 MAIN = ROOT
@@ -71,7 +72,7 @@ def run(cmd, timeout=900, cwd=None, tag=None):
     """-> (returncode, output); the whole output is kept in .dev/runs/<tag>.log"""
     t0 = time.time()
     try:
-        p = subprocess.run(cmd, capture_output=True, text=True, errors='replace', timeout=timeout, cwd=str(cwd) if cwd else None)
+        p = subprocess.run(cmd, capture_output=True, text=True, errors='replace', timeout=timeout, cwd=str(cwd) if cwd else None, creationflags=NOWIN)
         rc, text = p.returncode, (p.stdout or '') + (p.stderr or '')
     except subprocess.TimeoutExpired as e:
         rc, text = -1, ((e.stdout or b'').decode('utf-8', 'replace') if isinstance(e.stdout, bytes) else (e.stdout or '')) + '\nTIMED OUT after %d s' % timeout
@@ -89,7 +90,7 @@ def ps(script, *args, **kw):
 
 
 def git(*args, where=None):
-    return subprocess.run(['git', '-C', str(where or ROOT)] + list(args), capture_output=True, text=True, errors='replace').stdout.strip()
+    return subprocess.run(['git', '-C', str(where or ROOT)] + list(args), capture_output=True, text=True, errors='replace', creationflags=NOWIN).stdout.strip()
 
 
 def say(status, name, text=''):
@@ -530,6 +531,7 @@ const TOKEN="__TOKEN__";
 async function api(path,body){const r=await fetch(path,{method:body?'POST':'GET',headers:{'X-Token':TOKEN,'Content-Type':'application/json'},body:body?JSON.stringify(body):undefined});return r.json()}
 document.querySelectorAll('.mv').forEach(s=>s.addEventListener('change',async()=>{const r=await api('/api/move',{id:s.dataset.id,status:s.value});if(r.ok)location.reload();else alert(r.error||'failed')}));
 const addf=document.getElementById('addf');if(addf)addf.addEventListener('submit',async e=>{e.preventDefault();const f=new FormData(addf);const r=await api('/api/add',Object.fromEntries(f));if(r.ok)location.reload();else alert(r.error||'failed')});
+const q=document.getElementById('quit');if(q)q.addEventListener('click',async()=>{await api('/api/quit',{});document.body.innerHTML='<p style="padding:24px">LS Project Manager has stopped. Start it again from the desktop icon.</p>'});
 let polling=null;
 async function poll(what){const r=await api('/api/run?what='+what);const o=document.getElementById('runout');o.style.display='block';o.textContent=r.text||'';o.scrollTop=o.scrollHeight;if(r.running){polling=setTimeout(()=>poll(what),1500)}else{document.querySelectorAll('.rb').forEach(b=>b.disabled=false);if(r.done)setTimeout(()=>location.reload(),1500)}}
 document.querySelectorAll('.rb').forEach(b=>b.addEventListener('click',async()=>{const r=await api('/api/run',{what:b.dataset.w});if(!r.ok){alert(r.error||'failed');return}document.querySelectorAll('.rb').forEach(x=>x.disabled=true);poll(b.dataset.w)}));
@@ -542,7 +544,7 @@ document.querySelectorAll('.f').forEach(b=>b.addEventListener('click',()=>{const
 
 LIVE_BAR = """<form class="live" id="addf"><input name="title" placeholder="add a card: what is it" size="38" required><select name="status"><option>next</option><option>doing</option><option>blocked</option><option>backlog</option></select><input name="area" placeholder="area" size="9"><input name="blocked_on" placeholder="waiting on (if blocked)" size="22"><button>Add</button>
 <span style="flex-basis:100%;height:0"></span>
-<button type="button" class="rb" data-w="selftest">Self-test</button><button type="button" class="rb" data-w="test-quick">Quick tests</button><button type="button" class="rb" data-w="gen-quick">Frame generation scores</button><button type="button" class="rb" data-w="presenter-quick">Presenter check (uses the GPU)</button><div id="runout"></div></form>"""
+<button type="button" class="rb" data-w="selftest">Self-test</button><button type="button" class="rb" data-w="test-quick">Quick tests</button><button type="button" class="rb" data-w="gen-quick">Frame generation scores</button><button type="button" class="rb" data-w="presenter-quick">Presenter check (uses the GPU)</button><button type="button" id="quit" style="margin-left:auto">Stop the server</button><div id="runout"></div></form>"""
 RUNS = {'selftest': ['selftest'], 'test-quick': ['test', 'quick'], 'gen-quick': ['gen', '--quick', '--steps', '1,3'], 'presenter-quick': ['presenter', '--quick']}
 
 
@@ -656,6 +658,10 @@ def cmd_serve(a):
                     bp.write_text(board_dump(board), encoding='utf-8')
                     refresh_md()
                     return self.send(200, '{"ok":true}')
+                if path == '/api/quit':
+                    self.send(200, '{"ok":true}')
+                    threading.Thread(target=srv.shutdown, daemon=True).start()
+                    return
                 if path == '/api/run':
                     what = data.get('what')
                     if what not in RUNS:
@@ -666,13 +672,46 @@ def cmd_serve(a):
                     DEV.mkdir(parents=True, exist_ok=True)
                     log = DEV / 'serve-run.log'
                     f = open(log, 'wb')
-                    run_state.update(proc=subprocess.Popen([sys.executable, str(Path(__file__).resolve())] + RUNS[what], stdout=f, stderr=subprocess.STDOUT, cwd=str(ROOT)), what=what, log=str(log), done=False)
+                    run_state.update(proc=subprocess.Popen([sys.executable, str(Path(__file__).resolve())] + RUNS[what], stdout=f, stderr=subprocess.STDOUT, cwd=str(ROOT), creationflags=NOWIN), what=what, log=str(log), done=False)
                     cache.pop('status', None)
                     return self.send(200, '{"ok":true}')
             self.send(404, '{"ok":false}')
 
-    srv = http.server.ThreadingHTTPServer(('127.0.0.1', a.port), H)
-    url = 'http://127.0.0.1:%d/' % a.port
+    import urllib.request
+    marker = DEV / 'serve.json'
+
+    def ours(port):
+        try:
+            return 'LS Project Manager' in urllib.request.urlopen('http://127.0.0.1:%d/' % port, timeout=1).read().decode('utf-8', 'replace')
+        except Exception:
+            return False
+    known = None
+    try:
+        known = json.loads(marker.read_text(encoding='utf-8')).get('port')
+    except Exception:
+        pass
+    for port in ([known] if known else []) + [a.port]:   # already running (a second click on the icon): just show it
+        if port and ours(port):
+            if not a.no_open:
+                os.startfile('http://127.0.0.1:%d/' % port)
+            print('already running: http://127.0.0.1:%d/' % port)
+            return
+    srv = None
+    for port in range(a.port, a.port + 20):   # the port may be in use by something else: take the next free one
+        try:
+            srv = http.server.ThreadingHTTPServer(('127.0.0.1', port), H)
+            break
+        except OSError:
+            if ours(port):
+                if not a.no_open:
+                    os.startfile('http://127.0.0.1:%d/' % port)
+                print('already running: http://127.0.0.1:%d/' % port)
+                return
+    if srv is None:
+        print('no free port from %d to %d' % (a.port, a.port + 19)); return 1
+    url = 'http://127.0.0.1:%d/' % port
+    DEV.mkdir(parents=True, exist_ok=True)
+    marker.write_text(json.dumps({'port': port}), encoding='utf-8')
     print('LS Project Manager: %s  (Ctrl+C to stop)' % url)
     if not a.no_open:
         try:
@@ -897,6 +936,9 @@ def cmd_selftest(a):
 
 
 def main():
+    if sys.stdout is None or sys.stderr is None:   # started by pythonw (the desktop icon): no console, so a log
+        DEV.mkdir(parents=True, exist_ok=True)
+        sys.stdout = sys.stderr = open(DEV / 'serve.log', 'w', encoding='utf-8', buffering=1)
     ap = argparse.ArgumentParser(prog='dev.py', description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     sub = ap.add_subparsers(dest='cmd', required=True)
     sub.add_parser('status').set_defaults(f=cmd_status)
@@ -907,7 +949,7 @@ def main():
     p = sub.add_parser('build'); p.add_argument('--fg', action='store_true'); p.set_defaults(f=cmd_build)
     p = sub.add_parser('deploy'); p.add_argument('--fg', action='store_true'); p.set_defaults(f=cmd_deploy)
     p = sub.add_parser('rec'); p.add_argument('what', nargs='?', default='list', choices=['list', 'info', 'export']); p.add_argument('args', nargs='*'); p.add_argument('-n', default=8); p.set_defaults(f=cmd_rec)
-    p = sub.add_parser('serve'); p.add_argument('--port', type=int, default=8765); p.add_argument('--no-open', action='store_true'); p.set_defaults(f=cmd_serve)
+    p = sub.add_parser('serve'); p.add_argument('--port', type=int, default=8761); p.add_argument('--no-open', action='store_true'); p.set_defaults(f=cmd_serve)
     p = sub.add_parser('board'); p.add_argument('--html', action='store_true', help='also .dev/board.html: the board as a page'); p.add_argument('--open', action='store_true', help='... and open it'); p.set_defaults(f=cmd_board)
     p = sub.add_parser('map'); p.add_argument('dir', nargs='?', default=''); p.set_defaults(f=cmd_map)
     p = sub.add_parser('find'); p.add_argument('terms', nargs='+'); p.add_argument('--budget', type=int, default=600); p.add_argument('--page', type=int, default=1); p.add_argument('--in', dest='scope', default='all', choices=['code', 'docs', 'all']); p.set_defaults(f=cmd_find)
