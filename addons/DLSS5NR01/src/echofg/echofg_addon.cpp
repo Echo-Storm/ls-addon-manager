@@ -48,9 +48,24 @@ std::string g_recordFolder, g_focusExe, g_notice;
 std::atomic<uint64_t> g_configAt{ 0 };
 std::atomic<bool> g_wasOn{ false };
 
+// The addon's own log, <Lossless Scaling folder>\logs\ECHOFG.log (the last session; the one before is ECHOFG.log.old), as the other addons keep theirs: tools/dev.py logs reads it
+FILE* g_log = nullptr; std::mutex g_logMutex;
+void OpenLog(const std::wstring& addonDir) {
+    std::lock_guard<std::mutex> lock(g_logMutex);
+    if (g_log) return;
+    const size_t slash = addonDir.find_last_of(L'\\');   // <LS folder>\addons\ECHOFG -> <LS folder>\addons
+    const size_t slash2 = slash == std::wstring::npos ? slash : addonDir.find_last_of(L'\\', slash - 1);
+    if (slash2 == std::wstring::npos) return;
+    const std::wstring logs = addonDir.substr(0, slash2) + L"\\logs";
+    CreateDirectoryW(logs.c_str(), nullptr);
+    MoveFileExW((logs + L"\\ECHOFG.log").c_str(), (logs + L"\\ECHOFG.log.old").c_str(), MOVEFILE_REPLACE_EXISTING);
+    _wfopen_s(&g_log, (logs + L"\\ECHOFG.log").c_str(), L"w");
+}
 void Log(const char* fmt, ...) {
     char text[600]; va_list a; va_start(a, fmt); vsnprintf(text, sizeof text, fmt, a); va_end(a);
     if (g_host) g_host->Log(EAM_LOG_INFO, (std::string(kId) + ": " + text).c_str());
+    std::lock_guard<std::mutex> lock(g_logMutex);
+    if (g_log) { SYSTEMTIME st; GetLocalTime(&st); fprintf(g_log, "[%02d:%02d:%02d.%03d] %s\n", st.wHour, st.wMinute, st.wSecond, st.wMilliseconds, text); fflush(g_log); }
 }
 
 std::wstring FolderOf(HMODULE module) {
@@ -192,6 +207,8 @@ EAM_EXPORT void AddonInitialize(IHost* host, ImGuiContext* ctx, void* allocFunc,
     HMODULE self = nullptr;
     GetModuleHandleExW(GET_MODULE_HANDLE_EX_FLAG_FROM_ADDRESS | GET_MODULE_HANDLE_EX_FLAG_UNCHANGED_REFCOUNT, reinterpret_cast<LPCWSTR>(&AddonInitialize), &self);
     g_addonDir = FolderOf(self);
+    OpenLog(g_addonDir);
+    Log("%s initialised (host version 0x%06x), addon dir %ls", kId, host->GetHostVersion(), g_addonDir.c_str());   // (the line tools/dev.py logs takes for the start of a session)
     g_configAt = 0; ReadConfig();
     host->SubscribeEvent(EAM_EVENT_D3D11_DEVICE_READY, OnDevice, nullptr);
     host->SubscribeEvent(EAM_EVENT_D3D11_DEVICE_CHANGED, OnDevice, nullptr);
@@ -206,6 +223,8 @@ EAM_EXPORT void AddonShutdown() {
     nr::framegen::Shutdown();
     g_recorder.Forget(); g_recorder.Shutdown();
     g_host = nullptr;
+    std::lock_guard<std::mutex> lock(g_logMutex);
+    if (g_log) { fclose(g_log); g_log = nullptr; }
 }
 
 EAM_EXPORT void AddonRenderSettings() {

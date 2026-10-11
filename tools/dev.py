@@ -2,7 +2,7 @@
 """dev: one front door for building, testing, evaluating, deploying and inspecting this project, outside any chat session.
 
     python tools/dev.py status                  where things stand: git, builds against the sources, what is deployed, the last results
-    python tools/dev.py logs [--addon FSR3UPSC] the last session of an addon's log, condensed to a dozen lines
+    python tools/dev.py logs [--addon NAME]     the last session of an addon's log (ECHOFG by default), condensed to a dozen lines
     python tools/dev.py test [quick|changed|all|gpu|eval]    the suites (changed by default); every run is saved and only what changed is said
     python tools/dev.py gen [--quick] [--steps 1,3] [--update]   EchoFG against FSR and a blend on the recordings, against a saved baseline (uses the GPU)
     python tools/dev.py presenter               the frame generation presenter battery on a real swap chain (uses the GPU)
@@ -273,7 +273,8 @@ def cmd_status(a):
 
 def cmd_logs(a):
     c = config()
-    p = Path(c['ls_dir']) / 'logs' / (a.addon + '.log')
+    addon = a.addon or ('ECHOFG' if (Path(c['ls_dir']) / 'logs' / 'ECHOFG.log').exists() else 'FSR3UPSC')   # (frame generation is the ECHOFG addon's; the FSR Upscaler's own log: --addon FSR3UPSC)
+    p = Path(c['ls_dir']) / 'logs' / (addon + '.log')
     if not p.exists():
         print('no %s' % p); return
     age = (time.time() - p.stat().st_mtime) / 3600
@@ -997,7 +998,7 @@ def main():
     ap = argparse.ArgumentParser(prog='dev.py', description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     sub = ap.add_subparsers(dest='cmd', required=True)
     sub.add_parser('status').set_defaults(f=cmd_status)
-    p = sub.add_parser('logs'); p.add_argument('--addon', default='FSR3UPSC'); p.set_defaults(f=cmd_logs)
+    p = sub.add_parser('logs'); p.add_argument('--addon', default=''); p.set_defaults(f=cmd_logs)
     p = sub.add_parser('test'); p.add_argument('tier', nargs='?', default='changed', choices=['quick', 'changed', 'all', 'gpu', 'eval']); p.set_defaults(f=cmd_test)
     p = sub.add_parser('gen'); p.add_argument('--quick', action='store_true'); p.add_argument('--steps', default='1,3'); p.add_argument('--update', action='store_true'); p.set_defaults(f=cmd_gen)
     p = sub.add_parser('presenter'); p.add_argument('--quick', action='store_true'); p.set_defaults(f=cmd_presenter)
