@@ -142,6 +142,9 @@ args_margin = [10.0]
 
 
 AGREE_BOX = [5]
+HOLE_LAM = [0.0]   # --holelam: a hole's candidate vectors cost this many levels per pixel of their length at the frames' full size (the slower, background side is preferred where the pair cannot say)
+SCALE = [4]
+DEBUG = {}   # the last bi+dir's masks and vectors, for looking at one triple
 
 
 def dirfill_pair(F, reached, a, c, t, base):
@@ -256,11 +259,12 @@ def methods(a, c, v, t=0.5, thr_pair=60.0, thr_poor=90.0, still_thr=24.0, vb=Non
             cands.append(np.flip(src, axis) if rev else src)
         best_e = np.full(a.shape[:2], 1e9, np.float32); best_u = np.zeros_like(F)
         for u in cands:
-            e = box(np.abs(moved(a, u, t) - moved(c, u, -(1 - t))).sum(axis=2), 5)
+            e = box(np.abs(moved(a, u, t) - moved(c, u, -(1 - t))).sum(axis=2), 5) + HOLE_LAM[0] * np.hypot(u[..., 0], u[..., 1]) * SCALE[0]
             better = e < best_e
             best_u = np.where(better[..., None], u, best_u); best_e = np.where(better, e, best_e)
         hole_pair = (1 - t) * moved(a, best_u, t) + t * moved(c, best_u, -(1 - t))
         out['bi+dir'] = np.where(none[..., None], hole_pair, bi)
+        DEBUG.update(none=none, gc=gc, ga=ga, pick_c=pick_c, F=np.where(none[..., None], best_u, F), sc=sc, sa=sa, t=t)   # for a look at one frame (tools notes in docs/own-generator-plan.md)
         if a0 is not None:
             # the third frame, three ways. The vector field of the result so far (c's convention: c(x) ~ a(x + F)):
             Fin = np.where(none[..., None], best_u, F)
@@ -320,6 +324,7 @@ def main():
     ap.add_argument('--invert', action='store_true', help='the vectors the other way made by inverting this way (no second estimate), not the dumped ones')
     ap.add_argument('--agree', type=int, default=5, help='the window of the hole fill agreement test')
     ap.add_argument('--third', action='store_true', help='only the triples that carry the older frame (nr_fgeval flowdump from the third kept frame on), and the methods that use it')
+    ap.add_argument('--holelam', type=float, default=0.0)
     ap.add_argument('--tau', type=float, default=1.0)
     ap.add_argument('--thr-pair', type=float, default=60.0)
     ap.add_argument('--thr-poor', type=float, default=90.0)
@@ -328,6 +333,7 @@ def main():
     args = ap.parse_args()
     args_margin[0] = args.margin
     AGREE_BOX[0] = args.agree
+    HOLE_LAM[0] = args.holelam; SCALE[0] = args.scale
     global SAMPLER
     if args.cubic:
         SAMPLER = bicubic
