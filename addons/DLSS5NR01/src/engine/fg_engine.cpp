@@ -1,5 +1,6 @@
 #include "engine/fg_engine.h"
 #include "engine/hdr_hlsl.h"
+#include <chrono>
 #include <d3dcompiler.h>
 #include <algorithm>
 #include <cstdarg>
@@ -291,6 +292,8 @@ void FgEngine::StartSynth() {
 int FgEngine::GenerateFrames(ID3D12Resource* in, ID3D12Fence* copied, uint64_t n, ID3D12Resource* const* outs, int count, ID3D12Fence* made, uint64_t madeValue, float frameMs, bool reset,
                              uint32_t encoding, float whiteNits, bool guard) {
     if (!m_ready || count < 1 || !outs) return 0;
+    const auto clock0 = std::chrono::steady_clock::now();
+    auto sinceMs = [&] { return std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - clock0).count(); };
     for (int s = 0; s < kSlots; ++s) ReadSlot(s);   // what has finished since
     const int slot = static_cast<int>(m_runs % kSlots);
     if (!WaitFence(m_slotValue[slot], 100)) {   // (its work from kSlots frames ago: long done, unless the GPU is swamped)
@@ -308,7 +311,9 @@ int FgEngine::GenerateFrames(ID3D12Resource* in, ID3D12Fence* copied, uint64_t n
     if (m_stamps) m_list->EndQuery(m_stamps, D3D12_QUERY_TYPE_TIMESTAMP, static_cast<UINT>(slot * 2));
     // the frame's motion (the estimate keeps the frame before), then FSR's preparation and its frame between, on this list
     Barrier(in, D3D12_RESOURCE_STATE_COMMON, D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE);
+    const double beforeEstimator = sinceMs();
     m_estimator.Record(m_list, slot, in, m_fmt, m_motion, m_distrust, 0.0f, encoding, whiteNits);
+    const double afterEstimator = sinceMs();
     Barrier(m_motion, D3D12_RESOURCE_STATE_UNORDERED_ACCESS, D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE);
     const bool first = reset || m_frameId == 0;
     if (m_own && m_synthState == 0) StartSynth();   // (ready some frames later: FSR makes the frames meanwhile)
@@ -337,7 +342,10 @@ int FgEngine::GenerateFrames(ID3D12Resource* in, ID3D12Fence* copied, uint64_t n
             }
             if (ok) {
                 Barrier(m_before, D3D12_RESOURCE_STATE_COPY_DEST, D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE);
+                const double beforeSynth = sinceMs();
                 ok = m_synth.Record(m_list, slot, m_before, StorageFormat(m_fmt), in, m_fmt, m_motion, StorageFormat(m_fmt), targets, ownCount, encoding, whiteNits, m_soften.load());
+                static int slowSaid = 0;   // a frame that took long on the presenting thread, and where: the first frame at 4K takes a third of a second
+                if (sinceMs() > 40.0 && slowSaid < 4) { ++slowSaid; Log("frame generation engine: a slow frame (%.0f ms): before the motion %.0f, the motion's commands %.0f, between %.0f, EchoFG's commands %.0f", sinceMs(), beforeEstimator, afterEstimator - beforeEstimator, beforeSynth - afterEstimator, sinceMs() - beforeSynth); }
                 Barrier(m_before, D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE, D3D12_RESOURCE_STATE_COPY_DEST);
             }
         } else ok = false;
