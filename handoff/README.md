@@ -1,7 +1,7 @@
 # Handoff (updated 2026-10-09)
 
 Everything needed to continue on another machine, without the old conversation. The project's general tools are in `tools/` (see `tools/README.md`); the scripts
-of the 0.9.8 session are in `scripts/`. **Read, in this order: this file, [release-next.md](release-next.md) (what is unreleased and how to test it), [BACKLOG.md](BACKLOG.md)
+of the 0.9.8 session are in `scripts/`. **Read `handoff/BOARD.md` first (every open item, what it waits on; `python tools/dev.py serve` shows it as a page, `python tools/dev.py find`/`map` search the code cheaply), then, in this order: this file, [release-next.md](release-next.md) (what is unreleased and how to test it), [BACKLOG.md](BACKLOG.md)
 (all open work), and `docs/own-generator-plan.md` if the work is frame generation.**
 
 ## State (2026-10-09)

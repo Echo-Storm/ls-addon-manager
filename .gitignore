@@ -38,3 +38,6 @@ imgui.ini
 
 # the tools' own Python environment (tools\depth_maps.py)
 tools/.venv/
+
+# dev.py: results, run logs, pictures
+.dev/
