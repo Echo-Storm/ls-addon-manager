@@ -157,7 +157,7 @@ int main(int argc, char** argv) {
     float model = 0.5f, sharpen = 0.0f, vib = 1.2f, blend = 0.72f, gamma = 1.0f; int passes = 1, grain = 2; bool sw = true, sw2 = false; int sel = 0;
     const float dModel = 0.35f, dSharpen = 0.0f, dVib = 0.0f, dBlend = 1.0f, dGamma = 1.0f; const int dPasses = 1, dGrain = 1;
     if (!clean) widgets::ToastShow("Installed 'Cool Addon' (switched off). Turn it on with its switch.", widgets::ToastType::Success, 1000.0f);
-    std::string status = window::StatusCounts(4, 2);
+    std::string status = window::StatusCounts(getenv("EAM_PREVIEW_WIP") ? 6 : 4, 2);
 
     // live data for the cards and the Performance tab: 20 s of a game near 60 fps with a few hitches, a model at ~6.6 ms, a GPU at its cap
     {
