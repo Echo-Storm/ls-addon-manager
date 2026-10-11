@@ -246,7 +246,9 @@ def cmd_status(a):
         elif os.path.getmtime(f) < newest - 2:
             stale.append(name)
     mgr = MAIN / 'manager' / 'build' / 'Release' / 'Lossless.dll'
-    if not mgr.exists() or os.path.getmtime(mgr) < newest - 2:
+    ctm = git('log', '-1', '--format=%ct', '--', 'manager/src', 'manager/CMakeLists.txt', where=MAIN)   # (the manager's own sources: the addons' do not make it old)
+    newest_mgr = max([float(ctm) if ctm else 0] + [os.path.getmtime(MAIN / d) for d in dirty if d.startswith('manager/') and (MAIN / d).exists()])
+    if not mgr.exists() or os.path.getmtime(mgr) < newest_mgr - 2:
         stale.append('Lossless.dll')
     print('builds   %s' % ('up to date with the sources' if not stale else 'OLDER than the sources: ' + ', '.join(stale)))
     fg = Path(c['bin_fg']) / 'ECHOFG.dll'
