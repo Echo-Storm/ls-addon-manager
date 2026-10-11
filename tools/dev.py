@@ -70,6 +70,21 @@ def config():
 
 
 # ---- running things ---------------------------------------------------------------------------------------------------------------------------------
+def same_file(a, b):
+    """the same bytes (a rebuild of the same size is not the same file: the size alone said 'deployed' for a stale build)"""
+    import hashlib
+    a, b = Path(a), Path(b)
+    if a.stat().st_size != b.stat().st_size:
+        return False
+    def digest(p):
+        h = hashlib.sha256()
+        with open(p, 'rb') as f:
+            for chunk in iter(lambda: f.read(1 << 20), b''):
+                h.update(chunk)
+        return h.digest()
+    return digest(a) == digest(b)
+
+
 def run(cmd, timeout=900, cwd=None, tag=None):
     """-> (returncode, output); the whole output is kept in .dev/runs/<tag>.log"""
     t0 = time.time()
@@ -241,7 +256,7 @@ def cmd_status(a):
     pairs = [(ls / 'Lossless.dll', mgr), (ls / 'addons' / 'FSR3UPSC' / 'FSR3UPSC.dll', fg if fg.exists() else b / 'FSR3UPSC.dll'),
              (ls / 'addons' / 'DLSS5NR01' / 'DLSS5NR01.dll', b / 'DLSS5NR01.dll'), (ls / 'addons' / 'DLSS4DLAA' / 'DLSS4DLAA.dll', b / 'DLSS4DLAA.dll'),
              (ls / 'addons' / 'XESSUPSC' / 'XESSUPSC.dll', b / 'XESSUPSC.dll')]
-    diff = [d.name for d, s in pairs if d.exists() and s.exists() and d.stat().st_size != s.stat().st_size]
+    diff = [d.name for d, s in pairs if d.exists() and s.exists() and not same_file(d, s)]
     print('deployed %s' % ('%s: matches the builds' % ls if ls.exists() and not diff else ('differs from the builds: ' + ', '.join(diff)) if ls.exists() else '%s not found' % ls))
     r = load_latest()
     if r:
@@ -433,7 +448,7 @@ def cmd_deploy(a):
     if a.fg and rc == 0:
         rc2, text2, _ = ps(ROOT / 'tools' / 'deploy.ps1', '-What', 'fsr', '-BuildDir', 'build_fg', '-LsDir', c['ls_dir'], timeout=600, tag='deploy_fg')
         d = Path(c['ls_dir']) / 'addons' / 'FSR3UPSC' / 'FSR3UPSC.dll'; s = Path(c['bin_fg']) / 'FSR3UPSC.dll'
-        same = d.exists() and s.exists() and d.stat().st_size == s.stat().st_size
+        same = d.exists() and s.exists() and same_file(d, s)
         say('ok' if rc2 == 0 and same else 'FAIL', 'deploy EchoFG build', 'FSR3UPSC.dll %s' % ('matches build_fg' if same else 'DOES NOT match'))
         rc = rc2 if rc2 else (0 if same else 1)
     return rc
@@ -966,6 +981,10 @@ def cmd_selftest(a):
     page = render_board_html(b, {'t': {'ok': True, 'summary': 'fine'}}, [{'number': 1, 'title': 'issue', 'updatedAt': '2026-01-01'}], 'status', None)
     check('board html', 'LS Project Manager' in page and 'A2' in page and 'waiting on owner' in page and 'class="mv"' not in page)
     check('board html live', 'class="mv"' in render_board_html(b, {}, [], '', 'tok') and 'const TOKEN="tok"' in render_board_html(b, {}, [], '', 'tok'))
+    with tempfile.TemporaryDirectory() as td:
+        pa, pb, pc = Path(td) / 'a', Path(td) / 'b', Path(td) / 'c'
+        pa.write_bytes(b'abcd'); pb.write_bytes(b'abcd'); pc.write_bytes(b'abce')
+        check('same_file', same_file(pa, pb) and not same_file(pa, pc))
     check('summarise_log stalls', s['stalls'] == (1, 3172) and s['slow_pictures'] == (1, 55))
     print('selftest: %s' % ('ok' if not fails else '%d failed' % fails))
     return 1 if fails else 0
