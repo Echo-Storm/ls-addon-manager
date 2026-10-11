@@ -4,6 +4,7 @@
 #include "addon/screenshot.h"
 #include <eam/addon_sdk.h>
 #include <cmath>
+#include <type_traits>
 #include <cstdio>
 #include <map>
 #include <string>
@@ -116,6 +117,71 @@ int main() {
     {   // a new install (nothing saved) must load as the defaults of Config, field by field: 0.9.28 to 0.9.33 loaded Auto quality as off, 5 ms and 0.25 while Config said on, 6 ms and 0.6
         StandInHost fresh; const Config d; const Config l = LoadSettings(&fresh, "DLSS5NR01").config;
         Check("a new install has Auto quality on, as the defaults say", l.autoQuality == d.autoQuality && d.autoQuality);
+        {   // every field of Config, not a few: a setting whose loader falls back to something else than the default is a new install that behaves differently from what the panel says
+            std::string bad;
+            auto eq = [](float x, float y) { return std::fabs(x - y) < 1e-5f; };
+            auto eqi = [](const auto& x, const auto& y) { return x == y; };
+            if (!(eqi(l.enabled, d.enabled) || (std::is_floating_point_v<decltype(l.enabled)> && eq(static_cast<float>(l.enabled), static_cast<float>(d.enabled))))) bad += " enabled";
+            if (!(eqi(l.model, d.model) || (std::is_floating_point_v<decltype(l.model)> && eq(static_cast<float>(l.model), static_cast<float>(d.model))))) bad += " model";
+            if (!(eqi(l.dlaaPreset, d.dlaaPreset) || (std::is_floating_point_v<decltype(l.dlaaPreset)> && eq(static_cast<float>(l.dlaaPreset), static_cast<float>(d.dlaaPreset))))) bad += " dlaaPreset";
+            if (!(eqi(l.motionSource, d.motionSource) || (std::is_floating_point_v<decltype(l.motionSource)> && eq(static_cast<float>(l.motionSource), static_cast<float>(d.motionSource))))) bad += " motionSource";
+            if (!(eqi(l.scalerGpuWait, d.scalerGpuWait) || (std::is_floating_point_v<decltype(l.scalerGpuWait)> && eq(static_cast<float>(l.scalerGpuWait), static_cast<float>(d.scalerGpuWait))))) bad += " scalerGpuWait";
+            if (!(eqi(l.scalerFastMotion, d.scalerFastMotion) || (std::is_floating_point_v<decltype(l.scalerFastMotion)> && eq(static_cast<float>(l.scalerFastMotion), static_cast<float>(d.scalerFastMotion))))) bad += " scalerFastMotion";
+            if (!(eqi(l.scalerLeanRest, d.scalerLeanRest) || (std::is_floating_point_v<decltype(l.scalerLeanRest)> && eq(static_cast<float>(l.scalerLeanRest), static_cast<float>(d.scalerLeanRest))))) bad += " scalerLeanRest";
+            if (!(eqi(l.scalerMoveCut, d.scalerMoveCut) || (std::is_floating_point_v<decltype(l.scalerMoveCut)> && eq(static_cast<float>(l.scalerMoveCut), static_cast<float>(d.scalerMoveCut))))) bad += " scalerMoveCut";
+            if (!(eqi(l.scalerSteadySharp, d.scalerSteadySharp) || (std::is_floating_point_v<decltype(l.scalerSteadySharp)> && eq(static_cast<float>(l.scalerSteadySharp), static_cast<float>(d.scalerSteadySharp))))) bad += " scalerSteadySharp";
+            if (!(eqi(l.scalerLeanFrom, d.scalerLeanFrom) || (std::is_floating_point_v<decltype(l.scalerLeanFrom)> && eq(static_cast<float>(l.scalerLeanFrom), static_cast<float>(d.scalerLeanFrom))))) bad += " scalerLeanFrom";
+            if (!(eqi(l.leanEasu, d.leanEasu) || (std::is_floating_point_v<decltype(l.leanEasu)> && eq(static_cast<float>(l.leanEasu), static_cast<float>(d.leanEasu))))) bad += " leanEasu";
+            if (!(eqi(l.scalerSkipRepeats, d.scalerSkipRepeats) || (std::is_floating_point_v<decltype(l.scalerSkipRepeats)> && eq(static_cast<float>(l.scalerSkipRepeats), static_cast<float>(d.scalerSkipRepeats))))) bad += " scalerSkipRepeats";
+            if (!(eqi(l.scalerLightAuto, d.scalerLightAuto) || (std::is_floating_point_v<decltype(l.scalerLightAuto)> && eq(static_cast<float>(l.scalerLightAuto), static_cast<float>(d.scalerLightAuto))))) bad += " scalerLightAuto";
+            if (!(eqi(l.scalerLightGen, d.scalerLightGen) || (std::is_floating_point_v<decltype(l.scalerLightGen)> && eq(static_cast<float>(l.scalerLightGen), static_cast<float>(d.scalerLightGen))))) bad += " scalerLightGen";
+            if (!(eqi(l.scalerReuseMotion, d.scalerReuseMotion) || (std::is_floating_point_v<decltype(l.scalerReuseMotion)> && eq(static_cast<float>(l.scalerReuseMotion), static_cast<float>(d.scalerReuseMotion))))) bad += " scalerReuseMotion";
+            if (!(eqi(l.motionShapes, d.motionShapes) || (std::is_floating_point_v<decltype(l.motionShapes)> && eq(static_cast<float>(l.motionShapes), static_cast<float>(d.motionShapes))))) bad += " motionShapes";
+            if (!(eqi(l.scalerStability, d.scalerStability) || (std::is_floating_point_v<decltype(l.scalerStability)> && eq(static_cast<float>(l.scalerStability), static_cast<float>(d.scalerStability))))) bad += " scalerStability";
+            if (!(eqi(l.scalerEdges, d.scalerEdges) || (std::is_floating_point_v<decltype(l.scalerEdges)> && eq(static_cast<float>(l.scalerEdges), static_cast<float>(d.scalerEdges))))) bad += " scalerEdges";
+            if (!(eqi(l.scalerPerGame, d.scalerPerGame) || (std::is_floating_point_v<decltype(l.scalerPerGame)> && eq(static_cast<float>(l.scalerPerGame), static_cast<float>(d.scalerPerGame))))) bad += " scalerPerGame";
+            if (!(eqi(l.scalerHandoff, d.scalerHandoff) || (std::is_floating_point_v<decltype(l.scalerHandoff)> && eq(static_cast<float>(l.scalerHandoff), static_cast<float>(d.scalerHandoff))))) bad += " scalerHandoff";
+            if (!(eqi(l.composeFillsScreen, d.composeFillsScreen) || (std::is_floating_point_v<decltype(l.composeFillsScreen)> && eq(static_cast<float>(l.composeFillsScreen), static_cast<float>(d.composeFillsScreen))))) bad += " composeFillsScreen";
+            if (!(eqi(l.presentMode, d.presentMode) || (std::is_floating_point_v<decltype(l.presentMode)> && eq(static_cast<float>(l.presentMode), static_cast<float>(d.presentMode))))) bad += " presentMode";
+            if (!(eqi(l.presentWait, d.presentWait) || (std::is_floating_point_v<decltype(l.presentWait)> && eq(static_cast<float>(l.presentWait), static_cast<float>(d.presentWait))))) bad += " presentWait";
+            if (!(eqi(l.frameEncoding, d.frameEncoding) || (std::is_floating_point_v<decltype(l.frameEncoding)> && eq(static_cast<float>(l.frameEncoding), static_cast<float>(d.frameEncoding))))) bad += " frameEncoding";
+            if (!(eqi(l.freshFlow, d.freshFlow) || (std::is_floating_point_v<decltype(l.freshFlow)> && eq(static_cast<float>(l.freshFlow), static_cast<float>(d.freshFlow))))) bad += " freshFlow";
+            if (!(eqi(l.lsFirst, d.lsFirst) || (std::is_floating_point_v<decltype(l.lsFirst)> && eq(static_cast<float>(l.lsFirst), static_cast<float>(d.lsFirst))))) bad += " lsFirst";
+            if (!(eqi(l.hotkeys, d.hotkeys) || (std::is_floating_point_v<decltype(l.hotkeys)> && eq(static_cast<float>(l.hotkeys), static_cast<float>(d.hotkeys))))) bad += " hotkeys";
+            if (!(eqi(l.keyAB, d.keyAB) || (std::is_floating_point_v<decltype(l.keyAB)> && eq(static_cast<float>(l.keyAB), static_cast<float>(d.keyAB))))) bad += " keyAB";
+            if (!(eqi(l.keySplit, d.keySplit) || (std::is_floating_point_v<decltype(l.keySplit)> && eq(static_cast<float>(l.keySplit), static_cast<float>(d.keySplit))))) bad += " keySplit";
+            if (!(eqi(l.keySharpDn, d.keySharpDn) || (std::is_floating_point_v<decltype(l.keySharpDn)> && eq(static_cast<float>(l.keySharpDn), static_cast<float>(d.keySharpDn))))) bad += " keySharpDn";
+            if (!(eqi(l.keySharpUp, d.keySharpUp) || (std::is_floating_point_v<decltype(l.keySharpUp)> && eq(static_cast<float>(l.keySharpUp), static_cast<float>(d.keySharpUp))))) bad += " keySharpUp";
+            if (!(eqi(l.keyPreset, d.keyPreset) || (std::is_floating_point_v<decltype(l.keyPreset)> && eq(static_cast<float>(l.keyPreset), static_cast<float>(d.keyPreset))))) bad += " keyPreset";
+            if (!(eqi(l.keyShot, d.keyShot) || (std::is_floating_point_v<decltype(l.keyShot)> && eq(static_cast<float>(l.keyShot), static_cast<float>(d.keyShot))))) bad += " keyShot";
+            if (!(eqi(l.keyRecord, d.keyRecord) || (std::is_floating_point_v<decltype(l.keyRecord)> && eq(static_cast<float>(l.keyRecord), static_cast<float>(d.keyRecord))))) bad += " keyRecord";
+            if (!(eqi(l.recordOn, d.recordOn) || (std::is_floating_point_v<decltype(l.recordOn)> && eq(static_cast<float>(l.recordOn), static_cast<float>(d.recordOn))))) bad += " recordOn";
+            if (!(eqi(l.recordShown, d.recordShown) || (std::is_floating_point_v<decltype(l.recordShown)> && eq(static_cast<float>(l.recordShown), static_cast<float>(d.recordShown))))) bad += " recordShown";
+            if (!(eqi(l.recordSeconds, d.recordSeconds) || (std::is_floating_point_v<decltype(l.recordSeconds)> && eq(static_cast<float>(l.recordSeconds), static_cast<float>(d.recordSeconds))))) bad += " recordSeconds";
+            if (!(eqi(l.recordBudgetMb, d.recordBudgetMb) || (std::is_floating_point_v<decltype(l.recordBudgetMb)> && eq(static_cast<float>(l.recordBudgetMb), static_cast<float>(d.recordBudgetMb))))) bad += " recordBudgetMb";
+            if (!(eqi(l.recordFolder, d.recordFolder) || (std::is_floating_point_v<decltype(l.recordFolder)> && eq(static_cast<float>(l.recordFolder), static_cast<float>(d.recordFolder))))) bad += " recordFolder";
+            if (!(eqi(l.recordSaveAfter, d.recordSaveAfter) || (std::is_floating_point_v<decltype(l.recordSaveAfter)> && eq(static_cast<float>(l.recordSaveAfter), static_cast<float>(d.recordSaveAfter))))) bad += " recordSaveAfter";
+            if (!(eqi(l.screenshotFolder, d.screenshotFolder) || (std::is_floating_point_v<decltype(l.screenshotFolder)> && eq(static_cast<float>(l.screenshotFolder), static_cast<float>(d.screenshotFolder))))) bad += " screenshotFolder";
+            if (!(eqi(l.autoQuality, d.autoQuality) || (std::is_floating_point_v<decltype(l.autoQuality)> && eq(static_cast<float>(l.autoQuality), static_cast<float>(d.autoQuality))))) bad += " autoQuality";
+            if (!(eqi(l.autoBudgetMs, d.autoBudgetMs) || (std::is_floating_point_v<decltype(l.autoBudgetMs)> && eq(static_cast<float>(l.autoBudgetMs), static_cast<float>(d.autoBudgetMs))))) bad += " autoBudgetMs";
+            if (!(eqi(l.autoFloor, d.autoFloor) || (std::is_floating_point_v<decltype(l.autoFloor)> && eq(static_cast<float>(l.autoFloor), static_cast<float>(d.autoFloor))))) bad += " autoFloor";
+            if (!(eqi(l.modelEvery, d.modelEvery) || (std::is_floating_point_v<decltype(l.modelEvery)> && eq(static_cast<float>(l.modelEvery), static_cast<float>(d.modelEvery))))) bad += " modelEvery";
+            if (!(eqi(l.gpuLimit, d.gpuLimit) || (std::is_floating_point_v<decltype(l.gpuLimit)> && eq(static_cast<float>(l.gpuLimit), static_cast<float>(d.gpuLimit))))) bad += " gpuLimit";
+            if (!(eqi(l.gpuLimitPercent, d.gpuLimitPercent) || (std::is_floating_point_v<decltype(l.gpuLimitPercent)> && eq(static_cast<float>(l.gpuLimitPercent), static_cast<float>(d.gpuLimitPercent))))) bad += " gpuLimitPercent";
+            if (!(eqi(l.defaultsVersion, d.defaultsVersion) || (std::is_floating_point_v<decltype(l.defaultsVersion)> && eq(static_cast<float>(l.defaultsVersion), static_cast<float>(d.defaultsVersion))))) bad += " defaultsVersion";
+            if (!(eqi(l.autoScaleLast, d.autoScaleLast) || (std::is_floating_point_v<decltype(l.autoScaleLast)> && eq(static_cast<float>(l.autoScaleLast), static_cast<float>(d.autoScaleLast))))) bad += " autoScaleLast";
+            if (!(eqi(l.gameAuto, d.gameAuto) || (std::is_floating_point_v<decltype(l.gameAuto)> && eq(static_cast<float>(l.gameAuto), static_cast<float>(d.gameAuto))))) bad += " gameAuto";
+            if (!(eqi(l.tapMode, d.tapMode) || (std::is_floating_point_v<decltype(l.tapMode)> && eq(static_cast<float>(l.tapMode), static_cast<float>(d.tapMode))))) bad += " tapMode";
+            if (!(eqi(l.frameSlot, d.frameSlot) || (std::is_floating_point_v<decltype(l.frameSlot)> && eq(static_cast<float>(l.frameSlot), static_cast<float>(d.frameSlot))))) bad += " frameSlot";
+            if (!(eqi(l.tickSig, d.tickSig) || (std::is_floating_point_v<decltype(l.tickSig)> && eq(static_cast<float>(l.tickSig), static_cast<float>(d.tickSig))))) bad += " tickSig";
+            if (!(eqi(l.tapSig, d.tapSig) || (std::is_floating_point_v<decltype(l.tapSig)> && eq(static_cast<float>(l.tapSig), static_cast<float>(d.tapSig))))) bad += " tapSig";
+            if (!(eqi(l.watchdogMs, d.watchdogMs) || (std::is_floating_point_v<decltype(l.watchdogMs)> && eq(static_cast<float>(l.watchdogMs), static_cast<float>(d.watchdogMs))))) bad += " watchdogMs";
+            if (!(eqi(l.snippetPath, d.snippetPath) || (std::is_floating_point_v<decltype(l.snippetPath)> && eq(static_cast<float>(l.snippetPath), static_cast<float>(d.snippetPath))))) bad += " snippetPath";
+            if (LookToText(l.p) != LookToText(d.p)) bad += " p(look)";
+            if (HudToText(l.p) != HudToText(d.p)) bad += " p(hud)";
+            if (!l.games.empty() || !l.scalerGames.empty()) bad += " lists";
+            Check("a new install loads every setting as the default", bad.empty(), bad);
+        }
         Check("...with its time budget of the defaults", Same(l.autoBudgetMs, d.autoBudgetMs));
         Check("...and its lowest resolution of the defaults", Same(l.autoFloor, d.autoFloor));
         Check("...Run the model, the card limit and its percent", l.modelEvery == d.modelEvery && l.gpuLimit == d.gpuLimit && Same(l.gpuLimitPercent, d.gpuLimitPercent));
