@@ -264,6 +264,10 @@ EAM_EXPORT void AddonShutdown() {
 
 EAM_EXPORT void AddonRenderSettings() {
     ReadConfig();
+    ImGui::TextColored(ImVec4(1.0f, 0.78f, 0.25f, 1.0f), "Turn this on BEFORE you start the game (before scaling starts).");
+    if (ImGui::IsItemHovered()) ImGui::SetTooltip("EchoFG gets what it needs from Lossless Scaling at the moment scaling starts, so it only works from the next time scaling starts. "
+                                                  "If scaling is already running, stop it and start it again. Switching it off or on while scaling runs changes nothing until then.");
+    ImGui::Spacing();
     ImGui::TextWrapped("EchoFG multiplies the frame rate: with Lossless Scaling's own frame generation OFF, every frame is held back a little, and 1 to 8 frames made between it and the one before are shown first, evenly spaced in time. "
                        "It needs Lossless Scaling scaling with NIS (the game in a window smaller than the screen, or fullscreen scaling), so that the frames can be written. It works beside any upscaler addon, or none.");
     ImGui::Spacing();
