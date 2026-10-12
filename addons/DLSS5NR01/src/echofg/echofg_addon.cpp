@@ -87,7 +87,8 @@ void ReadConfig() {
     if (g_configAt.load() && now - g_configAt.load() < 250) return;
     g_configAt = now;
     auto flag = [](const char* key, bool def) { return std::string(g_host->GetConfig(kId, key, def ? "1" : "0")) == "1"; };
-    g_enabled = flag("enabled", true);   // (the manager's switch for the addon is the real one: this only pauses) g_own = flag("own", true); g_align = flag("align", true); g_guard = flag("guard", true);
+    g_enabled = flag("enabled", true);   // (the manager's switch for the addon is the real one: this only pauses)
+    g_own = flag("own", true); g_align = flag("align", true); g_guard = flag("guard", true);
     g_recordOn = flag("recordOn", false); g_hotkeys = flag("hotkeys", true);
     g_multiplier = std::clamp(atoi(g_host->GetConfig(kId, "multiplier", "2")), 2, 9);
     g_soften = std::clamp(static_cast<float>(atof(g_host->GetConfig(kId, "soften", "0.6"))), 0.0f, 1.0f);
@@ -216,6 +217,24 @@ void OnDevice(uint32_t, const void*, uint32_t, void*) {
 
 }   // namespace
 
+// A step of the start run under a guard that says what it hit (the code and where), so a crash in the start is a line in the log and not only "crashed during init"
+int Filter(EXCEPTION_POINTERS* info, unsigned long* code, void** where) { *code = info->ExceptionRecord->ExceptionCode; *where = info->ExceptionRecord->ExceptionAddress; return EXCEPTION_EXECUTE_HANDLER; }
+bool Guarded(const char* step, void (*fn)()) {
+    unsigned long code = 0; void* where = nullptr;
+    __try { fn(); return true; }
+    __except (Filter(GetExceptionInformation(), &code, &where)) {}
+    HMODULE module = nullptr; GetModuleHandleExW(GET_MODULE_HANDLE_EX_FLAG_FROM_ADDRESS | GET_MODULE_HANDLE_EX_FLAG_UNCHANGED_REFCOUNT, static_cast<LPCWSTR>(where), &module);
+    wchar_t name[MAX_PATH] = L"?"; if (module) GetModuleFileNameW(module, name, MAX_PATH);
+    const wchar_t* base = wcsrchr(name, L'\\'); base = base ? base + 1 : name;
+    Log("the start failed in %s: exception 0x%08lX at %ls+0x%llX", step, code, base, static_cast<unsigned long long>(reinterpret_cast<uintptr_t>(where) - reinterpret_cast<uintptr_t>(module)));
+    return false;
+}
+void SubscribeAll() {
+    g_host->SubscribeEvent(EAM_EVENT_D3D11_DEVICE_READY, OnDevice, nullptr);
+    g_host->SubscribeEvent(EAM_EVENT_D3D11_DEVICE_CHANGED, OnDevice, nullptr);
+}
+void DeviceNow() { if (g_host->GetD3D11Device()) OnDevice(0, nullptr, 0, nullptr); }   // (scaling is already running: the device exists)
+
 EAM_EXPORT void AddonInitialize(IHost* host, ImGuiContext* ctx, void* allocFunc, void* freeFunc, void* userData) {
     ImGui::SetCurrentContext(ctx);
     ImGui::SetAllocatorFunctions(reinterpret_cast<ImGuiMemAllocFunc>(allocFunc), reinterpret_cast<ImGuiMemFreeFunc>(freeFunc), userData);
@@ -226,10 +245,10 @@ EAM_EXPORT void AddonInitialize(IHost* host, ImGuiContext* ctx, void* allocFunc,
     g_addonDir = FolderOf(self);
     OpenLog(g_addonDir);
     Log("%s initialised (host version 0x%06x), addon dir %ls", kId, host->GetHostVersion(), g_addonDir.c_str());   // (the line tools/dev.py logs takes for the start of a session)
-    g_configAt = 0; ReadConfig();
-    host->SubscribeEvent(EAM_EVENT_D3D11_DEVICE_READY, OnDevice, nullptr);
-    host->SubscribeEvent(EAM_EVENT_D3D11_DEVICE_CHANGED, OnDevice, nullptr);
-    if (host->GetD3D11Device()) OnDevice(0, nullptr, 0, nullptr);   // (scaling is already running: the device exists)
+    g_configAt = 0;
+    Guarded("reading the settings", [] { ReadConfig(); });
+    Guarded("subscribing to the device events", SubscribeAll);
+    Guarded("the device Lossless Scaling already made", DeviceNow);
     Log("%s %s initialised (enabled %d, %s, x%d)", kName, kVersion, g_enabled ? 1 : 0, g_own ? "EchoFG" : "FSR 3.1", g_multiplier.load());
     host->SetStatus(kId, g_enabled ? "On: waits for Lossless Scaling's frames" : "Paused (tick EchoFG is on)", g_enabled ? 1 : 0);
 }
