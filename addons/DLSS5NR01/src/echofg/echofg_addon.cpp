@@ -40,6 +40,7 @@ std::wstring g_addonDir;
 nr::Recorder g_recorder;
 
 // the settings, read from the host's config twice a second (the presenting thread reads them every frame: atomics)
+std::atomic<ULONGLONG> g_clipUntil{ 0 };   // a one-shot clip (the button, or the hotkey with the recorder off): records until this tick, saves, and the recorder goes back off
 std::atomic<bool> g_enabled{ true }, g_own{ true }, g_align{ true }, g_guard{ true }, g_recordOn{ false }, g_hotkeys{ true };
 std::atomic<int> g_multiplier{ 2 }, g_recordBudgetMb{ 3072 };
 std::atomic<float> g_soften{ 0.6f }, g_recordSeconds{ 5.0f };
@@ -131,7 +132,12 @@ std::string FocusGame() {
 }
 
 void SaveRecording() {
-    if (!g_recordOn) { Log("recorder: nothing saved: the recorder is off (tick \"Keep the last few seconds ready to save\")"); g_host->SetStatus(kId, "Nothing saved: the recorder is off", 2); return; }
+    if (!g_recordOn) {   // the recorder is off: record the next seconds, save them by themselves, and be off again (nothing is left running)
+        if (g_clipUntil.load()) return;
+        g_clipUntil = GetTickCount64() + static_cast<ULONGLONG>(g_recordSeconds.load() * 1000.0f) + 500;
+        Log("recorder: recording the next %.0f s, then saving", g_recordSeconds.load()); g_host->SetStatus(kId, "Recording a clip...", 3);
+        return;
+    }
     std::string game; { std::lock_guard<std::mutex> lock(g_textMutex); game = g_focusExe; }
     if (game.empty()) game = "EchoFG";
     if (!g_recorder.Save(RecordFolder(), game)) Log("recorder: nothing saved (%s)", g_recorder.GetStatus().saving ? "a save is running" : "nothing recorded yet");
@@ -180,9 +186,18 @@ void OnPresent(IDXGISwapChain* sc, UINT sync, UINT flags) {
     nr::framegen::SetOwn(g_own); nr::framegen::SetMultiplier(g_multiplier); nr::framegen::SetSoften(g_soften); nr::framegen::SetAlign(g_align); nr::framegen::SetGuard(g_guard);
     static bool recorderLogSet = (g_recorder.SetLog([](const char* m) { Log("%s", m); }), true);
     (void)recorderLogSet;
-    g_recorder.Configure(g_recordOn, g_recordSeconds, static_cast<uint32_t>(g_recordBudgetMb.load()));
+    const ULONGLONG clipUntil = g_clipUntil.load();
+    const bool clipping = clipUntil != 0 && !g_recordOn;
+    if (clipping && GetTickCount64() >= clipUntil) {   // the clip is done: saved, and the recorder goes back off
+        std::string game; { std::lock_guard<std::mutex> lock(g_textMutex); game = g_focusExe; }
+        if (game.empty()) game = "EchoFG";
+        if (!g_recorder.Save(RecordFolder(), game, true)) Log("recorder: the clip was not saved (%s)", g_recorder.GetStatus().saving ? "a save is running" : "nothing recorded");
+        g_clipUntil = 0;
+    }
+    const bool recorderOn = g_recordOn || (g_clipUntil.load() != 0);
+    g_recorder.Configure(recorderOn, g_recordSeconds, static_cast<uint32_t>(g_recordBudgetMb.load()));
     nr::framegen::ShownFn shown;   // every frame presented, the frames between and the real ones, tagged; the middle 1920x1080 only (4K HDR frames in full are more than the card can copy)
-    if (g_recordOn) shown = [](ID3D11DeviceContext* ctx, ID3D11Texture2D* frame, bool made) { g_recorder.Offer(ctx, frame, nr::lsrec::kPresented, 0, made ? nr::lsrec::kMadeBetween : nr::lsrec::kReal, 1920, 1080); };
+    if (recorderOn) shown = [](ID3D11DeviceContext* ctx, ID3D11Texture2D* frame, bool made) { g_recorder.Offer(ctx, frame, nr::lsrec::kPresented, 0, made ? nr::lsrec::kMadeBetween : nr::lsrec::kReal, 1920, 1080); };
     g_wasOn = true;
     nr::framegen::BeforeRealPresent(sc, sync, flags, encoding, white, [](const char* m) { Log("%s", m); }, shown);
 }
@@ -273,9 +288,10 @@ EAM_EXPORT void AddonRenderSettings() {
     ImGui::SetNextItemWidth(260);
     if (ImGui::SliderFloat("Seconds kept", &secs, 1.0f, 30.0f, "%.0f s")) { char t[16]; snprintf(t, sizeof t, "%.0f", secs); Set("recordSeconds", t); }
     const nr::Recorder::Status rs = g_recorder.GetStatus();
-    if (ImGui::Button(rs.saving ? "Saving..." : "Save the last seconds")) SaveRecording();
+    if (ImGui::Button(rs.saving ? "Saving..." : g_clipUntil.load() ? "Recording..." : g_recordOn ? "Save the last seconds" : "Record a clip")) SaveRecording();
+    if (ImGui::IsItemHovered() && !g_recordOn) ImGui::SetTooltip("The recorder is off: this records the next few seconds (as many as \"Seconds kept\"), saves them as a .lsrec by itself, and goes off again. Ctrl+Shift+F1 does the same.");
     ImGui::SameLine();
-    ImGui::TextDisabled("%u frames kept (%.1f s)%s%s", rs.frames, rs.seconds, rs.missed ? ", some left out: the card could not keep up" : "", g_recordOn ? "" : " (off)");
+    ImGui::TextDisabled("%u frames kept (%.1f s)%s%s", rs.frames, rs.seconds, rs.missed ? ", some left out: the card could not keep up" : "", g_recordOn ? "" : " (off: the button records a clip and saves it)");
     { bool ok = true; const std::string last = g_recorder.LastResult(ok); if (!last.empty()) ImGui::TextColored(ok ? ImVec4(0.7f, 0.9f, 0.5f, 1.0f) : ImVec4(0.95f, 0.65f, 0.2f, 1.0f), "%s", last.c_str()); }
     ImGui::Spacing();
     ImGui::TextDisabled("Log: <Lossless Scaling folder>\\logs (the manager's log has this addon's lines). Every ten seconds it says what the display did with the presents.");
