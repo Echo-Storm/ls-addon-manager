@@ -233,7 +233,6 @@ void SubscribeAll() {
     g_host->SubscribeEvent(EAM_EVENT_D3D11_DEVICE_READY, OnDevice, nullptr);
     g_host->SubscribeEvent(EAM_EVENT_D3D11_DEVICE_CHANGED, OnDevice, nullptr);
 }
-void DeviceNow() { if (g_host->GetD3D11Device()) OnDevice(0, nullptr, 0, nullptr); }   // (scaling is already running: the device exists)
 
 EAM_EXPORT void AddonInitialize(IHost* host, ImGuiContext* ctx, void* allocFunc, void* freeFunc, void* userData) {
     ImGui::SetCurrentContext(ctx);
@@ -248,7 +247,7 @@ EAM_EXPORT void AddonInitialize(IHost* host, ImGuiContext* ctx, void* allocFunc,
     g_configAt = 0;
     Guarded("reading the settings", [] { ReadConfig(); });
     Guarded("subscribing to the device events", SubscribeAll);
-    Guarded("the device Lossless Scaling already made", DeviceNow);
+    // (no device is taken from the host here: the newest one it has seen may be gone already, Lossless Scaling makes and drops them as scaling starts and stops. The device comes with the event, when scaling starts: start scaling after switching the addon on.)
     Log("%s %s initialised (enabled %d, %s, x%d)", kName, kVersion, g_enabled ? 1 : 0, g_own ? "EchoFG" : "FSR 3.1", g_multiplier.load());
     host->SetStatus(kId, g_enabled ? "On: waits for Lossless Scaling's frames" : "Paused (tick EchoFG is on)", g_enabled ? 1 : 0);
 }
