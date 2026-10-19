@@ -3,6 +3,15 @@
 Everything worth doing that is not done yet, so nothing is lost between sessions. Newest context first within each group. Update it when an
 item is done (move it to the changelog) or when a new one comes up. Dates are when the item was noted.
 
+## Neural Rendering: new model 310.9.16 and the Model preset (2026-10-19; board N2, N3, N4, U4, D4)
+
+- **What came:** the owner supplied NVIDIA's newer runtime (`nvngx_dlssnr.dll` 310.9.16, compat-fp16, built for CUDA 13.4.3; SHA-256 starts `cdfa6c1ec7848671`; never in the repository or a release) and the Streamline SDK 2.14.16 zip, both in `NEW FILES/` (untracked, large). The old file (310.8, `4b8d19bc...`) is in the LS folder's `backups\`.
+- **Finding:** 310.9.16 runs a newer, smaller model by default (`DLSSNR.Hint.Render.Preset` 0 or 2, `WEIGHTS_CC_SMALL_FP8`) and keeps the older one as preset 1 (research by GrimsVerk/nr-runtime-research; our forwarder already wrote the parameter, `nr_forwarder.cpp`). Measured by `nr_selftest` (warm runs, 4070 Ti SUPER): 540p 3.2 -> 2.0 ms, 1080p 6.0 -> 3.5, 1440p 9.1 -> 5.3, 4K 19.6 -> 10.9 (about 1.7x, not the 20% heard). Its effect is gentler (mean change of the test picture 20.4 against 31.5 of 255; players describe it as roughly the old model at 0.7 pass). Preset 1 in the new DLL reproduces the old output exactly, at the old cost. Host test passes with it in SDR, scRGB and PQ.
+- **Built:** setting `modelPreset` (0 newer, 1 older), panel combo "Model preset" under Model passes; read when the model is made, so a change rebuilds it; not part of a look. `nr_selftest --preset N`. Settings test covers it.
+- **Open:** (1) a live look in a game, Newer against Older with the Before / after hotkey (WoW lighting, bright UI glow, ghosting); (2) add the hash to `kKnownModels` and `docs/model-compatibility.md` once it works for the owner; (3) a quality comparison on real clips needs new recordings (the old `.lsrec` set is gone; `recordings/`, see its README); (4) whether the Newer default should differ when only the old file is present (it has one model: the preset does nothing there, the tooltip says so); (5) the first host run with preset 0 once sampled no frames (the first start made NGX's model folder); two reruns were fine: watch for it.
+- **DLSS Upscaler:** the SDK's `nvngx_dlss.dll` is 310.9.16 (we ship 310.9.1). Offline there is no difference in picture error on the move, line and edge scenes for presets K, L, M, and GPU time is too noisy to separate. SR presets are J, K, L, M only (no B/Q). Not shipped or deployed.
+- **Build machine:** VS 2022 Professional + the C++ workload installed 2026-10-19 (see board D4); the CMake cache was regenerated. Use `git -c safe.directory='*'` here.
+
 ## Neural Rendering: the glow beside bright UI (2026-10-01)
 
 - **Done: the dark guard** (compose11, commit d956b1f): a pixel near pure black takes no positive change. Owner, live: "significantly better".
