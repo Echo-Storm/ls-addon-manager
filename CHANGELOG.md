@@ -1,5 +1,11 @@
 # Changelog
 
+## Unreleased
+
+- **Neural Rendering: a Model preset (Newer / Older).** NVIDIA's runtime 310.9.16 of the model file runs a newer, smaller model by default and keeps the older one as a preset. A new choice in the Neural Rendering panel, under Model passes, picks one (**Newer** is the default; **Older** is the model of build 310.8 and earlier, the stronger original look at the old cost). On an RTX 4070 Ti SUPER the newer model took 3.5 ms a run at 1080p and 10.9 ms at 4K against 6.0 and 19.6 ms for the older one, with a gentler effect (roughly the old model at 0.7 of a pass). Changing it makes the model again. A model file older than 310.9.16 has only the older model, so the choice changes nothing there. `nr_selftest --preset N` times either. Your model file is still your own: it is not included and never downloaded.
+- **EchoFG (test build only):** Record a clip (the button, or Ctrl+Shift+F1 with the recorder off) records the next ten seconds, saves them and goes off again; a note at the top of the panel says to turn it on before scaling starts; the start runs under a guard that logs what it hit.
+- **Tools:** `deploy.ps1 -UnlockWip` writes the addon.json without a byte order mark; the UI preview renders the update offer.
+
 ## 0.10.0 (2026-10-11)
 
 - **Bug sweep before 0.10:** the repeat skip lets go of its last picture when Lossless Scaling starts scaling again (it could copy from a picture that was gone); the repeat compare waits for its own answer, not for a signal left over from a slow one (a changed picture could have been taken for a repeat after two slow compares); "Install when I close it" no longer says that Lossless Scaling did not close when asked after an earlier "Close it and install"; the update check no longer takes the first reading of the card's passes for a game being scaled; the message after importing settings reads correctly.

@@ -96,7 +96,7 @@ foreach ($n in $names) {
     }
     if ($UnlockWip -and ($n -eq 'echofg' -or $n -eq 'vsr')) {   # a test build: the copy in the Lossless Scaling folder may be switched on
         $manifest = Join-Path (Split-Path $it.Dst) 'addon.json'
-        if (Test-Path $manifest) { (Get-Content $manifest -Raw) -replace '"wip"\s*:\s*true', '"wip": false' | Set-Content $manifest -NoNewline -Encoding UTF8; Write-Host "[$n] ${manifest}: wip off (a test build)" }
+        if (Test-Path $manifest) { [IO.File]::WriteAllText($manifest, ((Get-Content $manifest -Raw) -replace '"wip"\s*:\s*true', '"wip": false'), (New-Object Text.UTF8Encoding $false)); Write-Host "[$n] ${manifest}: wip off (a test build)" }
     }
 }
 # ReShade passthrough and Windowed mode are built into the manager now. If the old standalone addon folders are still in addons\, move them
