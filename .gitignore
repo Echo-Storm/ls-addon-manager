@@ -41,3 +41,7 @@ tools/.venv/
 
 # dev.py: results, run logs, pictures
 .dev/
+
+# local test recordings (large): see recordings/README.md
+recordings/*
+!recordings/README.md
