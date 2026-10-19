@@ -41,6 +41,7 @@ struct NrParams {
 
     // the model's side
     float workingScale = 1.0f;   // the frame is shrunk by this before the model sees it: the one setting that decides the cost (the ceiling for auto quality, on by default since 0.9.28)
+    uint32_t modelPreset = 0;     // DLSSNR.Hint.Render.Preset, read when the model is made: 0 the runtime's own (the newer, smaller model in 310.9.16), 1 the older model (the only one in 310.8)
     uint32_t passes = 1;          // model runs per frame (1..4), each taking the one before's result as its colour
     float smoothStable = 0.0f;    // where the frame itself is unchanged, the smoothing's history weight goes up to this (at least deltaSmooth; 0: derived from deltaSmooth, 1 - (1 - deltaSmooth) / 4, at most 0.97)
     float deltaSmooth = 0.5f;     // blend of the previous delta (moved along the motion) into the new one, 0 = off, below 1 (on since 0.9.14: the model flickers in motion; 0.4 the owner's pick live, 0.6 too much)
@@ -67,7 +68,7 @@ struct NrParams {
     float hudFeather = 0.004f;    // soft edge of those rectangles, as a fraction of the screen
     uint32_t debugView = 0;       // 0 result, 1 original, 2 delta x4, 3 frame role (real/generated), 4 LSFG flow, 5 ghost guard weight
 
-    bool CreateKeysEqual(const NrParams& o) const { return workingScale == o.workingScale; }
+    bool CreateKeysEqual(const NrParams& o) const { return workingScale == o.workingScale && modelPreset == o.modelPreset; }
     NrTuning Tuning() const { return NrTuning{ style, useAutoMask, 1u, intensity, localStructure, localTone, skinStructure }; }
 };
 
@@ -188,12 +189,12 @@ private:
 
     // The feature and the scratch textures of one working size.
     struct Scratch {
-        uint32_t ww = 0, wh = 0;
+        uint32_t ww = 0, wh = 0, preset = 0;
         void* feature = nullptr;
         ID3D12Resource* proxy = nullptr; ID3D12Resource* out[2] = {}; ID3D12Resource* history[2] = {}; ID3D12Resource* depth = nullptr; ID3D12Resource* mvec = nullptr;
     };
     enum BuildState { kIdle, kBuilding, kBuilt, kBuildFailed };
-    bool StartBuild(uint32_t ww, uint32_t wh, const NrTuning& tuning);
+    bool StartBuild(uint32_t ww, uint32_t wh, const NrTuning& tuning, uint32_t preset);
     static DWORD WINAPI BuildThread(void* self);
     void Build();                         // on the build thread
     bool EndBuild(unsigned long timeoutMs = 0xFFFFFFFFul);   // waits for the build thread to end (it has, or is about to); false when it did not within the time (the thread is then left running)
@@ -235,7 +236,7 @@ private:
     // the build thread: its own list and queue, so the feature's GPU setup never sits in front of the runs
     std::atomic<int> m_buildState{ kIdle };
     HANDLE m_buildThread = nullptr;       // a plain thread: one still running at process exit is simply ended, never a std::terminate
-    uint32_t m_buildW = 0, m_buildH = 0; NrTuning m_buildTuning{};
+    uint32_t m_buildW = 0, m_buildH = 0, m_buildPreset = 0; NrTuning m_buildTuning{};
     Scratch m_built;                      // written by the build thread, read after m_buildState says kBuilt
     char m_buildError[160] = {};
     ID3D12CommandQueue* m_buildQueue = nullptr;
@@ -245,7 +246,7 @@ private:
 
     // the frame and the scratch textures, at the working size
     uint32_t m_w = 0, m_h = 0; DXGI_FORMAT m_fmt = DXGI_FORMAT_UNKNOWN; NrParams m_params{};
-    uint32_t m_ww = 0, m_wh = 0;
+    uint32_t m_ww = 0, m_wh = 0, m_preset = 0;   // (m_preset: the model preset of the set the runs use)
     ID3D12Resource* m_proxy = nullptr;    // RGBA8: the frame as the model sees it; rests readable
     ID3D12Resource* m_out[2] = {};        // RGBA8: the model's output (more passes go back and forth between the two); rest writable
     ID3D12Resource* m_history[2] = {};    // RGBA16F: the last smoothed delta (smoothing goes back and forth between the two); rest readable

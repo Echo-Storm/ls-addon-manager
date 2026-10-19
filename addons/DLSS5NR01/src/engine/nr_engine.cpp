@@ -503,7 +503,7 @@ void NrEngine::ReleaseScratch() {
     if (m_feature) { WaitIdle(); std::lock_guard<std::mutex> lock(m_ngxMutex); m_release(m_feature); m_feature = nullptr; }
     for (ID3D12Resource** t : { &m_proxy, &m_out[0], &m_out[1], &m_depth, &m_mvec, &m_history[0], &m_history[1] }) SafeRelease(*t);
     m_historyValid = false; m_historyRead = 0;
-    m_w = m_h = m_ww = m_wh = 0;
+    m_w = m_h = m_ww = m_wh = m_preset = 0;
 }
 
 // ---------------------------------------------------------------------------------------------------------------------------------
@@ -523,20 +523,21 @@ bool NrEngine::Prepare(uint32_t w, uint32_t h, DXGI_FORMAT fmt, const NrParams& 
     // the frame's size and format are the runs' own: the shrink pass takes any frame to the working size there is
     m_w = w; m_h = h; m_fmt = fmt; m_params = p;
 
+    const uint32_t want = std::min(p.modelPreset, 3u);   // (the runtime reads 0..2; a larger number falls back to its own)
     const int state = m_buildState.load(std::memory_order_acquire);
     if (state == kBuildFailed) { EndBuild(); m_buildState = kIdle; Fail("%s", m_buildError); return false; }
     if (state == kBuilt) {
         EndBuild();
-        if (m_built.ww == ww && m_built.wh == wh) TakeBuilt();
+        if (m_built.ww == ww && m_built.wh == wh && m_built.preset == want) TakeBuilt();
         else { Log("NrEngine: a model for %ux%u is ready but %ux%u is wanted now: it is dropped", m_built.ww, m_built.wh, ww, wh); Discard(m_built); }
         m_buildState = kIdle;
     }
-    if (m_feature && ww == m_ww && wh == m_wh) return true;   // the rest applies on the next run
-    if (m_buildState.load() == kIdle && !StartBuild(ww, wh, p.Tuning())) return false;
+    if (m_feature && ww == m_ww && wh == m_wh && want == m_preset) return true;   // the rest applies on the next run
+    if (m_buildState.load() == kIdle && !StartBuild(ww, wh, p.Tuning(), want)) return false;
     return m_feature != nullptr;   // the set there is keeps running until the new one is ready
 }
 
-bool NrEngine::StartBuild(uint32_t ww, uint32_t wh, const NrTuning& tuning) {
+bool NrEngine::StartBuild(uint32_t ww, uint32_t wh, const NrTuning& tuning, uint32_t preset) {
     if (!m_buildQueue) {
         D3D12_COMMAND_QUEUE_DESC queue{}; queue.Type = D3D12_COMMAND_LIST_TYPE_DIRECT;
         if (FAILED(m_dev->CreateCommandQueue(&queue, IID_PPV_ARGS(&m_buildQueue))) ||
@@ -550,7 +551,7 @@ bool NrEngine::StartBuild(uint32_t ww, uint32_t wh, const NrTuning& tuning) {
     Log("Prepare: frame %ux%u (%s) -> model input %ux%u (%.2f MP), style %u intensity %.2f: made on a thread of its own", m_w, m_h,
         m_fmt == DXGI_FORMAT_B8G8R8A8_UNORM ? "BGRA8" : m_fmt == DXGI_FORMAT_R8G8B8A8_UNORM ? "RGBA8" : m_fmt == DXGI_FORMAT_R10G10B10A2_UNORM ? "RGB10A2"
         : m_fmt == DXGI_FORMAT_R16G16B16A16_FLOAT ? "RGBA16F" : "fmt?", ww, wh, ww * wh / 1e6, tuning.style, tuning.intensity);
-    m_buildW = ww; m_buildH = wh; m_buildTuning = tuning; m_buildError[0] = 0;
+    m_buildW = ww; m_buildH = wh; m_buildPreset = preset; m_buildTuning = tuning; m_buildError[0] = 0;
     m_buildState = kBuilding;
     m_buildThread = CreateThread(nullptr, 0, BuildThread, this, 0, nullptr);
     if (!m_buildThread) { m_buildState = kIdle; Fail("the thread that makes the model could not be started"); return false; }
@@ -567,7 +568,7 @@ void NrEngine::Build() {
         Discard(s);
         m_buildState.store(kBuildFailed, std::memory_order_release);
     };
-    Scratch s; s.ww = m_buildW; s.wh = m_buildH;
+    Scratch s; s.ww = m_buildW; s.wh = m_buildH; s.preset = m_buildPreset;
     const uint32_t ww = s.ww, wh = s.wh;
     const auto writable = D3D12_RESOURCE_FLAG_ALLOW_UNORDERED_ACCESS;
     s.proxy = MakeTexture(ww, wh, DXGI_FORMAT_R8G8B8A8_UNORM, writable, D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE);
@@ -586,7 +587,7 @@ void NrEngine::Build() {
     const std::vector<uint16_t> motion(static_cast<size_t>(ww) * wh * 2, 0);
     Upload(m_buildList, s.depth, 4, depth.data(), staging);
     Upload(m_buildList, s.mvec, 4, motion.data(), staging);
-    NrCreateParams create{}; create.width = ww; create.height = wh; create.preset = 0; create.scalingRatio = 1.0f; create.tuning = m_buildTuning;
+    NrCreateParams create{}; create.width = ww; create.height = wh; create.preset = m_buildPreset; create.scalingRatio = 1.0f; create.tuning = m_buildTuning;
     char why[128] = {};
     {
         std::lock_guard<std::mutex> lock(m_ngxMutex);
@@ -636,7 +637,7 @@ void NrEngine::TakeBuilt() {
     }
     m_feature = m_built.feature; m_proxy = m_built.proxy; m_out[0] = m_built.out[0]; m_out[1] = m_built.out[1];
     m_history[0] = m_built.history[0]; m_history[1] = m_built.history[1]; m_depth = m_built.depth; m_mvec = m_built.mvec;
-    m_ww = m_built.ww; m_wh = m_built.wh;
+    m_ww = m_built.ww; m_wh = m_built.wh; m_preset = m_built.preset;
     m_built = Scratch{};
     m_stats.workW = m_ww; m_stats.workH = m_wh; ++m_stats.builds;
     m_historyValid = false; m_historyRead = 0; m_resetHistory = true;

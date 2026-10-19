@@ -43,6 +43,7 @@ const FloatSetting kFloats[] = {
 };
 const UIntSetting kUInts[] = {
     { "passes",    &NrParams::passes,      1, 4, true },
+    { "modelPreset", &NrParams::modelPreset, 0, 2, false },   // read when the model is made: not part of a look
     { "style",     &NrParams::style,       0, 2, true },
     { "autoMask",  &NrParams::useAutoMask, 0, 1, true },
     { "debugView", &NrParams::debugView,   0, 5, false },

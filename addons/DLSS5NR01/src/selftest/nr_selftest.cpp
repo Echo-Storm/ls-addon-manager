@@ -465,8 +465,9 @@ int wmain(int argc, wchar_t** argv) {
     Upload(gpu, motionTex, width, height, 4, motion.data(), shaderRead);
     gpu.Run();
 
+    unsigned presetArg = 0; { const std::wstring ps = ArgAfter(argc, argv, L"--preset"); if (!ps.empty()) presetArg = (unsigned)_wtoi(ps.c_str()); }   // test aid: the model preset (0: the runtime's default)
     NrCreateParams create = {};
-    create.width = width; create.height = height; create.preset = 0; create.scalingRatio = 1.0f;
+    create.width = width; create.height = height; create.preset = presetArg; create.scalingRatio = 1.0f;
     create.tuning = NrTuning{ 1u, 1u, 1u, 1.0f, 1.0f, 1.0f, 1.0f };
     void* feature = helper.create(gpu.list, caps, &create);
     const int createResult = helper.last(1);

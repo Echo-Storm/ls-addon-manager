@@ -46,7 +46,7 @@ int main() {
     using namespace nr;
     printf("== looks as text\n");
     NrParams a;
-    a.style = 2; a.intensity = 0.7f; a.localStructure = -1.5f; a.passes = 3; a.useFlow = false; a.workingScale = 0.6f; a.sharpen = 0.1f;
+    a.modelPreset = 1; a.style = 2; a.intensity = 0.7f; a.localStructure = -1.5f; a.passes = 3; a.useFlow = false; a.workingScale = 0.6f; a.sharpen = 0.1f;
     a.shadows = -0.4f; a.grain = 0.25f; a.grainSize = 2; a.deltaSmooth = 0.3f; a.ghostGuard = 0.8f; a.hudCount = 2;
     a.hud[0][0] = 0.1f; a.hud[0][1] = 0.2f; a.hud[0][2] = 0.3f; a.hud[0][3] = 0.4f; a.hud[1][0] = 0.5f; a.hud[1][1] = 0.6f; a.hud[1][2] = 0.9f; a.hud[1][3] = 1.0f;
     NrParams b;
@@ -101,9 +101,10 @@ int main() {
           back.config.tapSig == "1,2,3" && back.config.snippetPath == "D:\\model.dll" && Same(back.config.watchdogMs, 55));
     Check("...with the looks, in order, and the programs", back.looks.size() == 2 && back.looks[0].name == "Night" && back.looks[1].data == "sharpen=0.2" &&
           back.config.games.size() == 1 && back.config.games[0].second == "Night");
-    host.values["saturation"] = "9"; host.values["passes"] = "-4"; host.values["debugView"] = "12";
+    Check("the model preset is saved and loads back (it is not part of a look)", a.modelPreset == 1 && back.config.p.modelPreset == 1 && LookToText(a).find("modelPreset") == std::string::npos);
+    host.values["saturation"] = "9"; host.values["passes"] = "-4"; host.values["debugView"] = "12"; host.values["modelPreset"] = "9";
     Loaded wild = LoadSettings(&host, "DLSS5NR01");
-    Check("values edited out of range in the file are kept to their range", Same(wild.config.p.saturation, 2.0f) && wild.config.p.passes == 1 && wild.config.p.debugView == 5);
+    Check("values edited out of range in the file are kept to their range", Same(wild.config.p.saturation, 2.0f) && wild.config.p.passes == 1 && wild.config.p.debugView == 5 && wild.config.p.modelPreset == 2);
     {   // how often the model runs: one by default, kept to 1..4, and it round trips
         Check("the model runs on every 2nd frame by default (since 0.9.28)", Config().modelEvery == 2 && LoadSettings(&host, "DLSS5NR01").config.modelEvery == 2);
         Config m; m.modelEvery = 3; SaveSettings(&host, "DLSS5NR01", m, {});

@@ -629,6 +629,9 @@ void DrawPanel() {
         if (!dlaa) {
         { int ps = (int)c.p.passes; const int dps = (int)kDefaults.passes; if (eam::ui::SliderInt("Model passes", &ps, 1, 4, "%d", 0, &dps)) { c.p.passes = (uint32_t)ps; changed = true; } }
         Tip("How many times the model reworks each frame; every pass takes the previous result as its input. 1 = normal. 2 to 4 make the effect stronger (and can start to look over-processed, so compare with the Before / after hotkey).\nEach extra pass costs roughly another model run: watch the model time and the 'keeps up with' line below. If the model cannot keep up it skips frames, and the last result is carried forward.");
+        { int mp = (int)std::min<uint32_t>(c.p.modelPreset, 1u); const char* presets[] = { "Newer (smaller, faster)", "Older (the original look)" };
+          if (ImGui::Combo("Model preset", &mp, presets, 2)) { c.p.modelPreset = (uint32_t)mp; changed = true; } }
+        Tip("Which model the runtime uses. Newer is the runtime's own choice since build 310.9.16: smaller and about 1.7 times faster, with a gentler effect (about like the older model at 0.7 passes). Older is the model of build 310.8 and earlier: the stronger, original look at the old cost.\nA model file older than 310.9.16 has only the older model, so this makes no difference there. Changing it makes the model again (a moment of the old result).");
         }
         changed |= SL("Temporal smoothing", &c.p.deltaSmooth, 0.0f, 0.9f, c.p.deltaSmooth <= 0.001f ? "off" : "%.2f");
         Tip("Blends the model's change for this frame with its change for the previous one, moved along with the picture by Lossless Scaling's motion data. It calms shimmer and crawling in fine detail (distant roads, fences, foliage) at the price of a little softness or ghosting when the camera moves fast. 0 = off; 0.4 is the default (the pick in World of Warcraft). Costs almost nothing.");
