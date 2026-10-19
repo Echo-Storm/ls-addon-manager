@@ -41,3 +41,19 @@ actually replacing NIS (and if not, why), and `logs\<addon>.log` says "NIS stays
 Thanks for the details (lowering local contrast removes it, and the second-frame setting helps). That points at the model's change being applied to the generated frames with the wrong motion. Please attach
 `logs\DLSS5NR01.log` from a short session where the ghosting shows, and say your settings (Local contrast, Ghost guard, the frame-generation multiplier, game fps). With those I can check whether the ghost guard
 is engaged for your motion. Meanwhile **Ghost guard on** and the lower local contrast you found are the settings to keep.
+
+# Drafted 2026-10-19, NOT POSTED (the owner decides; `gh` is not logged in on this machine)
+
+## #20 New feature: enable the new October DLSS 5 DLL (310.9), "the new model uses lower resources"
+
+Thanks. Neural Rendering runs whatever `nvngx_dlssnr.dll` you put next to `LosslessScaling.exe`, so a newer build needs no change from us to load; press **Test compatibility** in the panel with it in place. We do not ship, host or link that file.
+We tried a 310.9.16 build here: it runs a newer, smaller model by default, about 1.7x faster than the 310.8 model (4K: 19.6 ms -> 10.9 ms per run on an RTX 4070 Ti SUPER), with a gentler effect (roughly the old model at 0.7 of a pass).
+That build also still contains the older model, so we added a **Model preset** setting (Newer / Older) to the panel; it is on `main` and comes in the next release. Until then the new file works as it is, with its default (newer) model.
+If you try it before then, `logs\DLSS5NR01.log` and the panel's Requirements line tell us how it went (the line shows the file's hash, first 16 digits).
+
+## #21 Some indicator which model is running while in game (FSR / XeSS user, emulators; diagnostic view and F7 "do not work")
+
+Thank you for trying it. A few things, and a request:
+- **Which runtime is in use:** the manager's **Addons** tab has a **Runtimes** list under the addons: each DLSS, FSR and XeSS file with its version, a tick for the one that is loaded, and **+** to switch. The addon's log (`logs\FSR3UPSC.log`, `logs\XESSUPSC.log`) also says it in words ("the runtime runs 4.1.1b ..."), and the upscaler's panel has an **Upscaling** line that says whether it is replacing NIS or why not. An in-game label of the model is a fair idea: noted for the upscalers.
+- **The diagnostic view** options belong to Neural Rendering; the FSR and XeSS upscalers have none, which is why nothing changed. We will say so in the panel.
+- **Ctrl+Shift+F7 (before / after)** is meant to work for the upscalers too (it flips between the original or NIS picture and ours); the addons only watch the keys, so the emulator should not matter. Please check that it is the full chord, then, if nothing flips, attach `logs\FSR3UPSC.log` (or the XeSS one) from a short session in which you pressed it, say which emulator and Scaling Type you use, and whether the window is fullscreen or windowed.
