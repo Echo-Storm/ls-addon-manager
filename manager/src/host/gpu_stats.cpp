@@ -206,7 +206,8 @@ void* GpuStats::PickNvmlDevice(unsigned count, std::string* nameOut) {
 }
 
 void GpuStats::SetPreferredCard(const std::string& name) {
-    std::lock_guard<std::mutex> initLock(m_initMutex);
+    std::unique_lock<std::mutex> initLock(m_initMutex, std::try_to_lock);
+    if (!initLock.owns_lock()) return;   // the start (NVML's can take a while) is running on the sampler's thread: the caller is a render thread that asks again about every second, and must not wait for it
     if (name == m_preferred) return;
     m_preferred = name;
     if (!m_inited || !m_dev || m_counters) return;   // not started yet: it is chosen at the start
