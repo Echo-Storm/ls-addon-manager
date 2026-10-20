@@ -481,6 +481,23 @@ void PutTapBindingsBack(ID3D11DeviceContext* ctx) {
     } __except (EXCEPTION_EXECUTE_HANDLER) {}
     g_tapBoundOpen = false;
 }
+// Neural Rendering switched off while the recorder is on: the captured frame is still the tap's, and only the recorder gets it (no model, no bridge,
+// no compose). Under g_frameMutex, like Tap.
+void TapForRecording(ID3D11DeviceContext* ctx, uint32_t x, uint32_t y, uint32_t z) {
+    TapDecision d;
+    g_tap.Observe(ctx, x, y, z, d);   // (the frame is the tap's own whether or not the flow has come: no model waits for it here)
+    ID3D11Texture2D* tex = nullptr;
+    if (g_tapDevice && d.isTap && d.tapFrame && SUCCEEDED(d.tapFrame->QueryInterface(IID_PPV_ARGS(&tex)))) {
+        D3D11_TEXTURE2D_DESC frame; tex->GetDesc(&frame);
+        if (frame.Width >= 64 && frame.Height >= 64) Record(ctx, tex, lsrec::kCaptured);
+        tex->Release();
+    }
+    ReleaseDecision(d);
+}
+void TapForRecordingGuarded(ID3D11DeviceContext* ctx, uint32_t x, uint32_t y, uint32_t z) {   // no objects here: __try cannot unwind them
+    __try { TapForRecording(ctx, x, y, z); } __except (OnFault(GetExceptionCode(), "recording tap")) { PutTapBindingsBack(ctx); }
+}
+
 void TapGuarded(ID3D11DeviceContext* ctx, uint32_t x, uint32_t y, uint32_t z) {   // no objects here: __try cannot unwind them
     __try { Tap(ctx, x, y, z); } __except (OnFault(GetExceptionCode(), "tap")) { PutTapBindingsBack(ctx); }
 }
@@ -574,7 +591,7 @@ D3D11_BOX PairBox(const NisPass& pass) {   // the part of NIS's output the pictu
     return b;
 }
 
-void ReadHotkeys() {
+void ReadHotkeys(bool recordOnly = false) {   // recordOnly: Neural Rendering is off but the recorder is on: only the save key acts
     bool on; int keys[7];
     { std::lock_guard<std::mutex> lock(g_settingsMutex);   // only what is needed: a copy of the whole Config would allocate at every present
       on = g_config.hotkeys; keys[0] = g_config.keyAB; keys[1] = g_config.keySplit; keys[2] = g_config.keySharpDn; keys[3] = g_config.keySharpUp; keys[4] = g_config.keyPreset;
@@ -586,7 +603,7 @@ void ReadHotkeys() {
         const bool down = modifiers && keys[i] > 0 && (GetAsyncKeyState(keys[i]) & 0x8000);
         // the upscalers have no split view, looks or screenshots: only before / after and the sharpening keys act there (a look could
         // otherwise overwrite the upscaler's sharpening with one saved for Neural Rendering)
-        const bool applies = !kScalerAddon || i == 0 || i == 2 || i == 3 || i == 5 || i == 6;   // (5, the screenshot key: the before / after pair there)
+        const bool applies = (!kScalerAddon || i == 0 || i == 2 || i == 3 || i == 5 || i == 6) && (!recordOnly || i == 6);   // (5, the screenshot key: the before / after pair there)
         if (down && !wasDown[i] && applies) {
             nr::trace::Add(nr::trace::kHotkey, i);
             if (i == 0) { g_compare = g_compare == 2 ? 0 : 2; ShowMarker(g_compare == 2 ? 2 : 1); Log("hotkey: %s", g_compare == 2 ? "original only" : "enhanced"); }
@@ -964,7 +981,8 @@ void OnPresent(IDXGISwapChain* sc, UINT sync, UINT flags) {
         ScalerMarkerGuarded(sc);   // the corner square after a hotkey
         return;
     }   // the upscaler: its picture over NIS's (Handoff::AtPresent); no Enable of its own
-    { std::lock_guard<std::mutex> lock(g_settingsMutex); if (!g_config.enabled) return; }
+    bool isOn, recOn; { std::lock_guard<std::mutex> lock(g_settingsMutex); isOn = g_config.enabled; recOn = g_config.recordOn; }
+    if (!isOn) { if (recOn && OwnsFrames()) ReadHotkeys(true); return; }   // off, recorder on: the save key still works
     if (!OwnsFrames()) return;
     std::lock_guard<std::mutex> lock(g_frameMutex);
     PresentGuarded(sc);
@@ -1733,7 +1751,8 @@ bool OnPass(uint32_t x, uint32_t y, uint32_t z, void*) {
     auto* const ctx = static_cast<ID3D11DeviceContext*>(g_host ? g_host->GetDispatchingContext() : nullptr);
     if (t_ownWork || g_off || g_engineStarting || !ctx) return false;
     if (kScalerAddon) return ScalerGuarded(ctx, x, y, z);   // the upscalers: on while the manager has them on (their old Enable setting is ignored)
-    { std::lock_guard<std::mutex> lock(g_settingsMutex); if (!g_config.enabled) return false; }
+    bool recordOnly = false;   // switched off, but the recorder is on: the captured frames still go to it
+    { std::lock_guard<std::mutex> lock(g_settingsMutex); if (!g_config.enabled) { if (!g_config.recordOn) return false; recordOnly = true; } }
     if (!OwnsFrames()) return false;
     std::lock_guard<std::mutex> lock(g_frameMutex);
     if (!Tappable(ctx)) { ++g_otherPasses; return false; }
@@ -1741,6 +1760,7 @@ bool OnPass(uint32_t x, uint32_t y, uint32_t z, void*) {
         g_presentHookTriedOn = g_tapDevice;
         if (!PresentHook::Install(g_tapDevice, OnPresent, [](const char* m) { Log("%s", m); })) Log("could not hook dxgi Present from Lossless Scaling's passes");
     }
+    if (recordOnly) { TapForRecordingGuarded(ctx, x, y, z); return false; }
     TapGuarded(ctx, x, y, z);
     LogPassTable();
     return false;   // Lossless Scaling's pass always runs

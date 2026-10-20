@@ -122,6 +122,13 @@ def scenario_hdr(ctx, res, text, frame):
     res.check('...with no failure', 'SwitchOff' not in text and 'switched off:' not in text.lower() and 'Compose11: HLSL' not in text)
 
 
+def scenario_record_addon_off(ctx, res, text, frame):
+    # Neural Rendering switched off (its own Enable) with the recorder on: the captured frames still go to the recorder, and no model runs
+    saved = re.search(r'recorder: Saved ([0-9.]+) s \((\d+) frames, .*? to (.+\.lsrec)', text)
+    res.check('with the addon off, the recorder saved the captured frames', saved is not None, saved.group(0)[10:] if saved else 'no "recorder: Saved" line')
+    res.check('...and no model was made (the addon is off)', 'NrEngine: model for' not in text)
+
+
 def scenario_record_replay(ctx, res, text, frame):
     # the recorder on during the run: it saves by itself once it holds 60 frames; the file is then looked into (nr_lsrec info) and played back
     # through the addon in a second run of the host
@@ -698,6 +705,7 @@ SCENARIOS = [
     ('hdr_scrgb', ['offframes=150', 'hdr=scrgb'], scenario_hdr),   # ...then the presented frames HDR: 16-bit float scRGB
     ('hdr_pq', ['offframes=150', 'hdr=pq'], scenario_hdr),         # ...and HDR10 (10-bit PQ)
     ('record_replay', ['recordOn=1', 'recordSaveAfter=60', 'recordSeconds=3', 'recordFolder=@OUT@/recordings'], scenario_record_replay),   # save, read, play back
+    ('record_addon_off', ['enabled=0', 'recordOn=1', 'recordSaveAfter=20', 'recordFolder=@OUT@/recordings_off'], scenario_record_addon_off),   # Neural Rendering's Enable off: the recorder still gets the captured frames
     ('hud_left_half', ['hud=0,0,0.5,1', 'hudFeather=0'], scenario_hud),
     ('sharpen', ['sharpen=0.8'], scenario_sharpen),
     ('shadows_up', ['shadows=1'], scenario_shadows_up),
