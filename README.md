@@ -18,14 +18,16 @@ Around them, the manager installs and switches addons, records clips of what the
 load at a glance, explains what limits your frame rate, backs every setting up and updates itself. It is free, MIT-licensed and unofficial: not affiliated with the Lossless Scaling developers. Read the [disclaimer](DISCLAIMER.md) before installing.
 
 [![build](https://github.com/Echo-Storm/ls-addon-manager/actions/workflows/build.yml/badge.svg)](https://github.com/Echo-Storm/ls-addon-manager/actions/workflows/build.yml)
-&nbsp; **1.0.0** ([roadmap](ROADMAP.md)) &nbsp;·&nbsp; Lossless Scaling 3.2.2.0 &nbsp;·&nbsp; Windows 10 or 11, x64
+&nbsp; **1.0.1** ([roadmap](ROADMAP.md)) &nbsp;·&nbsp; Lossless Scaling 3.2.2.0 &nbsp;·&nbsp; Windows 10 or 11, x64
 
 > [!TIP]
-> **New in 1.0.0: one recorder and one GPU limit for everything, and a choice of model.**
-> - **Recording** is a feature of the manager (Features tab): press a key, hear it, get a clip and a note beside it, with or without any addon on and with or without frame generation. Compact (8-bit, a sixth of the size) or Exact; any key from F1 to F12.
-> - **GPU limit** is a slider there too (80 to 100 %): the addons make their work cheaper while the card is at the limit and go back when it is well under.
-> - **Neural Rendering has a Model preset**: *Newer* (the default with NVIDIA's runtime 310.9.16: lighter, a gentler effect) or *Older* (the original look, at the old cost).
-> - **The addon interface is 1.3** (calls appended only; addons built for 1.0 to 1.2 keep working), and the 1.0 promises are written down in [docs/api-compatibility.md](docs/api-compatibility.md).
+> **New in 1.0.1: heavy upscalers no longer take a game's frame rate under frame generation, and faster starts.**
+> - **The upscalers lighten the frames Lossless Scaling generates when the card is full** (on by default; issue #22). With frame generation the upscaler runs on every picture shown, so a heavy model (DLSS 4.5, FSR 4) could cost most of a game's frame rate. Now, while the card's load is at or over the GPU limit (95 % if that feature is off), the generated frames get a much lighter picture; the game's own frames are still upscaled in full. Untick it in the upscaler's panel to turn it off.
+> - **Shaders are compiled once and kept**, so the addons start without the 1 to 5 seconds of compiling (a small cache under `%LOCALAPPDATA%\LSAddonManager\shader-cache`).
+> - **The comparison label** (Ctrl+Shift+F9) now also says which runtime version is running.
+> - The manager's feature tiles and the VSR and EchoFG icons were redrawn (the recorder gets a camera, the GPU limit a gauge).
+>
+> 1.0.0 added one recorder and one GPU limit for everything and a choice of model for Neural Rendering; see the [changelog](CHANGELOG.md).
 >
 > Everything since 0.9 is in the [changelog](CHANGELOG.md).
 
