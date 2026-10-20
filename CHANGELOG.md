@@ -4,6 +4,7 @@
 
 ## 1.0.1 (2026-10-20)
 
+- **Safer update and recorder:** the update download is refused when GitHub lists no SHA-256 for it (the release page's own download is the way then; the project's releases always have one); the recorder waits for its compression threads before it gives the staging memory back when they did not finish in time.
 - **Icons:** the Features tiles each have their own shape (the recorder a video camera, the GPU limit a gauge; they shared the monitor with Windowed mode), Video Super Resolution has its own icon (it was a copy of FSR's), and EchoFG's icon is drawn in paths, the only shapes the manager reads (it fell back to the package glyph).
 - **Shaders are compiled once and kept (faster starts).** The addons' compute shaders (the motion estimate, EchoFG's synthesis, the upscalers' passes, Neural Rendering's model) took 1 to 5 seconds to compile every time an addon started; the compiled code is now kept under `%LOCALAPPDATA%\LSAddonManager\shader-cache` (about half a megabyte), checked by a checksum, and used the next time (compile time 0 ms). `NR_SHADER_CACHE=0` turns it off; files unused for 90 days are removed.
 - **The upscalers' comparison label shows the runtime's version (issue #21).** With Ctrl+Shift+F9 the label in the picture's top left says which upscaler is on; it now has a second line, "RUNTIME 310.9.1" (the version of the DLSS, FSR or XeSS runtime in use).

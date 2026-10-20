@@ -9,6 +9,7 @@ Nothing is tagged. The tag, the zip and the release are the owner's. The full su
 - **Shader cache:** compiled shaders kept under `%LOCALAPPDATA%\LSAddonManager\shader-cache` (about half a megabyte, files unused for 90 days removed, `NR_SHADER_CACHE=0` turns it off). Engine start-up at 4K went from about 7 s to 0.4 s.
 - **Issue #21:** the Ctrl+Shift+F9 comparison label has a second line with the runtime's version.
 - **Icons:** the recorder, GPU limit, VSR and EchoFG icons.
+- **Update download without a SHA-256 is refused** (`update_test` covers it), **the recorder joins its workers before it drops staging memory** after a timeout, and the saved-settings fix for the lighter upscaling (a new key `scalerLightAuto2`: 1.0.0 had written `scalerLightAuto=0` for everyone who ever saved).
 - EchoFG test-build work (not in the release zip): the motion estimated at half size on frames over 2560 wide, the picture-at-large correction, marks.
 
 ## Checked here
