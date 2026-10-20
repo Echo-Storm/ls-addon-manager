@@ -15,6 +15,7 @@
 #include <windows.h>
 #include <d3d12.h>
 #include <dxgi1_6.h>
+#include <d3d11.h>
 #include <d3dcompiler.h>
 #include <wrl/client.h>
 #include <sl.h>
@@ -186,6 +187,50 @@ static bool SaveBurst(HWND hwnd, const char* path, int count) {
     if (f) fclose(f);
     DeleteObject(bmp); DeleteDC(mem); ReleaseDC(nullptr, screen);
     return f != nullptr;
+}
+
+// Desktop Duplication: the desktop as the compositor shows it, one image each time it changes, with nothing in between lost (a GDI grab is not a reliable tap). The same
+// 192 x 192 patch at 300,200 of the window, every picture the screen got over `count` pictures, into a raw file.
+static bool SaveDuplication(HWND hwnd, IDXGIAdapter1* adapter, const char* path, int count) {
+    POINT tl{ 0, 0 }; ClientToScreen(hwnd, &tl);
+    const LONG px = tl.x + 300, py = tl.y + 200;
+    ComPtr<IDXGIOutput> output;
+    for (UINT i = 0; adapter->EnumOutputs(i, &output) != DXGI_ERROR_NOT_FOUND; ++i) {
+        DXGI_OUTPUT_DESC od{}; output->GetDesc(&od);
+        if (px >= od.DesktopCoordinates.left && px < od.DesktopCoordinates.right && py >= od.DesktopCoordinates.top && py < od.DesktopCoordinates.bottom) break;
+        output.Reset();
+    }
+    if (!output) { Say("duplication: the window is on no output of this adapter"); return false; }
+    DXGI_OUTPUT_DESC od{}; output->GetDesc(&od);
+    ComPtr<ID3D11Device> dev; ComPtr<ID3D11DeviceContext> ctx;
+    if (FAILED(D3D11CreateDevice(adapter, D3D_DRIVER_TYPE_UNKNOWN, nullptr, 0, nullptr, 0, D3D11_SDK_VERSION, &dev, nullptr, &ctx))) { Say("duplication: no D3D11 device"); return false; }
+    ComPtr<IDXGIOutput1> o1; ComPtr<IDXGIOutputDuplication> dup;
+    if (FAILED(output.As(&o1)) || FAILED(o1->DuplicateOutput(dev.Get(), &dup))) { Say("duplication: DuplicateOutput failed"); return false; }
+    D3D11_TEXTURE2D_DESC sd{}; sd.Width = 192; sd.Height = 192; sd.MipLevels = 1; sd.ArraySize = 1; sd.Format = DXGI_FORMAT_B8G8R8A8_UNORM; sd.SampleDesc.Count = 1; sd.Usage = D3D11_USAGE_STAGING; sd.CPUAccessFlags = D3D11_CPU_ACCESS_READ;
+    ComPtr<ID3D11Texture2D> staging; dev->CreateTexture2D(&sd, nullptr, &staging);
+    FILE* f = fopen(path, "wb");
+    int got = 0, tries = 0;
+    while (got < count && tries++ < count * 20 && f) {
+        DXGI_OUTDUPL_FRAME_INFO info{}; ComPtr<IDXGIResource> res;
+        const HRESULT hr = dup->AcquireNextFrame(100, &info, &res);
+        if (hr == DXGI_ERROR_WAIT_TIMEOUT) continue;
+        if (FAILED(hr)) break;
+        if (info.LastPresentTime.QuadPart != 0) {
+            ComPtr<ID3D11Texture2D> tex; res.As(&tex);
+            { static bool said = false; if (!said) { said = true; D3D11_TEXTURE2D_DESC td{}; tex->GetDesc(&td); Say("duplication: the desktop's format is %u (87 = BGRA8, 10 = RGBA16F, 24 = RGB10A2)", (unsigned)td.Format); } }
+            const D3D11_BOX box{ (UINT)(px - od.DesktopCoordinates.left), (UINT)(py - od.DesktopCoordinates.top), 0, (UINT)(px - od.DesktopCoordinates.left) + 192, (UINT)(py - od.DesktopCoordinates.top) + 192, 1 };
+            ctx->CopySubresourceRegion(staging.Get(), 0, 0, 0, 0, tex.Get(), 0, &box);
+            D3D11_MAPPED_SUBRESOURCE m{};
+            if (SUCCEEDED(ctx->Map(staging.Get(), 0, D3D11_MAP_READ, 0, &m))) {
+                for (UINT y = 0; y < 192; ++y) fwrite((uint8_t*)m.pData + (size_t)m.RowPitch * y, 4, 192, f);
+                ctx->Unmap(staging.Get(), 0); ++got;
+            }
+        }
+        dup->ReleaseFrame();
+    }
+    if (f) fclose(f);
+    Say("duplication: %d pictures of the desktop saved (%d tries)", got, tries);
+    return got > 0;
 }
 
 int main(int argc, char** argv) {
@@ -404,7 +449,7 @@ int main(int argc, char** argv) {
         if (elapsed >= args.seconds) break;
         if (!args.grab.empty() && !grabbed && elapsed > 3.0) { grabbed = true; 
             const bool raw = args.grab.size() > 4 && args.grab.compare(args.grab.size() - 4, 4, ".raw") == 0;
-            if (raw) { burst = std::thread([&] { SaveBurst(hwnd, args.grab.c_str(), 60); }); Say("grab: burst into %s (on its own thread, while frames go on)", args.grab.c_str()); }
+            if (raw) { burst = std::thread([&] { SaveDuplication(hwnd, adapter.Get(), args.grab.c_str(), 240); }); Say("grab: burst into %s (on its own thread, while frames go on)", args.grab.c_str()); }
             else Say("grab: %s (%s)", args.grab.c_str(), SaveGrab(hwnd, args.grab.c_str(), args.width, args.height) ? "saved" : "FAILED");
         }
 

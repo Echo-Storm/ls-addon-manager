@@ -31,30 +31,45 @@ def render(shift, w, h, x0=0, y0=0):
     ring = smoothstep(0.03, 0.0, np.abs(np.sqrt(qx * qx + qy * qy) - 0.3))
     return np.stack([n * 0.6 + ring * 0.4, n * 0.4 + np.abs(qx) * 0.5, n * 0.5 + np.abs(qy) * 0.5], -1)
 
+NMAX = 240
+
+def luma(a):
+    return a[..., 0] * 0.3 + a[..., 1] * 0.59 + a[..., 2] * 0.11
+
 def burst(path, speed):
-    d = np.fromfile(path, np.uint8).reshape(-1, 192, 192, 4)
+    """The desktop picture is brighter than what was drawn (the compositor maps the picture to the screen's white level), so a picture is scored by its correlation with the
+    drawn pattern, which does not care about brightness and contrast: error = 1 - correlation (0 = the same picture)."""
+    d = np.fromfile(path, np.uint8).reshape(-1, 192, 192, 4)[:NMAX]
     span = int(speed * 400)
-    P = 64                                  # a 64 x 64 patch in the middle is enough, and fast
+    P = 96
     o = (192 - P) // 2
-    # the pattern at every whole-pixel scroll position is this strip read at an offset (half pixels: a second strip drawn half a pixel on)
-    strips = [render(h_, span + 192, 192, 300, 200)[o:o + P] for h_ in (0.0, 0.5)]
+    strips = [luma(render(h_, span + 192, 192, 300, 200))[o:o + P] for h_ in (0.0, 0.5)]
+    wins = [np.lib.stride_tricks.sliding_window_view(st, (P, P))[0] for st in strips]          # (positions, P, P)
+    wins = [w - w.mean(axis=(1, 2), keepdims=True) for w in wins]
+    norms = [np.sqrt((w * w).sum(axis=(1, 2))) + 1e-9 for w in wins]
     rows = []
     for g in d:
-        patch = (g[o:o + P, o:o + P, 2::-1].astype(np.float32) / 255.0)
+        patch = luma(g[o:o + P, o:o + P, 2::-1].astype(np.float32) / 255.0)
+        patch = patch - patch.mean(); pn = np.sqrt((patch * patch).sum()) + 1e-9
         best = (9.0, 0.0)
-        for h_, strip in zip((0.0, 0.5), strips):
-            win = np.lib.stride_tricks.sliding_window_view(strip, (P, P, 3))[:, :, 0]   # (1, span+192-P+1, P, P, 3)
-            for k in range(0, span, 1):
-                e = float(np.abs(win[0, k + o] - patch).mean())
-                if e < best[0]: best = (e, k + h_)
+        for h_, w, nrm in zip((0.0, 0.5), wins, norms):
+            ncc = np.tensordot(w[o:o + span], patch, axes=([1, 2], [0, 1])) / (nrm[o:o + span] * pn)
+            k = int(np.argmax(ncc))
+            if 1 - float(ncc[k]) < best[0]: best = (1 - float(ncc[k]), k + h_)
         rows.append(best)
-    real = [r for r in rows if min((r[1] / speed) % 1, 1 - (r[1] / speed) % 1) < 0.1]
-    mid = [r for r in rows if abs((r[1] / speed) % 1 - 0.5) < 0.15]
-    print('%d grabs: %d real frames (mean error %.4f), %d in-between frames (mean error %.4f), %d neither' % (len(rows), len(real), np.mean([r[0] for r in real]) if real else -1, len(mid),
-          np.mean([r[0] for r in mid]) if mid else -1, len(rows) - len(real) - len(mid)))
-    print('worst few: ' + ', '.join('%.1fpx err %.3f' % (r[1], r[0]) for r in sorted(rows, reverse=True)[:5]))
+    ph = lambda r: (r[1] / speed) % 1
+    real = [r for r in rows if min(ph(r), 1 - ph(r)) < 0.1]
+    mid = [r for r in rows if abs(ph(r) - 0.5) < 0.15]
+    other = len(rows) - len(real) - len(mid)
+    print('%d pictures: %d at a real frame (mean error %.4f), %d at an in-between position (mean error %.4f), %d at neither' % (len(rows), len(real), np.mean([r[0] for r in real]) if real else -1,
+          len(mid), np.mean([r[0] for r in mid]) if mid else -1, other))
+    errs = sorted(r[0] for r in rows)
+    print('all pictures: error median %.4f, worst %.4f' % (errs[len(errs) // 2], errs[-1]))
+    print('in order (px): ' + ' '.join('%g' % r[1] for r in rows[:40]))
 
 def main():
+    global NMAX
+    NMAX = int(dict(s.split('=') for s in sys.argv[2:]).get('n', 240))
     if sys.argv[1].endswith('.raw'):
         burst(sys.argv[1], float(dict(s.split('=') for s in sys.argv[2:]).get('speed', 8))); return
     a = {k: v for k, v in (s.split('=') for s in sys.argv[2:])}
