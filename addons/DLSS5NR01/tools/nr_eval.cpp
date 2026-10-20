@@ -1,6 +1,6 @@
 // nr_nreval: runs Neural Rendering's model (the addon's own NrEngine, with the user's nvngx_dlssnr.dll) on a recording and scores the flicker it adds.
 //
-//   nr_nreval <recording.lsrec> <output folder> [first=N] [count=N] [scale=50] [smooth=40] [passes=1] [intensity=100] [model=<path to nvngx_dlssnr.dll>]
+//   nr_nreval <recording.lsrec> <output folder> [first=N] [count=N] [scale=50] [smooth=40] [passes=1] [preset=0] [intensity=100] [model=<path to nvngx_dlssnr.dll>]
 //             [lsdir=<Lossless Scaling folder>] [show=N] [maxdelta=50] [still=3] [stable=N] [dump=file] [lightlog=1] [piclog=1] [darkguard=4]
 //
 // The picture shown is the game's frame plus the model's change (its "delta", at the working size, stretched to the frame's and clamped to
@@ -113,7 +113,7 @@ double MovingFlicker(const std::vector<uint8_t>& frame, const std::vector<uint8_
 
 int main(int argc, char** argv) {
     setvbuf(stdout, nullptr, _IONBF, 0);
-    if (argc < 3) { printf("usage: nr_nreval <recording.lsrec> <output folder> [first=N] [count=N] [scale=50] [smooth=40] [passes=1] [intensity=100] [model=<nvngx_dlssnr.dll>] [lsdir=<folder>] [show=N] [maxdelta=50] [still=3]\n"); return 2; }
+    if (argc < 3) { printf("usage: nr_nreval <recording.lsrec> <output folder> [first=N] [count=N] [scale=50] [smooth=40] [passes=1] [preset=0] [intensity=100] [model=<nvngx_dlssnr.dll>] [lsdir=<folder>] [show=N] [maxdelta=50] [still=3]\n"); return 2; }
     nr::lsrec::Reader rec; std::string error;
     if (!rec.Open(Wide(argv[1]), &error)) { printf("%s: %s\n", argv[1], error.c_str()); return 2; }
     std::wstring outDir = Wide(argv[2]);
@@ -135,6 +135,7 @@ int main(int argc, char** argv) {
     params.deltaSmooth = Arg(argc, argv, "smooth", 40) / 100.0f;
     params.smoothStable = Arg(argc, argv, "stable", 0) / 100.0f;   // stable=N: the history weight where the frame is unchanged (percent)
     params.passes = static_cast<uint32_t>(Arg(argc, argv, "passes", 1));
+    params.modelPreset = static_cast<uint32_t>(Arg(argc, argv, "preset", 0));   // the model preset (0 the runtime's own, 1 the older model: only a 310.9.x file has both)
     params.intensity = Arg(argc, argv, "intensity", 100) / 100.0f;
     const float sc = std::clamp(params.workingScale, 0.25f, 1.0f);
     auto workSize = [&](uint32_t full) { uint32_t s = (static_cast<uint32_t>(full * sc) + 7) & ~7u; s = std::min(s, full); return std::max(s, std::min(full, 64u)); };
