@@ -52,3 +52,6 @@ tools/.venv/
 # local test recordings (large): see recordings/README.md
 recordings/*
 !recordings/README.md
+
+# scratch folders made by tests and evaluations
+tmp_*/
