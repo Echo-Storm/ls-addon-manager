@@ -124,7 +124,7 @@ void UpdateOffer() {
         if (ImGui::SmallButton(st.notes.empty() ? "What's new" : "The release page")) ShellExecuteA(nullptr, "open", st.url.c_str(), nullptr, nullptr, SW_SHOWNORMAL);
         if (st.notes.empty()) { ImGui::SameLine(); ImGui::TextDisabled("(the release page)"); }
         ImGui::Dummy(ImVec2(0, S(6)));
-        const bool canDownload = !st.zipUrl.empty();
+        const bool canDownload = !st.zipUrl.empty() && !st.zipSha256.empty();   // (a download GitHub lists no SHA-256 for is refused by the updater)
         if (!canDownload) ImGui::BeginDisabled();
         if (ui::Button("Download and install", ui::icons::kDownload, ui::ButtonKind::Primary)) { update::ForgetDownload(); update::StartDownload(st); }
         if (!canDownload) ImGui::EndDisabled();
@@ -132,7 +132,7 @@ void UpdateOffer() {
         if (ui::Button("Not now", ui::icons::kClose)) close();
         ImGui::SameLine();
         if (ui::Button("Don't ask again for this release")) { update::Skip(st.latest); close(); }
-        if (!canDownload) Wrapped("This release has no download attached: use its page.", true);
+        if (!canDownload) Wrapped(st.zipUrl.empty() ? "This release has no download attached: use its page." : "GitHub lists no checksum for this download, so it cannot be checked here: use the release page.", true);
     }
     ImGui::PopTextWrapPos();
     ImGui::EndPopup();

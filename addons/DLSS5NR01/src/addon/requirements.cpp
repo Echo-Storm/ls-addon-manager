@@ -391,7 +391,9 @@ SelfTestResult RunSelfTest(const std::wstring& addonDir, const std::wstring& mod
         return r;
     }
     DeleteFileW((addonDir + L"\\compatibility_report.txt").c_str());   // a report left by an earlier run must not be taken for this one's (a crashed test writes none)
-    const ProcessResult p = RunProcess(L"\"" + exe + L"\" --model \"" + modelPath + L"\" --lsdir \"" + lsDir + L"\" --report \"" + addonDir + L"\\compatibility_report.txt\"" +
+    // (a path that ends with a backslash, a drive's root, would escape the quote after it: its backslashes are doubled)
+    auto quoted = [](std::wstring path) { if (!path.empty() && path.back() == L'\\') path += L'\\'; return L"\"" + path + L"\""; };
+    const ProcessResult p = RunProcess(L"\"" + exe + L"\" --model " + quoted(modelPath) + L" --lsdir " + quoted(lsDir) + L" --report \"" + addonDir + L"\\compatibility_report.txt\"" +
                                        (luid.empty() ? std::wstring() : L" --luid " + luid), timeoutMs);
     if (!p.started) {
         r.key = "UNEXPECTED";
