@@ -21,7 +21,7 @@ On the clips of 2026-10-19 (WoW, 2560x1440, Compact, the middle 1280 x 720 cropp
 - **Ours beats the hardware on every clip**, by 0.4 to 1.3 dB at the best NVOFA setting, and its photometric error is 4-5 times lower (2.1 against 11 on the camera clip).
 - **Fusing the two** (per pixel, the vector whose 7 x 7 surroundings match better) gives exactly our numbers: the hardware's vectors add nothing our estimator does not already have.
 - **Settings did not matter much**: scale 2 and 4 are the same (25.27 / 25.30 dB on the camera clip), slow / medium / fast perf 25.27 / 25.31 / 24.99, output grid 1 / 2 / 4 all 25.27. Full size is worse on fast motion: the hardware's search is of limited reach (the camera clip moves 30-100 pixels between real frames), so it has to be given a smaller picture, which is what MFG Super Motion does too (its `LF_OFA_SCALE`, "flow luma divided by N").
-- **Cost**: 0.4 ms for a 1280 x 720 pair (execute and readback, D3D11 interop), on its own engine, leaving the shaders free. That is the one thing in its favour: our estimator costs GPU shader time (about 1-2 ms at this size on this card). It could be a cheap *seed* for our search, not a better answer.
+- **Cost**: 0.4 ms for a 1280 x 720 pair (execute and readback, D3D11 interop), on its own engine, leaving the shaders free. That is the one thing in its favour: our estimator costs GPU shader time (not measured in this study: `FlowEstimator::TakeStageTimes` has the number, the lab tool does not read it yet). It could be a cheap *seed* for our search, not a better answer.
 
 ## How to drive it (things that cost time, kept so they are not lost)
 
