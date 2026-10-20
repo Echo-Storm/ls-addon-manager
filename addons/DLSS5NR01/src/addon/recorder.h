@@ -26,6 +26,9 @@ public:
     void SetLog(LogFn log) { m_log = std::move(log); }
     // on: keep recording; seconds and budgetMb: how much is kept (the older frames go first). Off frees everything.
     void Configure(bool on, float seconds, uint32_t budgetMb);
+    // Compact: a frame of more than 8 bits (HDR) is made into an 8-bit SDR picture on the card before it is copied off it: about a sixth of the size and written in seconds,
+    // instead of lossless half-floats (about 0.85 GB a second at 2560x1440 HDR). 8-bit frames are kept as they are. Recorded as content SDR view.
+    void SetCompact(bool on) { m_compact = on; }
     // A frame the addon received (on the render thread that owns ctx). source: lsrec::Source; content: lsrec::Content; tag: lsrec::Tag.
     // cropW x cropH (when given and smaller than the frame): only the middle of the frame is kept, at full size. A 4K frame in HDR is 66 MB and a recording of what is shown has every presented frame: the
     // card and the processor cannot keep that up (a test kept 84 of 247 frames, compressed to more than they were), and a flicker shows in the middle as well as anywhere.
@@ -58,6 +61,8 @@ private:
     void Worker();
     bool Collect(bool waitForWorkers);   // on m_ctx; true when no staging texture is in use any more (with waitForWorkers: false means the workers did not finish in time: nothing may be unmapped or released then)
     void DropStaging();
+    bool ConvertTo8(ID3D11DeviceContext* ctx, ID3D11Texture2D* frame, const D3D11_BOX* box, uint32_t mode, float scale);
+    void DropConvert();
     void Keep(std::shared_ptr<lsrec::Frame> frame);
     void StartWorkers();
     void StopWorkers();
@@ -69,6 +74,15 @@ private:
     uint32_t m_srcW = 0, m_srcH = 0;   // the frames' own size (m_w and m_h: what is kept of them)
     uint32_t m_w = 0, m_h = 0, m_bpp = 0, m_source = 0; DXGI_FORMAT m_fmt = DXGI_FORMAT_UNKNOWN, m_viewFmt = DXGI_FORMAT_UNKNOWN;
     uint32_t m_content = 0;   // lsrec::Content of the frames kept
+    DXGI_FORMAT m_srcFmt = DXGI_FORMAT_UNKNOWN, m_srcView = DXGI_FORMAT_UNKNOWN;   // the frames' own format (m_fmt is what is kept: 8-bit when compact)
+    bool m_convert = false;
+    std::atomic<bool> m_compact{ false };
+    struct Convert {   // the pass that makes an 8-bit picture of an HDR frame (made on the frames' device, dropped with the staging textures)
+        ID3D11Texture2D* copy = nullptr; ID3D11ShaderResourceView* srv = nullptr;
+        ID3D11Texture2D* out = nullptr; ID3D11UnorderedAccessView* uav = nullptr;
+        ID3D11ComputeShader* cs = nullptr; ID3D11Buffer* cb = nullptr; ID3D11DeviceContext* deferred = nullptr;
+        uint32_t w = 0, h = 0; DXGI_FORMAT fmt = DXGI_FORMAT_UNKNOWN;
+    } m_conv;
     uint64_t m_offered = 0;
 
     std::atomic<bool> m_on{ false };

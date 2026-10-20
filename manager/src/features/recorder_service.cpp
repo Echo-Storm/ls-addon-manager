@@ -111,6 +111,7 @@ void Service::ApplyToRecorder() {
     // a clip keeps all ten seconds, in as much memory as they take (4K HDR is big)
     m_recorder.Configure(on, clipping ? std::max(s.seconds, kClipMs / 1000.0f) : s.seconds,
                          static_cast<uint32_t>(clipping ? std::max(s.budgetMb, 8192) : s.budgetMb));
+    m_recorder.SetCompact(s.compact);
     m_shown = s.shown; m_saveAfter = s.saveAfter;
     m_on = on;
 }
@@ -335,6 +336,7 @@ void Service::WriteNote(const nr::Recorder::SaveInfo& info) {
     snprintf(num, sizeof num, "%ux%u", info.w, info.h); add("size", JsonString(num));
     snprintf(num, sizeof num, "%u", info.format); add("dxgi_format", num);
     add("source", JsonString(SourceName(info.source)));
+    add("kept_as", JsonString(info.format == 28 ? (s.compact ? "8-bit SDR picture (compact)" : "8-bit") : "as captured (exact)"));
     snprintf(num, sizeof num, "%llu", static_cast<unsigned long long>(info.missed)); add("frames_left_out", num);
     snprintf(num, sizeof num, "%.1f", s.seconds); add("seconds_kept_setting", num);
     snprintf(num, sizeof num, "%.1f", s.afterSeconds); add("seconds_after_key", num);

@@ -65,6 +65,7 @@ rec::Settings Load() {
     s.hotkeyOn = Cfg().Get(kId, "hotkey", "1") == "1";
     s.key = std::atoi(Cfg().Get(kId, "key", "112").c_str());   // 112 = VK_F1
     s.afterSeconds = std::clamp(static_cast<float>(std::atof(Cfg().Get(kId, "after_seconds", "0").c_str())), 0.0f, 60.0f);
+    s.compact = Cfg().Get(kId, "compact", "1") == "1";
     s.beep = Cfg().Get(kId, "beep", "1") == "1";
     s.note = Cfg().Get(kId, "note", "1") == "1";
     s.saveAfter = std::max(0, std::atoi(Cfg().Get(kId, "test_save_after", "0").c_str()));   // tests only
@@ -80,6 +81,7 @@ void Store(const rec::Settings& s) {
     Cfg().Set(kId, "hotkey", s.hotkeyOn ? "1" : "0");
     Cfg().Set(kId, "key", std::to_string(s.key));
     Cfg().Set(kId, "after_seconds", std::to_string(static_cast<int>(s.afterSeconds + 0.5f)));
+    Cfg().Set(kId, "compact", s.compact ? "1" : "0");
     Cfg().Set(kId, "beep", s.beep ? "1" : "0");
     Cfg().Set(kId, "note", s.note ? "1" : "0");
     Cfg().Save();
@@ -177,6 +179,15 @@ void RenderOptions() {
                           "Off: nothing is kept; the hotkey records the next ten seconds, saves them and stops (it holds the memory only for that).");
     ImGui::SetNextItemWidth(ImGui::GetFontSize() * 16.0f);
     float seconds = s.seconds; if (ImGui::SliderFloat("Seconds kept", &seconds, 1.0f, 60.0f, "%.0f s")) { s.seconds = seconds; changed = true; }
+    {
+        int mode = s.compact ? 0 : 1; const char* modes[] = { "Compact (8-bit picture, small)", "Exact (as captured, huge for HDR)" };
+        ImGui::SetNextItemWidth(ImGui::GetFontSize() * 16.0f);
+        if (ImGui::Combo("Frames", &mode, modes, 2)) { s.compact = mode == 0; changed = true; }
+        if (ImGui::IsItemHovered())
+            ImGui::SetTooltip("Compact: HDR frames are made into an 8-bit SDR picture (what you see; highlights above the SDR white clip) on the card first: about a sixth of the size, a 10 s clip about 1 GB, saved in seconds.\n"
+                              "Exact: every frame as Lossless Scaling captured it, half-float HDR included: about 0.85 GB a second at 2560x1440, a minute to write. For a bug that depends on the HDR values.\n"
+                              "8-bit frames are kept as they are in both. Changing it starts the recording again.");
+    }
     ImGui::SetNextItemWidth(ImGui::GetFontSize() * 16.0f);
     int budget = s.budgetMb; if (ImGui::SliderInt("Memory for it", &budget, 512, 32768, "%d MB")) { s.budgetMb = budget; changed = true; }
     if (ImGui::IsItemHovered())

@@ -31,6 +31,7 @@ struct Settings {
     bool hotkeyOn = true;
     int key = 0x70;            // VK_F1, with Ctrl and Shift
     float afterSeconds = 0.0f; // after the key: keep recording this long, then save (0: save at once)
+    bool compact = true;       // HDR frames are kept as an 8-bit SDR picture (small); off: exactly as captured (lossless half-floats: huge)
     bool beep = true;          // a short sound when a file is saved (or could not be)
     bool note = true;          // the note beside the file
     int saveAfter = 0;         // tests only: save by itself once this many frames are held

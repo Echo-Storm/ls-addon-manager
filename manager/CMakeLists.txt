@@ -57,6 +57,7 @@ set(RECORDER_SOURCES
     ${EAM_ADDONS_SRC}/addon/lsrec.cpp
     ${EAM_ADDONS_SRC}/addon/frame_tap.cpp
     ${EAM_ADDONS_SRC}/addon/nis_pass.cpp
+    ${EAM_ADDONS_SRC}/addon/hdr.cpp
 )
 
 set(FEATURE_SOURCES
@@ -233,8 +234,8 @@ target_link_libraries(eam_uipreview d3d11 dxgi d3dcompiler bcrypt minhook)
 # Offline test of installing addons from a folder / zip / dll: cmake --build . --config Release --target eam_installtest
 # Offline test of the recorder service: frames offered, saved, read back, the note, the clip (needs a Direct3D 11 device, the card or WARP)
 add_executable(eam_recordertest EXCLUDE_FROM_ALL tools/recorder_test.cpp src/features/recorder_service.cpp
-    ${EAM_ADDONS_SRC}/addon/recorder.cpp ${EAM_ADDONS_SRC}/addon/lsrec.cpp ${EAM_ADDONS_SRC}/addon/frame_tap.cpp ${EAM_ADDONS_SRC}/addon/nis_pass.cpp)
-target_link_libraries(eam_recordertest d3d11 dxgi)
+    ${EAM_ADDONS_SRC}/addon/recorder.cpp ${EAM_ADDONS_SRC}/addon/lsrec.cpp ${EAM_ADDONS_SRC}/addon/frame_tap.cpp ${EAM_ADDONS_SRC}/addon/nis_pass.cpp ${EAM_ADDONS_SRC}/addon/hdr.cpp)
+target_link_libraries(eam_recordertest d3d11 dxgi d3dcompiler)
 
 add_executable(eam_installtest EXCLUDE_FROM_ALL tools/install_test.cpp src/addon/addon_install.cpp src/host/metrics.cpp src/host/gpu_stats.cpp src/config/settings_backup.cpp src/diag/diagnostics.cpp)
 target_include_directories(eam_installtest PRIVATE ${CMAKE_CURRENT_SOURCE_DIR})

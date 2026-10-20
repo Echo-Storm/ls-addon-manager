@@ -1,9 +1,13 @@
 #include "addon/recorder.h"
+#include "addon/hdr.h"
 #include <windows.h>
+#include <d3dcompiler.h>
 #include <shlobj.h>
 #include <algorithm>
 #include <cstdarg>
 #include <cstdio>
+
+#pragma comment(lib, "d3dcompiler.lib")
 
 namespace nr {
 
@@ -136,7 +140,77 @@ bool Recorder::Collect(bool waitForWorkers) {
     return false;
 }
 
+// Frames of more than 8 bits as an 8-bit SDR picture: scRGB (1.0 = 80 nits; the display's SDR white maps to 1) and HDR10 (PQ) are brought to the SDR white and encoded with
+// the sRGB curve (highlights above the SDR white clip); a 10-bit SDR frame is already encoded.
+static const char kConvertHlsl[] = R"(
+cbuffer C : register(b0) { uint mode; uint w; uint h; uint pad; float scale; float3 pad2; };
+Texture2D<float4> src : register(t0);
+RWTexture2D<float4> dst : register(u0);
+float3 SrgbEncode(float3 c) { c = saturate(c); return c <= 0.0031308 ? 12.92 * c : 1.055 * pow(c, 1.0 / 2.4) - 0.055; }
+float3 PqToNits(float3 e) {
+    const float m1 = 0.1593017578125, m2 = 78.84375, c1 = 0.8359375, c2 = 18.8515625, c3 = 18.6875;
+    float3 p = pow(max(e, 0.0), 1.0 / m2);
+    return 10000.0 * pow(max(max(p - c1, 0.0) / (c2 - c3 * p), 0.0), 1.0 / m1);
+}
+[numthreads(16, 16, 1)]
+void main(uint3 id : SV_DispatchThreadID) {
+    if (id.x >= w || id.y >= h) return;
+    float3 c = src.Load(int3(id.xy, 0)).rgb;
+    float3 rgb = mode == 1 ? SrgbEncode(c * scale) : mode == 2 ? SrgbEncode(PqToNits(c) * scale) : saturate(c);
+    dst[id.xy] = float4(rgb, 1.0);
+}
+)";
+
+void Recorder::DropConvert() {
+    SafeRelease(m_conv.srv); SafeRelease(m_conv.copy); SafeRelease(m_conv.uav); SafeRelease(m_conv.out);
+    SafeRelease(m_conv.cs); SafeRelease(m_conv.cb); SafeRelease(m_conv.deferred);
+    m_conv.w = m_conv.h = 0; m_conv.fmt = DXGI_FORMAT_UNKNOWN;
+}
+
+// On the frames' device, through a deferred context that is executed with the immediate context's state restored: this runs inside one of Lossless Scaling's own passes (before
+// it dispatches, with its shader and resources already bound), and nothing of that may change.
+bool Recorder::ConvertTo8(ID3D11DeviceContext* ctx, ID3D11Texture2D* frame, const D3D11_BOX* box, uint32_t mode, float scale) {
+    Convert& c = m_conv;
+    if (!m_dev) return false;
+    if (!c.out || c.w != m_w || c.h != m_h || c.fmt != m_srcFmt) {
+        DropConvert();
+        D3D11_TEXTURE2D_DESC cd{}; cd.Width = m_w; cd.Height = m_h; cd.MipLevels = 1; cd.ArraySize = 1; cd.Format = m_srcFmt; cd.SampleDesc.Count = 1; cd.BindFlags = D3D11_BIND_SHADER_RESOURCE;
+        D3D11_TEXTURE2D_DESC od = cd; od.Format = DXGI_FORMAT_R8G8B8A8_UNORM; od.BindFlags = D3D11_BIND_UNORDERED_ACCESS;
+        D3D11_SHADER_RESOURCE_VIEW_DESC sv{}; sv.Format = m_srcView; sv.ViewDimension = D3D11_SRV_DIMENSION_TEXTURE2D; sv.Texture2D.MipLevels = 1;
+        D3D11_UNORDERED_ACCESS_VIEW_DESC uv{}; uv.Format = DXGI_FORMAT_R8G8B8A8_UNORM; uv.ViewDimension = D3D11_UAV_DIMENSION_TEXTURE2D;
+        D3D11_BUFFER_DESC bd{}; bd.ByteWidth = 32; bd.Usage = D3D11_USAGE_DYNAMIC; bd.BindFlags = D3D11_BIND_CONSTANT_BUFFER; bd.CPUAccessFlags = D3D11_CPU_ACCESS_WRITE;
+        ID3DBlob* code = nullptr; ID3DBlob* err = nullptr;
+        const bool ok = SUCCEEDED(m_dev->CreateTexture2D(&cd, nullptr, &c.copy)) && SUCCEEDED(m_dev->CreateShaderResourceView(c.copy, &sv, &c.srv)) &&
+                        SUCCEEDED(m_dev->CreateTexture2D(&od, nullptr, &c.out)) && SUCCEEDED(m_dev->CreateUnorderedAccessView(c.out, &uv, &c.uav)) &&
+                        SUCCEEDED(m_dev->CreateBuffer(&bd, nullptr, &c.cb)) && SUCCEEDED(m_dev->CreateDeferredContext(0, &c.deferred)) &&
+                        SUCCEEDED(D3DCompile(kConvertHlsl, sizeof kConvertHlsl - 1, nullptr, nullptr, nullptr, "main", "cs_5_0", 0, 0, &code, &err)) &&
+                        SUCCEEDED(m_dev->CreateComputeShader(code->GetBufferPointer(), code->GetBufferSize(), nullptr, &c.cs));
+        if (code) code->Release();
+        if (err) { Log("recorder: the conversion shader: %s", static_cast<const char*>(err->GetBufferPointer())); err->Release(); }
+        if (!ok) { Log("recorder: the 8-bit conversion could not be set up: frames are not recorded"); DropConvert(); return false; }
+        c.w = m_w; c.h = m_h; c.fmt = m_srcFmt;
+    }
+    D3D11_MAPPED_SUBRESOURCE map{};
+    if (FAILED(ctx->Map(c.cb, 0, D3D11_MAP_WRITE_DISCARD, 0, &map))) return false;
+    struct Cb { uint32_t mode, w, h, pad; float scale, pad2[3]; } cb{ mode, m_w, m_h, 0, scale, { 0, 0, 0 } };
+    memcpy(map.pData, &cb, sizeof cb);
+    ctx->Unmap(c.cb, 0);
+    c.deferred->CopySubresourceRegion(c.copy, 0, 0, 0, 0, frame, 0, box);
+    ID3D11ShaderResourceView* const srv = c.srv; ID3D11UnorderedAccessView* const uav = c.uav; ID3D11Buffer* const buffer = c.cb; const UINT keep = ~0u;
+    c.deferred->CSSetShader(c.cs, nullptr, 0);
+    c.deferred->CSSetConstantBuffers(0, 1, &buffer);
+    c.deferred->CSSetShaderResources(0, 1, &srv);
+    c.deferred->CSSetUnorderedAccessViews(0, 1, &uav, &keep);
+    c.deferred->Dispatch((m_w + 15) / 16, (m_h + 15) / 16, 1);
+    ID3D11CommandList* list = nullptr;
+    if (FAILED(c.deferred->FinishCommandList(FALSE, &list)) || !list) return false;
+    ctx->ExecuteCommandList(list, TRUE);   // TRUE: the immediate context's state is put back as it was
+    list->Release();
+    return true;
+}
+
 void Recorder::DropStaging() {
+    DropConvert();
     for (Slot& s : m_slots) {
         if (s.state == Slot::Working && m_ctx) m_ctx->Unmap(s.staging, 0);
         SafeRelease(s.staging); s.state = Slot::Free; s.done = false;
@@ -154,6 +228,10 @@ void Recorder::Offer(ID3D11DeviceContext* ctx, ID3D11Texture2D* frame, uint32_t 
     D3D11_TEXTURE2D_DESC d; frame->GetDesc(&d);
     const DXGI_FORMAT view = ViewFormatOf(d.Format);
     const uint32_t bpp = lsrec::BytesPerPixel(view);
+    // Compact: more than 8 bits (HDR) is made into an 8-bit SDR picture on the card; an 8-bit frame is kept as it is
+    const bool convert = m_compact.load() && bpp && view != DXGI_FORMAT_R8G8B8A8_UNORM && view != DXGI_FORMAT_B8G8R8A8_UNORM;
+    const DXGI_FORMAT recFmt = convert ? DXGI_FORMAT_R8G8B8A8_UNORM : d.Format, recView = convert ? DXGI_FORMAT_R8G8B8A8_UNORM : view;
+    const uint32_t recBpp = convert ? 4u : bpp, recContent = convert ? static_cast<uint32_t>(lsrec::kSdrView) : content;
     if (!bpp || d.SampleDesc.Count != 1) {
         static DXGI_FORMAT said = DXGI_FORMAT_UNKNOWN;
         if (said != d.Format) { said = d.Format; Log("recorder: frames of format %d (or multisampled) cannot be recorded", (int)d.Format); }
@@ -161,16 +239,17 @@ void Recorder::Offer(ID3D11DeviceContext* ctx, ID3D11Texture2D* frame, uint32_t 
     }
     ID3D11Device* dev = nullptr; frame->GetDevice(&dev);
     const uint32_t keepW = cropW && cropW < d.Width ? cropW : d.Width, keepH = cropH && cropH < d.Height ? cropH : d.Height;
-    if (d.Width != m_srcW || d.Height != m_srcH || keepW != m_w || keepH != m_h || d.Format != m_fmt || source != m_source || content != m_content || dev != m_dev || ctx != m_ctx) {
+    if (d.Width != m_srcW || d.Height != m_srcH || keepW != m_w || keepH != m_h || d.Format != m_srcFmt || recFmt != m_fmt || source != m_source || recContent != m_content || dev != m_dev || ctx != m_ctx) {
         if (!Collect(true)) { if (dev) dev->Release(); ++m_missed; return; }   // the workers still read the old staging memory: this frame is left out, the change is made when they are done
         DropStaging();
         m_dev = dev; m_dev->AddRef(); m_ctx = ctx; m_ctx->AddRef();
         {
             std::lock_guard<std::mutex> lock(m_keepMutex);
             m_kept.clear(); m_keptBytes = 0; ++m_keptGeneration;
-            m_srcW = d.Width; m_srcH = d.Height; m_w = keepW; m_h = keepH; m_fmt = d.Format; m_viewFmt = view; m_bpp = bpp; m_source = source; m_content = content;
+            m_srcW = d.Width; m_srcH = d.Height; m_w = keepW; m_h = keepH; m_srcFmt = d.Format; m_srcView = view; m_fmt = recFmt; m_viewFmt = recView; m_bpp = recBpp; m_source = source; m_content = recContent; m_convert = convert;
         }
-        Log("recorder: %ux%u%s, format %d (%u bytes a pixel), %s", m_w, m_h, (m_w != m_srcW || m_h != m_srcH) ? " (the middle of the frame)" : "", (int)view, bpp,
+        Log("recorder: %ux%u%s, format %d (%u bytes a pixel)%s, %s", m_w, m_h, (m_w != m_srcW || m_h != m_srcH) ? " (the middle of the frame)" : "", (int)recView, recBpp,
+            convert ? " (compact: an 8-bit SDR picture)" : "",
             source == lsrec::kCaptured ? "the captured frames" : source == lsrec::kPresented ? "the presented frames" : "NIS's input");
     }
     if (dev) dev->Release();
@@ -184,9 +263,18 @@ void Recorder::Offer(ID3D11DeviceContext* ctx, ID3D11Texture2D* frame, uint32_t 
         sd.Usage = D3D11_USAGE_STAGING; sd.CPUAccessFlags = D3D11_CPU_ACCESS_READ;
         if (FAILED(m_dev->CreateTexture2D(&sd, nullptr, &slot->staging))) { ++m_missed; Log("recorder: a staging texture could not be made"); return; }
     }
-    if (m_w != m_srcW || m_h != m_srcH) {   // the middle (an even offset: the formats' blocks)
-        const UINT left = ((m_srcW - m_w) / 2) & ~1u, top = ((m_srcH - m_h) / 2) & ~1u;
-        const D3D11_BOX box{ left, top, 0, left + m_w, top + m_h, 1 };
+    const bool cropped = m_w != m_srcW || m_h != m_srcH;
+    const UINT left = ((m_srcW - m_w) / 2) & ~1u, top = ((m_srcH - m_h) / 2) & ~1u;   // the middle (an even offset: the formats' blocks)
+    const D3D11_BOX box{ left, top, 0, left + m_w, top + m_h, 1 };
+    if (m_convert) {
+        const DisplayHdr display = QueryDisplayHdr(nullptr, m_dev);
+        const FrameEncoding e = EncodingOf(m_srcView, 0, display.hdr);
+        const uint32_t mode = e == FrameEncoding::ScRgb ? 1u : e == FrameEncoding::Hdr10 ? 2u : 0u;
+        const float white = display.whiteNits > 1.0f ? display.whiteNits : 1.0f;
+        const float scale = e == FrameEncoding::ScRgb ? 80.0f / white : 1.0f / white;
+        if (!ConvertTo8(ctx, frame, cropped ? &box : nullptr, mode, scale)) { ++m_missed; return; }
+        ctx->CopyResource(slot->staging, m_conv.out);
+    } else if (cropped) {
         ctx->CopySubresourceRegion(slot->staging, 0, 0, 0, 0, frame, 0, &box);
     } else ctx->CopySubresourceRegion(slot->staging, 0, 0, 0, 0, frame, 0, nullptr);
     slot->index = index; slot->qpc = Qpc(); slot->tag = tag; slot->state = Slot::Copied;

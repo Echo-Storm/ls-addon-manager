@@ -5,6 +5,8 @@
 #define NOMINMAX
 #endif
 #include "../src/features/recorder_service.h"
+#include "addon/hdr.h"
+#include <cmath>
 #include <windows.h>
 #include <d3d11.h>
 #include <cstdio>
@@ -24,6 +26,14 @@ struct Gpu {
         for (D3D_DRIVER_TYPE type : { D3D_DRIVER_TYPE_HARDWARE, D3D_DRIVER_TYPE_WARP })
             if (SUCCEEDED(D3D11CreateDevice(nullptr, type, nullptr, 0, nullptr, 0, D3D11_SDK_VERSION, &dev, nullptr, &ctx))) return true;
         return false;
+    }
+    ID3D11Texture2D* FrameF16(uint32_t w, uint32_t h, uint16_t half) {   // scRGB: R, G and B all `half` (0x3800 = 0.5), alpha 1.0
+        D3D11_TEXTURE2D_DESC d{}; d.Width = w; d.Height = h; d.MipLevels = 1; d.ArraySize = 1; d.Format = DXGI_FORMAT_R16G16B16A16_FLOAT; d.SampleDesc.Count = 1; d.Usage = D3D11_USAGE_DEFAULT;
+        std::vector<uint16_t> px(static_cast<size_t>(w) * h * 4);
+        for (size_t i = 0; i < px.size(); i += 4) { px[i] = half; px[i + 1] = half; px[i + 2] = half; px[i + 3] = 0x3C00; }
+        D3D11_SUBRESOURCE_DATA init{ px.data(), w * 8, 0 };
+        ID3D11Texture2D* t = nullptr;
+        return SUCCEEDED(dev->CreateTexture2D(&d, &init, &t)) ? t : nullptr;
     }
     ID3D11Texture2D* Frame(uint32_t w, uint32_t h, uint8_t shade) {
         D3D11_TEXTURE2D_DESC d{}; d.Width = w; d.Height = h; d.MipLevels = 1; d.ArraySize = 1; d.Format = DXGI_FORMAT_B8G8R8A8_UNORM; d.SampleDesc.Count = 1; d.Usage = D3D11_USAGE_DEFAULT;
@@ -131,6 +141,38 @@ int main() {
     Sleep(1500);
     size_t after = 0; { WIN32_FIND_DATAW f; HANDLE h = FindFirstFileW((dir + L"\\*.lsrec").c_str(), &f); if (h != INVALID_HANDLE_VALUE) { do ++after; while (FindNextFileW(h, &f)); FindClose(h); } }
     Check("the clip was saved as a second file", after == before + 1, std::to_string(before) + " -> " + std::to_string(after));
+
+    printf("== compact: an HDR (half-float) frame is kept as an 8-bit SDR picture\n");
+    {
+        const std::wstring dir2 = dir + L"\\compact";
+        CreateDirectoryW(dir2.c_str(), nullptr);
+        eam::rec::Settings c; c.on = true; c.compact = true; c.seconds = 5; c.budgetMb = 512; c.folder = dir2; c.beep = false; c.note = true; c.saveAfter = 8;
+        svc.Configure(c);
+        for (int i = 0; i < 400 && FindFile(dir2, L"*.lsrec").empty(); ++i) {
+            ID3D11Texture2D* t = gpu.FrameF16(128, 96, 0x3800);   // 0.5 linear: sRGB 188
+            svc.Offer(gpu.ctx, t, 2, 0, 0, 0, 0); t->Release(); gpu.ctx->Flush(); svc.Poll(); Sleep(10);
+        }
+        Sleep(500);
+        const std::wstring f = FindFile(dir2, L"*.lsrec");
+        Check("a compact file was saved", !f.empty());
+        if (!f.empty()) {
+            nr::lsrec::Reader r; std::string error;
+            const bool opened = r.Open(f, &error);
+            Check("it opens", opened, error);
+            if (opened) {
+                Check("kept as 8-bit RGBA, content SDR view, 128x96", r.Header().format == 28 && r.Header().bytesPerPixel == 4 && r.Header().content == nr::lsrec::kSdrView && r.Header().width == 128 && r.Header().height == 96,
+                      "format " + std::to_string(r.Header().format));
+                std::vector<uint8_t> px;
+                const bool read = r.Read(0, px) && px.size() == 128u * 96u * 4u;
+                // scRGB 0.5 is 40 nits; the display's SDR white (80 on a display in SDR, what Windows says on an HDR one) is 1.0, then the sRGB curve
+                const nr::DisplayHdr display = nr::QueryDisplayHdr(nullptr, gpu.dev);
+                const double linear = 0.5 * 80.0 / std::max(1.0, static_cast<double>(display.whiteNits));
+                const int expected = static_cast<int>(std::lround(255.0 * (linear <= 0.0031308 ? 12.92 * linear : 1.055 * std::pow(linear, 1.0 / 2.4) - 0.055)));
+                Check("scRGB 0.5 comes out as the sRGB value for the display's SDR white (within 2)", read && std::abs(static_cast<int>(px[0]) - expected) <= 2 && std::abs(static_cast<int>(px[1]) - expected) <= 2 && std::abs(static_cast<int>(px[2]) - expected) <= 2 && px[3] == 255,
+                      read ? std::to_string(px[0]) + "," + std::to_string(px[1]) + "," + std::to_string(px[2]) + "," + std::to_string(px[3]) : "unreadable");
+            }
+        }
+    }
 
     svc.Shutdown();
     frame->Release();
