@@ -12,6 +12,25 @@ item is done (move it to the changelog) or when a new one comes up. Dates are wh
 - **DLSS Upscaler:** the SDK's `nvngx_dlss.dll` is 310.9.16 (we ship 310.9.1). Offline there is no difference in picture error on the move, line and edge scenes for presets K, L, M, and GPU time is too noisy to separate. SR presets are J, K, L, M only (no B/Q). Not shipped or deployed.
 - **Build machine:** VS 2022 Professional + the C++ workload installed 2026-10-19 (see board D4); the CMake cache was regenerated. Use `git -c safe.directory='*'` here.
 
+## Model comparison on real clips (2026-10-19; board N3): old 310.8, the new file's Newer and Older presets
+
+Input: the first live baseline clips (recordings/README.md; WoW 2560x1440, the game's frames, no addon), `nr_nreval first=100 count=60 scale=60 preset=N lsdir=<folder with the model as nvngx_dlssnr.dll>` (the tool takes `preset=` since this session). RTX 4070 Ti SUPER, driver 617.42. Mean over 60 frames:
+
+| Clip | Model | Flicker still | Steady dB | Model ms | Run ms | Brightness shift | Effect size |
+|---|---|---|---|---|---|---|---|
+| calm cactus | old 310.8 | 0.196 | 54.5 | 5.7 | 6.3 | 0.34 | 2.8 |
+| | Newer | 0.173 | 55.0 | 3.3 | 3.9 | 0.10 | 2.3 |
+| fast pan | old 310.8 | 0.410 | 43.4 | 5.4 | 6.0 | 0.33 | 3.9 |
+| | Newer | 0.326 | 45.4 | 3.2 | 3.8 | 0.21 | 3.0 |
+| dark interior | old 310.8 | 0.215 | 54.4 | 5.6 | 6.2 | 0.14 | 2.9 |
+| | Newer | 0.217 | 53.8 | 3.1 | 3.7 | 0.16 | 2.5 |
+| sunset contrast | old 310.8 | 0.578 | 44.8 | 5.5 | 6.1 | 0.77 | 5.1 |
+| | Newer | 0.413 | 47.9 | 3.3 | 3.9 | 0.29 | 3.8 |
+
+- **Older (preset 1 of the 310.9.16 file) is bit-for-bit the 310.8 model** here: every number identical to the old file's on all four clips.
+- **Newer:** about 1.7x faster (model 3.2 against 5.5 ms; the whole run 3.8 against 6.1), flickers less on three clips (-12 %, -20 %, -29 %; the dark interior ties), steadier by up to 3 dB (the dark interior 0.6 dB worse), changes the mean brightness much less (sunset 0.29 against 0.77), and its effect is 15-26 % smaller on every clip. By eye (sunset, recordings/compare/compare_crop.png and compare_change.png): the old model deepens the sky colour and darkens the rocks, Newer stays near the game's frame: the 'shadows less pronounced, visual shifts more subtle' look. Both models still touch the UI text edges (HUD protection).
+- **Open:** these are objective numbers and one picture, not a live look: the owner's eyes decide (WoW lighting, N1 the glow beside bright UI); the dark interior is the one clip where Newer is no better; model scale 0.6 only; no HDR clip yet.
+
 ## Neural Rendering: the glow beside bright UI (2026-10-01)
 
 - **Done: the dark guard** (compose11, commit d956b1f): a pixel near pure black takes no positive change. Owner, live: "significantly better".
