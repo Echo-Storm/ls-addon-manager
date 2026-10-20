@@ -9,6 +9,8 @@
 #include "../event/event_system.h"
 #include "../features/features.h"
 #include "../features/recorder_feature.h"
+#include "../features/gpu_limit.h"
+#include "../host/gpu_stats.h"
 #include "../host/host_impl.h"
 #include "../log/logger.h"
 #include "../gui/gui_manager.h"
@@ -105,6 +107,10 @@ bool Manager::Start() {
         backends.setHostHooks = &eam::HostImpl::SetRecorderHooks;
         backends.publishSaved = [](const wchar_t* path) { EamRecordingSavedData data{ path }; eam::EventBus::Instance().Publish(EAM_EVENT_RECORDING_SAVED, &data, sizeof data); };
         eam::features::recorder::SetBackends(backends);
+        eam::features::gpulimit::Backends gpu;
+        gpu.setLimit = &eam::HostImpl::SetGpuLimit;
+        gpu.readLoad = [] { eam::GpuStats::Instance().Wanted(); const auto s = eam::GpuStats::Instance().Get(); return s.ok && s.ageSeconds < 5.0 ? s.utilGpu : 0u; };
+        eam::features::gpulimit::SetBackends(gpu);
     }
     eam::features::Start();
     // The window thread hooks Dispatch first (that needs D3D), then loads the addons, then opens the window.

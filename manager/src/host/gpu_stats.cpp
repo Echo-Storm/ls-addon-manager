@@ -180,15 +180,45 @@ bool GpuStats::InitNvml(void* libHandle, std::string& why) {
     if (g_api.Init() != 0) { why = "NVML could not start"; return false; }
     unsigned n = 0;
     if (g_api.GetCount(&n) != 0 || n == 0) { why = "no NVIDIA GPU reported"; return false; }
-    void* dev = nullptr;
-    if (g_api.GetHandle(0, &dev) != 0) { why = "could not open the GPU"; return false; }
+    std::string chosen;
+    void* dev = PickNvmlDevice(n, &chosen);
+    if (!dev) { why = "could not open the GPU"; return false; }
     m_dev = dev;
-    char name[128] = {}, drv[64] = {};
-    if (g_api.GetName) g_api.GetName(dev, name, sizeof name);
+    char drv[64] = {};
     if (g_api.GetDriver) g_api.GetDriver(drv, sizeof drv);
     std::lock_guard<std::mutex> lk(m_mutex);
-    m_snap.name = name; m_snap.driver = drv; m_snap.deviceCount = (int)n;
+    m_snap.name = chosen; m_snap.driver = drv; m_snap.deviceCount = (int)n;
     return true;
+}
+
+void* GpuStats::PickNvmlDevice(unsigned count, std::string* nameOut) {
+    void* first = nullptr; std::string firstName;
+    for (unsigned i = 0; i < count; ++i) {
+        void* h = nullptr;
+        if (g_api.GetHandle(i, &h) != 0 || !h) continue;
+        char text[128] = {};
+        if (g_api.GetName) g_api.GetName(h, text, sizeof text);
+        if (!first) { first = h; firstName = text; }
+        if (!m_preferred.empty() && text[0] && m_preferred.find(text) != std::string::npos) { if (nameOut) *nameOut = text; return h; }
+    }
+    if (nameOut) *nameOut = firstName;
+    return first;
+}
+
+void GpuStats::SetPreferredCard(const std::string& name) {
+    std::lock_guard<std::mutex> initLock(m_initMutex);
+    if (name == m_preferred) return;
+    m_preferred = name;
+    if (!m_inited || !m_dev || m_counters) return;   // not started yet: it is chosen at the start
+    unsigned n = 0;
+    if (!g_api.GetCount || !g_api.GetHandle || g_api.GetCount(&n) != 0 || n == 0) return;
+    std::string chosen;
+    void* dev = PickNvmlDevice(n, &chosen);
+    if (!dev || dev == m_dev) return;
+    std::lock_guard<std::mutex> sampleLock(m_sampleMutex);
+    m_dev = dev;
+    std::lock_guard<std::mutex> lk(m_mutex);
+    m_snap.name = chosen;
 }
 
 bool GpuStats::SampleOnce() {

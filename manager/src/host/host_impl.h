@@ -40,6 +40,9 @@ public:
     void ReleaseImage(void* image) override;
     uint32_t RecorderFlags() override;
     int RecorderSave(const char* name, bool clear) override;
+    uint32_t GpuLimitPercent() override;
+    uint32_t GpuLoadPercent() override;
+    static void SetGpuLimit(uint32_t percent);   // the GPU limit feature: 0 off, else 80..100
     void RecorderOffer(void* d3d11Context, void* d3d11Texture2D, uint32_t source, uint32_t content, uint32_t tag, uint32_t cropWidth, uint32_t cropHeight) override;
     // The recorder feature (features/recorder_feature.cpp) says what these two do; without it (or when it is off) the flags are 0 and an offer is dropped.
     using RecorderFlagsFn = uint32_t (*)();
@@ -70,6 +73,7 @@ private:
     mutable std::deque<std::string> m_returnBuffers;
 
     void* m_d3d11Device = nullptr;    // borrowed, not owned
+    std::string m_cardName;           // the adapter of that device, named when it was made (the card the load is read from)
     void* m_d3d11Context = nullptr;
 
     std::mutex m_dispatchMutex;

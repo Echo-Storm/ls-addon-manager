@@ -87,6 +87,9 @@ struct FakeHost : IHost {
         recService.Offer(static_cast<ID3D11DeviceContext*>(c), static_cast<ID3D11Texture2D*>(t), source, content, tag, w, h);
     }
     int RecorderSave(const char* name, bool clear) override { return recService.SaveNamed(name ? name : "", clear); }
+    // the manager's GPU limit: the run's keys say it (gpuLimitPercent: 0 off, 80..100; gpuLoadPercent: what the card reads)
+    uint32_t GpuLimitPercent() override { auto it = cfg.find("gpuLimitPercent"); return it == cfg.end() ? 0u : static_cast<uint32_t>(atoi(it->second.c_str())); }
+    uint32_t GpuLoadPercent() override { auto it = cfg.find("gpuLoadPercent"); return it == cfg.end() ? 0u : static_cast<uint32_t>(atoi(it->second.c_str())); }
     void ConfigureRecorder() {
         auto get = [&](const char* k, const char* d) { auto it = cfg.find(k); return it == cfg.end() ? std::string(d) : it->second; };
         eam::rec::Settings s;

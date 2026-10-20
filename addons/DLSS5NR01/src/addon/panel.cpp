@@ -493,7 +493,7 @@ void DrawPanel() {
             if (c.scalerSkipRepeats && v.ready && v.repeatChecks > 0) ImGui::TextDisabled("  %llu of %llu pictures compared were the same as the one before and not upscaled again (%.0f %%)", static_cast<unsigned long long>(v.repeatSkips),
                                                                                        static_cast<unsigned long long>(v.repeatChecks), 100.0 * v.repeatSkips / v.repeatChecks);
             if (ImGui::Checkbox("Lighter upscaling of generated frames when the card is full (test)", &c.scalerLightAuto)) changed = true;
-            Tip("A test, off by default. Reads the graphics card's load once a second; when it has been at or over the limit set under Auto quality (95 % by default) for three readings, the frames Lossless Scaling makes between the game's own get the lighter picture described below, and they are upscaled in full again once the load has been well under the limit for ten seconds. Measured on recordings, the lighter picture costs about 0.1 to 0.3 dB (a little more, 1.5 dB, in fast motion) and takes the upscaler's cost for those frames from about 1.4 ms to under 0.2 ms at 2560x1440. It does nothing without frame generation, or on a card whose load cannot be read.");
+            Tip("A test, off by default. Reads the graphics card's load once a second; when it has been at or over the limit of the manager's GPU limit (Features tab; it does nothing while that is off) for three readings, the frames Lossless Scaling makes between the game's own get the lighter picture described below, and they are upscaled in full again once the load has been well under the limit for ten seconds. Measured on recordings, the lighter picture costs about 0.1 to 0.3 dB (a little more, 1.5 dB, in fast motion) and takes the upscaler's cost for those frames from about 1.4 ms to under 0.2 ms at 2560x1440. It does nothing without frame generation, or on a card whose load cannot be read.");
             if (ImGui::Checkbox("Lighter upscaling of generated frames (test)", &c.scalerLightGen)) changed = true;
             Tip("A test, off by default. With frame generation, the upscaler runs on the frames the game draws only; the frames Lossless Scaling makes between them get the last "
                 "upscaled picture moved along the motion, checked against the new frame (where they disagree, the new frame stretched plainly), and sharpened. That takes the "
@@ -585,13 +585,14 @@ void DrawPanel() {
             Tip("The model time to stay within. Half the frame time is a good start: 8 ms at 60 fps, 5 ms at 100 fps.");
             changed |= SL("Lowest model resolution", &c.autoFloor, 0.25f, 1.0f, "%.2f x the frame");
             Tip("Auto never goes below this, even when the model still runs over the budget.");
-            changed |= ImGui::Checkbox("Keep the graphics card under a limit", &c.gpuLimit);
-            Tip("When the card's load stays at or above the limit for a few seconds, auto quality treats it like slow game frames: it lowers the model resolution, does not raise it again for a minute, and at the lowest resolution runs the model on every 2nd or 3rd frame. It lets go once the load has been 8 points under the limit for 10 seconds. It only trims the model's share of the card: a game that fills the card on its own needs a frame rate limit in the game or the driver. NVIDIA cards only (the load is read through the driver).");
-            if (c.gpuLimit) {
-                changed |= SL("Limit", &c.gpuLimitPercent, 80.0f, 100.0f, "%.0f %%");
-                const unsigned load = g_gpuPercent.load();
-                if (load > 0) { bool over; { std::lock_guard<std::mutex> lock(g_autoMutex); over = g_auto.GpuOver(); } ImGui::TextWrapped("The card is at %u %% now.%s", load, over ? " Over the limit: the model is being trimmed." : ""); }
-                else ImGui::TextDisabled("The card reads as idle, or its load has not been read yet (it is read once a second while the model runs).");
+            {   // the manager's GPU limit (Features tab) works through this auto quality
+                const uint32_t limit = g_host && g_host->GetHostVersion() >= 0x010300 ? g_host->GpuLimitPercent() : 0u;
+                if (limit) {
+                    const unsigned load = g_gpuPercent.load();
+                    bool over; { std::lock_guard<std::mutex> lock(g_autoMutex); over = g_auto.GpuOver(); }
+                    if (load) ImGui::TextWrapped("The manager's GPU limit is on (%u %%): the card is at %u %% now.%s", limit, load, over ? " Over the limit: the model is being trimmed." : "");
+                    else ImGui::TextWrapped("The manager's GPU limit is on (%u %%); the card's load has not been read yet (it is read once a second while the model runs).", limit);
+                } else ImGui::TextDisabled("To keep the graphics card under a load, switch on GPU limit in the manager's Features tab: this auto quality then lowers the model resolution while the card is at the limit.");
             }
             float scale, avg; std::deque<AutoQuality::Step> history;
             { std::lock_guard<std::mutex> lock(g_autoMutex); scale = g_auto.Scale(); avg = g_auto.AverageMs(); history = g_auto.History(); }
@@ -783,12 +784,6 @@ void DrawPanel() {
         if (!c.screenshotFolder.empty()) { ImGui::SameLine(); if (ImGui::SmallButton("Use Pictures again")) { c.screenshotFolder.clear(); changed = true; } }
         bool ok; const std::string result = screenshot::LastResult(ok);
         if (!result.empty()) { ImGui::PushStyleColor(ImGuiCol_Text, ok ? eam::ui::theme::V(eam::ui::theme::kAccent) : eam::ui::theme::V(eam::ui::theme::kWarn)); ImGui::TextWrapped("%s", result.c_str()); ImGui::PopStyleColor(); }
-    }
-    if (eam::ui::SectionHeader("Recording (for bug reports and tests)")) {
-        Note("Recording is a feature of the manager now (the Features tab, \"Recording\"): one recorder for everything, with its own hotkey, memory and folder. "
-             "It finds Lossless Scaling's captured frames by itself, with no addon switched on; this addon adds the frames only it has.");
-        const uint32_t rf = g_host && g_host->GetHostVersion() >= 0x010300 ? g_host->RecorderFlags() : 0u;
-        ImGui::TextDisabled("%s", (rf & 1u) ? ((rf & 2u) ? "The recorder is on, recording what is shown." : "The recorder is on.") : "The recorder is off (switch it on in the Features tab).");
     }
     if (!kScalerAddon && eam::ui::SectionHeader("Games (a look per program)")) {
         std::string cur; { std::lock_guard<std::mutex> lk(g_textMutex); cur = g_focusExe; }

@@ -38,6 +38,8 @@ public:
 
     // Call every frame the Performance tab is showing: starts the sampler on first use and keeps it running.
     void Wanted();
+    // The card to read when there are several NVIDIA cards: the one whose NVML name the text contains (the adapter name of Lossless Scaling's device); the first when none fits.
+    void SetPreferredCard(const std::string& name);
     Snapshot Get() const;
     void Shutdown();                   // stop the thread (process exit)
 
@@ -54,6 +56,8 @@ private:
     void Run();
     bool Init();
     bool InitNvml(void* lib, std::string& why);
+    void* PickNvmlDevice(unsigned count, std::string* name);   // under m_initMutex
+    std::string m_preferred;
     bool InitCounters(std::string* why);
     bool SampleCounters(Snapshot& s);
 

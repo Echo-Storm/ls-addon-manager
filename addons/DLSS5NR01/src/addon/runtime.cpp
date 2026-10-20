@@ -178,6 +178,9 @@ void NoteSource(ID3D11DeviceContext* ctx, ID3D11Texture2D* frame) {
 // The recorder is the manager's (IHost API 1.3, the Features tab): this addon only offers the frames the manager cannot find by itself. What it says: bit 0 the
 // recorder is on, bit 1 it records what is shown.
 uint32_t RecorderFlagsNow() { return g_host && g_host->GetHostVersion() >= 0x010300 ? g_host->RecorderFlags() : 0u; }
+// The GPU limit is the manager's too (IHost API 1.3, the Features tab, "GPU limit"): the percent the card's load should stay under (0: off) and the load of the card Lossless Scaling runs on.
+float HostGpuLimit() { return g_host && g_host->GetHostVersion() >= 0x010300 ? static_cast<float>(g_host->GpuLimitPercent()) : 0.0f; }
+unsigned HostGpuLoad() { return g_host && g_host->GetHostVersion() >= 0x010300 ? g_host->GpuLoadPercent() : 0u; }
 
 ID3D11ShaderResourceView* g_tapBound[8] = {}; bool g_tapBoundOpen = false;   // what Tap took off the pass (under g_frameMutex)
 void ForgetDevice() {   // under g_frameMutex
@@ -390,7 +393,7 @@ void Tap(ID3D11DeviceContext* ctx, uint32_t x, uint32_t y, uint32_t z) {
 
     NrParams p; float watchdogMs; bool lsFirst; AutoQuality::Settings autoSettings; float autoSeed;
     { std::lock_guard<std::mutex> lock(g_settingsMutex); p = g_config.p; watchdogMs = g_config.watchdogMs; lsFirst = g_config.lsFirst; autoSeed = g_config.autoScaleLast;
-      autoSettings = { g_config.autoQuality && g_config.model == 0, g_config.autoBudgetMs, g_config.autoFloor, g_config.gpuLimit ? g_config.gpuLimitPercent : 0.0f }; }   // DLAA works on the whole frame
+      autoSettings = { g_config.autoQuality && g_config.model == 0, g_config.autoBudgetMs, g_config.autoFloor, HostGpuLimit() }; }   // DLAA works on the whole frame
     const float ceiling = p.workingScale;
     if (autoSettings.on) { std::lock_guard<std::mutex> lock(g_autoMutex); g_auto.Seed(autoSeed); if (g_auto.Scale() > 0) p.workingScale = std::min(ceiling, g_auto.Scale()); }   // (from the scale it settled at last time, not a ramp down from the person's)
     g_bridge.SetLsGpuPriority(lsFirst ? 7 : 0);
@@ -425,9 +428,8 @@ void AfterHandOver(bool started, float ceiling, const AutoQuality::Settings& aut
         { std::lock_guard<std::mutex> lock(g_autoMutex);
         static uint64_t gpuAt = 0; static unsigned gpuNow = 0;   // the card's load, read once a second, only while the limit is asked for
         if (autoSettings.gpuLimit > 0 && now - gpuAt >= 1000) {
-            gpuAt = now; std::string card; { std::lock_guard<std::mutex> lock(g_textMutex); card = g_cardName; }
-            gpuNow = g_gpuLoad.Percent(now, card); g_gpuPercent = gpuNow;
-            if (!g_gpuLoad.Available() && !g_gpuLoadLogged) { g_gpuLoadLogged = true; Log("graphics card limit: the load cannot be read (%s); the limit does nothing", g_gpuLoad.Why().c_str()); }
+            gpuAt = now;
+            gpuNow = HostGpuLoad(); g_gpuPercent = gpuNow;
         } else if (autoSettings.gpuLimit <= 0) { gpuNow = 0; g_gpuPercent = 0; }
         if (g_auto.Update(now, st.nrMs, static_cast<float>(g_bridge.LastIntervalMs()), ceiling, autoSettings, gpuNow) && !g_auto.History().empty() && g_auto.History().back().atMs == now) {
             const AutoQuality::Step& s = g_auto.History().back();
@@ -723,7 +725,7 @@ void PresentTap(IDXGISwapChain* sc) {   // under g_frameMutex, on the presenting
           std::lock_guard<std::mutex> lock(g_textMutex); g_frameText = text; }
         NrParams p; float watchdogMs; bool lsFirst; AutoQuality::Settings autoSettings; float autoSeed;
         { std::lock_guard<std::mutex> lock(g_settingsMutex); p = g_config.p; watchdogMs = g_config.watchdogMs; lsFirst = g_config.lsFirst; autoSeed = g_config.autoScaleLast;
-          autoSettings = { g_config.autoQuality && g_config.model == 0, g_config.autoBudgetMs, g_config.autoFloor, g_config.gpuLimit ? g_config.gpuLimitPercent : 0.0f }; }
+          autoSettings = { g_config.autoQuality && g_config.model == 0, g_config.autoBudgetMs, g_config.autoFloor, HostGpuLimit() }; }
         const float fit = frame.Width > kPresentWidth ? kPresentWidth / static_cast<float>(frame.Width) : 1.0f;
         const float ceiling = p.workingScale * fit;
         p.workingScale = ceiling;
@@ -1426,19 +1428,18 @@ bool ScalerPass(ID3D11DeviceContext* ctx, uint32_t x, uint32_t y, uint32_t z) {
             if (g_linkDevice == dev && g_compare.load() != 2 && myTurn) {   // "original only" lets NIS run, for comparing
                 NrParams p; unsigned preset; int handoff, motion; bool gpuWait, steadyFast, shapes, easu, reuseMotion, lightGen, lightAuto, skipRepeats; float limitPercent; float stability, edges, leanFrom, leanRest, steadySharp, moveCut;
                 { std::lock_guard<std::mutex> settings(g_settingsMutex); p = g_config.p; preset = g_config.dlaaPreset; handoff = g_config.scalerHandoff; motion = g_config.motionSource;
-                  gpuWait = g_config.scalerGpuWait; stability = g_config.scalerStability; edges = g_config.scalerEdges; steadyFast = g_config.scalerFastMotion; shapes = g_config.motionShapes; leanFrom = g_config.scalerLeanFrom; easu = g_config.leanEasu; leanRest = g_config.scalerLeanRest; steadySharp = g_config.scalerSteadySharp; moveCut = g_config.scalerMoveCut; reuseMotion = g_config.scalerReuseMotion; lightGen = g_config.scalerLightGen; lightAuto = g_config.scalerLightAuto; limitPercent = g_config.gpuLimitPercent; skipRepeats = g_config.scalerSkipRepeats; }
+                  gpuWait = g_config.scalerGpuWait; stability = g_config.scalerStability; edges = g_config.scalerEdges; steadyFast = g_config.scalerFastMotion; shapes = g_config.motionShapes; leanFrom = g_config.scalerLeanFrom; easu = g_config.leanEasu; leanRest = g_config.scalerLeanRest; steadySharp = g_config.scalerSteadySharp; moveCut = g_config.scalerMoveCut; reuseMotion = g_config.scalerReuseMotion; lightGen = g_config.scalerLightGen; lightAuto = g_config.scalerLightAuto; limitPercent = 0.0f; skipRepeats = g_config.scalerSkipRepeats; }
                 // "when the card is full": the card's load is read once a second; at or over the limit for 3 readings the generated frames get the lighter picture, and it goes
                 // back to the full upscale once the load has been 12 points under the limit for 10 readings (so it does not flap). Needs frame generation (more than one picture per real frame).
                 {
                     static uint64_t lightAt = 0; static int overRuns = 0, underRuns = 0; static bool autoLight = false;
-                    if (lightAuto && g_nisPerFrame >= 2) {
+                    limitPercent = HostGpuLimit();   // the manager's GPU limit (off: this does nothing)
+                    if (lightAuto && limitPercent > 0 && g_nisPerFrame >= 2) {
                         const uint64_t nowMs = GetTickCount64();
                         if (nowMs - lightAt >= 1000) {
                             lightAt = nowMs;
-                            std::string card; { std::lock_guard<std::mutex> lock(g_textMutex); card = g_cardName; }
-                            const unsigned load = g_gpuLoad.Percent(nowMs, card);
+                            const unsigned load = HostGpuLoad();
                             g_gpuPercent = load;
-                            if (!g_gpuLoad.Available() && !g_gpuLoadLogged) { g_gpuLoadLogged = true; Log("%s upscaler: the card's load cannot be read (%s); lighter upscaling 'when the card is full' does nothing", kUpscalerName, g_gpuLoad.Why().c_str()); }
                             if (load >= limitPercent) { ++overRuns; underRuns = 0; } else if (load + 12.0f < limitPercent) { ++underRuns; overRuns = 0; } else { overRuns = 0; underRuns = 0; }
                             if (!autoLight && overRuns >= 3) { autoLight = true; Log("%s upscaler: the card is at %u %% (limit %.0f %%): the generated frames get the lighter upscaling until it is well under", kUpscalerName, load, limitPercent); }
                             else if (autoLight && underRuns >= 10) { autoLight = false; Log("%s upscaler: the card is at %u %%: the generated frames are upscaled in full again", kUpscalerName, load); }

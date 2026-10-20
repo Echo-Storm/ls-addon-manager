@@ -1,5 +1,6 @@
 #include "host_impl.h"
 #include "metrics.h"
+#include "gpu_stats.h"
 #include "../config/config_manager.h"
 #include "../core/d3d11_hook.h"
 #include "../gui/icon_loader.h"
@@ -7,8 +8,11 @@
 #include "../log/logger.h"
 #include "../../sdk/include/eam/version.h"
 #include <algorithm>
+#include <atomic>
 #include <intrin.h>
+#include <string>
 #include <windows.h>
+#include <dxgi.h>
 
 namespace eam {
 
@@ -108,6 +112,21 @@ void* HostImpl::GetD3D11DeviceContext() { return m_d3d11Context; }
 void HostImpl::SetD3D11Device(void* device, void* context) {
     m_d3d11Device = device;
     m_d3d11Context = context;
+    // the card it is on, by name (the GPU limit reads that card's load); the device is valid here, at its creation
+    std::string name;
+    IDXGIDevice* dxgi = nullptr; IDXGIAdapter* adapter = nullptr;
+    if (device && SUCCEEDED(static_cast<IUnknown*>(device)->QueryInterface(IID_PPV_ARGS(&dxgi))) && SUCCEEDED(dxgi->GetAdapter(&adapter))) {
+        DXGI_ADAPTER_DESC desc{};
+        if (SUCCEEDED(adapter->GetDesc(&desc))) {
+            char text[256] = {};
+            const int n = WideCharToMultiByte(CP_UTF8, 0, desc.Description, -1, text, sizeof text, nullptr, nullptr);
+            if (n > 1) name.assign(text, static_cast<size_t>(n - 1));
+        }
+    }
+    if (adapter) adapter->Release();
+    if (dxgi) dxgi->Release();
+    std::lock_guard<std::mutex> lock(m_bufferMutex);
+    if (!name.empty()) m_cardName = name;
 }
 
 void* HostImpl::GetCurrentComputeShader() { return D3D11Hook::GetCurrentComputeShader(); }
@@ -115,6 +134,20 @@ uint32_t HostImpl::GetDispatchCount() { return D3D11Hook::GetDispatchCount(); }
 void* HostImpl::GetDispatchingContext() { return D3D11Hook::DispatchingContext(); }
 void* HostImpl::CreateImage(const void* rgba, uint32_t width, uint32_t height, uint32_t pitch) { return MakeImageTexture(rgba, width, height, pitch); }
 void HostImpl::ReleaseImage(void* image) { if (image) static_cast<IUnknown*>(image)->Release(); }
+
+// ---- the GPU limit (API 1.3)
+
+namespace { std::atomic<uint32_t> g_gpuLimit{ 0 }; }
+void HostImpl::SetGpuLimit(uint32_t percent) { g_gpuLimit.store(percent == 0 ? 0u : (percent < 80u ? 80u : percent > 100u ? 100u : percent), std::memory_order_release); }
+uint32_t HostImpl::GpuLimitPercent() { return g_gpuLimit.load(std::memory_order_acquire); }
+uint32_t HostImpl::GpuLoadPercent() {
+    GpuStats& stats = GpuStats::Instance();
+    stats.Wanted();   // the sampler runs while this is asked for
+    std::string card; { std::lock_guard<std::mutex> lock(m_bufferMutex); card = m_cardName; }
+    if (!card.empty()) stats.SetPreferredCard(card);
+    const GpuStats::Snapshot s = stats.Get();
+    return s.ok && s.ageSeconds < 5.0 ? (s.utilGpu > 100 ? 100u : s.utilGpu) : 0u;
+}
 
 // ---- the recorder (API 1.3)
 

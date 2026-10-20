@@ -43,7 +43,7 @@ add_dependencies(nr_selftest nr_forwarder)
 set(XESS_DIR ${CMAKE_SOURCE_DIR}/external/xess)
 set(NR_ADDON_SOURCES
     src/addon/addon.cpp src/addon/runtime.cpp src/addon/panel.cpp src/addon/tasks.cpp src/addon/settings.cpp src/addon/log.cpp
-    src/addon/screenshot.cpp src/addon/screenshot_pixels.cpp src/addon/hud_editor.cpp src/addon/auto_quality.cpp src/addon/gpu_load.cpp src/addon/agility.cpp
+    src/addon/screenshot.cpp src/addon/screenshot_pixels.cpp src/addon/hud_editor.cpp src/addon/auto_quality.cpp src/addon/agility.cpp
     src/addon/bridge.cpp src/addon/nis_pass.cpp src/addon/compare.cpp src/addon/frame_tap.cpp src/addon/gpu_timer11.cpp src/addon/frame_trace.cpp src/addon/diagnosis.cpp src/addon/source_cadence.cpp
     src/addon/present_hook.cpp src/addon/compose11.cpp src/addon/requirements.cpp src/addon/scaler11.cpp src/addon/hdr.cpp src/addon/lsrec.cpp
     src/engine/nr_engine.cpp
@@ -210,9 +210,6 @@ if(EXISTS ${VFX_DIR}/nvvfx/include/nvVideoEffects.h AND EXISTS ${VFX_DIR}/featur
   target_link_libraries(VSRUPSC PRIVATE d3d11 dxgi d3dcompiler)
   set_target_properties(VSRUPSC PROPERTIES PREFIX "" OUTPUT_NAME "VSRUPSC")
 endif()
-# nr_gpuloadtest: the card-load sensor of the "Keep the graphics card under a limit" setting, read a few times (tools/gpu_load_test.cpp)
-add_executable(nr_gpuloadtest tools/gpu_load_test.cpp src/addon/gpu_load.cpp)
-target_include_directories(nr_gpuloadtest PRIVATE src)
 add_executable(nr_autotest tools/auto_test.cpp src/addon/auto_quality.cpp)
 target_include_directories(nr_autotest PRIVATE src)
 

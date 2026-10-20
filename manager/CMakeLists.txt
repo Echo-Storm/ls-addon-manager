@@ -62,6 +62,7 @@ set(RECORDER_SOURCES
 
 set(FEATURE_SOURCES
     ${RECORDER_SOURCES}
+    src/features/gpu_limit.cpp
     src/features/features.cpp
     src/features/reshade_passthrough.cpp
     src/features/reshade_windows.cpp
@@ -179,6 +180,7 @@ endif()
 # build it with: cmake --build . --config Release --target eam_uipreview
 add_executable(eam_uipreview EXCLUDE_FROM_ALL
     ${RECORDER_SOURCES}
+    src/features/gpu_limit.cpp
     tools/ui_preview.cpp
     src/gui/gui_style.cpp
     src/gui/widgets/toggle_switch.cpp

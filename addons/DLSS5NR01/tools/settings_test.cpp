@@ -40,6 +40,8 @@ struct StandInHost : IHost {
     uint32_t RecorderFlags() override { return 0; }
     void RecorderOffer(void*, void*, uint32_t, uint32_t, uint32_t, uint32_t, uint32_t) override {}
     int RecorderSave(const char*, bool) override { return 0; }
+    uint32_t GpuLimitPercent() override { return 0; }
+    uint32_t GpuLoadPercent() override { return 0; }
 };
 
 template <class T> static bool SameValue(const T& a, const T& b) { if constexpr (std::is_floating_point_v<T>) return std::fabs(a - b) < 1e-5; else return a == b; }
@@ -161,8 +163,6 @@ int main() {
             if (!SameValue(l.autoBudgetMs, d.autoBudgetMs)) bad += " autoBudgetMs";
             if (!SameValue(l.autoFloor, d.autoFloor)) bad += " autoFloor";
             if (!SameValue(l.modelEvery, d.modelEvery)) bad += " modelEvery";
-            if (!SameValue(l.gpuLimit, d.gpuLimit)) bad += " gpuLimit";
-            if (!SameValue(l.gpuLimitPercent, d.gpuLimitPercent)) bad += " gpuLimitPercent";
             if (!SameValue(l.defaultsVersion, d.defaultsVersion)) bad += " defaultsVersion";
             if (!SameValue(l.autoScaleLast, d.autoScaleLast)) bad += " autoScaleLast";
             if (!SameValue(l.gameAuto, d.gameAuto)) bad += " gameAuto";
@@ -179,7 +179,7 @@ int main() {
         }
         Check("...with its time budget of the defaults", Same(l.autoBudgetMs, d.autoBudgetMs));
         Check("...and its lowest resolution of the defaults", Same(l.autoFloor, d.autoFloor));
-        Check("...Run the model, the card limit and its percent", l.modelEvery == d.modelEvery && l.gpuLimit == d.gpuLimit && Same(l.gpuLimitPercent, d.gpuLimitPercent));
+        Check("...Run the model", l.modelEvery == d.modelEvery);
         Check("...the model's look (resolution ceiling, smoothing, sharpen, dark guard)", Same(l.p.workingScale, d.p.workingScale) && Same(l.p.deltaSmooth, d.p.deltaSmooth) && Same(l.p.sharpen, d.p.sharpen) && Same(l.p.darkGuard, d.p.darkGuard));
         Check("...the switches", l.enabled == d.enabled && l.hotkeys == d.hotkeys && l.presentMode == d.presentMode && l.freshFlow == d.freshFlow && l.lsFirst == d.lsFirst && l.gameAuto == d.gameAuto &&
                                  l.scalerGpuWait == d.scalerGpuWait && l.scalerFastMotion == d.scalerFastMotion && l.scalerReuseMotion == d.scalerReuseMotion && l.scalerPerGame == d.scalerPerGame);
@@ -212,12 +212,7 @@ int main() {
     {   // keeping the card under a limit
         Check("the dark guard is 0.04 by default, kept to 0..0.15, and round trips", Same(NrParams().darkGuard, 0.04f) && Same(Config().p.darkGuard, 0.04f));
         { Config d; d.p.darkGuard = 0.08f; SaveSettings(&host, "DLSS5NR01", d, {}); Check("...(0.08 saved loads back as 0.08)", Same(LoadSettings(&host, "DLSS5NR01").config.p.darkGuard, 0.08f)); host.values["darkGuard"] = "5"; Check("...(5 is kept to 0.15)", Same(LoadSettings(&host, "DLSS5NR01").config.p.darkGuard, 0.15f)); host.values["darkGuard"] = "0.04"; }
-        Check("the card limit is off by default, at 95 %", !Config().gpuLimit && Same(Config().gpuLimitPercent, 95.0f));
-        Config g; g.gpuLimit = true; g.gpuLimitPercent = 90.0f; SaveSettings(&host, "DLSS5NR01", g, {});
-        const Config back2 = LoadSettings(&host, "DLSS5NR01").config;
-        Check("the card limit round trips", back2.gpuLimit && Same(back2.gpuLimitPercent, 90.0f));
-        host.values["gpuLimitPercent"] = "10"; Check("...and is kept to 80 to 100", Same(LoadSettings(&host, "DLSS5NR01").config.gpuLimitPercent, 80.0f));
-        host.values["gpuLimitPercent"] = "500"; Check("...from above", Same(LoadSettings(&host, "DLSS5NR01").config.gpuLimitPercent, 100.0f));
+        // (the card limit is the manager's now: the Features tab, IHost::GpuLimitPercent)
         host.values["gpuLimit"] = "0"; host.values["gpuLimitPercent"] = "95";
     }
     {   // the upscalers' settings per game

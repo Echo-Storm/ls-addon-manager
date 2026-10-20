@@ -250,9 +250,6 @@ EAM_EXPORT void AddonRenderSettings() {
                                 static_cast<unsigned long long>(st.real), st.realIntervalMs, static_cast<unsigned long long>(st.generated), st.engine.empty() ? "the blend" : st.engine.c_str(), st.generatedMs);
     }
     ImGui::Spacing();
-    ImGui::SeparatorText("Recording");
-    ImGui::TextWrapped("Recording is a feature of the manager (the Features tab, \"Recording\"). EchoFG offers it the frames as they are shown (the frames between and the real ones, tagged, the middle 1920x1080), because with EchoFG on there are no captured frames to find. Ctrl+Shift+F1 saves.");
-    { const uint32_t rf = g_host && g_host->GetHostVersion() >= 0x010300 ? g_host->RecorderFlags() : 0u; ImGui::TextDisabled("%s", (rf & 1u) ? "The recorder is on." : "The recorder is off (switch it on in the Features tab)."); }
     ImGui::Spacing();
     ImGui::TextDisabled("Log: <Lossless Scaling folder>\\logs (the manager's log has this addon's lines). Every ten seconds it says what the display did with the presents.");
 }

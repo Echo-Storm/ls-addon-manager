@@ -216,8 +216,6 @@ Loaded LoadSettings(IHost* host, const char* id) {
     c.autoFloor = std::clamp(static_cast<float>(number("autoFloor", base.autoFloor)), 0.25f, 1.0f);
     c.autoScaleLast = std::clamp(static_cast<float>(number("autoScaleLast", 0.0)), 0.0f, 1.0f);
     c.modelEvery = std::clamp(static_cast<int>(number("modelEvery", base.modelEvery)), 1, 4);
-    c.gpuLimit = flag("gpuLimit", base.gpuLimit);
-    c.gpuLimitPercent = std::clamp(static_cast<float>(number("gpuLimitPercent", base.gpuLimitPercent)), 80.0f, 100.0f);
     // 0.9.28 made every 2nd frame the default, but that build loaded a file without the setting as 1 and saved it back, so a 1 from a file older than the defaults' version 1
     // is not a choice (nobody could have made it before 0.9.28): it becomes the default, once. The version is saved with the next save; a 1 chosen after that stays.
     c.defaultsVersion = std::max(0, integer("defaultsVersion", 0));
@@ -279,7 +277,7 @@ void SaveSettings(IHost* host, const char* id, const Config& c, const std::vecto
     put("keysVersion", "3");
     put("screenshotFolder", c.screenshotFolder);
     putFlag("autoQuality", c.autoQuality); put("autoBudgetMs", Number(c.autoBudgetMs)); put("autoFloor", Number(c.autoFloor)); put("autoScaleLast", Number(c.autoScaleLast)); put("modelEvery", Number(static_cast<float>(c.modelEvery)));
-    putFlag("gpuLimit", c.gpuLimit); put("gpuLimitPercent", Number(c.gpuLimitPercent)); put("defaultsVersion", Number(static_cast<float>(c.defaultsVersion)));
+    put("defaultsVersion", Number(static_cast<float>(c.defaultsVersion)));
     putFlag("gameAuto", c.gameAuto);
     putFlag("scalerPerGame", c.scalerPerGame);
     {

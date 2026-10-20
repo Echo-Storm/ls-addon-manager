@@ -102,4 +102,10 @@ struct IHost {
     // upscalers' comparison saves each mode's frames by themselves). Returns 1: saving has begun; 0: there was nothing to save (or the recorder is off);
     // 2: a save is still running, try again in a moment.
     virtual int RecorderSave(const char* name, bool clear) = 0;
+
+    // The manager's GPU limit (the Features tab, "GPU limit"). GpuLimitPercent: 0 while it is off, else 80..100, the load the graphics card should stay under. GpuLoadPercent: the load of
+    // the card Lossless Scaling runs on, in percent, read by the manager about once a second (the call itself is cheap; it keeps the reading going while it is asked for); 0 when it is not
+    // known. An addon that can make its work cheaper (a lower working size, a lighter pass) does so while the load stays at or over the limit and goes back when it is well under.
+    virtual uint32_t GpuLimitPercent() = 0;
+    virtual uint32_t GpuLoadPercent() = 0;
 };

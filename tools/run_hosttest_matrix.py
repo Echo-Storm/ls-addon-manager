@@ -129,6 +129,11 @@ def scenario_record_addon_off(ctx, res, text, frame):
     res.check('...and no model was made (the addon is off)', 'NrEngine: model for' not in text)
 
 
+def scenario_gpu_limit(ctx, res, text, frame):
+    # the manager's GPU limit (IHost::GpuLimitPercent) at 80 % and the card reading 100 %: Neural Rendering's auto quality tightens, and says why
+    res.check("auto quality tightens because the card is over the manager's limit", 'the graphics card is over its limit' in text)
+
+
 def scenario_record_fg_off(ctx, res, text, frame):
     # frame generation off (no frame generation passes, NIS only) and no addon on: the manager's recorder takes the frame Lossless Scaling's scaling pass reads
     saved = re.search(r'recorder: Saved ([0-9.]+) s \((\d+) frames, .*? to (.+\.lsrec)', text)
@@ -714,6 +719,7 @@ SCENARIOS = [
     ('record_replay', ['recordOn=1', 'recordSaveAfter=60', 'recordSeconds=3', 'recordFolder=@OUT@/recordings'], scenario_record_replay),   # save, read, play back
     ('record_addon_off', ['enabled=0', 'recordOn=1', 'recordSaveAfter=20', 'recordFolder=@OUT@/recordings_off'], scenario_record_addon_off),   # Neural Rendering's Enable off: the recorder still gets the captured frames
     ('record_fg_off', ['enabled=0', 'nis=1', 'nisbgra=1', 'nisnoflow=1', 'recordOn=1', 'recordSaveAfter=20', 'recordFolder=@OUT@/recordings_fgoff'], scenario_record_fg_off),   # frame generation off, no addon on: Lossless Scaling's scaling pass is the source
+    ('gpu_limit', ['gpuLimitPercent=80', 'gpuLoadPercent=100', 'offframes=300'], scenario_gpu_limit),   # the manager's GPU limit on and the card at 100 %: auto quality takes the model down
     ('hud_left_half', ['hud=0,0,0.5,1', 'hudFeather=0'], scenario_hud),
     ('sharpen', ['sharpen=0.8'], scenario_sharpen),
     ('shadows_up', ['shadows=1'], scenario_shadows_up),
