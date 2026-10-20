@@ -13,6 +13,7 @@
 #include <string>
 #include <thread>
 #include "engine/flow_estimator.h"
+#include "engine/flow_fix.h"
 #include "engine/own_synth.h"
 
 namespace nr {
@@ -83,6 +84,7 @@ private:
     ID3D12Resource* m_before = nullptr; ID3D12Resource* m_guarded = nullptr; bool m_haveBefore = false;
     bool InitGuard();
     // EchoFG's shaders (nine pipelines) and buffers are made on a thread of their own, so switching it on never stalls the presenting thread: until it is ready FSR makes the frames
+    FlowFix m_fix; ID3D12Resource* m_motionFix = nullptr; bool m_fixReady = false;   // the picture at large (E16): EchoFG's motion corrected where a block cannot tell
     OwnSynth m_synth; std::atomic<bool> m_own{ false }, m_synthReady{ false }; bool m_prevOwn = false; std::atomic<float> m_soften{ 0.6f };
     std::atomic<int> m_synthState{ 0 };   // 0 not started, 1 starting, 2 ready, 3 could not start
     std::thread m_synthThread;

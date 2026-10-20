@@ -31,6 +31,7 @@
 #include "eval_common.h"
 #include "engine/flow_estimator.h"
 #include "engine/own_synth.h"
+#include "engine/flow_fix.h"
 #include "engine/fg_engine.h"
 #include "ffx_api/ffx_api.h"
 #include "ffx_api/ffx_framegeneration.h"
@@ -601,6 +602,8 @@ int main(int argc, char** argv) {
     const bool useEngine = Arg(argc, argv, "engine", 0) != 0;
     // own=1: the frame between made by this project's own synthesis (src/engine/own_synth.cpp: both flows, splatted to the time, holes filled by direction) instead of FSR; owt=N: its time in thousandths (500)
     const float ownSoft = Arg(argc, argv, "ownsoft", 60) / 100.0f;   // ownsoft=N: how far EchoFG leans toward the plain mix where its motion is doubtful, percent (60)
+    const std::string mvFile = ArgText(argc, argv, "mvfile");   // mvfile=FILE: the motion vectors come from this file (float32 x, y per pixel, one W x H block per kept pair, the flow at the later frame back to the earlier: what tools/flowlab writes, or a corrected copy of it) instead of the estimate
+    const bool flowFix = Arg(argc, argv, "flowfix", 0) != 0;   // flowfix=1: EchoFG's motion corrected by the picture at large (FlowFix) before the synthesis
     const bool ownDirect = Arg(argc, argv, "owndirect", 0) != 0;   // owndirect=1: EchoFG's direct draw (a second motion estimate, the pair the other way round) instead of the splat synthesis
     const bool useOwn = Arg(argc, argv, "own", 0) != 0; const float ownT = Arg(argc, argv, "owt", 500) / 1000.0f;
     // guard=N: the guard against pasted background (Guard): the frame made must be N levels further from both real frames than they are from
@@ -845,6 +848,13 @@ int main(int argc, char** argv) {
                 }
                 return true;
             };
+            static nr::FlowFix ff; static ID3D12Resource* motionFix = nullptr;
+            if (flowFix) {
+                if (!ff.Init(g.dev, [](const char* m) { printf("  %s\n", m); }) || !ff.Ensure(W, H)) { printf("the flow fix could not start\n"); return 4; }
+                { UINT64 qf = 0; g.queue->GetTimestampFrequency(&qf); ff.SetTimestampFrequency(qf); }
+                motionFix = g.Texture(W, H, DXGI_FORMAT_R16G16_FLOAT, true, D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE);
+                printf("  own synthesis: the picture at large corrects the motion (flow fix)\n");
+            }
             static FlowEstimator estRev; static ID3D12Resource *motionRev = nullptr, *distrustRev = nullptr;
             if (ownDirect) {   // the motion from the frame before to this one, found at the frame before's pixels: the estimate run on the pair the other way round
                 if (!estRev.Init(g.dev, [](const char* m) { printf("  %s\n", m); }) || !estRev.Ensure(W, H)) { printf("the second motion estimate could not start\n"); return 4; }
@@ -864,7 +874,16 @@ int main(int argc, char** argv) {
                         estRev.Record(g.list, 2, prevTex, DXGI_FORMAT_R8G8B8A8_UNORM, motionRev, distrustRev);   // then the earlier: its motion to the later
                         g.Barrier(motionRev, D3D12_RESOURCE_STATE_UNORDERED_ACCESS, D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE);
                     }
-                    if (!syn.Record(g.list, 0, prevTex, DXGI_FORMAT_R8G8B8A8_UNORM, cur, DXGI_FORMAT_R8G8B8A8_UNORM, motion, DXGI_FORMAT_R8G8B8A8_UNORM, tgts.data(), static_cast<int>(tgts.size()), 0, 80.0f, ownSoft, 1.0f, ownDirect ? motionRev : nullptr)) { printf("own synthesis failed\n"); return false; }
+                    ID3D12Resource* motionForSynth = motion;
+                    if (flowFix) {   // the picture at large: the estimate's vectors corrected where a block cannot tell (repeating lines, plain), into a texture of its own
+                        g.Barrier(distrust, D3D12_RESOURCE_STATE_UNORDERED_ACCESS, D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE);
+                        g.Barrier(motionFix, D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE, D3D12_RESOURCE_STATE_UNORDERED_ACCESS);
+                        ff.Record(g.list, 0, prevTex, DXGI_FORMAT_R8G8B8A8_UNORM, cur, DXGI_FORMAT_R8G8B8A8_UNORM, motion, distrust, motionFix);
+                        g.Barrier(motionFix, D3D12_RESOURCE_STATE_UNORDERED_ACCESS, D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE);
+                        g.Barrier(distrust, D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE, D3D12_RESOURCE_STATE_UNORDERED_ACCESS);
+                        motionForSynth = motionFix;
+                    }
+                    if (!syn.Record(g.list, 0, prevTex, DXGI_FORMAT_R8G8B8A8_UNORM, cur, DXGI_FORMAT_R8G8B8A8_UNORM, motionForSynth, DXGI_FORMAT_R8G8B8A8_UNORM, tgts.data(), static_cast<int>(tgts.size()), 0, 80.0f, ownSoft, 1.0f, ownDirect ? motionRev : nullptr)) { printf("own synthesis failed\n"); return false; }
                     ID3D12Resource* outTex = outs[pickOut];
                     g.Barrier(outTex, D3D12_RESOURCE_STATE_UNORDERED_ACCESS, D3D12_RESOURCE_STATE_COPY_SOURCE);
                     D3D12_TEXTURE_COPY_LOCATION to{ readback, D3D12_TEXTURE_COPY_TYPE_PLACED_FOOTPRINT }; to.PlacedFootprint = fp;
@@ -880,6 +899,7 @@ int main(int argc, char** argv) {
                 prevState = D3D12_RESOURCE_STATE_COPY_DEST;
                 g.Submit();
                 if (ownDirect && i >= 2) estRev.ReadStats(2);
+                if (flowFix && i >= 2) { double fm = 0; static std::vector<double> fixMs; if (ff.ReadMs(0, fm)) fixMs.push_back(fm); if (i + 2 >= count && !fixMs.empty()) { std::sort(fixMs.begin(), fixMs.end()); printf("  flow fix: the GPU median %.2f ms a pair, best %.2f, worst %.2f\n", fixMs[fixMs.size() / 2], fixMs.front(), fixMs.back()); } }
                 if (i >= 2) { readPicture(readback, picture); double ms = 0; static std::vector<double> all; if (syn.ReadMs(0, ms)) all.push_back(ms); if (i + 2 >= count && !all.empty()) { { double st[4] = {}; if (est.TakeStageTimes(st)) printf("  motion estimate (the pair, one way): %.2f ms (pyramid %.2f, search %.2f, median %.2f, pixels %.2f)\n", st[0] + st[1] + st[2] + st[3], st[0], st[1], st[2], st[3]); if (ownDirect && estRev.TakeStageTimes(st)) printf("  second motion estimate (the other way): %.2f ms\n", st[0] + st[1] + st[2] + st[3]); } std::sort(all.begin(), all.end()); printf("  own synthesis: the GPU median %.2f ms a frame, best %.2f, worst %.2f (%zu frames, %ux%u)\n", all[all.size() / 2], all.front(), all.back(), all.size(), W, H); } }
                 return true;
             };
@@ -1147,7 +1167,7 @@ int main(int argc, char** argv) {
         }
         std::vector<uint8_t> band; double bandFrac = 0;   // where turn ghosting shows (BandMask), for the band score
         std::vector<uint16_t> frameMv;                     // this frame's vectors, for the guard
-        if (!refine.empty() || mvCheck || depthFromMotion || depthNoise || depthLayer || depthOrbit || stride == 2 || guardApart > 0) {   // the estimate's vectors to the CPU (refined and back, checked, made into depth, for the band)
+        if (!mvFile.empty() || !refine.empty() || mvCheck || depthFromMotion || depthNoise || depthLayer || depthOrbit || stride == 2 || guardApart > 0) {   // the estimate's vectors to the CPU (refined and back, checked, made into depth, for the band)
             static ID3D12Resource* mvReadback = nullptr; static ID3D12Resource* mvUpload = nullptr; static D3D12_PLACED_SUBRESOURCE_FOOTPRINT mfp{}; static UINT64 mtotal = 0;
             if (!mvReadback) {
                 D3D12_RESOURCE_DESC md = motion->GetDesc(); UINT mrows = 0; UINT64 mrow = 0;
@@ -1164,6 +1184,14 @@ int main(int argc, char** argv) {
             { uint8_t* m = nullptr; mvReadback->Map(0, nullptr, reinterpret_cast<void**>(&m));
               for (uint32_t y = 0; y < H; ++y) memcpy(mv.data() + static_cast<size_t>(y) * W * 2, m + mfp.Offset + y * mfp.Footprint.RowPitch, W * 4);
               D3D12_RANGE none{ 0, 0 }; mvReadback->Unmap(0, &none); }
+            if (!mvFile.empty() && i >= 2) {   // the vectors of pair (i / 2 - 1) from the file
+                static FILE* mf = fopen(mvFile.c_str(), "rb");
+                if (!mf) { printf("cannot read %s\n", mvFile.c_str()); return 3; }
+                std::vector<float> fv(static_cast<size_t>(W) * H * 2);
+                _fseeki64(mf, static_cast<long long>(i / 2 - 1) * W * H * 8, SEEK_SET);
+                if (fread(fv.data(), 4, fv.size(), mf) != fv.size()) { printf("%s is too short for frame %d\n", mvFile.c_str(), i); return 3; }
+                for (size_t k = 0; k < fv.size(); ++k) mv[k] = DirectX::PackedVector::XMConvertFloatToHalf(fv[k]);
+            }
             if (mvCheck && i >= 2) {
                 std::vector<uint8_t> moved, half; double len = 0;
                 WarpByMotion(frames[i - 2], mv, W, H, moved, &len);

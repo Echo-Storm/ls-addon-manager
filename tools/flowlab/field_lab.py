@@ -54,7 +54,8 @@ def large_field(F, src, dst, gx, gy, size=41):
     return np.where((ws > 0.05)[..., None], L, 0.0), ws
 
 
-LARGE = (1.25, 4.0, 1e9, 3.0)   # the picture at large wins where its cost is within this multiple of the pixel's own and this many levels more
+DEBUG = {}
+LARGE = (1.25, 4.0, 1e9, 3.0, 2.5, 8.0, 8.0, 2.0)   # the picture at large wins where its cost is within this multiple of the pixel's own and this many levels more
 
 
 def large(F, src, dst, gx, gy):
@@ -109,7 +110,64 @@ def far(F, src, dst, gx, gy, reach=24):
     return G, float(take.sum()) / (h * w)
 
 
-METHODS = {'smooth': lambda F, s, d, gx, gy: (smooth(F, s, d, gx, gy), 0.0), 'large': large, 'far': far}
+def tile_modes(F, good, tile=32, reach=3):
+    """the dominant vector of each tile and of the tiles around it (a window of 2 * reach + 1 tiles): the mode of the good pixels' vectors on a half-pixel grid, then the mean of
+    those within one pixel of it; and the share of the window's good pixels that agree with it"""
+    h, w = F.shape[:2]
+    ty, tx = (h + tile - 1) // tile, (w + tile - 1) // tile
+    modes = np.zeros((ty, tx, 2), np.float32); support = np.zeros((ty, tx), np.float32)
+    q = np.rint(F * 2.0).astype(np.int32)
+    for j in range(ty):
+        for i in range(tx):
+            y0, y1 = max(0, (j - reach) * tile), min(h, (j + reach + 1) * tile); x0, x1 = max(0, (i - reach) * tile), min(w, (i + reach + 1) * tile)
+            g = good[y0:y1:2, x0:x1:2]
+            if g.sum() < 60:
+                continue
+            v = q[y0:y1:2, x0:x1:2][g]
+            key = (v[:, 0] + 512) * 2048 + (v[:, 1] + 512)
+            u, inv, cnt = np.unique(key, return_inverse=True, return_counts=True)
+            # a vector's vote counts its neighbours at half a pixel too
+            best = None
+            top = np.argsort(cnt)[::-1][:6]
+            for k in top:
+                c = v[inv == k][0]
+                near = (np.abs(v[:, 0] - c[0]) <= 2) & (np.abs(v[:, 1] - c[1]) <= 2)
+                if best is None or near.sum() > best[0]:
+                    best = (near.sum(), near, c)
+            near = best[1]
+            vv = (F[y0:y1:2, x0:x1:2][g])[near]
+            modes[j, i] = vv.mean(0); support[j, i] = near.sum() / g.sum()
+    return modes, support
+
+
+def large2(F, src, dst, gx, gy):
+    h, w = F.shape[:2]
+    own = cost(F, src, dst, gx, gy)
+    contrast = box(np.abs(luma(dst) - box(luma(dst), 9)), 9)
+    good = (own < 10.0) & (contrast > 3.0) & (np.hypot(F[..., 0], F[..., 1]) > 1.0)    # found, showing something, and moving
+    modes, support = tile_modes(F, good)
+    tile = 32
+    ti = np.clip((gy // tile).astype(np.int32), 0, modes.shape[0] - 1); tj = np.clip((gx // tile).astype(np.int32), 0, modes.shape[1] - 1)
+    L = modes[ti, tj]; sup = support[ti, tj]
+    lc = cost(L, src, dst, gx, gy)
+    differs = np.hypot(L[..., 0] - F[..., 0], L[..., 1] - F[..., 1]) > 1.0
+    # ambiguous: flat, or a patch that is matched about as well at a distance of 6 to 16 pixels along or across (repeating)
+    flat = contrast < LARGE[4]
+    rep = np.zeros(own.shape, bool)
+    for d in (6, 8, 10, 12, 14, 16):
+        for dx, dy in ((d, 0), (-d, 0), (0, d), (0, -d)):
+            rep |= cost(F + np.array([dx, dy], np.float32), src, dst, gx, gy) <= own + 0.15 * contrast + 0.5
+    # (a vector that is matched badly can look 'ambiguous' only because every nearby vector is matched badly: only a pixel that matches well can be ambiguous)
+    ambiguous = (flat | rep) & (own < LARGE[5]) & (lc <= own * LARGE[0] + LARGE[1])
+    clearly = lc + LARGE[6] < own                    # the picture's vector carries the pixel clearly better than its own
+    # a vector faster than the picture at large is not an alias of it: it is a thing of its own (a pole, a character) and stays
+    slower = np.hypot(F[..., 0], F[..., 1]) <= np.hypot(L[..., 0], L[..., 1]) + LARGE[7]
+    take = differs & (sup > 0.3) & ((ambiguous & slower) | clearly)
+    DEBUG.update(dict(ambiguous=differs & (sup > 0.3) & ambiguous, clearly=differs & (sup > 0.3) & clearly & ~ambiguous, own=own, lc=lc, L=L))
+    return np.where(take[..., None], L, F), float(take.mean())
+
+
+METHODS = {'large2': large2, 'smooth': lambda F, s, d, gx, gy: (smooth(F, s, d, gx, gy), 0.0), 'large': large, 'far': far}
 
 
 def draw(A, C, Fa, Fc, gx, gy):
@@ -128,7 +186,7 @@ def main():
     w = int(args.get('w', 1280)); h = int(args.get('h', 720))
     only = args.get('only', 'smooth,large,far').split(',')
     global LARGE
-    LARGE = tuple(float(x) for x in args.get('large', '1.1,1.5,1e9,3').split(','))
+    LARGE = tuple(float(x) for x in args.get('large', '1.1,1.5,1e9,3,2.5,8,8,2').split(','))
     frames = np.memmap(folder + '/frames.rgba', np.uint8, 'r').reshape(-1, h, w, 4)
     Fc_all = np.memmap(folder + '/ours.f32', np.float32, 'r').reshape(-1, h, w, 2)
     Fa_all = np.memmap(folder + '/ours_rev.f32', np.float32, 'r').reshape(-1, h, w, 2)
@@ -154,13 +212,13 @@ def main():
             for m, mkall in masks_t.items():
                 mk = mkall[r - 1]
                 reg[m].setdefault(name, []).append(10 * np.log10(255 * 255 / max(float(e[mk & (np.arange(h)[:, None] > 24) & (np.arange(w)[None, :] > 24)].mean()), 1e-6)))
-        regional('blend', blend); regional('base', d0)
+        regional('blend', blend); regional('base', d0); regional('base/1', o0)
         for n in only:
             Fc2, s1 = METHODS[n](Fc, A, C, gx, gy)            # the field at C into A
             Fa2, s2 = METHODS[n](Fa, C, A, gx, gy)            # the field at A into C
             shares[n].append(0.5 * (s1 + s2))
             d, o = draw(A, C, Fa2, Fc2, gx, gy)
-            res[n].append(psnr(d[border], T[border])); res1[n].append(psnr(o[border], T[border])); regional(n, d)
+            res[n].append(psnr(d[border], T[border])); res1[n].append(psnr(o[border], T[border])); regional(n, d); regional(n + '/1', o)
     base = np.array(res['blend'])
     print('%d pairs: gain over the blend, both fields (direct) / one field (oneway)' % pairs)
     for n in names:
@@ -169,7 +227,7 @@ def main():
         print('%-7s direct %+.2f dB   oneway %+.2f dB%s' % (n, (a - base).mean(), (b - bb).mean(), extra))
     for m in masks:
         bl = np.array(reg[m]['blend'])
-        print('  region %-9s (%4.1f %% of the picture): ' % (m, 100 * masks[m].mean()) + '   '.join('%s %+.2f dB' % (n, (np.array(reg[m][n]) - bl).mean()) for n in names if n != 'blend'))
+        print('  region %-9s (%4.1f %% of the picture): ' % (m, 100 * masks[m].mean()) + '   '.join('%s %+.2f dB' % (n, (np.array(reg[m][n]) - bl).mean()) for n in (['base'] + only + ['base/1'] + [x + '/1' for x in only]) if n != 'blend'))
 
 
 if __name__ == '__main__':

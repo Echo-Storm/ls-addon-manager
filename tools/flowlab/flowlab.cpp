@@ -99,6 +99,16 @@ int main(int argc, char** argv) {
         fclose(f);
     }
     }
+    {   // lsrecout=FILE: the frames as a recording (R8G8B8A8, stored raw), for nr_fgeval and the other tools that read .lsrec
+        const std::string outRec = Arg(argc, argv, "lsrecout");
+        if (!outRec.empty()) {
+            nr::lsrec::FileHeader fh; fh.width = W; fh.height = H; fh.format = 28; fh.bytesPerPixel = 4; fh.source = nr::lsrec::kCaptured; fh.content = nr::lsrec::kSdrView; fh.qpcFrequency = 1000000;
+            std::vector<nr::lsrec::Frame> fr(total); std::vector<const nr::lsrec::Frame*> ptrs;
+            for (int i = 0; i < total; ++i) { fr[i].header.index = i; fr[i].header.qpc = (int64_t)i * 33333; fr[i].header.codec = nr::lsrec::kRaw; fr[i].header.rawBytes = (uint32_t)frames[i].size(); fr[i].data = frames[i]; ptrs.push_back(&fr[i]); }
+            std::string err;
+            printf("lsrec: %s%s\n", outRec.c_str(), nr::lsrec::Write(std::wstring(outRec.begin(), outRec.end()), fh, ptrs, &err) ? " written" : (" FAILED: " + err).c_str());
+        }
+    }
     const int reals = total / 2;
     printf("clip: %d frames cropped to %dx%d, %d real frames, %d pairs\n", total, W, H, reals, reals - 1);
 

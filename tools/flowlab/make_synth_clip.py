@@ -53,7 +53,7 @@ def main():
         bx, by = 14.0 * t, 3.0 * t
         img = 0.25 + 0.5 * sample(wall, xx + bx, yy + by)
         img = img[..., None] * np.array([1.0, 0.95, 0.9], np.float32)
-        periodic = region(700, 880, 300, 430, t); plain = region(1100, 1280, 300, 430, t)
+        periodic = region(700, 880, 120, 250, t); plain = region(1100, 1280, 120, 250, t)
         # periodic lines
         px = bx   # the face moves with the wall (a tower's face, a fence at the wall's depth): 14 px is two periods of the lines, so the lines alone cannot show the motion
         lines = 0.5 + 0.5 * np.sin(2 * np.pi * (xx - px) / 7.0)

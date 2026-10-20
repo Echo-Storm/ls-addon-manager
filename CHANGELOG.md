@@ -2,6 +2,7 @@
 
 ## Unreleased
 
+- **EchoFG (test build only): the picture at large.** Where a block of fine repeating lines (a fence, a tower's face) or a plain one cannot show its own motion, it takes the vector of the picture around it (a per-tile mode, with guards so a thin fast pole or a character keeps its own). On a made-up scene with those cases the frames went from +9.94 to +12.59 dB over a plain blend; real recordings are unchanged (within 0.02 dB). 3.8 ms a pair at 2560x1440; `NR_FLOW_FIX=0` turns it off.
 - **EchoFG (test build only): marks.** A HUD or read-out that stays put while the picture moves a lot (a turn) is no longer dragged along with the picture in the frames EchoFG makes: per-pixel counts kept from pair to pair mark such pixels, and they are held as the plain mix of the two real frames. On a recording with the HUD over a turning scene its pixels went from 37.6 to 51.5 dB; on calm clips the whole frame changed by at most 0.14 dB. `NR_SYNTH_MARKS=0` turns it off for comparing. (docs/mfg-super-motion-engine-notes.md)
 - **Tools:** `nr_fgeval` takes `dumpx=` / `dumpy=` with `dumpraw=`; `tools/flowlab` gains `synth_lab.py` and `hud_lab.py` (drawing methods and HUD handling on recorded footage).
 
