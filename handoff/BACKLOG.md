@@ -199,3 +199,9 @@ Released today: 0.9.20 (bug sweep), 0.9.21 (Steady sharpening, Sharpness at rest
 - lsfg-vk (CC BY-NC-ND: study only): the owner wants to discuss what "using code" means, including loading Lossless Scaling's shaders
   from the user's own install at run time (docs/lsfg-vk-study.md).
 - The DLSS 5 on Radeon mod (closed, no redistribution): only if an all-in-one or optimised build appears, or new techniques.
+
+## Bug sweep 2026-10-19 (after the Model preset; board S7)
+
+- Offline suites (`tools\run_addon_tests.ps1 -All`, run with `pwsh`; Windows PowerShell 5.1 here has scripts disabled, which fails the runner's Setup-exe step and the host matrix needs numpy: `pip install --user numpy`): core, features, sample, update, gui, runtimes, installer, NR requirements/settings/auto/diag/compose/trace/recorder/tap, the presenter and HDR all pass; the Setup-exe test passes run directly (`pwsh installer\tests\setup_exe_test.ps1 -Root <repo>`).
+- NR host matrix with the new 310.9.16 model, 72 scenarios in 615 s at 3 at a time: 4 failed. `base`, `highlights_down` and `smooth` fail under three-at-a-time load with the new model and pass alone (`--jobs 1`), and pass at 3 with the old model: run with `--jobs 1` when they fail. `fsr_runtime_switch` is a real, repeatable failure (S7).
+- `deploy.ps1 -UnlockWip` wrote a byte order mark under Windows PowerShell 5.1 (the manager's JSON reader skips it, so harmless); now written without.
