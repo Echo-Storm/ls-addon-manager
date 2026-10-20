@@ -601,6 +601,7 @@ int main(int argc, char** argv) {
     const bool useEngine = Arg(argc, argv, "engine", 0) != 0;
     // own=1: the frame between made by this project's own synthesis (src/engine/own_synth.cpp: both flows, splatted to the time, holes filled by direction) instead of FSR; owt=N: its time in thousandths (500)
     const float ownSoft = Arg(argc, argv, "ownsoft", 60) / 100.0f;   // ownsoft=N: how far EchoFG leans toward the plain mix where its motion is doubtful, percent (60)
+    const bool ownDirect = Arg(argc, argv, "owndirect", 0) != 0;   // owndirect=1: EchoFG's direct draw (a second motion estimate, the pair the other way round) instead of the splat synthesis
     const bool useOwn = Arg(argc, argv, "own", 0) != 0; const float ownT = Arg(argc, argv, "owt", 500) / 1000.0f;
     // guard=N: the guard against pasted background (Guard): the frame made must be N levels further from both real frames than they are from
     // each other; guardagree=N: how alike the real frames must be (levels); the reach for a character's shift scales with the width
@@ -784,7 +785,7 @@ int main(int argc, char** argv) {
         uint64_t frameId = 0;
         if (useOwn) {
             static nr::OwnSynth syn; static ID3D12Resource *prevTex = nullptr; static std::vector<ID3D12Resource*> outs; static std::vector<nr::OwnSynth::Target> tgts; static int pickOut = 0; static D3D12_RESOURCE_STATES prevState = D3D12_RESOURCE_STATE_COPY_DEST;
-            { UINT64 qf = 0; g.queue->GetTimestampFrequency(&qf); syn.SetTimestampFrequency(qf); }
+            { UINT64 qf = 0; g.queue->GetTimestampFrequency(&qf); syn.SetTimestampFrequency(qf); est.SetTimestampFrequency(qf); }
             syn.SetAnalysisScale(Arg(argc, argv, "ownscale", 2));   // ownscale=1: the analysis at every pixel (the reference), 2: at half size (the default)
             if (!syn.Init(g.dev, [](const char* m) { printf("  %s\n", m); }) || !syn.Ensure(W, H)) { printf("own synthesis could not start\n"); return 4; }
             printf("  own synthesis: analysis cells of %d x %d pixels\n", syn.AnalysisScale(), syn.AnalysisScale());
@@ -844,11 +845,26 @@ int main(int argc, char** argv) {
                 }
                 return true;
             };
+            static FlowEstimator estRev; static ID3D12Resource *motionRev = nullptr, *distrustRev = nullptr;
+            if (ownDirect) {   // the motion from the frame before to this one, found at the frame before's pixels: the estimate run on the pair the other way round
+                if (!estRev.Init(g.dev, [](const char* m) { printf("  %s\n", m); }) || !estRev.Ensure(W, H)) { printf("the second motion estimate could not start\n"); return 4; }
+                motionRev = g.Texture(W, H, DXGI_FORMAT_R16G16_FLOAT, true, D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE);
+                distrustRev = g.Texture(W, H, DXGI_FORMAT_R8_UNORM, true, D3D12_RESOURCE_STATE_UNORDERED_ACCESS);
+                { UINT64 qf = 0; g.queue->GetTimestampFrequency(&qf); estRev.SetTimestampFrequency(qf); }
+                printf("  own synthesis: the direct draw (a second motion estimate, nothing carried)\n");
+            }
             step = [&](int i, float frameMs, std::vector<uint8_t>& picture) -> bool {
                 (void)frameMs;
                 if (i >= 2) {
                     if (prevState != D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE) { g.Barrier(prevTex, prevState, D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE); prevState = D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE; }
-                    if (!syn.Record(g.list, 0, prevTex, DXGI_FORMAT_R8G8B8A8_UNORM, cur, DXGI_FORMAT_R8G8B8A8_UNORM, motion, DXGI_FORMAT_R8G8B8A8_UNORM, tgts.data(), static_cast<int>(tgts.size()), 0, 80.0f, ownSoft)) { printf("own synthesis failed\n"); return false; }
+                    if (ownDirect) {
+                        g.Barrier(motionRev, D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE, D3D12_RESOURCE_STATE_UNORDERED_ACCESS);
+                        estRev.Forget();
+                        estRev.Record(g.list, 1, cur, DXGI_FORMAT_R8G8B8A8_UNORM, motionRev, distrustRev);        // the later frame first (no frame before it: zero)
+                        estRev.Record(g.list, 2, prevTex, DXGI_FORMAT_R8G8B8A8_UNORM, motionRev, distrustRev);   // then the earlier: its motion to the later
+                        g.Barrier(motionRev, D3D12_RESOURCE_STATE_UNORDERED_ACCESS, D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE);
+                    }
+                    if (!syn.Record(g.list, 0, prevTex, DXGI_FORMAT_R8G8B8A8_UNORM, cur, DXGI_FORMAT_R8G8B8A8_UNORM, motion, DXGI_FORMAT_R8G8B8A8_UNORM, tgts.data(), static_cast<int>(tgts.size()), 0, 80.0f, ownSoft, 1.0f, ownDirect ? motionRev : nullptr)) { printf("own synthesis failed\n"); return false; }
                     ID3D12Resource* outTex = outs[pickOut];
                     g.Barrier(outTex, D3D12_RESOURCE_STATE_UNORDERED_ACCESS, D3D12_RESOURCE_STATE_COPY_SOURCE);
                     D3D12_TEXTURE_COPY_LOCATION to{ readback, D3D12_TEXTURE_COPY_TYPE_PLACED_FOOTPRINT }; to.PlacedFootprint = fp;
@@ -863,7 +879,8 @@ int main(int argc, char** argv) {
                 g.Barrier(cur, D3D12_RESOURCE_STATE_COPY_SOURCE, D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE);
                 prevState = D3D12_RESOURCE_STATE_COPY_DEST;
                 g.Submit();
-                if (i >= 2) { readPicture(readback, picture); double ms = 0; static std::vector<double> all; if (syn.ReadMs(0, ms)) all.push_back(ms); if (i + 2 >= count && !all.empty()) { std::sort(all.begin(), all.end()); printf("  own synthesis: the GPU median %.2f ms a frame, best %.2f, worst %.2f (%zu frames, %ux%u)\n", all[all.size() / 2], all.front(), all.back(), all.size(), W, H); } }
+                if (ownDirect && i >= 2) estRev.ReadStats(2);
+                if (i >= 2) { readPicture(readback, picture); double ms = 0; static std::vector<double> all; if (syn.ReadMs(0, ms)) all.push_back(ms); if (i + 2 >= count && !all.empty()) { { double st[4] = {}; if (est.TakeStageTimes(st)) printf("  motion estimate (the pair, one way): %.2f ms (pyramid %.2f, search %.2f, median %.2f, pixels %.2f)\n", st[0] + st[1] + st[2] + st[3], st[0], st[1], st[2], st[3]); if (ownDirect && estRev.TakeStageTimes(st)) printf("  second motion estimate (the other way): %.2f ms\n", st[0] + st[1] + st[2] + st[3]); } std::sort(all.begin(), all.end()); printf("  own synthesis: the GPU median %.2f ms a frame, best %.2f, worst %.2f (%zu frames, %ux%u)\n", all[all.size() / 2], all.front(), all.back(), all.size(), W, H); } }
                 return true;
             };
             if (ownHdr) step = hdrStep;

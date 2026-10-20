@@ -23,6 +23,7 @@ const char* const kHlsl = NR_HDR_HLSL R"(
 Texture2D<float4> tA : register(t0);
 Texture2D<float4> tC : register(t1);
 Texture2D<float2> tV : register(t2);
+Texture2D<float2> tVr : register(t3);   // the direct draw: the movement a to c found at the pixels of a
 RWStructuredBuffer<uint> bE0 : register(u0);    // the match error of each cell of c; later the moved pair's disagreement of hypothesis 1
 RWStructuredBuffer<uint> bEa0 : register(u1);   // the match error of each cell of a (the reversed vectors); later hypothesis 2's disagreement
 RWStructuredBuffer<uint> bK1 : register(u2);    // the splat keys: onto the time of the frame made, from c
@@ -230,6 +231,31 @@ bool HeldAt(int2 pixel) {
     return near && Lev(SmpC(float2(pixel)) - SmpA(float2(pixel))) < 60.0;
 }
 
+// the direct draw: the frame at time t from the two real frames under the movement found AT each pixel, nothing carried. v is the movement a -> c in pixels:
+// a pixel of a at q is at q + v in c, so the pixel made at q reads a at q - t v and c at q + (1 - t) v.
+float Disagree(float2 q, float2 v) {   // the moved pair's disagreement around a pixel, nine samples two pixels apart
+    float s = 0;
+    [unroll] for (int j = -1; j <= 1; ++j) [unroll] for (int x = -1; x <= 1; ++x) {
+        const float2 r = q + float2(x, j) * 2.0;
+        s += Lev(SmpA(r - t * v) - SmpC(r + (1.0 - t) * v));
+    }
+    return s;
+}
+[numthreads(8, 8, 1)] void Direct(uint3 id : SV_DispatchThreadID) {
+    if (id.x >= fsize.x || id.y >= fsize.y) return;
+    const int2 p = int2(id.xy);
+    const float2 q = float2(p);
+    const float2 f = tVr.Load(int3(min(p, int2(fsize) - 1), 0));      // found at a's pixel: a -> c
+    const float2 b = -tV.Load(int3(min(p, int2(fsize) - 1), 0));      // found at c's pixel: c -> a, reversed
+    float2 v = 0.5 * (f + b);
+    if (length(f - b) > 1.0 + 0.2 * length(f)) v = Disagree(q, f) <= Disagree(q, b) ? f : b;    // where the two ways do not come home to each other, the one that fits
+    const float3 moved = (1.0 - t) * tA.SampleLevel(sLin, (q - t * v + 0.5) / float2(fsize), 0).rgb + t * tC.SampleLevel(sLin, (q + (1.0 - t) * v + 0.5) / float2(fsize), 0).rgb;
+    const float3 mixed = (1.0 - t) * tA.SampleLevel(sLin, (q + 0.5) / float2(fsize), 0).rgb + t * tC.SampleLevel(sLin, (q + 0.5) / float2(fsize), 0).rgb;
+    float w = 0.0;
+    if (marks > 0.5 && HeldAt(p)) w = 1.0;   // a mark: the plain mix
+    uOut[p] = float4(lerp(moved, mixed, w), 1.0);
+}
+
 // the frame, at the frames' size: of the (up to) 2x2 nearest cells, the vector under which the moved pair agrees best here
 [numthreads(8, 8, 1)] void Synth(uint3 id : SV_DispatchThreadID) {
     if (id.x >= fsize.x || id.y >= fsize.y) return;
@@ -277,7 +303,7 @@ bool OwnSynth::Init(ID3D12Device* dev, LogFn log) {
                         SUCCEEDED(dev->CreateRootSignature(0, blob->GetBufferPointer(), blob->GetBufferSize(), IID_PPV_ARGS(&m_root)));
     Rel(blob); Rel(error);
     if (!rootOk) { Log("own synthesis: the root signature could not be made"); Shutdown(); return false; }
-    static const char* const names[EntryCount] = { "Clear", "Err0", "Box5", "ErrA", "Splat", "Hyp1", "Hyp2", "Holes", "Synth", "MarkPrep", "MarkLarge", "MarkUpdate" };
+    static const char* const names[EntryCount] = { "Clear", "Err0", "Box5", "ErrA", "Splat", "Hyp1", "Hyp2", "Holes", "Synth", "MarkPrep", "MarkLarge", "MarkUpdate", "Direct" };
     for (int e = 0; e < EntryCount; ++e) {
         ID3DBlob* code = nullptr;
         if (FAILED(D3DCompile(kHlsl, strlen(kHlsl), "own_synth", nullptr, nullptr, names[e], "cs_5_0", D3DCOMPILE_OPTIMIZATION_LEVEL3, 0, &code, &error))) {
@@ -335,7 +361,7 @@ bool OwnSynth::Ensure(uint32_t w, uint32_t h) {
 }
 
 bool OwnSynth::Record(ID3D12GraphicsCommandList* list, int slot, ID3D12Resource* before, DXGI_FORMAT beforeFormat, ID3D12Resource* now, DXGI_FORMAT nowFormat,
-                      ID3D12Resource* motion, DXGI_FORMAT outFormat, const Target* targets, int count, uint32_t encoding, float whiteNits, float soften, float marks) {
+                      ID3D12Resource* motion, DXGI_FORMAT outFormat, const Target* targets, int count, uint32_t encoding, float whiteNits, float soften, float marks, ID3D12Resource* motionReverse) {
     if (!m_ready || !m_buf[0] || !before || !now || !motion || !targets || count < 1 || count > kMaxTargets) return false;
     for (int j = 0; j < count; ++j) if (!targets[j].out) return false;
     D3D12_CPU_DESCRIPTOR_HANDLE cpu = m_heap->GetCPUDescriptorHandleForHeapStart(); cpu.ptr += static_cast<SIZE_T>(slot % kSlots) * kPerSlot * m_descriptorSize;
@@ -344,7 +370,7 @@ bool OwnSynth::Record(ID3D12GraphicsCommandList* list, int slot, ID3D12Resource*
         D3D12_SHADER_RESOURCE_VIEW_DESC sv{}; sv.Format = f; sv.ViewDimension = D3D12_SRV_DIMENSION_TEXTURE2D; sv.Shader4ComponentMapping = D3D12_DEFAULT_SHADER_4_COMPONENT_MAPPING; sv.Texture2D.MipLevels = 1;
         D3D12_CPU_DESCRIPTOR_HANDLE h = cpu; h.ptr += static_cast<SIZE_T>(n) * m_descriptorSize; m_dev->CreateShaderResourceView(r, &sv, h);
     };
-    srv(0, before, beforeFormat); srv(1, now, nowFormat); srv(2, motion, DXGI_FORMAT_R16G16_FLOAT);
+    srv(0, before, beforeFormat); srv(1, now, nowFormat); srv(2, motion, DXGI_FORMAT_R16G16_FLOAT); srv(3, motionReverse ? motionReverse : motion, DXGI_FORMAT_R16G16_FLOAT);
     // for each frame to make, a table of the eleven buffers and its own output (a shader cannot pick among outputs by an index)
     for (int j = 0; j < count; ++j) {
         const SIZE_T base = static_cast<SIZE_T>(kSrvs + j * kUavs);
@@ -388,6 +414,14 @@ bool OwnSynth::Record(ID3D12GraphicsCommandList* list, int slot, ID3D12Resource*
     // once for the pair: the errors and the vectors onto a's cells
     uavTable(0);
     if (useMarks) { pass(MarkPrep, 0, 0, 0.0f); pass(MarkLarge, 0, 0, 0.0f); pass(MarkUpdate, 0, 0, 0.0f); }   // (their buffers are the ones the passes below overwrite)
+    if (motionReverse) {   // the direct draw: nothing but the marks is made once for the pair, and each frame is one pass
+        for (int j = 0; j < count; ++j) { t = targets[j].t; uavTable(j); pass(Direct, 0, 0, 0.0f, true); }
+        if (m_stamps) {
+            list->EndQuery(m_stamps, D3D12_QUERY_TYPE_TIMESTAMP, static_cast<UINT>(slot % kSlots) * 2 + 1);
+            list->ResolveQueryData(m_stamps, D3D12_QUERY_TYPE_TIMESTAMP, static_cast<UINT>(slot % kSlots) * 2, 2, m_stampReadback, static_cast<UINT64>(slot % kSlots) * 16);
+        }
+        return true;
+    }
     pass(Clear, 0, 0, 0.0f);
     pass(Err0, 0, 0, 0.0f);
     pass(Box5, 0, 0, 0.0f);

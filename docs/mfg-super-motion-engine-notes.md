@@ -79,3 +79,21 @@ Step 9 (marks) was built into `own_synth` (three small passes per pair: the movi
 - The slow walking clip (23-16-25, the quest tracker, chat, bars and minimap over moving ground) shows almost nothing either way (HUD 70 dB in all methods): a HUD is only damaged when the picture moves a lot between frames, which is when it matters.
 - `NR_SYNTH_MARKS=0` in the environment turns the marks off for comparing. EchoFG stays a test build; the presenter battery (`dev.py presenter`) passes with it.
 - Not done from step 9: pre-seeding marks from per-game learnt read-outs, and a clip with a HUD over a *fast* moving scene at the edges of the picture (the dump pieces above were the bottom-left and bottom-right; the quest tracker strip is still to be looked at by eye).
+
+## Result of E18: the direct draw inside EchoFG (2026-10-20)
+
+Built into `own_synth` as a second mode (`Record(..., motionReverse)`; `nr_fgeval ... owndirect=1`): the motion estimate is run a second time on the pair the other way round (the flow at the earlier frame's pixels), each pixel of the frame made takes the movement found at that pixel from both fields (their mean where they come home to each other, else the one under which the moved pair agrees better) and is drawn straight from the two real frames; the marks hold applies as before; no splats, hypotheses or holes. Same recordings, 29 frames each (PSNR of the frame made, dB):
+
+| segment | splat synthesis (today) | direct draw |
+|---|---|---|
+| 23-16-58 camera moving | 25.93 | 25.84 |
+| 23-16-37 building | 27.74 | 27.65 |
+| 23-18-17 sunset | 30.10 | 30.05 |
+| 23-17-18 calm canyon | 38.60 | 38.84 |
+| 23-17-55 dark interior | 38.49 | 38.32 |
+| 23-16-25 walking, HUD | 45.05 | 45.12 |
+
+- **Quality is the same** (mean difference -0.01 dB; +0.24 on the calm clip, -0.17 on the dark one), as the lab said.
+- **The cost does not pay.** The motion estimate costs about 4 to 5.5 ms a pair at 2560x1440 on this card (pyramid 0.4-0.9, search 2.0-2.7, pixels 1.5-2.1; the measurements are noisy, the card's clocks move), so **the second estimate adds about as much as the whole estimate again**, far more than the splat synthesis it replaces (about 0.7 ms best, 2 ms median). The direct pass itself was not cheaper than the splat's Synth either (2.7-4.5 ms median for a full-resolution pass with the marks lookup). The splat pipeline is, in effect, the cheap way to get the second field (it carries the one estimate's vectors onto the other frame and reverses them).
+- **Not adopted**; the mode stays in the code as an experiment (`owndirect=1`), not used by EchoFG. Where it could pay: a way-back field that costs less than a second estimate (their step 6 derives the check from the first estimate's own vectors), or a "light" synthesis from one field (the lab's one-way draw: about 0.3 dB below EchoFG's synthesis) for the GPU-limit use case, if the splat passes turn out to be the cost there.
+- The estimate itself is the large cost: **4 to 5 ms of the pair's budget at 1440p**. Its search stage is half of it. The coarse-seed idea from the optical flow study (E14) now has a number to beat.
