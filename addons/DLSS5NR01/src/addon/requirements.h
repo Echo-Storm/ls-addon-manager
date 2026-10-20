@@ -25,6 +25,7 @@ constexpr const char* kTestedModelVersion = "310.8";
 struct KnownModel { const char* hash; const char* what; };
 constexpr KnownModel kKnownModels[] = {
     { "4b8d19bc3eff58a0", "version 310.8, 158.2 MB: passes on an RTX 4070 Ti SUPER (drivers 616.92 and 617.14)" },
+    { "cdfa6c1ec7848671", "version 310.9.16, 263.4 MB (a newer, smaller model by default, the older one as preset 1): passes on an RTX 4070 Ti SUPER (driver 617.42)" },
 };
 constexpr uint64_t kSmallestPlausibleModel = 20ull * 1024 * 1024;   // the real one is about 158 MB; anything far smaller is not it
 

@@ -92,6 +92,8 @@ int main(int argc, char** argv) {
     Check("the tested version but another size is also only a note", Find(r, "Model file")->level == Level::Note);
     in = Good(); in.modelHash = "4b8d19bc3eff58a0"; r = Evaluate(in);
     Check("a model file seen working (by its hash) is Ok and says so", Find(r, "Model file")->level == Level::Ok && Has(Find(r, "Model file")->value, "a build seen working") && Has(Find(r, "Model file")->value, "4b8d19bc3eff58a0"));
+    in = Good(); in.modelHash = "cdfa6c1ec7848671"; in.modelVersion = "310,9,16,0"; in.modelSize = 276162560; r = Evaluate(in);
+    Check("the 310.9.16 model file (by its hash) is Ok and says so, though it is not the tested version", Find(r, "Model file")->level == Level::Ok && Has(Find(r, "Model file")->value, "a build seen working"));
     in = Good(); in.modelHash = "0123456789abcdef"; r = Evaluate(in);
     Check("the tested version and size but another file: a note that says the file differs", Find(r, "Model file")->level == Level::Note && Has(Find(r, "Model file")->value, "not the same file") && Has(Find(r, "Model file")->value, "0123456789abcdef"));
     Check("...and it points to the page that lists the files seen working", Has(Find(r, "Model file")->hint, "model-compatibility"));

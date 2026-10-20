@@ -20,6 +20,7 @@ Open an issue at <https://github.com/Echo-Storm/ls-addon-manager/issues> and pas
 |---|---|---|---|---|---|
 | NVIDIA GeForce RTX 4070 Ti SUPER (16 GB) | 616.92 | 310.8 (158.2 MB) | PASS | 0.6.0 | the maintainer (Windows 11, Lossless Scaling 3.2.2.0, World of Warcraft: Forever) |
 | NVIDIA GeForce RTX 4080 (16 GB) | 617.14 | 310.8 (158.2 MB) | FAIL NOT_SUPPORTED | 0.9.23 | theblackborz (issue #12; Windows 10.0.26200) |
+| NVIDIA GeForce RTX 4070 Ti SUPER (16 GB) | 617.42 | 310.9.16 (263.4 MB) | PASS (self-test; the host matrix; 240 real frames: about 1.7x faster than 310.8 by default, the older model is its preset 1) | the next release | the maintainer (Windows 11) |
 
 ## What the results mean
 
@@ -31,6 +32,7 @@ Requirements. A file on this list is shown in the panel as "a build seen working
 | Hash (first 16) | Version, size | Seen working on |
 |---|---|---|
 | `4b8d19bc3eff58a0` | 310.8, 158.2 MB | RTX 4070 Ti SUPER (drivers 616.92 and 617.14) |
+| `cdfa6c1ec7848671` | 310.9.16, 263.4 MB (two models: the newer, smaller one by default, the older as preset 1) | RTX 4070 Ti SUPER (driver 617.42) |
 
 | Result | Meaning |
 |--------|---------|
