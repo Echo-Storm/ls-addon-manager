@@ -178,7 +178,7 @@ Loaded LoadSettings(IHost* host, const char* id) {
     c.motionShapes = flag("motionShapes", false);
     c.scalerReuseMotion = flag("scalerReuseMotion", true);
     c.scalerLightGen = flag("scalerLightGen", false);
-    c.scalerLightAuto = flag("scalerLightAuto", true);
+    c.scalerLightAuto = flag("scalerLightAuto2", true);   // (a new key: 1.0.0 wrote its old "scalerLightAuto" = 0 for everyone who ever saved, which would keep the new default from reaching them)
     c.scalerSkipRepeats = flag("scalerSkipRepeats", false);
     c.leanEasu = flag("leanEasu", false);
     c.scalerStability = std::clamp(static_cast<float>(number("scalerStability", 0.0)), 0.0f, 1.0f);
@@ -269,7 +269,7 @@ void SaveSettings(IHost* host, const char* id, const Config& c, const std::vecto
     if (kScalerAddon) put("sharpenScale", "1.6");   // the slider's scale this value is on (see LoadSettings)
     put("hud", HudToText(c.p));
 
-    put("model", std::to_string(c.model)); put("dlaaPreset", std::to_string(c.dlaaPreset)); put("scalerHandoff", std::to_string(c.scalerHandoff)); put("scalerLightGen", c.scalerLightGen ? "1" : "0"); put("scalerLightAuto", c.scalerLightAuto ? "1" : "0"); put("scalerSkipRepeats", c.scalerSkipRepeats ? "1" : "0"); put("composeFillsScreen", c.composeFillsScreen ? "1" : "0"); put("motionSource", std::to_string(c.motionSource)); putFlag("scalerGpuWait", c.scalerGpuWait); putFlag("scalerFastMotion", c.scalerFastMotion); putFlag("motionShapes", c.motionShapes); putFlag("scalerReuseMotion", c.scalerReuseMotion); putFlag("leanEasu", c.leanEasu); put("scalerStability", Number(c.scalerStability)); put("scalerEdges", Number(c.scalerEdges)); put("scalerLeanFrom", Number(c.scalerLeanFrom)); put("scalerLeanRest", Number(c.scalerLeanRest)); put("scalerSteadySharp", Number(c.scalerSteadySharp)); put("scalerMoveCut", Number(c.scalerMoveCut));
+    put("model", std::to_string(c.model)); put("dlaaPreset", std::to_string(c.dlaaPreset)); put("scalerHandoff", std::to_string(c.scalerHandoff)); put("scalerLightGen", c.scalerLightGen ? "1" : "0"); put("scalerLightAuto2", c.scalerLightAuto ? "1" : "0"); put("scalerSkipRepeats", c.scalerSkipRepeats ? "1" : "0"); put("composeFillsScreen", c.composeFillsScreen ? "1" : "0"); put("motionSource", std::to_string(c.motionSource)); putFlag("scalerGpuWait", c.scalerGpuWait); putFlag("scalerFastMotion", c.scalerFastMotion); putFlag("motionShapes", c.motionShapes); putFlag("scalerReuseMotion", c.scalerReuseMotion); putFlag("leanEasu", c.leanEasu); put("scalerStability", Number(c.scalerStability)); put("scalerEdges", Number(c.scalerEdges)); put("scalerLeanFrom", Number(c.scalerLeanFrom)); put("scalerLeanRest", Number(c.scalerLeanRest)); put("scalerSteadySharp", Number(c.scalerSteadySharp)); put("scalerMoveCut", Number(c.scalerMoveCut));
     putFlag("enabled", c.enabled); putFlag("lsFirst", c.lsFirst); putFlag("freshFlow", c.freshFlow); putFlag("presentMode", c.presentMode); putFlag("presentWait", c.presentWait); putFlag("hotkeys", c.hotkeys);
     put("frameEncoding", std::to_string(c.frameEncoding));
     put("keyAB", std::to_string(c.keyAB)); put("keySplit", std::to_string(c.keySplit)); put("keySharpDn", std::to_string(c.keySharpDn));

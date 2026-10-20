@@ -53,6 +53,19 @@ void Prune(const std::wstring& dir) {   // once a run: files whose last write is
     FindClose(h);
 }
 
+// A file used after 30 days gets its write time set to now, so that Prune (90 days since the last write) removes what is not used, not what is used once a quarter.
+void TouchIfOld(const std::wstring& path) {
+    WIN32_FILE_ATTRIBUTE_DATA info{};
+    if (!GetFileAttributesExW(path.c_str(), GetFileExInfoStandard, &info)) return;
+    FILETIME now; GetSystemTimeAsFileTime(&now);
+    const uint64_t n = (static_cast<uint64_t>(now.dwHighDateTime) << 32) | now.dwLowDateTime, w = (static_cast<uint64_t>(info.ftLastWriteTime.dwHighDateTime) << 32) | info.ftLastWriteTime.dwLowDateTime;
+    if (n <= w || n - w < 30ull * 24 * 3600 * 10000000ull) return;
+    HANDLE h = CreateFileW(path.c_str(), FILE_WRITE_ATTRIBUTES, FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE, nullptr, OPEN_EXISTING, FILE_ATTRIBUTE_NORMAL, nullptr);
+    if (h == INVALID_HANDLE_VALUE) return;
+    SetFileTime(h, nullptr, nullptr, &now);
+    CloseHandle(h);
+}
+
 bool Load(const std::wstring& path, std::vector<uint8_t>& payload) {
     HANDLE h = CreateFileW(path.c_str(), GENERIC_READ, FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE, nullptr, OPEN_EXISTING, FILE_ATTRIBUTE_NORMAL, nullptr);
     if (h == INVALID_HANDLE_VALUE) return false;
@@ -93,6 +106,7 @@ HRESULT CompileCached(const char* source, size_t length, const char* name, const
     const std::wstring path = dir + file;
     std::vector<uint8_t> payload;
     if (Load(path, payload)) {
+        TouchIfOld(path);
         ID3DBlob* blob = nullptr;
         if (SUCCEEDED(D3DCreateBlob(payload.size(), &blob))) {
             memcpy(blob->GetBufferPointer(), payload.data(), payload.size());

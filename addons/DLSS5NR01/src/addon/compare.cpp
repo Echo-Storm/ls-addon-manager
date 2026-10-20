@@ -268,7 +268,7 @@ void DrawLabel(ID3D11DeviceContext* ctx, uint32_t outX, uint32_t outY, uint32_t 
     const int key = mode * 16 + scale + g_detailRev * 256;
     if (key != g_label.key || !g_label.tex) {
         std::vector<std::string> rows = { s->name[mode] };
-        if (g_detail[0]) rows.push_back(g_detail);
+        if (g_detail[0] && mode != kNis) rows.push_back(g_detail);   // (under NIS none of our upscalers runs)
         uint32_t w = 0, h = 0; const std::vector<uint32_t> px = LabelImage(rows, s->rgb[mode], scale, w, h);
         Release(g_label.srv); Release(g_label.tex);
         D3D11_TEXTURE2D_DESC d{}; d.Width = w; d.Height = h; d.MipLevels = 1; d.ArraySize = 1; d.Format = DXGI_FORMAT_R8G8B8A8_UNORM; d.SampleDesc.Count = 1; d.Usage = D3D11_USAGE_DEFAULT; d.BindFlags = D3D11_BIND_SHADER_RESOURCE;

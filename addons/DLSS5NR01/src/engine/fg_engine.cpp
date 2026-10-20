@@ -287,7 +287,7 @@ void FgEngine::ReadSlot(int slot) {
         double x = 0, y = 0, length = 0, cost = 0, distrust = 0; uint64_t frames = 0;
         if (m_estimator.TakeAverages(x, y, length, cost, distrust, frames))
             Log("frame generation engine: motion over %llu frames, average vector (%.1f, %.1f) px, average length %.1f px, match cost %.4f; the GPU %.2f ms a frame",
-                static_cast<unsigned long long>(frames), x, y, length, cost, m_gpuMs);
+                static_cast<unsigned long long>(frames), x * m_scale, y * m_scale, length * m_scale, cost, m_gpuMs);   // (the estimate's pixels times its scale: the frames')
     }
 }
 
@@ -473,8 +473,8 @@ int FgEngine::GenerateFrames(ID3D12Resource* in, ID3D12Fence* copied, uint64_t n
         Barrier(in, D3D12_RESOURCE_STATE_COPY_SOURCE, D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE);
         m_haveBefore = true;
     }
+    if (!upsampled) upsample(false);   // (no frame consumed the motion: it still has to end in the state the next frame expects; before `in` goes back to COMMON, as it is bound)
     Barrier(in, D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE, D3D12_RESOURCE_STATE_COMMON);
-    if (!upsampled) upsample(false);   // (no frame consumed the motion: it still has to end in the state the next frame expects)
     Barrier(m_motion, D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE, D3D12_RESOURCE_STATE_UNORDERED_ACCESS);
     if (scaled) Barrier(m_motionA, D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE, D3D12_RESOURCE_STATE_UNORDERED_ACCESS);
     if (m_stamps) {
