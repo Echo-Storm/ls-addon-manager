@@ -116,6 +116,31 @@ void* HostImpl::GetDispatchingContext() { return D3D11Hook::DispatchingContext()
 void* HostImpl::CreateImage(const void* rgba, uint32_t width, uint32_t height, uint32_t pitch) { return MakeImageTexture(rgba, width, height, pitch); }
 void HostImpl::ReleaseImage(void* image) { if (image) static_cast<IUnknown*>(image)->Release(); }
 
+// ---- the recorder (API 1.3)
+
+namespace {
+std::atomic<HostImpl::RecorderFlagsFn> g_recorderFlags{ nullptr };
+std::atomic<HostImpl::RecorderOfferFn> g_recorderOffer{ nullptr };
+std::atomic<HostImpl::RecorderSaveFn> g_recorderSave{ nullptr };
+}
+void HostImpl::SetRecorderHooks(RecorderFlagsFn flags, RecorderOfferFn offer, RecorderSaveFn save) {
+    g_recorderFlags.store(flags, std::memory_order_release);
+    g_recorderOffer.store(offer, std::memory_order_release);
+    g_recorderSave.store(save, std::memory_order_release);
+}
+int HostImpl::RecorderSave(const char* name, bool clear) {
+    const RecorderSaveFn fn = g_recorderSave.load(std::memory_order_acquire);
+    return fn ? fn(name ? name : "", clear) : 0;
+}
+uint32_t HostImpl::RecorderFlags() {
+    const RecorderFlagsFn fn = g_recorderFlags.load(std::memory_order_acquire);
+    return fn ? fn() : 0u;
+}
+void HostImpl::RecorderOffer(void* ctx, void* texture, uint32_t source, uint32_t content, uint32_t tag, uint32_t cropWidth, uint32_t cropHeight) {
+    const RecorderOfferFn fn = g_recorderOffer.load(std::memory_order_acquire);
+    if (fn) fn(ctx, texture, source, content, tag, cropWidth, cropHeight);
+}
+
 // ---- dispatch callbacks
 
 void HostImpl::SetPreDispatchCallback(EamPreDispatchCallback callback, void* userData) {

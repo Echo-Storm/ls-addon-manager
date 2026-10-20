@@ -37,6 +37,9 @@ struct StandInHost : IHost {
     void* GetDispatchingContext() override { return nullptr; }
     void* CreateImage(const void*, uint32_t, uint32_t, uint32_t) override { return nullptr; }
     void ReleaseImage(void*) override {}
+    uint32_t RecorderFlags() override { return 0; }
+    void RecorderOffer(void*, void*, uint32_t, uint32_t, uint32_t, uint32_t, uint32_t) override {}
+    int RecorderSave(const char*, bool) override { return 0; }
 };
 
 template <class T> static bool SameValue(const T& a, const T& b) { if constexpr (std::is_floating_point_v<T>) return std::fabs(a - b) < 1e-5; else return a == b; }
@@ -78,19 +81,18 @@ int main() {
     StandInHost host;
     Loaded fresh = LoadSettings(&host, "DLSS5NR01");
     Check("with nothing saved, every setting is its default", LookToText(fresh.config.p) == LookToText(NrParams()) && fresh.config.enabled && fresh.config.freshFlow &&
-          fresh.config.keyAB == VK_F7 && fresh.config.keyRecord == VK_F1 && fresh.config.keyShot == VK_F4 && fresh.looks.empty());
+          fresh.config.keyAB == VK_F7 && fresh.config.keyShot == VK_F4 && fresh.looks.empty());
     {   // the hotkeys: settings saved before 0.9.8 with the old defaults move to the safer ones once; a key chosen by hand stays
         StandInHost old;
-        old.values["keyAB"] = std::to_string(VK_F6); old.values["keySharpUp"] = std::to_string(VK_F9); old.values["keyRecord"] = std::to_string(VK_F5);
+        old.values["keyAB"] = std::to_string(VK_F6); old.values["keySharpUp"] = std::to_string(VK_F9);
         old.values["keyShot"] = std::to_string(VK_F11); old.values["keySplit"] = std::to_string(VK_F12);   // (F12: chosen by hand)
         const Loaded moved = LoadSettings(&old, "DLSS5NR01");
-        Check("old default keys move to the safer ones (F6 to F7, F9 to F3, F5 to F1, F11 to F4)", moved.config.keyAB == VK_F7 && moved.config.keySharpUp == VK_F3 &&
-              moved.config.keyRecord == VK_F1 && moved.config.keyShot == VK_F4);
+        Check("old default keys move to the safer ones (F6 to F7, F9 to F3, F11 to F4)", moved.config.keyAB == VK_F7 && moved.config.keySharpUp == VK_F3 && moved.config.keyShot == VK_F4);
         Check("...and a key chosen by hand stays", moved.config.keySplit == VK_F12);
         StandInHost now;
-        now.values["keysVersion"] = "3"; now.values["keyAB"] = std::to_string(VK_F6); now.values["keyRecord"] = std::to_string(VK_F5);
+        now.values["keysVersion"] = "3"; now.values["keyAB"] = std::to_string(VK_F6);
         const Loaded kept = LoadSettings(&now, "DLSS5NR01");
-        Check("once moved (keysVersion 3), F6 or F5 chosen again later stay", kept.config.keyAB == VK_F6 && kept.config.keyRecord == VK_F5);
+        Check("once moved (keysVersion 3), F6 chosen again later stays", kept.config.keyAB == VK_F6);
     }
     Config config; config.p = a; config.enabled = false; config.keySplit = VK_F11; config.games = { { "wowb.exe", "Night" } };
     config.tapMode = 1; config.tapSig = "1,2,3"; config.snippetPath = "D:\\model.dll"; config.watchdogMs = 55;
@@ -154,13 +156,6 @@ int main() {
             if (!SameValue(l.keySharpUp, d.keySharpUp)) bad += " keySharpUp";
             if (!SameValue(l.keyPreset, d.keyPreset)) bad += " keyPreset";
             if (!SameValue(l.keyShot, d.keyShot)) bad += " keyShot";
-            if (!SameValue(l.keyRecord, d.keyRecord)) bad += " keyRecord";
-            if (!SameValue(l.recordOn, d.recordOn)) bad += " recordOn";
-            if (!SameValue(l.recordShown, d.recordShown)) bad += " recordShown";
-            if (!SameValue(l.recordSeconds, d.recordSeconds)) bad += " recordSeconds";
-            if (!SameValue(l.recordBudgetMb, d.recordBudgetMb)) bad += " recordBudgetMb";
-            if (!SameValue(l.recordFolder, d.recordFolder)) bad += " recordFolder";
-            if (!SameValue(l.recordSaveAfter, d.recordSaveAfter)) bad += " recordSaveAfter";
             if (!SameValue(l.screenshotFolder, d.screenshotFolder)) bad += " screenshotFolder";
             if (!SameValue(l.autoQuality, d.autoQuality)) bad += " autoQuality";
             if (!SameValue(l.autoBudgetMs, d.autoBudgetMs)) bad += " autoBudgetMs";
@@ -189,7 +184,7 @@ int main() {
         Check("...the switches", l.enabled == d.enabled && l.hotkeys == d.hotkeys && l.presentMode == d.presentMode && l.freshFlow == d.freshFlow && l.lsFirst == d.lsFirst && l.gameAuto == d.gameAuto &&
                                  l.scalerGpuWait == d.scalerGpuWait && l.scalerFastMotion == d.scalerFastMotion && l.scalerReuseMotion == d.scalerReuseMotion && l.scalerPerGame == d.scalerPerGame);
         Check("...the numbers", l.dlaaPreset == d.dlaaPreset && l.watchdogMs == d.watchdogMs && Same(l.scalerLeanRest, d.scalerLeanRest) && Same(l.scalerMoveCut, d.scalerMoveCut) && Same(l.scalerSteadySharp, d.scalerSteadySharp) &&
-                                  l.recordBudgetMb == d.recordBudgetMb && Same(l.recordSeconds, d.recordSeconds) && l.keyAB == d.keyAB && l.keyRecord == d.keyRecord && l.defaultsVersion == d.defaultsVersion);
+                                  l.keyAB == d.keyAB && l.defaultsVersion == d.defaultsVersion);
     }
     {   // a config saved by 0.9.28 to 0.9.34 on a new install: Auto quality off, 5 ms, 0.25 (the loader's own wrong fallback saved back): becomes the defaults once
         StandInHost h; h.values["autoQuality"] = "0"; h.values["autoBudgetMs"] = "5"; h.values["autoFloor"] = "0.25"; h.values["defaultsVersion"] = "1";
@@ -270,13 +265,13 @@ int main() {
         for (const char* g : garbage) {
             GarbageHost host; host.text = g;
             Config c = LoadSettings(&host, "DLSS5NR01").config;
-            const float fs[] = { c.scalerLeanRest, c.scalerMoveCut, c.scalerSteadySharp, c.scalerLeanFrom, c.scalerStability, c.scalerEdges, c.recordSeconds, c.autoBudgetMs, c.autoFloor, c.autoScaleLast, c.watchdogMs,
+            const float fs[] = { c.scalerLeanRest, c.scalerMoveCut, c.scalerSteadySharp, c.scalerLeanFrom, c.scalerStability, c.scalerEdges, c.autoBudgetMs, c.autoFloor, c.autoScaleLast, c.watchdogMs,
                                  c.p.intensity, c.p.localStructure, c.p.localTone, c.p.skinStructure, c.p.flowUnit, c.p.workingScale, c.p.smoothStable, c.p.deltaSmooth, c.p.composeIntensity, c.p.maxDelta,
                                  c.p.ghostGuard, c.p.hiProtect, c.p.sharpen, c.p.saturation, c.p.vibrance, c.p.brightness, c.p.contrast, c.p.gamma, c.p.shadows, c.p.highlights, c.p.grain, c.p.grainSize, c.p.hudFeather };
             for (size_t i = 0; i < sizeof fs / sizeof fs[0]; ++i) if (!std::isfinite(fs[i]) || std::fabs(fs[i]) > 1e4f) { allFinite = false; if (first.empty()) first = std::string("text '") + g + "', setting number " + std::to_string(i); }
             const bool ok = c.scalerLeanRest >= 0 && c.scalerLeanRest <= 1 && c.scalerMoveCut >= 0 && c.scalerMoveCut <= 1 && c.scalerSteadySharp >= 0 && c.scalerSteadySharp <= 0.9f &&
                             c.p.workingScale >= 0.25f && c.p.workingScale <= 1.0f && c.p.passes >= 1 && c.p.passes <= 4 && c.p.flowUnit > 0.0f && c.p.grainSize >= 1 && c.p.hudCount <= (uint32_t)NrParams::kMaxHud &&
-                            c.autoBudgetMs > 0 && c.autoFloor >= 0.25f && c.autoFloor <= 1.0f && c.watchdogMs > 0 && c.recordSeconds > 0 && c.recordBudgetMb > 0 &&
+                            c.autoBudgetMs > 0 && c.autoFloor >= 0.25f && c.autoFloor <= 1.0f && c.watchdogMs > 0 &&
                             c.p.deltaSmooth >= 0 && c.p.deltaSmooth < 1 && c.p.style <= 2;
             if (!ok) { ranges = false; if (first.empty()) first = std::string("text '") + g + "'"; }
         }

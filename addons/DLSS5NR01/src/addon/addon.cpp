@@ -23,7 +23,6 @@ std::mutex g_settingsMutex;
 Config g_config;
 std::vector<Look> g_looks;
 std::mutex g_frameMutex;
-Recorder& g_recorder = *new Recorder;
 NrEngine g_engine;
 Bridge g_bridge;
 FrameTap g_tap;
@@ -133,6 +132,7 @@ void Start(IHost* host, ImGuiContext* ctx, void* allocFunc, void* freeFunc, void
     if (std::string(host->GetConfig(kAddonId, "snapshotOnStart", "0")) == "1") screenshot::RequestSnapshot();   // likewise: a snapshot for the HUD editor
     host->SubscribeEvent(EAM_EVENT_D3D11_DEVICE_READY, OnDeviceEvent, nullptr);
     host->SubscribeEvent(EAM_EVENT_D3D11_DEVICE_CHANGED, OnDeviceEvent, nullptr);
+    host->SubscribeEvent(EAM_EVENT_RECORDING_SAVED, OnRecordingSavedEvent, nullptr);
     Log("%s initialised (host version 0x%x), addon dir %ls", kAddonId, host->GetHostVersion(), g_addonDir.c_str());
     // Lossless Scaling's passes come from the manager's dispatch callback; the present hook needs a device to find DXGI's table, so it is put
     // in place at the first tapped frame. No device is taken from the host here: the newest one it has seen may be gone already (Lossless
@@ -184,8 +184,7 @@ EAM_EXPORT void AddonShutdown() {
     DropHudSnapshot();
     for (int i = 0; i < 3000 && g_engineStarting; ++i) Sleep(10);   // a model that is loading is let finish
     for (int i = 0; i < 300 && Scanning(); ++i) Sleep(10);          // a requirements scan takes milliseconds (an open file dialog is left: the process is ending)
-    { std::lock_guard<std::mutex> lock(g_frameMutex); g_recorder.Forget(); g_bridge.Shutdown(); g_compose.Shutdown(); g_engine.Shutdown(); }
-    g_recorder.Shutdown();
+    { std::lock_guard<std::mutex> lock(g_frameMutex); g_bridge.Shutdown(); g_compose.Shutdown(); g_engine.Shutdown(); }
     Config config; std::vector<Look> looks;
     { std::lock_guard<std::mutex> lock(g_settingsMutex); config = g_config; looks = g_looks; }
     SaveSettings(g_host, kAddonId, config, looks);

@@ -8,6 +8,7 @@
 #include "../config/config_manager.h"
 #include "../event/event_system.h"
 #include "../features/features.h"
+#include "../features/recorder_feature.h"
 #include "../host/host_impl.h"
 #include "../log/logger.h"
 #include "../gui/gui_manager.h"
@@ -98,6 +99,13 @@ bool Manager::Start() {
         return addonList->InterceptResource(name, type, data, size);
     });
     D3D11Hook::Initialize(host.get());
+    {   // the recorder feature's way into the hook, the host and the event bus (the tests of the features link without them)
+        eam::features::recorder::Backends backends;
+        backends.setDispatchObserver = &D3D11Hook::SetDispatchObserver;
+        backends.setHostHooks = &eam::HostImpl::SetRecorderHooks;
+        backends.publishSaved = [](const wchar_t* path) { EamRecordingSavedData data{ path }; eam::EventBus::Instance().Publish(EAM_EVENT_RECORDING_SAVED, &data, sizeof data); };
+        eam::features::recorder::SetBackends(backends);
+    }
     eam::features::Start();
     // The window thread hooks Dispatch first (that needs D3D), then loads the addons, then opens the window.
     eam::GuiManager::StartGuiThread(addons.get(), [] { D3D11Hook::InstallDispatchHooks(); });

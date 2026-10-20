@@ -92,6 +92,9 @@ struct FakeHost : IHost {
     void* GetDispatchingContext() override { return nullptr; }
     void* CreateImage(const void*, uint32_t, uint32_t, uint32_t) override { return nullptr; }
     void ReleaseImage(void*) override {}
+    uint32_t RecorderFlags() override { return 0; }
+    void RecorderOffer(void*, void*, uint32_t, uint32_t, uint32_t, uint32_t, uint32_t) override {}
+    int RecorderSave(const char*, bool) override { return 0; }
     void SetStatus(const char*, const char*, int) override {}
     void PublishMetric(const char*, const char*, double, const char*) override {}
 };

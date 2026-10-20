@@ -22,6 +22,7 @@
 #include "eam/addon_sdk.h"
 #include "eam/widgets.h"
 #include "ui_shot.h"
+#include "features/recorder_service.h"   // the manager's recorder, as the manager has it
 #include "addon/lsrec.h"
 #pragma comment(lib, "d3d11.lib")
 #pragma comment(lib, "dxgi.lib")
@@ -38,7 +39,7 @@ struct FakeHost : IHost {
     const char* GetConfig(const char*, const char* k, const char* d) override { auto it = cfg.find(k); return it == cfg.end() ? d : it->second.c_str(); }
     void SetConfig(const char*, const char* k, const char* v) override { cfg[k] = v; }
     void SaveConfig() override {}
-    uint32_t GetHostVersion() override { return 0x10200; }   // API 1.2: images for the panel
+    uint32_t GetHostVersion() override { return 0x10300; }   // API 1.3: the manager's recorder
     void SubscribeEvent(uint32_t id, EamEventCallback cb, void* ud) override { subs.push_back({ id, cb, ud }); }
     void UnsubscribeEvent(uint32_t id, EamEventCallback cb) override { for (size_t i = 0; i < subs.size();) if (subs[i].id == id && subs[i].cb == cb) subs.erase(subs.begin() + i); else ++i; }
     void PublishEvent(uint32_t id, const void* d, uint32_t n) override { auto copy = subs; for (auto& s : copy) if (s.id == id) s.cb(id, d, n, s.ud); }
@@ -78,9 +79,28 @@ struct FakeHost : IHost {
     }
     void ReleaseImage(void* image) override { if (image) static_cast<IUnknown*>(image)->Release(); }
     int images = 0;
+    // The manager's recorder (API 1.3), the real service: it sees the passes first, like the manager's hook, and takes the addons' offers. Its settings
+    // come from the run's keys (recordOn, recordSeconds, recordBudgetMb, recordFolder, recordSaveAfter, recordShown), as the manager's config does.
+    eam::rec::Service recService;
+    uint32_t RecorderFlags() override { return recService.Flags(); }
+    void RecorderOffer(void* c, void* t, uint32_t source, uint32_t content, uint32_t tag, uint32_t w, uint32_t h) override {
+        recService.Offer(static_cast<ID3D11DeviceContext*>(c), static_cast<ID3D11Texture2D*>(t), source, content, tag, w, h);
+    }
+    int RecorderSave(const char* name, bool clear) override { return recService.SaveNamed(name ? name : "", clear); }
+    void ConfigureRecorder() {
+        auto get = [&](const char* k, const char* d) { auto it = cfg.find(k); return it == cfg.end() ? std::string(d) : it->second; };
+        eam::rec::Settings s;
+        s.on = get("recordOn", "0") == "1"; s.shown = get("recordShown", "0") == "1";
+        s.seconds = static_cast<float>(atof(get("recordSeconds", "5").c_str())); s.budgetMb = atoi(get("recordBudgetMb", "3072").c_str());
+        std::string folder = get("recordFolder", ""); s.folder.assign(folder.begin(), folder.end());
+        s.saveAfter = atoi(get("recordSaveAfter", "0").c_str()); s.beep = false; s.note = false; s.hotkeyOn = false;
+        recService.SetLog([](const char* m) { printf("[addon] %s\n", m); fflush(stdout); });
+        recService.Configure(s);
+    }
     double longestCallMs = 0;   // the longest the addon held up a dispatch (Lossless Scaling's render thread)
     void Dispatch(ID3D11DeviceContext* c, UINT x, UINT y, UINT z) {
         ++dispatches; dispatching = c;
+        recService.OnDispatch(c, x, y, z);
         const auto t0 = std::chrono::steady_clock::now();
         bool skip = false;
         for (const Pre& p : pres) skip = p.cb(x, y, z, p.ud) || skip;
@@ -297,6 +317,7 @@ int main(int argc, char** argv) {
     for (int i = 4; i < argc; ++i) if (!strcmp(argv[i], "nishdr=pq") && !host.cfg.count("frameEncoding")) { host.cfg["frameEncoding"] = "2"; printf("cfg frameEncoding = 2 (nishdr=pq)\n"); }
     if (hdrMode == 2 && !host.cfg.count("frameEncoding")) { host.cfg["frameEncoding"] = "2"; printf("cfg frameEncoding = 2 (hdr=pq)\n"); }
     if (shotMode) host.imageDevice = shot.dev;
+    host.ConfigureRecorder();
     Init(&host, ctx, (void*)af, (void*)ff, ud);
     // second=<dll>: the other addon of the pair, loaded as well. Only one may work on the frames: the second, found the first in charge at its
     // start, must switch itself off.

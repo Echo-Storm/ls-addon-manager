@@ -14,7 +14,7 @@
 #include "addon/frame_tap.h"
 #include "addon/requirements.h"
 #include "addon/product.h"
-#include "addon/recorder.h"
+#include "addon/lsrec.h"
 #include "addon/settings.h"
 #include "engine/nr_engine.h"
 #include <atomic>
@@ -37,9 +37,7 @@ extern NrEngine g_engine;
 extern Bridge g_bridge;
 extern FrameTap g_tap;
 extern Compose11 g_compose;
-extern Recorder& g_recorder;   // never destroyed: its threads must not be joined as the process ends (Shutdown does it at AddonShutdown)
-std::wstring RecordFolder();   // Config::recordFolder, or Videos\Lossless Scaling
-void SaveRecording();          // the panel's button and the hotkey
+void OnRecordingSavedEvent(uint32_t eventId, const void* data, uint32_t size, void* user);   // the manager's recorder saved a file: the frame trace goes beside it
 void ExportFrameTrace(const char* why);
 void ClearRuntimeTrial();                  // a runtime on trial that was still running when Lossless Scaling closed normally did not take it down   // the frame trace (frame_trace.h) as logs\frame-trace-<addon>.csv
 

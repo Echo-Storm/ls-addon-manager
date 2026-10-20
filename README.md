@@ -226,7 +226,7 @@ clashes in your game, change it in the addon's *Compare and hotkeys* section.
 | Ctrl+Shift+F4 | Before / after pictures: two PNGs of the same moment, with and without the addon | every addon |
 | Ctrl+Shift+F10 | The next saved look | Neural Rendering |
 | Ctrl+Shift+F9 | Steps through Lossless Scaling's NIS and the upscalers that are on, one at a time, with a label (a temporary test; not configurable, so do not bind F9 to anything else) | the upscalers |
-| Ctrl+Shift+F1 | Save the recording (the last few seconds, with *Recording* on in any addon: it is one setting) | every addon |
+| Ctrl+Shift+F1 | Save the recording (the last few seconds; or, with the recorder's *Keep the last few seconds* off, record the next ten and save them) | the manager (Features tab, *Recording*) |
 | Home | ReShade input passthrough on and off | the manager |
 
 ## Updates
@@ -268,7 +268,7 @@ That check, and a download you ask for, are the only times the manager goes onli
 | An HDR game looks washed out, too dark or too bright | Set **Frame encoding** (the bottom of the Upscaling section) to HDR or SDR by hand, and tell us which it needed. |
 | Neural Rendering turns bright areas neon orange or cyan in HDR | Fixed in 0.9.15: update. |
 | Windowed mode does nothing | Restart Lossless Scaling after switching it on: its virtual display must exist before Lossless Scaling starts. |
-| Something looks wrong in a game | Turn on *Recording* in any addon's panel (one setting for all), make it happen, press **Ctrl+Shift+F1**, and attach the `.lsrec` file (in `Videos\Lossless Scaling`) to your report. |
+| Something looks wrong in a game | Switch on *Recording* in the manager's **Features** tab, make it happen, press **Ctrl+Shift+F1** (it beeps when the file is saved), and attach the `.lsrec` file (in `Videos\Lossless Scaling`, or the folder you chose there) and the `.lsrec.json` note beside it to your report. |
 | Stutter or uneven pacing | Look at the **What stands out** lines under *Status* in the addon's panel: they say in plain words whether the game's own frames are uneven, whether the graphics card is full, and what to try. For a report, make it happen, press **Ctrl+Shift+F1** (or close Lossless Scaling), and send the addon's log and `logs\frame-trace-<addon>.csv` from the Lossless Scaling folder: it is a timeline of the frames (`python tools/analyze_frame_trace.py <csv>` reads it). |
 | Anything else | See the [questions and answers](docs/faq.md). To report a bug, make a **diagnostics file** on the Settings tab. To undo everything, run Setup and choose **Uninstall**. |
 

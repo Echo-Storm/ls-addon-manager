@@ -213,7 +213,14 @@ int main(int argc, char** argv) {
     }
 
     printf("== the list of features\n");
-    Check("two features are built in", features::Count() == 2 && IndexOfFeature("ReShadePassthrough") == 0 && IndexOfFeature("WindowedMode") == 1);
+    Check("three features are built in", features::Count() == 3 && IndexOfFeature("ReShadePassthrough") == 0 && IndexOfFeature("WindowedMode") == 1 && IndexOfFeature("Recorder") == 2);
+    {   // the recorder feature: switched on it says so (no frames yet), off it says nothing and holds nothing
+        const int rec = IndexOfFeature("Recorder");
+        features::SetOn(rec, true);
+        Check("the Recording feature switched on says it waits for frames", features::IsOn(rec) && features::Status(rec).find("waiting for frames") != std::string::npos);
+        features::SetOn(rec, false);
+        Check("...and off says nothing", !features::IsOn(rec) && features::Status(rec).empty());
+    }
     Check("the retired standalone addons are recognised by folder name", features::IsRetiredAddonId("LSP-ReShade") && features::IsRetiredAddonId("LSP-Windowed") && !features::IsRetiredAddonId("DLSS5NR01"));
     Check("a feature is off until switched on", !features::IsOn(0) && !features::IsOn(1));
     features::SetOn(0, true);

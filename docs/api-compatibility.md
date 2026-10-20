@@ -2,13 +2,13 @@
 
 If you write an addon for LS Addon Manager, this page says what you can rely on. It is the promise for **API 1.x**; the guide to writing an addon is [addon-authors.md](addon-authors.md).
 
-Status: the addon API is **1.2.0** (1.0.0 from the first release; 1.1 added `GetDispatchingContext`, 1.2 `CreateImage` and `ReleaseImage`). Until the manager itself reaches 1.0, a serious mistake in the API may still be fixed at the cost of a break, and if that ever
+Status: the addon API is **1.3.0** (1.0.0 from the first release; 1.1 added `GetDispatchingContext`, 1.2 `CreateImage` and `ReleaseImage`, 1.3 the manager's recorder: `RecorderFlags`, `RecorderOffer`, `RecorderSave` and the event `EAM_EVENT_RECORDING_SAVED`). Until the manager itself reaches 1.0, a serious mistake in the API may still be fixed at the cost of a break, and if that ever
 happens it will be the first thing in the changelog. From manager 1.0 on, everything below is binding.
 
 ## Two version numbers
 
 - The **manager's release number** (0.8.0 today; the one on the releases page and in `Lossless.dll`'s properties) says how far the project has come. Addons should not care about it.
-- The **addon API version** (1.2.0 today; `EAM_API_VERSION_STRING` in [`version.h`](../manager/sdk/include/eam/version.h), and what `IHost::GetHostVersion()` returns as `(major << 16) | (minor << 8) | patch`)
+- The **addon API version** (1.3.0 today; `EAM_API_VERSION_STRING` in [`version.h`](../manager/sdk/include/eam/version.h), and what `IHost::GetHostVersion()` returns as `(major << 16) | (minor << 8) | patch`)
   says what an addon can rely on. It moves on its own. `min_host_version` in `addon.json` is compared with **this** number: an addon that needs a newer API than the running manager provides is
   not loaded, and its card says why.
 

@@ -24,6 +24,11 @@ int InstallDispatchHooks();
 // Stops handing out devices and running callbacks. The code hooks stay in place (idle): a hook placed on top of ours later calls through them.
 void Shutdown();
 
+// One observer of the manager itself (the recorder) sees every pass before the addons' callbacks, on the same thread; null removes it. It must not skip,
+// wait or dispatch. An addon's callbacks are separate (IHost).
+using DispatchObserver = void (*)(ID3D11DeviceContext* ctx, uint32_t x, uint32_t y, uint32_t z);
+void SetDispatchObserver(DispatchObserver observer);
+
 // What the D3D11CreateDevice hook does with a new device (the tests call it directly).
 void Attach(ID3D11Device* device, ID3D11DeviceContext* context);
 

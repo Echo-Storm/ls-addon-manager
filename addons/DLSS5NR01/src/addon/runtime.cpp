@@ -175,11 +175,14 @@ void NoteSource(ID3D11DeviceContext* ctx, ID3D11Texture2D* frame) {
     else Log("source cadence: the captured pictures no longer repeat");
 }
 
+// The recorder is the manager's (IHost API 1.3, the Features tab): this addon only offers the frames the manager cannot find by itself. What it says: bit 0 the
+// recorder is on, bit 1 it records what is shown.
+uint32_t RecorderFlagsNow() { return g_host && g_host->GetHostVersion() >= 0x010300 ? g_host->RecorderFlags() : 0u; }
+
 ID3D11ShaderResourceView* g_tapBound[8] = {}; bool g_tapBoundOpen = false;   // what Tap took off the pass (under g_frameMutex)
 void ForgetDevice() {   // under g_frameMutex
     screenshot::Forget();
     ForgetPair();
-    g_recorder.Forget();
     g_bridge.Shutdown(); g_compose.Shutdown(); g_tap.Reset(); ForgetCadence();
     g_presentMode = false; g_tapsSeen = 0; g_presentsWithoutTap = 0; g_presentHookTriedOn = nullptr;
     g_seen.clear(); g_tapDevice = nullptr; g_lsChain = nullptr; g_otherChain = nullptr;
@@ -222,7 +225,8 @@ void UpdateFindings(int frames, float p50, float p95, float p99, const NrStats* 
     d.showingPlain = g_compare.load() == 2;
     d.sourceRepeats = g_sourceRepeats.load(); d.sourceFps = g_sourceFps.load();
     bool autoOn; float floor;
-    { std::lock_guard<std::mutex> lock(g_settingsMutex); autoOn = g_config.autoQuality; floor = g_config.autoFloor; d.recording = g_config.recordOn; d.recordingShown = g_config.recordShown; }
+    { std::lock_guard<std::mutex> lock(g_settingsMutex); autoOn = g_config.autoQuality; floor = g_config.autoFloor; }
+    { const uint32_t rf = RecorderFlagsNow(); d.recording = (rf & 1u) != 0; d.recordingShown = (rf & 2u) != 0; }
     if (st) {
         static uint64_t runsBefore = 0, skippedBefore = 0;
         const uint64_t runs = g_bridge.Runs(), skipped = g_bridge.Skipped();
@@ -298,19 +302,12 @@ void Compose(IDXGISwapChain* sc);
 bool g_composedNow = false;   // the last Compose put the model's result on its frame (the pair's enhanced picture waits for one that did)
 void PresentTap(IDXGISwapChain* sc);
 void FollowRuntimeChoice();   // further down, with the upscalers
-void FollowSharedRecorder();
 
-// A frame for the recorder (under g_frameMutex, on the render thread): its settings follow the panel's, and for the tests it saves by itself
-// once recordSaveAfter frames are held.
+// A frame only this addon has, for the manager's recorder (under g_frameMutex, on the render thread): the presented frame before the compose, NIS's input,
+// the presented frames of "what is shown". The captured frames are the manager's own.
 void Record(ID3D11DeviceContext* ctx, ID3D11Texture2D* frame, uint32_t source, uint32_t content = 0, uint32_t tag = 0, bool crop = false) {
-    static const bool logSet = (g_recorder.SetLog([](const char* m) { Log("%s", m); }), true);
-    (void)logSet;
-    bool on; float seconds; int budget, saveAfter;
-    { std::lock_guard<std::mutex> lock(g_settingsMutex); on = g_config.recordOn; seconds = g_config.recordSeconds; budget = g_config.recordBudgetMb; saveAfter = g_config.recordSaveAfter; }
-    g_recorder.Configure(on, seconds, static_cast<uint32_t>(budget));
-    g_recorder.Offer(ctx, frame, source, content, tag, crop ? 1920 : 0, crop ? 1080 : 0);
-    static bool savedForTest = false;
-    if (saveAfter > 0 && !savedForTest && g_recorder.GetStatus().frames >= static_cast<uint32_t>(saveAfter)) { savedForTest = true; SaveRecording(); }
+    if (!(RecorderFlagsNow() & 1u)) return;
+    g_host->RecorderOffer(ctx, frame, source, content, tag, crop ? 1920 : 0, crop ? 1080 : 0);
 }
 
 // What frames of this format hold, on the display the chain is on (hdr.h), with the SDR white; logged when it changes.
@@ -384,7 +381,6 @@ void Tap(ID3D11DeviceContext* ctx, uint32_t x, uint32_t y, uint32_t z) {
     }
     { char text[96]; snprintf(text, sizeof text, "%ux%u %s slot %d", frame.Width, frame.Height, FormatName(frame.Format), d.frameSlot);
       std::lock_guard<std::mutex> lock(g_textMutex); g_frameText = text; }
-    Record(ctx, d.frame, lsrec::kCaptured);   // as it came, before the model sees it
     if (!g_bridge.Ensure(frame.Width, frame.Height, frame.Format)) {
         SetStatus(Bridge::FormatSupported(frame.Format) ? std::string("the frame copy for the model could not be set up (the Logs tab says why)")
                                                         : std::string("unsupported frame format: ") + FormatName(frame.Format));
@@ -481,23 +477,6 @@ void PutTapBindingsBack(ID3D11DeviceContext* ctx) {
     } __except (EXCEPTION_EXECUTE_HANDLER) {}
     g_tapBoundOpen = false;
 }
-// Neural Rendering switched off while the recorder is on: the captured frame is still the tap's, and only the recorder gets it (no model, no bridge,
-// no compose). Under g_frameMutex, like Tap.
-void TapForRecording(ID3D11DeviceContext* ctx, uint32_t x, uint32_t y, uint32_t z) {
-    TapDecision d;
-    g_tap.Observe(ctx, x, y, z, d);   // (the frame is the tap's own whether or not the flow has come: no model waits for it here)
-    ID3D11Texture2D* tex = nullptr;
-    if (g_tapDevice && d.isTap && d.tapFrame && SUCCEEDED(d.tapFrame->QueryInterface(IID_PPV_ARGS(&tex)))) {
-        D3D11_TEXTURE2D_DESC frame; tex->GetDesc(&frame);
-        if (frame.Width >= 64 && frame.Height >= 64) Record(ctx, tex, lsrec::kCaptured);
-        tex->Release();
-    }
-    ReleaseDecision(d);
-}
-void TapForRecordingGuarded(ID3D11DeviceContext* ctx, uint32_t x, uint32_t y, uint32_t z) {   // no objects here: __try cannot unwind them
-    __try { TapForRecording(ctx, x, y, z); } __except (OnFault(GetExceptionCode(), "recording tap")) { PutTapBindingsBack(ctx); }
-}
-
 void TapGuarded(ID3D11DeviceContext* ctx, uint32_t x, uint32_t y, uint32_t z) {   // no objects here: __try cannot unwind them
     __try { Tap(ctx, x, y, z); } __except (OnFault(GetExceptionCode(), "tap")) { PutTapBindingsBack(ctx); }
 }
@@ -591,11 +570,11 @@ D3D11_BOX PairBox(const NisPass& pass) {   // the part of NIS's output the pictu
     return b;
 }
 
-void ReadHotkeys(bool recordOnly = false) {   // recordOnly: Neural Rendering is off but the recorder is on: only the save key acts
+void ReadHotkeys() {
     bool on; int keys[7];
     { std::lock_guard<std::mutex> lock(g_settingsMutex);   // only what is needed: a copy of the whole Config would allocate at every present
       on = g_config.hotkeys; keys[0] = g_config.keyAB; keys[1] = g_config.keySplit; keys[2] = g_config.keySharpDn; keys[3] = g_config.keySharpUp; keys[4] = g_config.keyPreset;
-      keys[5] = g_config.keyShot; keys[6] = g_config.keyRecord; }
+      keys[5] = g_config.keyShot; keys[6] = 0; }   // (slot 6 was the save-recording key: the manager's recorder has it now)
     static bool wasDown[7] = {};
     static int lookCursor = -1;
     const bool modifiers = on && (GetAsyncKeyState(VK_CONTROL) & 0x8000) && (GetAsyncKeyState(VK_SHIFT) & 0x8000);
@@ -603,13 +582,12 @@ void ReadHotkeys(bool recordOnly = false) {   // recordOnly: Neural Rendering is
         const bool down = modifiers && keys[i] > 0 && (GetAsyncKeyState(keys[i]) & 0x8000);
         // the upscalers have no split view, looks or screenshots: only before / after and the sharpening keys act there (a look could
         // otherwise overwrite the upscaler's sharpening with one saved for Neural Rendering)
-        const bool applies = (!kScalerAddon || i == 0 || i == 2 || i == 3 || i == 5 || i == 6) && (!recordOnly || i == 6);   // (5, the screenshot key: the before / after pair there)
+        const bool applies = !kScalerAddon || i == 0 || i == 2 || i == 3 || i == 5;   // (5, the screenshot key: the before / after pair there)
         if (down && !wasDown[i] && applies) {
             nr::trace::Add(nr::trace::kHotkey, i);
             if (i == 0) { g_compare = g_compare == 2 ? 0 : 2; ShowMarker(g_compare == 2 ? 2 : 1); Log("hotkey: %s", g_compare == 2 ? "original only" : "enhanced"); }
             else if (i == 1) { g_compare = g_compare == 1 ? 0 : 1; ShowMarker(g_compare == 1 ? 3 : 1); Log("hotkey: %s", g_compare == 1 ? "split view" : "enhanced"); }
             else if (i == 5) { g_pairRequested = true; Log("hotkey: before / after pair"); }   // no corner square: it would be in the picture
-            else if (i == 6) { Log("hotkey: save the recording"); SaveRecording(); }   // no corner square either: it would be recorded
             else if (i == 4) {
                 Look next;
                 { std::lock_guard<std::mutex> lock(g_settingsMutex); if (!g_looks.empty()) { lookCursor = (lookCursor + 1) % static_cast<int>(g_looks.size()); next = g_looks[lookCursor]; } }
@@ -926,8 +904,7 @@ void PresentGuarded(IDXGISwapChain* sc) {   // no objects here: __try cannot unw
 std::string g_compareSavePending;   // a mode's recording waiting to be saved (the recorder was still saving the one before): nothing new is recorded meanwhile, so the next mode's frames do not end up in it
 void RecordShownFrame(IDXGISwapChain* sc) {
     if (!g_compareSavePending.empty()) return;
-    bool on, shown; { std::lock_guard<std::mutex> lock(g_settingsMutex); on = g_config.recordOn; shown = g_config.recordShown; }
-    if (!on || !shown) return;
+    if ((RecorderFlagsNow() & 3u) != 3u) return;   // the recorder is on and records what is shown
     if (compare::Active()) { if (!compare::Records(kCompareMode) || !compare::BurstOpen()) return; }   // comparing: one addon records, in bursts, whichever mode is shown (CompareSegments saves each mode's)
     else if (!compare::MyTurn(kCompareMode, kCompareMode)) return;   // (several upscalers loaded: the one that acts records)
     ID3D11Texture2D* back = nullptr;
@@ -944,21 +921,22 @@ void RecordShownFrame(IDXGISwapChain* sc) {
 void CompareSegments() {
     static int recording = -1;
     if (!g_compareSavePending.empty()) {   // the recorder was busy: again, until it takes them
-        if (g_recorder.Save(RecordFolder(), g_compareSavePending, true)) { Log("compare: the recording %s is being saved", g_compareSavePending.c_str()); g_compareSavePending.clear(); }
+        const int r = g_host ? g_host->RecorderSave(g_compareSavePending.c_str(), true) : 0;
+        if (r != 2) { if (r == 1) Log("compare: the recording %s is being saved", g_compareSavePending.c_str()); g_compareSavePending.clear(); }
         return;
     }
     const int now = compare::Records(kCompareMode) ? compare::Current() : -1;
     if (now == recording) return;
     const int was = recording; recording = now;
     if (was < 0) return;
-    bool on; { std::lock_guard<std::mutex> lock(g_settingsMutex); on = g_config.recordOn; }
-    if (!on) return;
+    if (!(RecorderFlagsNow() & 1u)) return;
     std::string game; { std::lock_guard<std::mutex> lock(g_textMutex); game = g_focusExe; }
     if (game.size() > 4 && game.compare(game.size() - 4, 4, ".exe") == 0) game.resize(game.size() - 4);
     game += std::string("-") + compare::Name(was);
     for (char& c : game) if (c == ' ') c = '_';
-    if (g_recorder.Save(RecordFolder(), game, true)) { Log("compare: %s ended; its recording is being saved (%s)", compare::Name(was), game.c_str()); return; }
-    if (g_recorder.GetStatus().saving) { g_compareSavePending = game; Log("compare: %s ended; the recorder is still saving the one before, so this recording waits for it", compare::Name(was)); }
+    const int saved = g_host ? g_host->RecorderSave(game.c_str(), true) : 0;
+    if (saved == 1) { Log("compare: %s ended; its recording is being saved (%s)", compare::Name(was), game.c_str()); return; }
+    if (saved == 2) { g_compareSavePending = game; Log("compare: %s ended; the recorder is still saving the one before, so this recording waits for it", compare::Name(was)); }
     else Log("compare: %s ended; nothing was recorded for it", compare::Name(was));
 }
 
@@ -981,8 +959,7 @@ void OnPresent(IDXGISwapChain* sc, UINT sync, UINT flags) {
         ScalerMarkerGuarded(sc);   // the corner square after a hotkey
         return;
     }   // the upscaler: its picture over NIS's (Handoff::AtPresent); no Enable of its own
-    bool isOn, recOn; { std::lock_guard<std::mutex> lock(g_settingsMutex); isOn = g_config.enabled; recOn = g_config.recordOn; }
-    if (!isOn) { if (recOn && OwnsFrames()) ReadHotkeys(true); return; }   // off, recorder on: the save key still works
+    { std::lock_guard<std::mutex> lock(g_settingsMutex); if (!g_config.enabled) return; }
     if (!OwnsFrames()) return;
     std::lock_guard<std::mutex> lock(g_frameMutex);
     PresentGuarded(sc);
@@ -1244,27 +1221,6 @@ void PublishRuntimeForOthersImpl() {
     if (kScalerAddon && !kFsrScaler && !kXessScaler) nr::ngxpaths::PublishDlssRuntime(ChosenRuntimeDir());
 }
 
-// The recorder's settings are the same in every addon of ours (SaveSettings mirrors them into each addon's config): switching it on in the panel of
-// an addon that is not the one working on the frames must count too (the owner had it on in the FSR Upscaler while running the DLSS Upscaler
-// and nothing was saved). A change made from another addon's panel arrives in this addon's config; taken over here, twice a second.
-void FollowSharedRecorder() {
-    if (!g_host) return;
-    const bool on = std::string(g_host->GetConfig(kAddonId, "recordOn", "0")) == "1";
-    const float seconds = std::clamp(static_cast<float>(atof(g_host->GetConfig(kAddonId, "recordSeconds", "5"))), 1.0f, 60.0f);
-    const int budget = std::clamp(atoi(g_host->GetConfig(kAddonId, "recordBudgetMb", "3072")), 256, 65536);
-    const std::string folder = g_host->GetConfig(kAddonId, "recordFolder", "");
-    // only what the stored value CHANGED to since the last look counts: a change made in this addon's own panel is in g_config a moment before it is
-    // saved, and the stored value still being the old one then must not undo it
-    static bool seenValid = false, seenOn = false; static float seenSeconds = 0; static int seenBudget = 0; static std::string seenFolder;
-    const bool unchanged = seenValid && seenOn == on && std::fabs(seenSeconds - seconds) < 0.01f && seenBudget == budget && seenFolder == folder;
-    seenValid = true; seenOn = on; seenSeconds = seconds; seenBudget = budget; seenFolder = folder;
-    if (unchanged) return;
-    std::lock_guard<std::mutex> lock(g_settingsMutex);
-    if (on == g_config.recordOn && std::fabs(seconds - g_config.recordSeconds) < 0.01f && budget == g_config.recordBudgetMb && folder == g_config.recordFolder) return;
-    Log("recorder: %s in another addon's panel (%.0f s, %d MB): the same here", on ? "switched on" : "settings changed or switched off", seconds, budget);
-    g_config.recordOn = on; g_config.recordSeconds = seconds; g_config.recordBudgetMb = budget; g_config.recordFolder = folder;
-}
-
 // A new choice in the Runtimes list, followed while running (checked twice a second, under g_frameMutex on the render thread). The upscalers
 // stop their engine, and the next pass starts it on the new file; Neural Rendering takes the model file its setting now names and starts again.
 void FollowRuntimeChoice() {
@@ -1272,7 +1228,6 @@ void FollowRuntimeChoice() {
     const ULONGLONG now = GetTickCount64();
     if (now - checkedAt < 500 || !g_host) return;
     checkedAt = now;
-    FollowSharedRecorder();
     if (!kScalerAddon) { FollowModelChoice(); return; }
     if (g_srStarting || g_srRuntimeDir.empty()) return;   // not started: it starts on the chosen file anyway
     const std::wstring dir = ChosenRuntimeDir();
@@ -1557,7 +1512,7 @@ bool ScalerPass(ID3D11DeviceContext* ctx, uint32_t x, uint32_t y, uint32_t z) {
                 nr::trace::Add(nr::trace::kUpscale, (replaced ? 1 : 0) | (cheap ? 2 : 0), static_cast<int32_t>(g_sr.GpuMs() * 100.0), static_cast<int32_t>(g_sr.MotionMs() * 100.0));
                 g_passStep = "the recorder";
                 if (ID3D11Texture2D* grabbed = g_link.TakeGrabbed()) {   // (HDR frames go to the upscaler as light: said so in the file)
-                    bool shown; { std::lock_guard<std::mutex> settings(g_settingsMutex); shown = g_config.recordShown; }   // (the presents are recorded: our own frame generation's, or the output chain's at Present, RecordShownFrame)
+                    const bool shown = (RecorderFlagsNow() & 2u) != 0;   // (the presents are recorded: our own frame generation's, or the output chain's at Present, RecordShownFrame)
                     if (!shown) Record(ctx, grabbed, lsrec::kNisInput, g_link.Encoding() ? lsrec::kLight : lsrec::kOwnEncoding);   // (else the presents are recorded)
                 }
                 g_passStep = "after Upscale";   // the frame as DLSS or FSR got it
@@ -1751,8 +1706,7 @@ bool OnPass(uint32_t x, uint32_t y, uint32_t z, void*) {
     auto* const ctx = static_cast<ID3D11DeviceContext*>(g_host ? g_host->GetDispatchingContext() : nullptr);
     if (t_ownWork || g_off || g_engineStarting || !ctx) return false;
     if (kScalerAddon) return ScalerGuarded(ctx, x, y, z);   // the upscalers: on while the manager has them on (their old Enable setting is ignored)
-    bool recordOnly = false;   // switched off, but the recorder is on: the captured frames still go to it
-    { std::lock_guard<std::mutex> lock(g_settingsMutex); if (!g_config.enabled) { if (!g_config.recordOn) return false; recordOnly = true; } }
+    { std::lock_guard<std::mutex> lock(g_settingsMutex); if (!g_config.enabled) return false; }
     if (!OwnsFrames()) return false;
     std::lock_guard<std::mutex> lock(g_frameMutex);
     if (!Tappable(ctx)) { ++g_otherPasses; return false; }
@@ -1760,35 +1714,12 @@ bool OnPass(uint32_t x, uint32_t y, uint32_t z, void*) {
         g_presentHookTriedOn = g_tapDevice;
         if (!PresentHook::Install(g_tapDevice, OnPresent, [](const char* m) { Log("%s", m); })) Log("could not hook dxgi Present from Lossless Scaling's passes");
     }
-    if (recordOnly) { TapForRecordingGuarded(ctx, x, y, z); return false; }
     TapGuarded(ctx, x, y, z);
     LogPassTable();
     return false;   // Lossless Scaling's pass always runs
 }
 
 void ResetWatchdog() { g_watchdogHits = 0; }
-
-std::wstring RecordFolder() {
-    std::string chosen;
-    { std::lock_guard<std::mutex> lock(g_settingsMutex); chosen = g_config.recordFolder; }
-    if (!chosen.empty()) {
-        std::wstring w(chosen.size(), L'\0');
-        const int n = MultiByteToWideChar(CP_UTF8, 0, chosen.c_str(), static_cast<int>(chosen.size()), w.data(), static_cast<int>(w.size()));
-        w.resize(n > 0 ? n : 0);
-        for (wchar_t& ch : w) if (ch == L'/') ch = L'\\';
-        return w;
-    }
-    PWSTR videos = nullptr; std::wstring folder;
-    if (SUCCEEDED(SHGetKnownFolderPath(FOLDERID_Videos, 0, nullptr, &videos)) && videos) folder = videos;
-    CoTaskMemFree(videos);
-    // Videos moved into OneDrive would upload every recording (gigabytes): the profile's own Videos folder instead
-    if (folder.find(L"\\OneDrive") != std::wstring::npos) {
-        PWSTR profile = nullptr;
-        if (SUCCEEDED(SHGetKnownFolderPath(FOLDERID_Profile, 0, nullptr, &profile)) && profile) folder = std::wstring(profile) + L"\\Videos";
-        CoTaskMemFree(profile);
-    }
-    return (folder.empty() ? g_lsDir : folder) + L"\\Lossless Scaling";
-}
 
 // The frame trace as a CSV in the logs folder: frame-trace-<addon>.csv, the latest export (tools/analyze_frame_trace.py reads it).
 void ClearRuntimeTrial() { if (g_trialWritten) { ClearRuntimeTrialImpl(); g_trialWritten = false; } }   // (state.h: at a normal close; a marker left by a runtime that crashed stays)
@@ -1800,18 +1731,8 @@ void ExportFrameTrace(const char* why) {
     else Log("frame trace: not written (%s)", error.c_str());
 }
 
-void SaveRecording() {
-    std::string game;
-    { std::lock_guard<std::mutex> lock(g_textMutex); game = g_focusExe; }
-    bool on; { std::lock_guard<std::mutex> lock(g_settingsMutex); on = g_config.recordOn; }
-    if (!on) {   // the recorder is off (it is one setting for all our addons since 0.9.18): say so, not "nothing recorded"
-        Log("recorder: nothing saved: the recorder is off (tick \"Keep the last few seconds ready to save\" in the Recording section of any addon: it applies to all of them)");
-        if (g_host) g_host->SetStatus(kAddonId, "Nothing saved: the recorder is off (switch it on under Recording in any addon)", 2);
-        return;
-    }
-    ExportFrameTrace("with a saved recording");
-    if (!g_recorder.Save(RecordFolder(), game)) Log("recorder: nothing saved (%s)", g_recorder.GetStatus().saving ? "a save is running" : "nothing recorded yet");
-}
+// The manager's recorder saved a file (EAM_EVENT_RECORDING_SAVED): the frame trace goes beside it, as a bug report wants (tools/analyze_frame_trace.py).
+void OnRecordingSavedEvent(uint32_t, const void*, uint32_t, void*) { ExportFrameTrace("with a saved recording"); }
 
 bool NeuralRenderingOn() { return NeuralRenderingOnNow(); }
 

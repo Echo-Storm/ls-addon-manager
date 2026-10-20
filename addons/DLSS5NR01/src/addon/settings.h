@@ -56,13 +56,7 @@ struct Config {
     bool freshFlow = true;               // run the model once LSFG has this frame's own motion (off: at capture, with the frame before's)
     bool lsFirst = true;                 // give Lossless Scaling's GPU work priority over the model's
     bool hotkeys = true;                 // Ctrl+Shift + an F key, read at every present
-    int keyAB = VK_F7, keySplit = VK_F8, keySharpDn = VK_F2, keySharpUp = VK_F3, keyPreset = VK_F10, keyShot = VK_F4, keyRecord = VK_F1;
-    bool recordOn = false;               // the recorder (recorder.h): keep the last few seconds of frames ready to save
-    bool recordShown = false;            // ...the presented frames instead (with frame generation of our own: the frames between too, tagged)
-    float recordSeconds = 5.0f;
-    int recordBudgetMb = 3072;           // at most this much memory for them (the oldest go first)
-    std::string recordFolder;            // empty: Videos\Lossless Scaling
-    int recordSaveAfter = 0;             // for the tests: save once this many frames are held (0: never by itself)
+    int keyAB = VK_F7, keySplit = VK_F8, keySharpDn = VK_F2, keySharpUp = VK_F3, keyPreset = VK_F10, keyShot = VK_F4;
     std::string screenshotFolder;        // empty: Pictures\Lossless Scaling
     bool autoQuality = true;             // lower the model resolution when the model runs over its time budget (auto_quality.h)
     float autoBudgetMs = 6.0f, autoFloor = 0.6f;

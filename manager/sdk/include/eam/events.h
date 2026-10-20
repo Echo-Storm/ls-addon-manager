@@ -12,6 +12,7 @@ enum EamEvent : uint32_t {
     EAM_EVENT_SETTINGS_APPLIED   = 6,   // Lossless Scaling has just applied its settings (its ApplySettings returned); no payload
     EAM_EVENT_D3D11_DEVICE_READY = 7,   // Lossless Scaling made a D3D11 device (IHost::GetD3D11Device has it now); no payload
     EAM_EVENT_D3D11_DEVICE_CHANGED = 8, // ...and it replaces an earlier one: drop anything made on the old device; sent before DEVICE_READY
+    EAM_EVENT_RECORDING_SAVED    = 9,   // the manager's recorder saved a file (API 1.3); payload EamRecordingSavedData: an addon can write what it knows beside it
 
     EAM_EVENT_CUSTOM             = 0x10000   // from here up: addons' own events, for talking to each other
 };
@@ -22,6 +23,10 @@ typedef void (*EamEventCallback)(uint32_t eventId, const void* data, uint32_t da
 struct EamAddonEventData {
     const char* addonName;
     const char* addonVersion;
+};
+
+struct EamRecordingSavedData {
+    const wchar_t* path;    // the .lsrec file that was written
 };
 
 struct EamShaderEventData {

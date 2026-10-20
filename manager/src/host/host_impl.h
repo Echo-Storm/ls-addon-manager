@@ -38,6 +38,14 @@ public:
     void* GetDispatchingContext() override;
     void* CreateImage(const void* rgba, uint32_t width, uint32_t height, uint32_t pitch) override;
     void ReleaseImage(void* image) override;
+    uint32_t RecorderFlags() override;
+    int RecorderSave(const char* name, bool clear) override;
+    void RecorderOffer(void* d3d11Context, void* d3d11Texture2D, uint32_t source, uint32_t content, uint32_t tag, uint32_t cropWidth, uint32_t cropHeight) override;
+    // The recorder feature (features/recorder_feature.cpp) says what these two do; without it (or when it is off) the flags are 0 and an offer is dropped.
+    using RecorderFlagsFn = uint32_t (*)();
+    using RecorderOfferFn = void (*)(void*, void*, uint32_t, uint32_t, uint32_t, uint32_t, uint32_t);
+    using RecorderSaveFn = int (*)(const char*, bool);
+    static void SetRecorderHooks(RecorderFlagsFn flags, RecorderOfferFn offer, RecorderSaveFn save);
 
     void SetStatus(const char* addonId, const char* text, int level) override;
     void PublishMetric(const char* addonId, const char* key, double value, const char* unit) override;

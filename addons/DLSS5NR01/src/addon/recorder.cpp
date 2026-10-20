@@ -1,5 +1,4 @@
 #include "addon/recorder.h"
-#include "addon/bridge.h"
 #include <windows.h>
 #include <shlobj.h>
 #include <algorithm>
@@ -10,6 +9,16 @@ namespace nr {
 
 namespace {
 template <class T> void SafeRelease(T*& p) { if (p) { p->Release(); p = nullptr; } }
+// the UNORM / FLOAT format to view a frame of format f with (sRGB and typeless map to it); the same as Bridge::ViewFormat, which this file no longer pulls in
+DXGI_FORMAT ViewFormatOf(DXGI_FORMAT f) {
+    switch (f) {
+    case DXGI_FORMAT_B8G8R8A8_TYPELESS: case DXGI_FORMAT_B8G8R8A8_UNORM: case DXGI_FORMAT_B8G8R8A8_UNORM_SRGB: return DXGI_FORMAT_B8G8R8A8_UNORM;
+    case DXGI_FORMAT_R8G8B8A8_TYPELESS: case DXGI_FORMAT_R8G8B8A8_UNORM: case DXGI_FORMAT_R8G8B8A8_UNORM_SRGB: return DXGI_FORMAT_R8G8B8A8_UNORM;
+    case DXGI_FORMAT_R10G10B10A2_TYPELESS: case DXGI_FORMAT_R10G10B10A2_UNORM: return DXGI_FORMAT_R10G10B10A2_UNORM;
+    case DXGI_FORMAT_R16G16B16A16_TYPELESS: case DXGI_FORMAT_R16G16B16A16_FLOAT: return DXGI_FORMAT_R16G16B16A16_FLOAT;
+    default: return DXGI_FORMAT_UNKNOWN;
+    }
+}
 int64_t Qpc() { LARGE_INTEGER t; QueryPerformanceCounter(&t); return t.QuadPart; }
 std::wstring Wide(const std::string& s) {
     std::wstring w(s.size(), L'\0');
@@ -143,7 +152,7 @@ void Recorder::Offer(ID3D11DeviceContext* ctx, ID3D11Texture2D* frame, uint32_t 
     if (!on) { if (Collect(true)) { DropStaging(); StopWorkers(); } return; }   // (not all free: the workers are still reading; tried again with the next frame)
 
     D3D11_TEXTURE2D_DESC d; frame->GetDesc(&d);
-    const DXGI_FORMAT view = Bridge::ViewFormat(d.Format);
+    const DXGI_FORMAT view = ViewFormatOf(d.Format);
     const uint32_t bpp = lsrec::BytesPerPixel(view);
     if (!bpp || d.SampleDesc.Count != 1) {
         static DXGI_FORMAT said = DXGI_FORMAT_UNKNOWN;
@@ -233,7 +242,13 @@ bool Recorder::Save(const std::wstring& folder, const std::string& game, bool cl
         if (ok) snprintf(text, sizeof text, "Saved %.1f s (%zu frames, %.0f MB) to %s%s", seconds, frames.size(), bytes / 1048576.0, Utf8(path).c_str(), left ? " (some frames were left out: the card or the processor could not keep up; see the missed count in the panel)" : "");
         else snprintf(text, sizeof text, "Could not save %s: %s", Utf8(path).c_str(), error.c_str());
         Log("recorder: %s", text);
-        { std::lock_guard<std::mutex> lock(m_resultMutex); m_result = text; m_resultOk = ok; }
+        {
+            std::lock_guard<std::mutex> lock(m_resultMutex); m_result = text; m_resultOk = ok;
+            if (ok) {
+                m_lastSave = SaveInfo{ path, static_cast<uint32_t>(frames.size()), seconds, bytes, header.width, header.height, header.format, header.source, left };
+                ++m_saves;
+            }
+        }
         m_saving = false;
     });
     return true;
@@ -246,6 +261,13 @@ Recorder::Status Recorder::GetStatus() const {
     s.frames = static_cast<uint32_t>(m_kept.size()); s.bytes = m_keptBytes; s.w = m_w; s.h = m_h;
     if (m_kept.size() > 1 && m_freq) s.seconds = static_cast<double>(m_kept.back()->header.qpc - m_kept.front()->header.qpc) / m_freq;
     return s;
+}
+
+bool Recorder::LastSave(SaveInfo& info) const {
+    std::lock_guard<std::mutex> lock(m_resultMutex);
+    if (!m_saves.load()) return false;
+    info = m_lastSave;
+    return true;
 }
 
 std::string Recorder::LastResult(bool& ok) const {

@@ -46,7 +46,20 @@ set(ADDON_SOURCES
     src/addon/addon_install.cpp
 )
 
+# The recorder is shared with the Neural Rendering addon's tools: its code (the tap that finds Lossless Scaling's captured frame, the recorder, the
+# .lsrec format) lives with the addons and is built here as well. `#include "addon/recorder.h"` finds it through this folder.
+set(EAM_ADDONS_SRC ${CMAKE_CURRENT_SOURCE_DIR}/../addons/DLSS5NR01/src)
+include_directories(${EAM_ADDONS_SRC})
+set(RECORDER_SOURCES
+    src/features/recorder_feature.cpp
+    src/features/recorder_service.cpp
+    ${EAM_ADDONS_SRC}/addon/recorder.cpp
+    ${EAM_ADDONS_SRC}/addon/lsrec.cpp
+    ${EAM_ADDONS_SRC}/addon/frame_tap.cpp
+)
+
 set(FEATURE_SOURCES
+    ${RECORDER_SOURCES}
     src/features/features.cpp
     src/features/reshade_passthrough.cpp
     src/features/reshade_windows.cpp
@@ -163,6 +176,7 @@ endif()
 # Offscreen UI preview (no window): renders the theme, toggle, cards and sliders to BMP files. Not built by default;
 # build it with: cmake --build . --config Release --target eam_uipreview
 add_executable(eam_uipreview EXCLUDE_FROM_ALL
+    ${RECORDER_SOURCES}
     tools/ui_preview.cpp
     src/gui/gui_style.cpp
     src/gui/widgets/toggle_switch.cpp
@@ -216,6 +230,11 @@ target_include_directories(eam_uipreview PRIVATE
 target_link_libraries(eam_uipreview d3d11 dxgi d3dcompiler bcrypt minhook)
 
 # Offline test of installing addons from a folder / zip / dll: cmake --build . --config Release --target eam_installtest
+# Offline test of the recorder service: frames offered, saved, read back, the note, the clip (needs a Direct3D 11 device, the card or WARP)
+add_executable(eam_recordertest EXCLUDE_FROM_ALL tools/recorder_test.cpp src/features/recorder_service.cpp
+    ${EAM_ADDONS_SRC}/addon/recorder.cpp ${EAM_ADDONS_SRC}/addon/lsrec.cpp ${EAM_ADDONS_SRC}/addon/frame_tap.cpp)
+target_link_libraries(eam_recordertest d3d11 dxgi)
+
 add_executable(eam_installtest EXCLUDE_FROM_ALL tools/install_test.cpp src/addon/addon_install.cpp src/host/metrics.cpp src/host/gpu_stats.cpp src/config/settings_backup.cpp src/diag/diagnostics.cpp)
 target_include_directories(eam_installtest PRIVATE ${CMAKE_CURRENT_SOURCE_DIR})
 

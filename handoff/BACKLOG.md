@@ -200,6 +200,13 @@ Released today: 0.9.20 (bug sweep), 0.9.21 (Steady sharpening, Sharpness at rest
   from the user's own install at run time (docs/lsfg-vk-study.md).
 - The DLSS 5 on Radeon mod (closed, no redistribution): only if an all-in-one or optimised build appears, or new techniques.
 
+## The recorder as a feature of the manager (2026-10-19; board M1, done offline, not yet seen live)
+
+- **Shape:** `manager/src/features/recorder_service.{h,cpp}` (no ImGui, no config: the recorder, a FrameTap per Lossless Scaling context to find the captured frame, the hotkey, the note, the beep, the clip), `recorder_feature.{h,cpp}` (config section "Recorder", the poll thread, the Features-tab options, the hooks). It is compiled from the addons' sources (`addon/recorder.cpp`, `lsrec.cpp`, `frame_tap.cpp`: `EAM_ADDONS_SRC` in manager/CMakeLists.txt) and by the Neural Rendering host test, whose fake host now runs the real service. The manager's own dispatch hook calls it (`D3D11Hook::SetDispatchObserver`).
+- **API 1.3:** `RecorderFlags`, `RecorderOffer`, `RecorderSave`, event `EAM_EVENT_RECORDING_SAVED`. The addons' `min_host_version` is 1.3.0 (VSR's stays 1.2.0: it records nothing).
+- **Source rules:** the manager's tap records the captured frames (frame generation on) and ignores offers of that source; addons offer presented frames (frame generation off: Neural Rendering's present mode; "record what is shown") and NIS's input; the service accepts a presented offer when "what is shown" is on or no captured frame came in the last 1.5 s. With "what is shown" on the tap is off.
+- **Known gaps / ideas:** with frame generation OFF and no addon on, nothing is recorded (the manager has no Present hook that runs before the addons' compose; a manager-owned hook would have to be installed after theirs); a video export after a save (ffmpeg is on the PATH now: `nr_lsrec video`), a size cap on the recordings folder, the manager's UI preview with the Recording options. Not touched: the `.lsrec` format and the tools.
+
 ## Bug sweep 2026-10-19 (after the Model preset; board S7)
 
 - Offline suites (`tools\run_addon_tests.ps1 -All`, run with `pwsh`; Windows PowerShell 5.1 here has scripts disabled, which fails the runner's Setup-exe step and the host matrix needs numpy: `pip install --user numpy`): core, features, sample, update, gui, runtimes, installer, NR requirements/settings/auto/diag/compose/trace/recorder/tap, the presenter and HDR all pass; the Setup-exe test passes run directly (`pwsh installer\tests\setup_exe_test.ps1 -Root <repo>`).

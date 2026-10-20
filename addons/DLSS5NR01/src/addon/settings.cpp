@@ -148,11 +148,6 @@ NrParams ProductDefaults() {
     return p;
 }
 
-// The recorder settings this addon last loaded or handed to the others (an addon holding a stale value must not switch the others' recorder off by saving
-// an unrelated slider).
-struct RecorderSeen { bool valid = false, on = false; float seconds = 0; int budget = 0; std::string folder; };
-static RecorderSeen s_recorderSeen;
-
 Loaded LoadSettings(IHost* host, const char* id) {
     auto text = [&](const std::string& key, const char* dflt = "") { return std::string(host ? host->GetConfig(id, key.c_str(), dflt) : dflt); };
     auto number = [&](const char* key, double dflt) { const std::string s = text(key); return s.empty() ? dflt : Parse(s.c_str(), dflt); };
@@ -201,8 +196,6 @@ Loaded LoadSettings(IHost* host, const char* id) {
     c.hotkeys = flag("hotkeys", true);
     c.keyAB = integer("keyAB", VK_F7); c.keySplit = integer("keySplit", VK_F8); c.keySharpDn = integer("keySharpDn", VK_F2);
     c.keySharpUp = integer("keySharpUp", VK_F3); c.keyPreset = integer("keyPreset", VK_F10); c.keyShot = integer("keyShot", VK_F4);
-    c.keyRecord = integer("keyRecord", VK_F1);
-    if (c.keyRecord == VK_F12) c.keyRecord = VK_F5;
     // Ctrl+Shift+F11 was the screenshot key until 0.9.8, but games still see the F11 (the keys are only watched), and F11 toggles full screen
     // in Unreal Engine games and many others: moved to F4 once (keysVersion 2), so a later choice of F11 stays
     if (integer("keysVersion", 1) < 2 && c.keyShot == VK_F11) c.keyShot = VK_F4;
@@ -213,15 +206,7 @@ Loaded LoadSettings(IHost* host, const char* id) {
         if (c.keySplit == VK_F7) c.keySplit = VK_F8;
         if (c.keySharpDn == VK_F8) c.keySharpDn = VK_F2;
         if (c.keySharpUp == VK_F9) c.keySharpUp = VK_F3;
-        if (c.keyRecord == VK_F5) c.keyRecord = VK_F1;
     }   // the first default, saved by builds before 0.9.5: Ctrl+Shift+F12 is the manager's own (show its window)
-    c.recordOn = flag("recordOn", false);
-    c.recordShown = flag("recordShown", false);
-    c.recordSeconds = std::clamp(static_cast<float>(number("recordSeconds", 5.0)), 1.0f, 60.0f);
-    c.recordBudgetMb = std::clamp(integer("recordBudgetMb", 3072), 256, 65536);
-    c.recordFolder = text("recordFolder");
-    s_recorderSeen = { true, c.recordOn, c.recordSeconds, c.recordBudgetMb, c.recordFolder };   // what the other addons are told only when it changes (SaveSettings)
-    c.recordSaveAfter = std::max(0, integer("recordSaveAfter", 0));
     c.screenshotFolder = text("screenshotFolder");
     // (the fallback of each is the default of Config, never a number written here: 0.9.28 to 0.9.33 fell back to auto off, 5 ms and 0.25 while the defaults were on, 6 ms and 0.6,
     // so a new install ran the model at its full size with nothing to bring it down)
@@ -291,19 +276,7 @@ void SaveSettings(IHost* host, const char* id, const Config& c, const std::vecto
     put("frameEncoding", std::to_string(c.frameEncoding));
     put("keyAB", std::to_string(c.keyAB)); put("keySplit", std::to_string(c.keySplit)); put("keySharpDn", std::to_string(c.keySharpDn));
     put("keySharpUp", std::to_string(c.keySharpUp)); put("keyPreset", std::to_string(c.keyPreset)); put("keyShot", std::to_string(c.keyShot));
-    put("keyRecord", std::to_string(c.keyRecord)); put("keysVersion", "3");
-    putFlag("recordOn", c.recordOn); putFlag("recordShown", c.recordShown); put("recordSeconds", Number(c.recordSeconds)); put("recordBudgetMb", std::to_string(c.recordBudgetMb));
-    put("recordFolder", c.recordFolder);
-    // the recorder is one setting for all our addons: the others' configs get it too (each addon follows its own, see FollowSharedRecorder), so it can
-    // be switched on in any panel and the addon that works on the frames records
-    const bool recorderChanged = !s_recorderSeen.valid || s_recorderSeen.on != c.recordOn || std::fabs(s_recorderSeen.seconds - c.recordSeconds) > 0.01f ||
-                                 s_recorderSeen.budget != c.recordBudgetMb || s_recorderSeen.folder != c.recordFolder;
-    s_recorderSeen = { true, c.recordOn, c.recordSeconds, c.recordBudgetMb, c.recordFolder };
-    for (const char* other : { "DLSS5NR01", "DLSS4DLAA", "FSR3UPSC", "XESSUPSC" }) {
-        if (!recorderChanged || std::string(other) == id) continue;
-        host->SetConfig(other, "recordOn", c.recordOn ? "1" : "0"); host->SetConfig(other, "recordSeconds", Number(c.recordSeconds).c_str());
-        host->SetConfig(other, "recordBudgetMb", std::to_string(c.recordBudgetMb).c_str()); host->SetConfig(other, "recordFolder", c.recordFolder.c_str());
-    }
+    put("keysVersion", "3");
     put("screenshotFolder", c.screenshotFolder);
     putFlag("autoQuality", c.autoQuality); put("autoBudgetMs", Number(c.autoBudgetMs)); put("autoFloor", Number(c.autoFloor)); put("autoScaleLast", Number(c.autoScaleLast)); put("modelEvery", Number(static_cast<float>(c.modelEvery)));
     putFlag("gpuLimit", c.gpuLimit); put("gpuLimitPercent", Number(c.gpuLimitPercent)); put("defaultsVersion", Number(static_cast<float>(c.defaultsVersion)));

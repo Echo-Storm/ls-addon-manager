@@ -25,6 +25,7 @@ bool IsLossless(ID3D11DeviceContext* ctx) {
     return false;
 }
 std::atomic<uint32_t> g_dispatches{ 0 };
+std::atomic<DispatchObserver> g_observer{ nullptr };
 thread_local ID3D11DeviceContext* t_dispatching = nullptr;
 
 // ---- the device
@@ -60,6 +61,7 @@ template <int I> void STDMETHODCALLTYPE Detour(ID3D11DeviceContext* ctx, UINT x,
     if (t_dispatching || !ctx || !IsLossless(ctx)) { original(ctx, x, y, z); return; }
     t_dispatching = ctx;
     g_dispatches.fetch_add(1, std::memory_order_relaxed);
+    if (const DispatchObserver observer = g_observer.load(std::memory_order_acquire)) observer(ctx, x, y, z);
     eam::HostImpl* const host = g_host.load(std::memory_order_acquire);
     const bool skip = host && host->InvokePreDispatch(x, y, z);
     if (!skip) {
@@ -143,7 +145,10 @@ int InstallDispatchHooks() {
     return g_hooked;
 }
 
+void SetDispatchObserver(DispatchObserver observer) { g_observer.store(observer, std::memory_order_release); }
+
 void Shutdown() {
+    g_observer.store(nullptr, std::memory_order_release);
     g_host.store(nullptr, std::memory_order_release);
     for (auto& c : g_lsContexts) c.store(nullptr, std::memory_order_release);
     g_dispatches.store(0, std::memory_order_relaxed);

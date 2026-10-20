@@ -40,6 +40,10 @@ public:
     struct Status { bool on = false; double seconds = 0; uint32_t frames = 0; uint64_t bytes = 0; uint64_t missed = 0; uint32_t w = 0, h = 0; bool saving = false; };
     Status GetStatus() const;
     std::string LastResult(bool& ok) const;
+    // What the last successful save wrote (for a note beside the file): its path, size and what was in it. SaveCount() goes up with each success.
+    struct SaveInfo { std::wstring path; uint32_t frames = 0; double seconds = 0; uint64_t bytes = 0; uint32_t w = 0, h = 0, format = 0, source = 0; uint64_t missed = 0; };
+    uint32_t SaveCount() const { return m_saves.load(); }
+    bool LastSave(SaveInfo& info) const;
 
 private:
     struct Slot {
@@ -86,7 +90,8 @@ private:
     // saving
     std::thread m_saver;
     std::atomic<bool> m_saving{ false };
-    mutable std::mutex m_resultMutex; std::string m_result; bool m_resultOk = false;
+    mutable std::mutex m_resultMutex; std::string m_result; bool m_resultOk = false; SaveInfo m_lastSave;
+    std::atomic<uint32_t> m_saves{ 0 };
 };
 
 } // namespace nr

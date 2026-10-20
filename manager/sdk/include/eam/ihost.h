@@ -84,4 +84,22 @@ struct IHost {
     // once. Give it back with ReleaseImage when it is no longer drawn. Any thread.
     virtual void* CreateImage(const void* rgba, uint32_t width, uint32_t height, uint32_t pitch) = 0;
     virtual void ReleaseImage(void* image) = 0;
+
+    // ---- API 1.3 (GetHostVersion() >= 0x010300)
+
+    // The manager's recorder (the Features tab, "Recording"): the last few seconds of Lossless Scaling's frames, saved as a .lsrec file with a hotkey. The
+    // manager finds the frames Lossless Scaling captured by itself. An addon offers the frames only it has: the picture presented before its own is
+    // drawn on it, what an upscaler took in, its own made frames.
+    // RecorderFlags: bit 0 (1) the recorder is on; bit 1 (2) it records what is shown, so the addon should offer the presented frames (and an addon that
+    // has none of them offers nothing). Offer nothing while bit 0 is clear: it costs the addon's work for nothing. Any thread.
+    virtual uint32_t RecorderFlags() = 0;
+    // A frame for the recorder, from the render thread that owns d3d11Context (ID3D11DeviceContext*, ID3D11Texture2D*; borrowed, copied on the card
+    // before the call returns, never kept). source: 2 the presented frame, 3 an upscaler's input (1, the captured frame, is the manager's own and ignored).
+    // content: 0 the frame's own encoding, 1 an SDR view, 2 linear light. tag: 0 none, 1 a frame made between real ones, 2 a real frame. cropWidth x
+    // cropHeight (0: all): only the middle of the frame is kept, at full size.
+    virtual void RecorderOffer(void* d3d11Context, void* d3d11Texture2D, uint32_t source, uint32_t content, uint32_t tag, uint32_t cropWidth, uint32_t cropHeight) = 0;
+    // Saves what the recorder holds now as a file named after `name` (UTF-8; the date is added), and with clear takes the frames out of the recorder (the
+    // upscalers' comparison saves each mode's frames by themselves). Returns 1: saving has begun; 0: there was nothing to save (or the recorder is off);
+    // 2: a save is still running, try again in a moment.
+    virtual int RecorderSave(const char* name, bool clear) = 0;
 };

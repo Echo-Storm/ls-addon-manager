@@ -45,7 +45,7 @@ set(NR_ADDON_SOURCES
     src/addon/addon.cpp src/addon/runtime.cpp src/addon/panel.cpp src/addon/tasks.cpp src/addon/settings.cpp src/addon/log.cpp
     src/addon/screenshot.cpp src/addon/screenshot_pixels.cpp src/addon/hud_editor.cpp src/addon/auto_quality.cpp src/addon/gpu_load.cpp src/addon/agility.cpp
     src/addon/bridge.cpp src/addon/nis_pass.cpp src/addon/compare.cpp src/addon/frame_tap.cpp src/addon/gpu_timer11.cpp src/addon/frame_trace.cpp src/addon/diagnosis.cpp src/addon/source_cadence.cpp
-    src/addon/present_hook.cpp src/addon/compose11.cpp src/addon/requirements.cpp src/addon/scaler11.cpp src/addon/hdr.cpp src/addon/lsrec.cpp src/addon/recorder.cpp
+    src/addon/present_hook.cpp src/addon/compose11.cpp src/addon/requirements.cpp src/addon/scaler11.cpp src/addon/hdr.cpp src/addon/lsrec.cpp
     src/engine/nr_engine.cpp
     src/engine/dlaa_model.cpp src/engine/sr_engine.cpp src/engine/repeat_gate.cpp src/engine/flow_estimator.cpp
     ${imgui_SOURCE_DIR}/imgui.cpp ${imgui_SOURCE_DIR}/imgui_draw.cpp
@@ -89,7 +89,7 @@ endif()
 # ECHOFG: EchoFG frame generation, an addon of its own (src/echofg/echofg_addon.cpp), a prototype: built only in a test build (-DNR_FRAMEGEN=ON), never in a release until it is ready.
 # It needs AMD's FidelityFX runtime for its FSR 3.1 alternative, in an fsr folder next to it (the FSR Upscaler's copy).
 if(NR_FRAMEGEN)
-    add_library(ECHOFG SHARED src/echofg/echofg_addon.cpp src/addon/present_hook.cpp src/addon/framegen11.cpp src/addon/recorder.cpp src/addon/lsrec.cpp src/addon/hdr.cpp src/echofg/bridge_formats.cpp
+    add_library(ECHOFG SHARED src/echofg/echofg_addon.cpp src/addon/present_hook.cpp src/addon/framegen11.cpp src/addon/lsrec.cpp src/addon/hdr.cpp src/echofg/bridge_formats.cpp
         src/engine/fg_engine.cpp src/engine/own_synth.cpp src/engine/flow_estimator.cpp
         ${imgui_SOURCE_DIR}/imgui.cpp ${imgui_SOURCE_DIR}/imgui_draw.cpp ${imgui_SOURCE_DIR}/imgui_tables.cpp ${imgui_SOURCE_DIR}/imgui_widgets.cpp)
     target_include_directories(ECHOFG PRIVATE src ${CMAKE_SOURCE_DIR}/third_party/ffx/include ${CMAKE_SOURCE_DIR}/../../manager/sdk/include ${imgui_SOURCE_DIR})
@@ -120,11 +120,11 @@ else()
 endif()
 
 # ---- offline test host: loads the built addon with a fake IHost, headless ImGui and a synthetic LSFG pattern ----
-add_executable(nr_hosttest tools/addon_host_test.cpp src/addon/lsrec.cpp
+add_executable(nr_hosttest tools/addon_host_test.cpp src/addon/lsrec.cpp src/addon/recorder.cpp src/addon/frame_tap.cpp ${CMAKE_SOURCE_DIR}/../../manager/src/features/recorder_service.cpp
     ${imgui_SOURCE_DIR}/imgui.cpp ${imgui_SOURCE_DIR}/imgui_draw.cpp
     ${imgui_SOURCE_DIR}/imgui_tables.cpp ${imgui_SOURCE_DIR}/imgui_widgets.cpp
     ${imgui_SOURCE_DIR}/backends/imgui_impl_dx11.cpp)
-target_include_directories(nr_hosttest PRIVATE ${CMAKE_SOURCE_DIR}/src ${CMAKE_SOURCE_DIR}/../../manager/sdk/include ${CMAKE_SOURCE_DIR}/tools ${CMAKE_SOURCE_DIR}/../../manager/tools ${imgui_SOURCE_DIR} ${imgui_SOURCE_DIR}/backends)
+target_include_directories(nr_hosttest PRIVATE ${CMAKE_SOURCE_DIR}/src ${CMAKE_SOURCE_DIR}/../../manager/src ${CMAKE_SOURCE_DIR}/../../manager/sdk/include ${CMAKE_SOURCE_DIR}/tools ${CMAKE_SOURCE_DIR}/../../manager/tools ${imgui_SOURCE_DIR} ${imgui_SOURCE_DIR}/backends)
 target_link_libraries(nr_hosttest PRIVATE d3d11 dxgi d3dcompiler)
 add_dependencies(nr_hosttest DLSS5NR01 DLSS4DLAA FSR3UPSC)
 if(TARGET XESSUPSC)

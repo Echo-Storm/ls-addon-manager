@@ -17,7 +17,7 @@
 // appended at the end, so older addons keep working); bump the major number only for a break. It moves on its own,
 // not with the release number above.
 #define EAM_API_VERSION_MAJOR 1
-#define EAM_API_VERSION_MINOR 2
+#define EAM_API_VERSION_MINOR 3
 #define EAM_API_VERSION_PATCH 0
-#define EAM_API_VERSION_STRING "1.2.0"
+#define EAM_API_VERSION_STRING "1.3.0"
 #define EAM_API_VERSION_INT ((EAM_API_VERSION_MAJOR << 16) | (EAM_API_VERSION_MINOR << 8) | EAM_API_VERSION_PATCH)
