@@ -33,6 +33,13 @@ addons/DLSS5NR01/external/ngx/*
 # anything else dropped into external/ (SDK drops, snippets) stays out of the repo
 addons/DLSS5NR01/external/*
 !addons/DLSS5NR01/external/ngx/
+# the lab tools' SDK drops (research only, never shipped): only the notes about them are in git
+!addons/DLSS5NR01/external/streamline/
+addons/DLSS5NR01/external/streamline/*
+!addons/DLSS5NR01/external/streamline/README.md
+!addons/DLSS5NR01/external/nvof/
+addons/DLSS5NR01/external/nvof/*
+!addons/DLSS5NR01/external/nvof/README.md
 build_setup/
 imgui.ini
 
