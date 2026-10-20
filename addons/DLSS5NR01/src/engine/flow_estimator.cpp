@@ -28,7 +28,13 @@ RWTexture2D<float> uLuma : register(u0);
 void main(uint3 id : SV_DispatchThreadID) {
     if (id.x == 0 && id.y == 0) { uStats.Store4(0, uint4(0, 0, 0, 0)); uStats.Store4(16, uint4(0, 0, 0, 0)); }
     if (id.x >= size.x || id.y >= size.y) return;
-    uLuma[id.xy] = dot(ToSdr(tFrame.Load(int3(id.xy, 0)).rgb, radius, lambda), float3(0.299, 0.587, 0.114));
+    if (pad2 <= 1u) { uLuma[id.xy] = dot(ToSdr(tFrame.Load(int3(id.xy, 0)).rgb, radius, lambda), float3(0.299, 0.587, 0.114)); return; }
+    // the frame read at pad2 times this size: the mean of each pad2 x pad2 block
+    uint fw, fh; tFrame.GetDimensions(fw, fh);
+    float s = 0;
+    for (uint j = 0; j < pad2; ++j) for (uint i = 0; i < pad2; ++i)
+        s += dot(ToSdr(tFrame.Load(int3(min(id.xy * pad2 + uint2(i, j), uint2(fw, fh) - 1), 0)).rgb, radius, lambda), float3(0.299, 0.587, 0.114));
+    uLuma[id.xy] = s / float(pad2 * pad2);
 }
 )";
 
@@ -557,7 +563,7 @@ void FlowEstimator::Record(ID3D12GraphicsCommandList* list, int slot, ID3D12Reso
 
     {   // this frame's pyramid
         ID3D12Resource* const srv[4] = { frame, nullptr, nullptr, nullptr }; const DXGI_FORMAT fmt[4] = { frameFormat, NONE, NONE, NONE };
-        Constants c{ m_lw[0], m_lh[0] }; c.radius = encoding; c.lambda = whiteNits > 0.0f ? whiteNits : 80.0f;
+        Constants c{ m_lw[0], m_lh[0] }; c.radius = encoding; c.lambda = whiteNits > 0.0f ? whiteNits : 80.0f; c.pad[0] = static_cast<uint32_t>(m_inScale);
         run(Luma, srv, fmt, m_luma[cur][0], R16, c, m_lw[0], m_lh[0], true);
     }
     for (int k = 1; k < m_levels; ++k) {

@@ -38,6 +38,9 @@ public:
     void PrepareShape();
     struct ShapeJob { std::atomic<int> state{ 0 }; bool cancelled = false; ID3D12PipelineState* pso = nullptr; std::mutex mutex; };   // state: 0 not asked for, 1 compiling, 2 ready, 3 failed   // (public for the compile thread's function)
 
+    // The frame is read at this many times the analysis size (Ensure's w x h): 1 as the frame is, 2 for half size (each cell the mean of 2 x 2 pixels), up to 4. Set before Ensure; the
+    // vectors come out in the analysis size's pixels (times the scale: the frame's).
+    void SetInputScale(int scale) { m_inScale = scale < 1 ? 1 : scale > 4 ? 4 : scale; }
     bool NeedsResize(uint32_t w, uint32_t h) const { return w != m_w || h != m_h; }
     // Makes the pyramids and grids for frames of this size. retireAt 0: the GPU is not using the old ones (the caller waited). Otherwise the
     // old textures are kept until the caller's fence passes retireAt (Collect), so the frame path never waits for a size change.
@@ -62,6 +65,7 @@ public:
     // The average vector length (the frame's pixels) of the last frame whose statistics were read (ReadStats); 0 before any.
     double LastLength() const { return m_lastLength; }
     int Levels() const { return m_levels; }
+    int InputScale() const { return m_inScale; }
     // How far (pixels of each size) straying from the coarser size's guess costs more (the search pass): 2 by default; very large leaves it
     // uncapped, as it was until 2026-09-27 (for comparing).
     void SetStrayCap(float pixels) { m_strayCap = pixels; }
@@ -99,7 +103,7 @@ private:
     bool WantShape() const { return m_meanWeight < 0.999f || m_gradWeight > 0.001f; }
     void StartShapeCompile();
     ID3D12DescriptorHeap* m_heap = nullptr; uint32_t m_descriptorSize = 0;
-    uint32_t m_w = 0, m_h = 0; int m_levels = 0;
+    uint32_t m_w = 0, m_h = 0; int m_levels = 0, m_inScale = 1;
     uint32_t m_lw[kMaxLevels] = {}, m_lh[kMaxLevels] = {}, m_gw[kMaxLevels] = {}, m_gh[kMaxLevels] = {};
     ID3D12Resource* m_luma[2][kMaxLevels] = {};   // two pyramids: this frame's and the one before's (R16F, rest readable)
     ID3D12Resource* m_grid[kMaxLevels] = {};      // one vector per 4x4 block of each size from 1 up (RG16F, in that size's pixels, rest readable)

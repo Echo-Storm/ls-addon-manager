@@ -30,7 +30,7 @@ RWTexture2D<float4> uModes : register(u2);
 RWTexture2D<float4> uCells : register(u3);
 RWTexture2D<float2> uOut : register(u4);
 SamplerState sLin : register(s0);
-cbuffer C : register(b0) { uint2 fsize; uint2 csize; uint2 tiles; uint tile; uint reach; uint encoding; float white; uint cs; uint pad1; };   // cs: a cell is cs x cs pixels (2, or 4 at 1920 wide and up)
+cbuffer C : register(b0) { uint2 fsize; uint2 csize; uint2 tiles; uint tile; uint reach; uint encoding; float white; uint cs; uint S; uint2 fullsize; uint fixOn; uint pad1; };   // cs: a cell is cs x cs pixels (2, or 4 at 1920 wide and up)
 
 float3 View(float3 c) { return ToSdr(c, encoding, white); }
 float Luma255(float3 c) { return dot(View(c), float3(0.299, 0.587, 0.114)) * 255.0; }
@@ -156,13 +156,15 @@ float Contrast(int2 c) {
 
 // 4. the result at the frames' size
 [numthreads(8, 8, 1)] void Apply(uint3 id : SV_DispatchThreadID) {
-    if (id.x >= fsize.x || id.y >= fsize.y) return;
-    const float4 cell = tCells.Load(int3(min(int2(id.xy) / int(cs), int2(csize) - 1), 0));
-    uOut[id.xy] = cell.z > 0.5 ? cell.xy : tMotion.Load(int3(id.xy, 0));
+    if (id.x >= fullsize.x || id.y >= fullsize.y) return;
+    const int2 a = min(int2(id.xy) / int(S), int2(fsize) - 1);   // the estimate's pixel (S: how much larger the frames are)
+    float2 v = tMotion.Load(int3(a, 0));
+    if (fixOn != 0u) { const float4 cell = tCells.Load(int3(min(a / int(cs), int2(csize) - 1), 0)); if (cell.z > 0.5) v = cell.xy; }
+    uOut[id.xy] = v * float(S);
 }
 )";
 
-struct Constants { uint32_t fw, fh, cw, ch, tx, ty, tile, reach, encoding; float white; uint32_t cs, pad1; };
+struct Constants { uint32_t fw, fh, cw, ch, tx, ty, tile, reach, encoding; float white; uint32_t cs, S, fullW, fullH, fixOn, pad1; };
 
 void Transition(ID3D12GraphicsCommandList* list, ID3D12Resource* r, D3D12_RESOURCE_STATES a, D3D12_RESOURCE_STATES b) {
     D3D12_RESOURCE_BARRIER br{}; br.Type = D3D12_RESOURCE_BARRIER_TYPE_TRANSITION; br.Transition = { r, D3D12_RESOURCE_BARRIER_ALL_SUBRESOURCES, a, b };
@@ -229,9 +231,11 @@ void FlowFix::Shutdown() {
     m_ready = false; m_dev = nullptr;
 }
 
-bool FlowFix::Ensure(uint32_t w, uint32_t h) {
+bool FlowFix::Ensure(uint32_t w, uint32_t h, uint32_t scale, uint32_t fullW, uint32_t fullH) {
     if (!m_dev) return false;
-    if (w == m_w && h == m_h && m_lumaA) return true;
+    if (!fullW) fullW = w;
+    if (!fullH) fullH = h;
+    if (w == m_w && h == m_h && fullW == m_fw && fullH == m_fh && m_lumaA) return true;
     Release();
     m_cs = w >= 1920 ? 4u : 2u;
     m_cw = (w + m_cs - 1) / m_cs; m_ch = (h + m_cs - 1) / m_cs;
@@ -247,12 +251,12 @@ bool FlowFix::Ensure(uint32_t w, uint32_t h) {
         !make(m_cells, m_cw, m_ch, DXGI_FORMAT_R16G16B16A16_FLOAT)) {
         Log("flow fix: textures could not be made"); Release(); return false;
     }
-    m_w = w; m_h = h;
+    m_w = w; m_h = h; m_s = std::max(1u, scale); m_fw = fullW; m_fh = fullH;
     return true;
 }
 
 bool FlowFix::Record(ID3D12GraphicsCommandList* list, int slot, ID3D12Resource* before, DXGI_FORMAT beforeFormat, ID3D12Resource* now, DXGI_FORMAT nowFormat,
-                     ID3D12Resource* motion, ID3D12Resource* distrust, ID3D12Resource* out, uint32_t encoding, float whiteNits) {
+                     ID3D12Resource* motion, ID3D12Resource* distrust, ID3D12Resource* out, uint32_t encoding, float whiteNits, bool fix) {
     if (!m_ready || !m_lumaA || !before || !now || !motion || !distrust || !out) return false;
     D3D12_CPU_DESCRIPTOR_HANDLE cpu = m_heap->GetCPUDescriptorHandleForHeapStart(); cpu.ptr += static_cast<SIZE_T>(slot % kSlots) * kPerSlot * m_descriptorSize;
     D3D12_GPU_DESCRIPTOR_HANDLE gpu = m_heap->GetGPUDescriptorHandleForHeapStart(); gpu.ptr += static_cast<UINT64>(slot % kSlots) * kPerSlot * m_descriptorSize;
@@ -281,24 +285,26 @@ bool FlowFix::Record(ID3D12GraphicsCommandList* list, int slot, ID3D12Resource* 
     list->SetComputeRootDescriptorTable(0, gpu);
     D3D12_GPU_DESCRIPTOR_HANDLE ugpu = gpu; ugpu.ptr += static_cast<UINT64>(kSrvs) * m_descriptorSize;
     list->SetComputeRootDescriptorTable(1, ugpu);
-    const Constants c{ m_w, m_h, m_cw, m_ch, m_tx, m_ty, m_tile, m_w >= 1920u ? 2u : 3u, encoding, whiteNits > 0.0f ? whiteNits : 80.0f, m_cs, 0 };
+    const Constants c{ m_w, m_h, m_cw, m_ch, m_tx, m_ty, m_tile, m_w >= 1920u ? 2u : 3u, encoding, whiteNits > 0.0f ? whiteNits : 80.0f, m_cs, m_s, m_fw, m_fh, fix ? 1u : 0u, 0 };
     list->SetComputeRoot32BitConstants(2, sizeof(Constants) / 4, &c, 0);
     const D3D12_RESOURCE_STATES uavState = D3D12_RESOURCE_STATE_UNORDERED_ACCESS, srvState = D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE;
     auto uavBarrier = [&]() { D3D12_RESOURCE_BARRIER b{}; b.Type = D3D12_RESOURCE_BARRIER_TYPE_UAV; b.UAV.pResource = nullptr; list->ResourceBarrier(1, &b); };
     const UINT gx = (m_cw + 7) / 8, gy = (m_ch + 7) / 8;
-    // 1. half-size brightness
-    list->SetPipelineState(m_pso[Luma]); list->Dispatch(gx, gy, 1);
-    Transition(list, m_lumaA, uavState, srvState); Transition(list, m_lumaC, uavState, srvState);
-    // 2. each tile's dominant vector
-    list->SetPipelineState(m_pso[TileMode]); list->Dispatch(m_tx, m_ty, 1);
-    Transition(list, m_modes, uavState, srvState);
-    // 3. each cell's decision
-    list->SetPipelineState(m_pso[Decide]); list->Dispatch(gx, gy, 1);
-    Transition(list, m_cells, uavState, srvState);
-    // 4. the result
-    list->SetPipelineState(m_pso[Apply]); list->Dispatch((m_w + 7) / 8, (m_h + 7) / 8, 1);
+    if (fix) {
+        // 1. half-size brightness
+        list->SetPipelineState(m_pso[Luma]); list->Dispatch(gx, gy, 1);
+        Transition(list, m_lumaA, uavState, srvState); Transition(list, m_lumaC, uavState, srvState);
+        // 2. each tile's dominant vector
+        list->SetPipelineState(m_pso[TileMode]); list->Dispatch(m_tx, m_ty, 1);
+        Transition(list, m_modes, uavState, srvState);
+        // 3. each cell's decision
+        list->SetPipelineState(m_pso[Decide]); list->Dispatch(gx, gy, 1);
+        Transition(list, m_cells, uavState, srvState);
+    }
+    // 4. the result, at the frames' size
+    list->SetPipelineState(m_pso[Apply]); list->Dispatch((m_fw + 7) / 8, (m_fh + 7) / 8, 1);
     uavBarrier();
-    Transition(list, m_lumaA, srvState, uavState); Transition(list, m_lumaC, srvState, uavState); Transition(list, m_modes, srvState, uavState); Transition(list, m_cells, srvState, uavState);
+    if (fix) { Transition(list, m_lumaA, srvState, uavState); Transition(list, m_lumaC, srvState, uavState); Transition(list, m_modes, srvState, uavState); Transition(list, m_cells, srvState, uavState); }
     if (m_stamps) {
         list->EndQuery(m_stamps, D3D12_QUERY_TYPE_TIMESTAMP, static_cast<UINT>(slot % kSlots) * 2 + 1);
         list->ResolveQueryData(m_stamps, D3D12_QUERY_TYPE_TIMESTAMP, static_cast<UINT>(slot % kSlots) * 2, 2, m_stampReadback, static_cast<UINT64>(slot % kSlots) * 16);

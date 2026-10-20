@@ -200,7 +200,30 @@ bool FgEngine::Init(const LUID& card, const std::wstring& runtimeDll, uint32_t w
         const bool ok = WaitFence(m_fenceValue, 5000); up->Release();
         if (!ok) return Fail("the GPU did not finish setting up");
     }
-    if (!m_estimator.Init(m_dev, [this](const char* m) { Log("%s", m); }) || !m_estimator.Ensure(w, h)) return Fail("the motion estimate could not start");
+    {   // the motion's size: the frames' own up to 2560 wide, half of it on bigger ones (4K); NR_ANALYSIS_SCALE=1..4 sets it. The flow fix is what brings it back up, so it starts here then
+        char env[16]; int want = (GetEnvironmentVariableA("NR_ANALYSIS_SCALE", env, 16) && atoi(env) >= 1) ? atoi(env) : (w > 2560 ? 2 : 1);
+        m_scale = std::clamp(want, 1, 4);
+        m_fixOn = !(GetEnvironmentVariableA("NR_FLOW_FIX", env, 16) && atoi(env) == 0);
+        if (m_scale > 1) {
+            const uint32_t aw = (w + m_scale - 1) / m_scale, ah = (h + m_scale - 1) / m_scale;
+            auto analysisTexture = [&](DXGI_FORMAT f) {
+                D3D12_HEAP_PROPERTIES heap{}; heap.Type = D3D12_HEAP_TYPE_DEFAULT;
+                D3D12_RESOURCE_DESC d{}; d.Dimension = D3D12_RESOURCE_DIMENSION_TEXTURE2D; d.Width = aw; d.Height = ah; d.DepthOrArraySize = 1; d.MipLevels = 1; d.SampleDesc.Count = 1;
+                d.Format = f; d.Flags = D3D12_RESOURCE_FLAG_ALLOW_UNORDERED_ACCESS;
+                ID3D12Resource* r = nullptr; m_dev->CreateCommittedResource(&heap, D3D12_HEAP_FLAG_NONE, &d, D3D12_RESOURCE_STATE_UNORDERED_ACCESS, nullptr, IID_PPV_ARGS(&r)); return r;
+            };
+            m_motionA = analysisTexture(DXGI_FORMAT_R16G16_FLOAT); m_distrustA = analysisTexture(DXGI_FORMAT_R8_UNORM);
+            if (!m_motionA || !m_distrustA || !m_fix.Init(m_dev, [this](const char* m) { Log("%s", m); }) || !m_fix.Ensure(aw, ah, m_scale, w, h)) {
+                Log("frame generation engine: the motion cannot be estimated at a smaller size here; it is estimated at the frames' size");
+                m_fix.Shutdown(); SafeRelease(m_motionA); SafeRelease(m_distrustA); m_scale = 1;
+            } else {
+                m_fixReady = true;
+                Log("frame generation engine: the motion is estimated at 1/%d of the frames' size (%ux%u) and brought back up", m_scale, aw, ah);
+            }
+        }
+        m_estimator.SetInputScale(m_scale);
+    }
+    if (!m_estimator.Init(m_dev, [this](const char* m) { Log("%s", m); }) || !m_estimator.Ensure((w + m_scale - 1) / m_scale, (h + m_scale - 1) / m_scale)) return Fail("the motion estimate could not start");
 
     // AMD's runtime and the frame generation context, told to leave swap chains alone: we dispatch it ourselves
     m_ffx = new Ffx;
@@ -232,7 +255,7 @@ void FgEngine::Shutdown() {
         delete m_ffx; m_ffx = nullptr;
     }
     if (m_synthThread.joinable()) m_synthThread.join();
-    m_estimator.Shutdown(); m_synth.Shutdown(); m_fix.Shutdown(); SafeRelease(m_motionFix); m_fixReady = false; m_synthState = 0; m_synthReady = false;
+    m_estimator.Shutdown(); m_synth.Shutdown(); m_fix.Shutdown(); SafeRelease(m_motionFix); SafeRelease(m_motionA); SafeRelease(m_distrustA); m_fixReady = false; m_scale = 1; m_synthState = 0; m_synthReady = false;
     SafeRelease(m_motion); SafeRelease(m_distrust); SafeRelease(m_depth); SafeRelease(m_made); for (auto*& r : m_madeMore) SafeRelease(r);
     SafeRelease(m_before); SafeRelease(m_guarded); SafeRelease(m_guardPso); SafeRelease(m_guardRoot); SafeRelease(m_guardHeap); m_haveBefore = false;
     SafeRelease(m_stamps); SafeRelease(m_stampReadback);
@@ -277,14 +300,13 @@ void FgEngine::InitSynth() {
     }
     m_synth.SetTimestampFrequency(0);
     const bool ok = m_synth.Init(m_dev, [this](const char* m) { Log("%s", m); }) && m_synth.Ensure(m_w, m_h);
-    static const bool fixAllowed = [] { char b[16]; return !(GetEnvironmentVariableA("NR_FLOW_FIX", b, 16) && atoi(b) == 0); }();
-    if (ok && fixAllowed && m_fix.Init(m_dev, [this](const char* m) { Log("%s", m); }) && m_fix.Ensure(m_w, m_h)) {
+    if (ok && m_fixOn && m_scale == 1 && m_fix.Init(m_dev, [this](const char* m) { Log("%s", m); }) && m_fix.Ensure(m_w, m_h)) {
         D3D12_HEAP_PROPERTIES heap{}; heap.Type = D3D12_HEAP_TYPE_DEFAULT;
         D3D12_RESOURCE_DESC d{}; d.Dimension = D3D12_RESOURCE_DIMENSION_TEXTURE2D; d.Width = m_w; d.Height = m_h; d.DepthOrArraySize = 1; d.MipLevels = 1; d.SampleDesc.Count = 1;
         d.Format = DXGI_FORMAT_R16G16_FLOAT; d.Flags = D3D12_RESOURCE_FLAG_ALLOW_UNORDERED_ACCESS;
         m_fixReady = SUCCEEDED(m_dev->CreateCommittedResource(&heap, D3D12_HEAP_FLAG_NONE, &d, D3D12_RESOURCE_STATE_UNORDERED_ACCESS, nullptr, IID_PPV_ARGS(&m_motionFix)));
     }
-    Log(m_fixReady ? "frame generation engine: the picture at large corrects the motion" : "frame generation engine: the motion is used as estimated");
+    Log(m_fixReady && m_fixOn ? "frame generation engine: the picture at large corrects the motion" : "frame generation engine: the motion is used as estimated");
     Log(ok ? "frame generation engine: EchoFG ready" : "frame generation engine: EchoFG could not start; FSR makes the frames");
     m_synthState = ok ? 2 : 3;
     m_synthReady = ok;
@@ -321,9 +343,21 @@ int FgEngine::GenerateFrames(ID3D12Resource* in, ID3D12Fence* copied, uint64_t n
     Barrier(in, D3D12_RESOURCE_STATE_COMMON, D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE);
     const double beforeEstimator = sinceMs();
     double beforeSynth = 0.0, afterSynth = 0.0;
-    m_estimator.Record(m_list, slot, in, m_fmt, m_motion, m_distrust, 0.0f, encoding, whiteNits);
+    const bool scaled = m_scale > 1;   // the estimate in smaller textures, brought up to m_motion by the flow fix (upsample below)
+    ID3D12Resource* const estMotion = scaled ? m_motionA : m_motion; ID3D12Resource* const estDistrust = scaled ? m_distrustA : m_distrust;
+    m_estimator.Record(m_list, slot, in, m_fmt, estMotion, estDistrust, 0.0f, encoding, whiteNits);
     const double afterEstimator = sinceMs();
-    Barrier(m_motion, D3D12_RESOURCE_STATE_UNORDERED_ACCESS, D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE);
+    Barrier(estMotion, D3D12_RESOURCE_STATE_UNORDERED_ACCESS, D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE);
+    bool upsampled = !scaled;
+    // scaled: the estimate to the frames' size in m_motion (corrected too when withFrames: needs the frame before readable), left readable like the unscaled estimate
+    auto upsample = [&](bool withFrames) {
+        Barrier(m_distrustA, D3D12_RESOURCE_STATE_UNORDERED_ACCESS, D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE);
+        const bool fixing = withFrames && m_fixOn;
+        m_fix.Record(m_list, slot, fixing ? m_before : in, fixing ? StorageFormat(m_fmt) : m_fmt, in, m_fmt, m_motionA, m_distrustA, m_motion, encoding, whiteNits, fixing);
+        Barrier(m_distrustA, D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE, D3D12_RESOURCE_STATE_UNORDERED_ACCESS);
+        Barrier(m_motion, D3D12_RESOURCE_STATE_UNORDERED_ACCESS, D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE);
+        upsampled = true;
+    };
     const bool first = reset || m_frameId == 0;
     if (m_own && m_synthState == 0) StartSynth();   // (ready some frames later: FSR makes the frames meanwhile)
     const bool ownNow = m_own && m_synthReady;
@@ -353,7 +387,8 @@ int FgEngine::GenerateFrames(ID3D12Resource* in, ID3D12Fence* copied, uint64_t n
                 Barrier(m_before, D3D12_RESOURCE_STATE_COPY_DEST, D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE);
                 beforeSynth = sinceMs();
                 ID3D12Resource* motionUsed = m_motion;
-                if (m_fixReady) {   // the picture at large: the vectors corrected where a block cannot tell, into a texture of its own
+                if (scaled) upsample(true);   // (the picture at large too: the corrected vectors come up into m_motion)
+                else if (m_fixReady && m_fixOn) {   // the picture at large: the vectors corrected where a block cannot tell, into a texture of its own
                     Barrier(m_distrust, D3D12_RESOURCE_STATE_UNORDERED_ACCESS, D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE);
                     if (m_fix.Record(m_list, slot, m_before, StorageFormat(m_fmt), in, m_fmt, m_motion, m_distrust, m_motionFix, encoding, whiteNits)) {
                         Barrier(m_motionFix, D3D12_RESOURCE_STATE_UNORDERED_ACCESS, D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE);
@@ -368,6 +403,7 @@ int FgEngine::GenerateFrames(ID3D12Resource* in, ID3D12Fence* copied, uint64_t n
             }
         } else ok = false;
     } else if (ok) {
+        if (!upsampled) upsample(false);
         ffxDispatchDescFrameGenerationPrepare prep{}; prep.header.type = FFX_API_DISPATCH_DESC_TYPE_FRAMEGENERATION_PREPARE;
         prep.frameID = m_frameId; prep.commandList = m_list; prep.renderSize = { m_w, m_h }; prep.jitterOffset = { 0, 0 }; prep.motionVectorScale = { 1.0f, 1.0f };
         prep.frameTimeDelta = frameMs; prep.cameraNear = 0.1f; prep.cameraFar = 1000.0f; prep.cameraFovAngleVertical = 1.0f; prep.viewSpaceToMetersFactor = 1.0f;
@@ -414,7 +450,7 @@ int FgEngine::GenerateFrames(ID3D12Resource* in, ID3D12Fence* copied, uint64_t n
         m_list->SetComputeRootDescriptorTable(1, gu);
         // slow: a fifth of the picture's average motion (its last measured frame), at least 3 px; the reach for a character's shift with the width
         const GuardConstants c{ m_w, m_h, static_cast<int32_t>(std::max(2u, m_w / 640)), 16.0f, 15.0f,
-                                static_cast<float>(std::max(3.0, 0.2 * m_estimator.LastLength())), encoding, whiteNits > 0.0f ? whiteNits : 80.0f };
+                                static_cast<float>(std::max(3.0, 0.2 * m_estimator.LastLength() * m_scale)), encoding, whiteNits > 0.0f ? whiteNits : 80.0f };
         m_list->SetComputeRoot32BitConstants(2, sizeof(GuardConstants) / 4, &c, 0);
         m_list->Dispatch((m_w + 7) / 8, (m_h + 7) / 8, 1);
         Barrier(m_before, D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE, D3D12_RESOURCE_STATE_COPY_DEST);
@@ -437,7 +473,9 @@ int FgEngine::GenerateFrames(ID3D12Resource* in, ID3D12Fence* copied, uint64_t n
         m_haveBefore = true;
     }
     Barrier(in, D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE, D3D12_RESOURCE_STATE_COMMON);
+    if (!upsampled) upsample(false);   // (no frame consumed the motion: it still has to end in the state the next frame expects)
     Barrier(m_motion, D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE, D3D12_RESOURCE_STATE_UNORDERED_ACCESS);
+    if (scaled) Barrier(m_motionA, D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE, D3D12_RESOURCE_STATE_UNORDERED_ACCESS);
     if (m_stamps) {
         m_list->EndQuery(m_stamps, D3D12_QUERY_TYPE_TIMESTAMP, static_cast<UINT>(slot * 2 + 1));
         if (m_stampReadback) m_list->ResolveQueryData(m_stamps, D3D12_QUERY_TYPE_TIMESTAMP, static_cast<UINT>(slot * 2), 2, m_stampReadback, static_cast<UINT64>(slot) * 16);

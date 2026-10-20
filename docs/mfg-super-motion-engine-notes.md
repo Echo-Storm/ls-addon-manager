@@ -142,3 +142,10 @@ Lab only (`tools/flowlab/field_lab.py`, each idea applied to both flow fields an
 - Fix: a tile's vector is used only when it agrees with at least a quarter of all the trusted pixels in the window, moving or not (`gAll`). The losses are gone (36.89 against 36.90, 38.81 against 38.81) and the made-up scene still gains (the repeating block -0.76 -> +9.27 dB, whole +5.28 -> +5.91).
 - Cost at 1920x1080: about 1 ms a pair (median 0.2-1.4 ms).
 - What the clips do not show: a gain on the fence or the power line themselves. Whole-frame scores hide a small region; a crop score or a look at the frames is still to do.
+
+### EchoFG at 4K: the motion estimated at half size (2026-10-20)
+
+- Report: on a 4K HDR game that ran 47-55 fps with frame generation off, EchoFG took the real frames down to about 14 fps. The log showed the real frames 70 ms apart; the plain-blend mode showed the same, so the cost was GPU load, not a stall. Measured at 2560x1440 (nr_fgeval): the estimate 3-6 ms, the picture-at-large fix 2-3 ms, the synthesis 3.5-7 ms a pair; at 4K these are about 2.25 times larger, on top of a game that already filled the card.
+- Change: from 2561 pixels wide the motion is estimated at half the frames' size (`FlowEstimator::SetInputScale`: the luma pass takes the mean of 2 x 2 pixels) and brought back to the frames' size by FlowFix's last pass (vectors times 2), which also applies the picture-at-large correction. `NR_ANALYSIS_SCALE=1..4` sets the scale by hand; `NR_FLOW_FIX=0` keeps the step up but not the correction. nr_fgeval: `analysis=2`.
+- At 2560x1440 with analysis=2 (the same ratio a 4K frame gets): the estimate 3-4.5 ms -> 1.1-1.7 ms, the fix 1.7 -> 0.5 ms; scores 25.52 -> 25.54, 38.75 -> 38.05 (with the fix 38.11) and 27.14 -> 27.06 dB on three recordings. The synthesis itself still runs at the frames' full size.
+- Not yet measured: the live frame rate at 4K (the presenter test cannot show GPU time; its 4K run only shows both scales within its noise).

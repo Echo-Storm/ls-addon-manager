@@ -603,6 +603,7 @@ int main(int argc, char** argv) {
     // own=1: the frame between made by this project's own synthesis (src/engine/own_synth.cpp: both flows, splatted to the time, holes filled by direction) instead of FSR; owt=N: its time in thousandths (500)
     const float ownSoft = Arg(argc, argv, "ownsoft", 60) / 100.0f;   // ownsoft=N: how far EchoFG leans toward the plain mix where its motion is doubtful, percent (60)
     const std::string mvFile = ArgText(argc, argv, "mvfile");   // mvfile=FILE: the motion vectors come from this file (float32 x, y per pixel, one W x H block per kept pair, the flow at the later frame back to the earlier: what tools/flowlab writes, or a corrected copy of it) instead of the estimate
+    const int analysis = std::clamp(Arg(argc, argv, "analysis", 1), 1, 4);   // analysis=2: the motion estimated at half the frames' size and brought back up by FlowFix (with flowfix=1, corrected too)
     const bool flowFix = Arg(argc, argv, "flowfix", 0) != 0;   // flowfix=1: EchoFG's motion corrected by the picture at large (FlowFix) before the synthesis
     const bool ownDirect = Arg(argc, argv, "owndirect", 0) != 0;   // owndirect=1: EchoFG's direct draw (a second motion estimate, the pair the other way round) instead of the splat synthesis
     const bool useOwn = Arg(argc, argv, "own", 0) != 0; const float ownT = Arg(argc, argv, "owt", 500) / 1000.0f;
@@ -644,7 +645,7 @@ int main(int argc, char** argv) {
 
     Gpu g; if (!g.Init()) { printf("no Direct3D 12 device\n"); return 4; }
     FlowEstimator est;
-    if (!est.Init(g.dev, [](const char* m) { printf("  %s\n", m); }) || !est.Ensure(W, H)) { printf("the motion estimate could not start\n"); return 4; }
+    if (!est.Init(g.dev, [](const char* m) { printf("  %s\n", m); }) || (est.SetInputScale(analysis), !est.Ensure((W + analysis - 1) / analysis, (H + analysis - 1) / analysis))) { printf("the motion estimate could not start\n"); return 4; }
     if (const int cap = Arg(argc, argv, "straycap", -1); cap >= 0) est.SetStrayCap(cap == 0 ? 1e9f : static_cast<float>(cap));   // straycap=N (0: uncapped, as before)
     if (const int mw = Arg(argc, argv, "meanweight", -1); mw >= 0) est.SetMeanWeight(mw / 100.0f);   // meanweight=N: percent (100: the plain difference)
     if (const int gw = Arg(argc, argv, "gradweight", -1); gw >= 0) est.SetGradWeight(gw / 100.0f);   // gradweight=N: percent the edges count (0: the plain difference)
@@ -654,6 +655,8 @@ int main(int argc, char** argv) {
     ID3D12Resource* cur = g.Texture(W, H, DXGI_FORMAT_R8G8B8A8_UNORM, false, D3D12_RESOURCE_STATE_COPY_DEST);
     ID3D12Resource* motion = g.Texture(W, H, DXGI_FORMAT_R16G16_FLOAT, true, D3D12_RESOURCE_STATE_UNORDERED_ACCESS);
     ID3D12Resource* distrust = g.Texture(W, H, DXGI_FORMAT_R8_UNORM, true, D3D12_RESOURCE_STATE_UNORDERED_ACCESS);
+    ID3D12Resource* motionA = analysis > 1 ? g.Texture((W + analysis - 1) / analysis, (H + analysis - 1) / analysis, DXGI_FORMAT_R16G16_FLOAT, true, D3D12_RESOURCE_STATE_UNORDERED_ACCESS) : motion;   // (the estimate's own size)
+    ID3D12Resource* distrustA = analysis > 1 ? g.Texture((W + analysis - 1) / analysis, (H + analysis - 1) / analysis, DXGI_FORMAT_R8_UNORM, true, D3D12_RESOURCE_STATE_UNORDERED_ACCESS) : distrust;
     ID3D12Resource* depth = g.Texture(W, H, DXGI_FORMAT_R32_FLOAT, false, D3D12_RESOURCE_STATE_COPY_DEST);
     D3D12_RESOURCE_DESC texDesc = cur->GetDesc(); D3D12_PLACED_SUBRESOURCE_FOOTPRINT fp{}; UINT rows = 0; UINT64 rowBytes = 0, total = 0;
     g.dev->GetCopyableFootprints(&texDesc, 0, 1, 0, &fp, &rows, &rowBytes, &total);
@@ -849,8 +852,8 @@ int main(int argc, char** argv) {
                 return true;
             };
             static nr::FlowFix ff; static ID3D12Resource* motionFix = nullptr;
-            if (flowFix) {
-                if (!ff.Init(g.dev, [](const char* m) { printf("  %s\n", m); }) || !ff.Ensure(W, H)) { printf("the flow fix could not start\n"); return 4; }
+            if (flowFix || analysis > 1) {
+                if (!ff.Init(g.dev, [](const char* m) { printf("  %s\n", m); }) || !ff.Ensure((W + analysis - 1) / analysis, (H + analysis - 1) / analysis, analysis, W, H)) { printf("the flow fix could not start\n"); return 4; }
                 { UINT64 qf = 0; g.queue->GetTimestampFrequency(&qf); ff.SetTimestampFrequency(qf); }
                 motionFix = g.Texture(W, H, DXGI_FORMAT_R16G16_FLOAT, true, D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE);
                 printf("  own synthesis: the picture at large corrects the motion (flow fix)\n");
@@ -875,12 +878,14 @@ int main(int argc, char** argv) {
                         g.Barrier(motionRev, D3D12_RESOURCE_STATE_UNORDERED_ACCESS, D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE);
                     }
                     ID3D12Resource* motionForSynth = motion;
-                    if (flowFix) {   // the picture at large: the estimate's vectors corrected where a block cannot tell (repeating lines, plain), into a texture of its own
-                        g.Barrier(distrust, D3D12_RESOURCE_STATE_UNORDERED_ACCESS, D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE);
+                    if (flowFix || analysis > 1) {   // the picture at large: the estimate's vectors corrected where a block cannot tell (repeating lines, plain), into a texture of its own
+                        g.Barrier(distrustA, D3D12_RESOURCE_STATE_UNORDERED_ACCESS, D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE);
+                        if (analysis > 1) g.Barrier(motionA, D3D12_RESOURCE_STATE_UNORDERED_ACCESS, D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE);
                         g.Barrier(motionFix, D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE, D3D12_RESOURCE_STATE_UNORDERED_ACCESS);
-                        ff.Record(g.list, 0, prevTex, DXGI_FORMAT_R8G8B8A8_UNORM, cur, DXGI_FORMAT_R8G8B8A8_UNORM, motion, distrust, motionFix);
+                        ff.Record(g.list, 0, prevTex, DXGI_FORMAT_R8G8B8A8_UNORM, cur, DXGI_FORMAT_R8G8B8A8_UNORM, motionA, distrustA, motionFix, 0, 80.0f, flowFix);
                         g.Barrier(motionFix, D3D12_RESOURCE_STATE_UNORDERED_ACCESS, D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE);
-                        g.Barrier(distrust, D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE, D3D12_RESOURCE_STATE_UNORDERED_ACCESS);
+                        g.Barrier(distrustA, D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE, D3D12_RESOURCE_STATE_UNORDERED_ACCESS);
+                        if (analysis > 1) g.Barrier(motionA, D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE, D3D12_RESOURCE_STATE_UNORDERED_ACCESS);
                         motionForSynth = motionFix;
                     }
                     if (!syn.Record(g.list, 0, prevTex, DXGI_FORMAT_R8G8B8A8_UNORM, cur, DXGI_FORMAT_R8G8B8A8_UNORM, motionForSynth, DXGI_FORMAT_R8G8B8A8_UNORM, tgts.data(), static_cast<int>(tgts.size()), 0, 80.0f, ownSoft, 1.0f, ownDirect ? motionRev : nullptr)) { printf("own synthesis failed\n"); return false; }
@@ -1123,7 +1128,7 @@ int main(int argc, char** argv) {
         g.list->CopyTextureRegion(&to, 0, 0, 0, &from, nullptr);
         g.Barrier(cur, D3D12_RESOURCE_STATE_COPY_DEST, D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE); curState = D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE;
         // the motion from the kept frame before to this one (the estimate keeps the frame before itself), left readable for the generator
-        if (estIn.empty()) est.Record(g.list, 0, cur, DXGI_FORMAT_R8G8B8A8_UNORM, motion, distrust);
+        if (estIn.empty()) est.Record(g.list, 0, cur, DXGI_FORMAT_R8G8B8A8_UNORM, motionA, distrustA);
         else {   // the estimate fed the frame as light (half floats, 1 = the SDR white), as Lossless Scaling's HDR frames reach it live
             static ID3D12Resource* light = nullptr; static ID3D12Resource* lightUp = nullptr; static D3D12_PLACED_SUBRESOURCE_FOOTPRINT lfp{};
             if (!light) {

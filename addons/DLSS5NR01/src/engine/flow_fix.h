@@ -29,12 +29,14 @@ public:
     void Shutdown();
     bool IsReady() const { return m_ready; }
     // Textures for frames of this size (the old ones are released at once: the caller has waited for the GPU, or sizes do not change while running).
-    bool Ensure(uint32_t w, uint32_t h);
+    // With analysis smaller than the frames (the estimate made at 1/scale of their size: w x h is the analysis size, fullW x fullH the frames'), the output is the frames' size and the
+    // vectors are multiplied by scale: this is also the step that brings the estimate back up.
+    bool Ensure(uint32_t w, uint32_t h, uint32_t scale = 1, uint32_t fullW = 0, uint32_t fullH = 0);
     // before, now: the two frames (NON_PIXEL_SHADER_RESOURCE, any format a shader reads as colour, same size); motion: the estimate (RG16F, pixel vectors now -> before,
-    // NON_PIXEL_SHADER_RESOURCE); distrust: its mask (R8, same state); out: the corrected vectors (RG16F, UNORDERED_ACCESS before and after). encoding / whiteNits: as OwnSynth::Record.
+    // NON_PIXEL_SHADER_RESOURCE; fix false: no correction, only the step up in size); distrust: its mask (R8, same state); out: the corrected vectors (RG16F, UNORDERED_ACCESS before and after). encoding / whiteNits: as OwnSynth::Record.
     // Leaves the list's descriptor heap and root signature changed.
     bool Record(ID3D12GraphicsCommandList* list, int slot, ID3D12Resource* before, DXGI_FORMAT beforeFormat, ID3D12Resource* now, DXGI_FORMAT nowFormat,
-                ID3D12Resource* motion, ID3D12Resource* distrust, ID3D12Resource* out, uint32_t encoding = 0, float whiteNits = 80.0f);
+                ID3D12Resource* motion, ID3D12Resource* distrust, ID3D12Resource* out, uint32_t encoding = 0, float whiteNits = 80.0f, bool fix = true);
     // With a timestamp frequency (the queue's) the passes are timed on the GPU: ReadMs(slot) after the slot's work has finished.
     void SetTimestampFrequency(uint64_t f) { m_freq = f; }
     bool ReadMs(int slot, double& ms);
@@ -49,7 +51,7 @@ private:
     ID3D12Device* m_dev = nullptr; ID3D12RootSignature* m_root = nullptr; ID3D12PipelineState* m_pso[EntryCount] = {};
     ID3D12DescriptorHeap* m_heap = nullptr; uint32_t m_descriptorSize = 0;
     ID3D12Resource *m_lumaA = nullptr, *m_lumaC = nullptr, *m_modes = nullptr, *m_cells = nullptr;   // half-size brightness of both frames; per tile: the mode; per cell (2 x 2 pixels, or 4 x 4 from 1920 wide): the vector to use
-    uint32_t m_w = 0, m_h = 0, m_cw = 0, m_ch = 0, m_cs = 2, m_tile = 32, m_tx = 0, m_ty = 0;
+    uint32_t m_w = 0, m_h = 0, m_cw = 0, m_ch = 0, m_cs = 2, m_tile = 32, m_tx = 0, m_ty = 0, m_s = 1, m_fw = 0, m_fh = 0;
     bool m_ready = false;
     ID3D12QueryHeap* m_stamps = nullptr; ID3D12Resource* m_stampReadback = nullptr; uint64_t m_freq = 0;
 };
