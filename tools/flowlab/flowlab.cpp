@@ -47,7 +47,7 @@ static std::string Arg(int argc, char** argv, const char* key, const char* fallb
 }
 
 int main(int argc, char** argv) {
-    const std::string clipPath = Arg(argc, argv, "clip"), outDir = Arg(argc, argv, "out", ".");
+    const std::string clipPath = Arg(argc, argv, "clip"), outDir = Arg(argc, argv, "out", "."), rawPath = Arg(argc, argv, "rawframes");   // rawframes=FILE: frames in the layout flowlab writes (a made-up scene, tools/flowlab/make_synth_clip.py) in place of a clip
     int W = 1280, H = 720; sscanf(Arg(argc, argv, "size", "1280x720").c_str(), "%dx%d", &W, &H);
     const int start = atoi(Arg(argc, argv, "start", "0").c_str()), count = atoi(Arg(argc, argv, "count", "60").c_str());
     const int grid = atoi(Arg(argc, argv, "grid", "1").c_str());
@@ -56,17 +56,30 @@ int main(int argc, char** argv) {
     const int down = std::max(1, atoi(Arg(argc, argv, "down", "1").c_str()));   // down=2: the whole frame made half the size first (so a HUD at the edges stays in the picture), then cropped to size=
     const int K = std::max(1, atoi(Arg(argc, argv, "scale", "1").c_str()));   // scale=K: the hardware looks at the brightness plane made K times smaller (its search is of limited reach), its vectors are scaled back up (K > 1 needs fmt=gray)
     const int waitMs = atoi(Arg(argc, argv, "wait", "0").c_str());
-    if (clipPath.empty()) { printf("flowlab clip=FILE.lsrec start=N count=M out=FOLDER [grid=1|2|4] [perf=slow|medium|fast] [size=WxH]\n"); return 2; }
+    if (clipPath.empty() && rawPath.empty()) { printf("flowlab clip=FILE.lsrec start=N count=M out=FOLDER [grid=1|2|4] [perf=slow|medium|fast] [size=WxH]\n"); return 2; }
     CreateDirectoryA(outDir.c_str(), nullptr);
 
     // ---- the clip: all frames cropped to the window size, the even ones kept as real frames
+    std::vector<std::vector<uint8_t>> frames;
+    int total = 0;
+    if (!rawPath.empty()) {
+        FILE* rf = fopen(rawPath.c_str(), "rb");
+        if (!rf) { printf("cannot read %s\n", rawPath.c_str()); return 3; }
+        _fseeki64(rf, 0, SEEK_END); const long long bytes = _ftelli64(rf); _fseeki64(rf, 0, SEEK_SET);
+        const long long one = (long long)W * H * 4;
+        total = (int)((bytes / one + 1) & ~1LL);   // real, truth, ..., real: an odd count gets a copy of the last real frame as a last truth
+        frames.resize(total);
+        for (int i = 0; i < total; ++i) { frames[i].resize((size_t)one); if ((i + 1) * one <= bytes) fread(frames[i].data(), (size_t)one, 1, rf); else frames[i] = frames[i - 1]; }
+        fclose(rf);
+        FILE* wf = fopen((outDir + "\\frames.rgba").c_str(), "wb"); for (auto& fr : frames) fwrite(fr.data(), fr.size(), 1, wf); fclose(wf);
+    } else {
     nr::lsrec::Reader rd; std::string rerr;
     if (!rd.Open(std::wstring(clipPath.begin(), clipPath.end()), &rerr)) { printf("clip: %s\n", rerr.c_str()); return 3; }
     const auto& hd = rd.Header();
     if (hd.bytesPerPixel != 4 || hd.width / down < (uint32_t)W || hd.height / down < (uint32_t)H) { printf("clip: needs an 8-bit clip at least %dx%d\n", W, H); return 3; }
-    const int total = std::min<int>(count, (int)rd.Count() - start) & ~1;
+    total = std::min<int>(count, (int)rd.Count() - start) & ~1;
     const uint32_t cx = (hd.width / down - W) / 2, cy = (hd.height / down - H) / 2;
-    std::vector<std::vector<uint8_t>> frames(total);
+    frames.resize(total);
     {
         std::vector<uint8_t> full;
         FILE* f = fopen((outDir + "\\frames.rgba").c_str(), "wb");
@@ -84,6 +97,7 @@ int main(int argc, char** argv) {
             fwrite(frames[i].data(), frames[i].size(), 1, f);
         }
         fclose(f);
+    }
     }
     const int reals = total / 2;
     printf("clip: %d frames cropped to %dx%d, %d real frames, %d pairs\n", total, W, H, reals, reals - 1);
