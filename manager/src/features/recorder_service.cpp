@@ -2,6 +2,7 @@
 #define NOMINMAX
 #endif
 #include "recorder_service.h"
+#include "addon/scaler11.h"   // FindNisPass: the pass that scales the captured frame (frame generation off)
 #include <windows.h>
 #include <shlobj.h>
 #include <algorithm>
@@ -96,7 +97,7 @@ void Service::OnDispatchImpl(ID3D11DeviceContext* ctx, uint32_t x, uint32_t y, u
         it = m_taps.emplace(ctx, TapState{}).first;
     }
     TapState& st = it->second;
-    if (!st.tap) st.tap = std::make_unique<FrameTap>();
+    if (!st.tap) { st.tap = std::make_unique<FrameTap>(); st.firstMs = now; }
     st.lastMs = now;
     TapDecision d;
     st.tap->Observe(ctx, x, y, z, d);   // (what it hands over for a model is not wanted here: only the frame this very pass reads)
@@ -116,6 +117,27 @@ void Service::OnDispatchImpl(ID3D11DeviceContext* ctx, uint32_t x, uint32_t y, u
     if (d.frame) d.frame->Release();
     if (d.flow) d.flow->Release();
     d.frame = nullptr; d.flow = nullptr;
+    // Frame generation OFF: Lossless Scaling runs no frame generation passes, so the tap above finds nothing; the frame it captured from the game is what its own scaling
+    // pass (NIS) reads, so that pass's input is recorded instead. Only after a few seconds without a TAP on this context (the tap needs a moment to learn the passes, and with frame
+    // generation on the scaling pass reads the generated frames too), and never while the tap is offering.
+    if (!st.tap->Taps() && now - st.firstMs > 3000 && now - m_lastTapOfferMs.load() > 1500 && (m_owner == ctx || !m_owner || now - m_ownerMs > kTapQuietMs)) {
+        nr::NisPass pass;
+        if (nr::FindNisPass(ctx, x, y, z, pass)) {
+            ID3D11Texture2D* in = nullptr;
+            if (pass.in && SUCCEEDED(pass.in->QueryInterface(IID_PPV_ARGS(&in)))) {
+                D3D11_TEXTURE2D_DESC desc; in->GetDesc(&desc);
+                if (desc.Width >= 64 && desc.Height >= 64) {
+                    m_owner = ctx; m_ownerMs = now; m_noTapRecording = true;
+                    std::lock_guard<std::mutex> rec(m_recMutex);
+                    m_recorder.Offer(ctx, in, nr::lsrec::kCaptured, 0, 0, 0, 0);
+                    const int after = m_saveAfter.load();
+                    if (after > 0 && !m_savedForTest && m_recorder.GetStatus().frames >= static_cast<uint32_t>(after)) { m_savedForTest = true; m_recorder.Save(Folder(), GameName()); }
+                }
+                in->Release();
+            }
+            nr::ReleaseNisPass(pass);
+        }
+    }
     if (now - m_lastCleanMs > 2000) {   // a context that has gone (Lossless Scaling makes and drops devices as scaling starts and stops): its tap lets go of the textures it holds
         m_lastCleanMs = now;
         for (auto i = m_taps.begin(); i != m_taps.end();) {
@@ -213,7 +235,12 @@ bool Service::Request() {
         if (m_saveAt.load() == 0) { m_saveAt = GetTickCount64() + static_cast<uint64_t>(s.afterSeconds * 1000.0f); Log("recorder: saving in %.0f s", s.afterSeconds); }
         return true;
     }
-    return Save();
+    const bool saved = Save();
+    if (!saved && !m_recorder.GetStatus().saving) {   // said, not silent: a press that saves nothing was the owner's whole afternoon
+        Log("recorder: nothing to save yet: no frames have come in. Frame generation on needs no addon; with it off the recorder uses Lossless Scaling's scaling pass (NIS), or an addon that is switched on (Neural Rendering, an upscaler, EchoFG)");
+        if (s.beep) Beep(300, 280);
+    }
+    return saved;
 }
 
 void Service::Poll() {
@@ -284,7 +311,7 @@ std::string Service::Summary() const {
     if (m_clipUntil.load()) { snprintf(text, sizeof text, "Recording a clip..."); return text; }
     if (m_saveAt.load()) { snprintf(text, sizeof text, "Saving after the wait..."); return text; }
     if (!m_on.load()) return std::string();
-    if (!st.frames) { snprintf(text, sizeof text, "Recorder on: waiting for frames"); return text; }
+    if (!st.frames) { snprintf(text, sizeof text, "Recorder on: waiting for frames (scale a game)"); return text; }
     snprintf(text, sizeof text, "Recorder on: %.1f s kept (%ux%u)%s", st.seconds, st.w, st.h, st.saving ? ", saving..." : "");
     return text;
 }

@@ -75,7 +75,7 @@ public:
     void Shutdown();                            // the threads stop and the memory goes
 
 private:
-    struct TapState { std::unique_ptr<FrameTap> tap; uint64_t lastMs = 0; };
+    struct TapState { std::unique_ptr<FrameTap> tap; uint64_t firstMs = 0, lastMs = 0; };
     void Log(const char* fmt, ...);
     void ApplyToRecorder();
     void NoteForeground();
@@ -109,6 +109,7 @@ private:
     std::string m_game;                         // the program in front before Lossless Scaling's window took the focus
     bool m_wasDown = false;
     bool m_faulted = false;
+    bool m_noTapRecording = false;   // the frames come from Lossless Scaling's scaling pass (frame generation off), not from the tap
 };
 
 } // namespace rec

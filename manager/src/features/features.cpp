@@ -31,7 +31,7 @@ const Info kInfo[kCount] = {
       "Keep the last seconds of what Lossless Scaling captures and save them with a hotkey.",
       "The last few seconds of the game's frames (as Lossless Scaling captures them), kept in memory, losslessly compressed, and saved as a .lsrec file with "
       "Ctrl+Shift+F1: for bug reports that can be replayed offline, tests and comparing looks. It finds the frames by itself, with frame generation on and "
-      "no addon switched on; the addons add the frames only they have. It can be switched on and off at any time." },
+      "no addon switched on (with frame generation off it takes the frame Lossless Scaling's scaling pass reads); the addons add the frames only they have. It can be switched on and off at any time." },
 };
 
 ConfigManager& Cfg() { return ConfigManager::Instance(); }

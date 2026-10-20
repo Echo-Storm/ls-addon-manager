@@ -234,7 +234,7 @@ void RenderOptions() {
     ImGui::TextDisabled("%s", summary.empty() ? "idle" : summary.c_str());
     bool ok = true; const std::string last = g_service->LastResult(ok);
     if (!last.empty()) ImGui::TextColored(ok ? ImVec4(0.7f, 0.9f, 0.5f, 1.0f) : ImVec4(0.95f, 0.65f, 0.2f, 1.0f), "%s", last.c_str());
-    ImGui::TextDisabled("It finds Lossless Scaling's captured frames by itself (frame generation on); no addon has to be switched on.");
+    ImGui::TextDisabled("It finds Lossless Scaling's captured frames by itself, with frame generation on or off (off: the frame its scaling pass reads); no addon has to be switched on.");
 
     if (changed) { Store(s); g_service->Configure(s); }
 }

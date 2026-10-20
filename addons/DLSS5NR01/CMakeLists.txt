@@ -120,7 +120,7 @@ else()
 endif()
 
 # ---- offline test host: loads the built addon with a fake IHost, headless ImGui and a synthetic LSFG pattern ----
-add_executable(nr_hosttest tools/addon_host_test.cpp src/addon/lsrec.cpp src/addon/recorder.cpp src/addon/frame_tap.cpp ${CMAKE_SOURCE_DIR}/../../manager/src/features/recorder_service.cpp
+add_executable(nr_hosttest tools/addon_host_test.cpp src/addon/lsrec.cpp src/addon/recorder.cpp src/addon/frame_tap.cpp src/addon/nis_pass.cpp ${CMAKE_SOURCE_DIR}/../../manager/src/features/recorder_service.cpp
     ${imgui_SOURCE_DIR}/imgui.cpp ${imgui_SOURCE_DIR}/imgui_draw.cpp
     ${imgui_SOURCE_DIR}/imgui_tables.cpp ${imgui_SOURCE_DIR}/imgui_widgets.cpp
     ${imgui_SOURCE_DIR}/backends/imgui_impl_dx11.cpp)
