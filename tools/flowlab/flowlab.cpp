@@ -145,9 +145,11 @@ int main(int argc, char** argv) {
         est.Ensure(W, H);
         FILE* out = fopen((outDir + "\\ours.f32").c_str(), "wb");
         std::vector<float> flow((size_t)W * H * 2);
-        for (int r = 0; r < reals; ++r) {
+        FILE* outRev = nullptr; bool rev = false;
+        // one frame through the estimator; with `keep`, the vectors it made (this frame to the one before it) go to the file
+        auto frameThrough = [&](int r, int slot, bool keep) {
             alloc->Reset(); cl->Reset(alloc.Get(), nullptr);
-            est.Record(cl.Get(), r % FlowEstimator::kSlots, real[r].Get(), DXGI_FORMAT_R8G8B8A8_UNORM, motion.Get(), distrust.Get());
+            est.Record(cl.Get(), slot % FlowEstimator::kSlots, real[r].Get(), DXGI_FORMAT_R8G8B8A8_UNORM, motion.Get(), distrust.Get());
             D3D12_RESOURCE_BARRIER b{}; b.Type = D3D12_RESOURCE_BARRIER_TYPE_TRANSITION;
             b.Transition = { motion.Get(), D3D12_RESOURCE_BARRIER_ALL_SUBRESOURCES, D3D12_RESOURCE_STATE_UNORDERED_ACCESS, D3D12_RESOURCE_STATE_COPY_SOURCE };
             cl->ResourceBarrier(1, &b);
@@ -156,15 +158,20 @@ int main(int argc, char** argv) {
             cl->CopyTextureRegion(&dst, 0, 0, 0, &src, nullptr);
             std::swap(b.Transition.StateBefore, b.Transition.StateAfter); cl->ResourceBarrier(1, &b);
             cl->Close(); ID3D12CommandList* ls[] = { cl.Get() }; queue->ExecuteCommandLists(1, ls); wait();
-            if (r == 0) continue;   // no frame before it: no motion
+            if (!keep) return;
             const uint8_t* m = nullptr; readback->Map(0, nullptr, (void**)&m);
             for (int y = 0; y < H; ++y) for (int x = 0; x < W; ++x) {
                 const uint16_t* h2 = (const uint16_t*)(m + (size_t)mfp.Footprint.RowPitch * y) + x * 2;
                 flow[((size_t)y * W + x) * 2 + 0] = HalfToFloat(h2[0]); flow[((size_t)y * W + x) * 2 + 1] = HalfToFloat(h2[1]);
             }
             readback->Unmap(0, nullptr);
-            fwrite(flow.data(), flow.size() * 4, 1, out);
-        }
+            fwrite(flow.data(), flow.size() * 4, 1, keep == true && rev ? outRev : out);
+        };
+        for (int r = 0; r < reals; ++r) frameThrough(r, r, r > 0);   // the flow at C pointing back to A (ours.f32)
+        // the other way: the later frame first, then the earlier one: the flow at A pointing forward to C (ours_rev.f32)
+        outRev = fopen((outDir + "\\ours_rev.f32").c_str(), "wb"); rev = true;
+        for (int r = 1; r < reals; ++r) { est.Forget(); frameThrough(r, 0, false); frameThrough(r - 1, 1, true); }
+        fclose(outRev);
         fclose(out);
         est.Shutdown();
         printf("ours: %d flow fields written\n", reals - 1);

@@ -124,3 +124,7 @@ Read: **EchoFG's synthesis is at least as good as FSR's and clearly better than 
 ### Follow-up: NVIDIA's optical flow hardware as the motion source
 
 Tested the same day: docs/optical-flow-study.md. Short answer: on the recordings our own flow estimator beats NVOFA on every clip, and fusing the two adds nothing; NVOFA is only cheaper (0.4 ms on its own engine). Kept as a speed idea (board E14), not a quality one.
+
+### Second look at the engine's own generator
+
+The engine also carries the source text of its own generator (not the vendor-FG path): what it does step by step, where EchoFG stands, and a measured result (a direct draw from two real flow fields matches EchoFG's whole synthesis) are in docs/mfg-super-motion-engine-notes.md.
