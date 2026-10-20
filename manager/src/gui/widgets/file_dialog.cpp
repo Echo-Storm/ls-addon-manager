@@ -1,6 +1,7 @@
 #include "file_dialog.h"
 #include <windows.h>
 #include <shobjidl.h>
+#include <cwchar>
 #pragma comment(lib, "ole32.lib")
 #pragma comment(lib, "uuid.lib")
 
@@ -19,7 +20,7 @@ static bool Pick(bool save, const wchar_t* title, const wchar_t* defaultName, co
         if (title) dlg->SetTitle(title);
         if (filterSpec) { COMDLG_FILTERSPEC f[2] = { { filterName ? filterName : L"Files", filterSpec }, { L"All files", L"*.*" } }; dlg->SetFileTypes(2, f); }
         if (save && defaultName) dlg->SetFileName(defaultName);
-        if (save && filterSpec) dlg->SetDefaultExtension(L"json");
+        if (save && filterSpec && filterSpec[0] == L'*' && filterSpec[1] == L'.' && filterSpec[2] && !wcspbrk(filterSpec + 2, L"*?;")) dlg->SetDefaultExtension(filterSpec + 2);   // "*.json" gives "json"
         if (SUCCEEDED(dlg->Show(GetActiveWindow()))) {
             IShellItem* item = nullptr;
             if (SUCCEEDED(dlg->GetResult(&item))) {

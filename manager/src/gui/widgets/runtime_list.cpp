@@ -5,18 +5,17 @@
 #include <eam/icons.h>
 #include <eam/widgets.h>
 #include <string>
+#include <windows.h>
 
 namespace eam {
 namespace widgets {
 
 namespace {
 std::string Utf8(const std::wstring& w) {
-    std::string s;
-    for (wchar_t c : w) {   // paths: enough for the tooltip (BMP characters)
-        if (c < 0x80) s += (char)c;
-        else if (c < 0x800) { s += (char)(0xC0 | (c >> 6)); s += (char)(0x80 | (c & 0x3F)); }
-        else { s += (char)(0xE0 | (c >> 12)); s += (char)(0x80 | ((c >> 6) & 0x3F)); s += (char)(0x80 | (c & 0x3F)); }
-    }
+    if (w.empty()) return {};
+    const int n = WideCharToMultiByte(CP_UTF8, 0, w.data(), (int)w.size(), nullptr, 0, nullptr, nullptr);
+    std::string s(n > 0 ? n : 0, '\0');
+    if (n > 0) WideCharToMultiByte(CP_UTF8, 0, w.data(), (int)w.size(), s.data(), n, nullptr, nullptr);
     return s;
 }
 } // namespace
