@@ -2,6 +2,9 @@
 
 ## Unreleased
 
+- **EchoFG (test build only): marks.** A HUD or read-out that stays put while the picture moves a lot (a turn) is no longer dragged along with the picture in the frames EchoFG makes: per-pixel counts kept from pair to pair mark such pixels, and they are held as the plain mix of the two real frames. On a recording with the HUD over a turning scene its pixels went from 37.6 to 51.5 dB; on calm clips the whole frame changed by at most 0.14 dB. `NR_SYNTH_MARKS=0` turns it off for comparing. (docs/mfg-super-motion-engine-notes.md)
+- **Tools:** `nr_fgeval` takes `dumpx=` / `dumpy=` with `dumpraw=`; `tools/flowlab` gains `synth_lab.py` and `hud_lab.py` (drawing methods and HUD handling on recorded footage).
+
 ## 1.0.0 (2026-10-20)
 
 - **Neural Rendering: a Model preset (Newer / Older).** NVIDIA's runtime 310.9.16 of the model file runs a newer, smaller model by default and keeps the older one as a preset. A new choice in the Neural Rendering panel, under Model passes, picks one (**Newer** is the default; **Older** is the model of build 310.8 and earlier, the stronger original look at the old cost). On an RTX 4070 Ti SUPER the newer model took 3.5 ms a run at 1080p and 10.9 ms at 4K against 6.0 and 19.6 ms for the older one, with a gentler effect (roughly the old model at 0.7 of a pass). Changing it makes the model again. A model file older than 310.9.16 has only the older model, so the choice changes nothing there. `nr_selftest --preset N` times either. Your model file is still your own: it is not included and never downloaded.

@@ -34,9 +34,10 @@ RWStructuredBuffer<uint> bV3 : register(u7);
 RWStructuredBuffer<uint> bB : register(u8);     // the 5x5 mean of c's match error (what the splats from c compete on)
 RWStructuredBuffer<uint> bB2 : register(u9);    // the same for a's
 RWStructuredBuffer<uint> bFL : register(u10);   // which hypothesis a cell took: 0 none, 1 from c, 2 from a, 3 filled from a neighbour
-RWTexture2D<float4> uOut : register(u11);
+RWStructuredBuffer<uint> bMK : register(u11);    // the marks: a cell's count (bits 0-3) and whether it is held now (bit 8), kept from pair to pair
+RWTexture2D<float4> uOut : register(u12);
 SamplerState sLin : register(s0);
-cbuffer C : register(b0) { uint2 size; uint2 fsize; uint mode; uint phase; float t; float k; uint encoding; float white; uint scale; float soft; };
+cbuffer C : register(b0) { uint2 size; uint2 fsize; uint mode; uint phase; float t; float k; uint encoding; float white; uint scale; float soft; float marks; };
 
 static const uint kEmpty = 0xFFFFFFFF;
 float3 View(float3 c) { return ToSdr(c, encoding, white); }
@@ -181,6 +182,54 @@ float Agree(int2 p, float2 u) {   // the moved pair's disagreement around a cell
     bK1[i] = asuint(best / 9.0);   // (nine samples summed)
 }
 
+// ---- marks (a HUD that stays put over a picture that moves)
+// MarkPrep: per cell, the vector where the two real frames differ (the moving part of the picture) and a weight of one there; into bV3 (half2) and bB2 (float)
+float CenterDiff(int2 p) { const float2 c = Cen(p); return Lev(SmpC(c) - SmpA(c)); }
+[numthreads(8, 8, 1)] void MarkPrep(uint3 id : SV_DispatchThreadID) {
+    OOB
+    const bool moving = CenterDiff(p) >= 12.0;
+    bV3[i] = Pack(moving ? VecAt(p) : float2(0, 0));
+    bB2[i] = asuint(moving ? 1.0 : 0.0);
+}
+// MarkLarge: the picture at large around each cell: the weighted mean of those vectors over 21 x 21 cells (every second one), none where less than 15 % moves; into bE0 (half2)
+[numthreads(8, 8, 1)] void MarkLarge(uint3 id : SV_DispatchThreadID) {
+    OOB
+    float2 sum = float2(0, 0); float wsum = 0;
+    [loop] for (int j = -10; j <= 10; j += 2) [loop] for (int x = -10; x <= 10; x += 2) {
+        const uint n = Idx(clamp(p + int2(x, j), int2(0, 0), int2(size) - 1));
+        const float w = asfloat(bB2[n]);
+        sum += Unpack(bV3[n]) * w; wsum += w;
+    }
+    bE0[i] = Pack(wsum > 17.0 ? sum / wsum : float2(0, 0));   // (121 samples: 15 % is about 18)
+}
+// MarkUpdate: the counts. Alike in both frames while the picture at large moves here, and drawn by its way (half of it each side) the cell would come out clearly
+// another colour: up by two (to 12); where the picture moves and it does not stay: down by one. Bit 8: held now (a counted-up cell the later frame has the same).
+[numthreads(8, 8, 1)] void MarkUpdate(uint3 id : SV_DispatchThreadID) {
+    OOB
+    const float2 c = Cen(p);
+    const float2 large = Unpack(bE0[i]);
+    const bool big = dot(large, large) > 2.25;
+    const float diff = CenterDiff(p);
+    uint count = bMK[i] & 15u;
+    if (big) {
+        const bool alike = diff < 6.0;
+        const bool changed = Lev(SmpA(c - 0.5 * large) - SmpA(c)) > 60.0 || Lev(SmpC(c + 0.5 * large) - SmpC(c)) > 60.0;
+        count = (alike && changed) ? min(count + 2u, 12u) : (count > 0u ? count - 1u : 0u);
+    }
+    bMK[i] = count | ((count >= 4u && diff < 42.0) ? 256u : 0u);
+}
+
+// is this pixel held as a mark: one of the (up to) 3 x 3 cells around its cell is held and the later frame has the pixel the same, within a looser tolerance
+bool HeldAt(int2 pixel) {
+    const int2 a0 = int2(floor((float2(pixel) - 0.5 * float(int(scale) - 1)) / float(scale)));
+    bool near = false;
+    [loop] for (int j = 0; j < 3; ++j) [loop] for (int x = 0; x < 3; ++x) {
+        const int2 a = clamp(a0 + int2(x, j) - 1, int2(0, 0), int2(size) - 1);
+        near = near || (bMK[Idx(a)] & 256u) != 0u;
+    }
+    return near && Lev(SmpC(float2(pixel)) - SmpA(float2(pixel))) < 60.0;
+}
+
 // the frame, at the frames' size: of the (up to) 2x2 nearest cells, the vector under which the moved pair agrees best here
 [numthreads(8, 8, 1)] void Synth(uint3 id : SV_DispatchThreadID) {
     if (id.x >= fsize.x || id.y >= fsize.y) return;
@@ -199,13 +248,14 @@ float Agree(int2 p, float2 u) {   // the moved pair's disagreement around a cell
     const float3 moved = (1.0 - t) * tA.SampleLevel(sLin, (q + t * F + 0.5) / float2(fsize), 0).rgb + t * tC.SampleLevel(sLin, (q - (1.0 - t) * F + 0.5) / float2(fsize), 0).rgb;
     // where the cell's motion is doubtful (the moved pair disagrees: wrong vectors, covered or uncovered things) the frame leans toward the plain mix of the two frames, as far as `soft` allows:
     // a ghost where the motion is not known instead of pieces in the wrong place (docs/own-generator-plan.md, "bi+conf": +0.1 to +0.2 dB, more the faster the motion)
-    const float w = saturate((doubt - 30.0) / 90.0) * 0.8 * soft;
+    float w = saturate((doubt - 30.0) / 90.0) * 0.8 * soft;
     const float3 mixed = (1.0 - t) * tA.SampleLevel(sLin, (q + 0.5) / float2(fsize), 0).rgb + t * tC.SampleLevel(sLin, (q + 0.5) / float2(fsize), 0).rgb;
+    if (marks > 0.5 && HeldAt(p)) w = 1.0;   // a mark (a read-out that stays while the picture moves): the plain mix, not dragged along with the picture
     uOut[p] = float4(lerp(moved, mixed, w), 1.0);
 }
 )";
 
-struct Constants { uint32_t w, h, fw, fh, mode, phase; float t, k; uint32_t encoding; float white; uint32_t scale; float soft; };
+struct Constants { uint32_t w, h, fw, fh, mode, phase; float t, k; uint32_t encoding; float white; uint32_t scale; float soft; float marks; };
 
 } // namespace
 
@@ -227,7 +277,7 @@ bool OwnSynth::Init(ID3D12Device* dev, LogFn log) {
                         SUCCEEDED(dev->CreateRootSignature(0, blob->GetBufferPointer(), blob->GetBufferSize(), IID_PPV_ARGS(&m_root)));
     Rel(blob); Rel(error);
     if (!rootOk) { Log("own synthesis: the root signature could not be made"); Shutdown(); return false; }
-    static const char* const names[EntryCount] = { "Clear", "Err0", "Box5", "ErrA", "Splat", "Hyp1", "Hyp2", "Holes", "Synth" };
+    static const char* const names[EntryCount] = { "Clear", "Err0", "Box5", "ErrA", "Splat", "Hyp1", "Hyp2", "Holes", "Synth", "MarkPrep", "MarkLarge", "MarkUpdate" };
     for (int e = 0; e < EntryCount; ++e) {
         ID3DBlob* code = nullptr;
         if (FAILED(D3DCompile(kHlsl, strlen(kHlsl), "own_synth", nullptr, nullptr, names[e], "cs_5_0", D3DCOMPILE_OPTIMIZATION_LEVEL3, 0, &code, &error))) {
@@ -285,7 +335,7 @@ bool OwnSynth::Ensure(uint32_t w, uint32_t h) {
 }
 
 bool OwnSynth::Record(ID3D12GraphicsCommandList* list, int slot, ID3D12Resource* before, DXGI_FORMAT beforeFormat, ID3D12Resource* now, DXGI_FORMAT nowFormat,
-                      ID3D12Resource* motion, DXGI_FORMAT outFormat, const Target* targets, int count, uint32_t encoding, float whiteNits, float soften) {
+                      ID3D12Resource* motion, DXGI_FORMAT outFormat, const Target* targets, int count, uint32_t encoding, float whiteNits, float soften, float marks) {
     if (!m_ready || !m_buf[0] || !before || !now || !motion || !targets || count < 1 || count > kMaxTargets) return false;
     for (int j = 0; j < count; ++j) if (!targets[j].out) return false;
     D3D12_CPU_DESCRIPTOR_HANDLE cpu = m_heap->GetCPUDescriptorHandleForHeapStart(); cpu.ptr += static_cast<SIZE_T>(slot % kSlots) * kPerSlot * m_descriptorSize;
@@ -324,9 +374,11 @@ bool OwnSynth::Record(ID3D12GraphicsCommandList* list, int slot, ID3D12Resource*
     const UINT gx = (m_aw + 7) / 8, gy = (m_ah + 7) / 8, fx = (m_w + 7) / 8, fy = (m_h + 7) / 8;
     static const int stopAt = [] { char b[16]; return GetEnvironmentVariableA("NR_SYNTH_STOP", b, 16) ? atoi(b) : 999; }(); int passNo = 0;   // (a test aid: NR_SYNTH_STOP=N runs only the first N passes, to time them)
     float t = 0.5f;
+    static const bool marksAllowed = [] { char b[16]; return !(GetEnvironmentVariableA("NR_SYNTH_MARKS", b, 16) && atoi(b) == 0); }();
+    const bool useMarks = marksAllowed && marks > 0.5f;
     auto pass = [&](Entry e, uint32_t mode, uint32_t phase, float k, bool full = false) {
         if (++passNo > stopAt) return;
-        const Constants c{ m_aw, m_ah, m_w, m_h, mode, phase, t, k, encoding, whiteNits > 0.0f ? whiteNits : 80.0f, static_cast<uint32_t>(m_scale), std::clamp(soften, 0.0f, 1.0f) };
+        const Constants c{ m_aw, m_ah, m_w, m_h, mode, phase, t, k, encoding, whiteNits > 0.0f ? whiteNits : 80.0f, static_cast<uint32_t>(m_scale), std::clamp(soften, 0.0f, 1.0f), useMarks ? 1.0f : 0.0f };
         list->SetPipelineState(m_pso[e]);
         list->SetComputeRoot32BitConstants(2, sizeof(Constants) / 4, &c, 0);
         list->Dispatch(full ? fx : gx, full ? fy : gy, 1);
@@ -335,6 +387,7 @@ bool OwnSynth::Record(ID3D12GraphicsCommandList* list, int slot, ID3D12Resource*
     };
     // once for the pair: the errors and the vectors onto a's cells
     uavTable(0);
+    if (useMarks) { pass(MarkPrep, 0, 0, 0.0f); pass(MarkLarge, 0, 0, 0.0f); pass(MarkUpdate, 0, 0, 0.0f); }   // (their buffers are the ones the passes below overwrite)
     pass(Clear, 0, 0, 0.0f);
     pass(Err0, 0, 0, 0.0f);
     pass(Box5, 0, 0, 0.0f);

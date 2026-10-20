@@ -110,4 +110,5 @@ def main():
         print('%-9s %6.2f dB  %.4f   gain over blend %+.2f dB  beats blend in %d of %d' % (n, a[:, 0].mean(), a[:, 1].mean(), (a[:, 0] - base[:, 0]).mean(), int((a[:, 0] > base[:, 0]).sum()), pairs))
 
 
-main()
+if __name__ == '__main__':
+    main()

@@ -1069,6 +1069,8 @@ int main(int argc, char** argv) {
 
     struct Score { int frame; double gen, hold, blend, genAbs, genCoarse, blendCoarse, genBand = 0, blendBand = 0, bandFrac = 0; std::vector<uint8_t> picture, mix; };
     std::vector<Score> scores;
+    const uint32_t dumpX = std::min<uint32_t>(static_cast<uint32_t>(Arg(argc, argv, "dumpx", static_cast<int>((W >= 1280 ? W - 1280 : 0) / 2))), W >= 1280 ? W - 1280 : 0);   // dumpx= dumpy=: where the 1280 x 720 piece dumpraw writes starts (default: the middle)
+    const uint32_t dumpY = std::min<uint32_t>(static_cast<uint32_t>(Arg(argc, argv, "dumpy", static_cast<int>((H >= 720 ? H - 720 : 0) / 2))), H >= 720 ? H - 720 : 0);
     FILE* dumpRaw = ArgText(argc, argv, "dumpraw").empty() ? nullptr : fopen(ArgText(argc, argv, "dumpraw").c_str(), "wb");
     D3D12_RESOURCE_STATES curState = D3D12_RESOURCE_STATE_COPY_DEST;
     for (int i = 0; i < count; i += stride) {   // the kept frames: 0, 2, 4...; each one's generated frame stands for the one before it (i - 1)
@@ -1292,7 +1294,7 @@ int main(int argc, char** argv) {
             fwrite(&rel, 4, 1, dumpRaw);
             const std::vector<uint8_t>* const dumped[4] = { &s.picture, &truth, &frames[i - 2], &frames[i] };
             for (const std::vector<uint8_t>* pic : dumped)
-                for (uint32_t y = 0; y < 720; ++y) fwrite(&(*pic)[((static_cast<size_t>((H - 720) / 2 + y)) * W + (W - 1280) / 2) * 4], 4, 1280, dumpRaw);
+                for (uint32_t y = 0; y < 720; ++y) fwrite(&(*pic)[((static_cast<size_t>(dumpY + y)) * W + dumpX) * 4], 4, 1280, dumpRaw);
         }
         s.gen = Psnr(s.picture, truth, &s.genAbs); s.hold = Psnr(frames[i - 2], truth, nullptr); s.blend = Psnr(s.mix, truth, nullptr);
         s.genCoarse = PsnrCoarse(s.picture, truth, W); s.blendCoarse = PsnrCoarse(s.mix, truth, W);

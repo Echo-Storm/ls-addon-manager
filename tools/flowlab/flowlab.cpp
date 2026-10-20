@@ -53,6 +53,7 @@ int main(int argc, char** argv) {
     const int grid = atoi(Arg(argc, argv, "grid", "1").c_str());
     const std::string perfName = Arg(argc, argv, "perf", "slow");
     const bool gray = Arg(argc, argv, "fmt", "abgr") == "gray";   // fmt=gray: the inputs are an 8-bit brightness plane
+    const int down = std::max(1, atoi(Arg(argc, argv, "down", "1").c_str()));   // down=2: the whole frame made half the size first (so a HUD at the edges stays in the picture), then cropped to size=
     const int K = std::max(1, atoi(Arg(argc, argv, "scale", "1").c_str()));   // scale=K: the hardware looks at the brightness plane made K times smaller (its search is of limited reach), its vectors are scaled back up (K > 1 needs fmt=gray)
     const int waitMs = atoi(Arg(argc, argv, "wait", "0").c_str());
     if (clipPath.empty()) { printf("flowlab clip=FILE.lsrec start=N count=M out=FOLDER [grid=1|2|4] [perf=slow|medium|fast] [size=WxH]\n"); return 2; }
@@ -62,9 +63,9 @@ int main(int argc, char** argv) {
     nr::lsrec::Reader rd; std::string rerr;
     if (!rd.Open(std::wstring(clipPath.begin(), clipPath.end()), &rerr)) { printf("clip: %s\n", rerr.c_str()); return 3; }
     const auto& hd = rd.Header();
-    if (hd.bytesPerPixel != 4 || hd.width < (uint32_t)W || hd.height < (uint32_t)H) { printf("clip: needs an 8-bit clip at least %dx%d\n", W, H); return 3; }
+    if (hd.bytesPerPixel != 4 || hd.width / down < (uint32_t)W || hd.height / down < (uint32_t)H) { printf("clip: needs an 8-bit clip at least %dx%d\n", W, H); return 3; }
     const int total = std::min<int>(count, (int)rd.Count() - start) & ~1;
-    const uint32_t cx = (hd.width - W) / 2, cy = (hd.height - H) / 2;
+    const uint32_t cx = (hd.width / down - W) / 2, cy = (hd.height / down - H) / 2;
     std::vector<std::vector<uint8_t>> frames(total);
     {
         std::vector<uint8_t> full;
@@ -72,7 +73,12 @@ int main(int argc, char** argv) {
         for (int i = 0; i < total; ++i) {
             if (!rd.Read(start + i, full)) { printf("frame %d unreadable\n", start + i); return 3; }
             frames[i].resize((size_t)W * H * 4);
-            for (int y = 0; y < H; ++y) memcpy(&frames[i][(size_t)y * W * 4], &full[((size_t)(cy + y) * hd.width + cx) * 4], (size_t)W * 4);
+            if (down == 1) { for (int y = 0; y < H; ++y) memcpy(&frames[i][(size_t)y * W * 4], &full[((size_t)(cy + y) * hd.width + cx) * 4], (size_t)W * 4); }
+            else for (int y = 0; y < H; ++y) for (int x = 0; x < W; ++x) for (int c = 0; c < 4; ++c) {   // the mean of each down x down block
+                int sum = 0;
+                for (int dy = 0; dy < down; ++dy) for (int dx = 0; dx < down; ++dx) sum += full[((size_t)((cy + y) * down + dy) * hd.width + (cx + x) * down + dx) * 4 + c];
+                frames[i][((size_t)y * W + x) * 4 + c] = (uint8_t)(sum / (down * down));
+            }
             // (RGBA8 in the file already for the formats a Compact clip has: 28 = R8G8B8A8; 87 = B8G8R8A8 would need a swap)
             if (hd.format == DXGI_FORMAT_B8G8R8A8_UNORM) for (size_t p = 0; p < frames[i].size(); p += 4) std::swap(frames[i][p], frames[i][p + 2]);
             fwrite(frames[i].data(), frames[i].size(), 1, f);

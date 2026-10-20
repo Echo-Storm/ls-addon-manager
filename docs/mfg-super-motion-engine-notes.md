@@ -62,3 +62,20 @@ Same recordings and the same 12 pairs (clip frames 0-24 of three segments; the r
 2. **E11** marks as a per-pixel count over time, with the "held only if the next frame has it the same" test: needs a clip with a HUD over moving ground (record one: Features > Recording in WoW with the action bars in view).
 3. **E12 / E16 / E15** flow: the way-back check, the picture at large per tile, the far search, each scored by `tools/flowlab/score_flow.py` and the synthesis scorer.
 4. **E3 / E19** pacing and the live A/B.
+
+## First result of the work: marks in EchoFG (2026-10-20)
+
+Step 9 (marks) was built into `own_synth` (three small passes per pair: the moving part of the picture, the picture at large around each cell, and the per-cell counts that live from pair to pair; the synthesis holds a marked pixel as the plain mix of the two real frames). Offline lab first (`tools/flowlab/hud_lab.py`: a simple version recovers a HUD from 46 to 56 dB of a 57 dB ceiling on the turning clip), then in the real synthesis, scored with `nr_fgeval dumpraw=... dumpx=... dumpy=...` and `tools/dlssg_probe/score_dump_hud.py`:
+
+| clip (2560x1440, EchoFG synthesis, GPU) | HUD pixels, marks off | marks on | the rest of the picture, off / on | whole frame, off / on |
+|---|---|---|---|---|
+| 23-16-58 (camera turning), chat and action bars region | 37.6 dB | **51.5 dB** | 24.41 / 24.46 dB | 25.82 / 25.93 dB |
+| 23-16-37 (building) | | | | 27.71 / 27.74 dB |
+| 23-17-18 (calm canyon) | | | | 38.74 / 38.60 dB |
+| 23-17-55 (dark interior) | | | | 38.59 / 38.49 dB |
+
+- **The HUD that was dragged along with the turning picture is now held: +14 dB on its pixels**, with no loss on the rest of the picture there, a small gain on the whole frame of that clip, and -0.10 to -0.14 dB on two calm clips. The GPU cost is about 0.2 to 0.6 ms a pair at 2560x1440 (noisy measurements).
+- Tuning, kept so it is not redone: looser settings (alike under 12 levels, "changed" over 30, count of 4, held pixel under 84) reached 55 dB on the HUD but cost 0.25 to 0.4 dB on the calm clips (flat dark areas that merely look alike were held); the tighter ones in the code (alike under 6, changed over 60, count of 4, cell under 42, pixel under 60) keep most of the gain.
+- The slow walking clip (23-16-25, the quest tracker, chat, bars and minimap over moving ground) shows almost nothing either way (HUD 70 dB in all methods): a HUD is only damaged when the picture moves a lot between frames, which is when it matters.
+- `NR_SYNTH_MARKS=0` in the environment turns the marks off for comparing. EchoFG stays a test build; the presenter battery (`dev.py presenter`) passes with it.
+- Not done from step 9: pre-seeding marks from per-game learnt read-outs, and a clip with a HUD over a *fast* moving scene at the edges of the picture (the dump pieces above were the bottom-left and bottom-right; the quest tracker strip is still to be looked at by eye).

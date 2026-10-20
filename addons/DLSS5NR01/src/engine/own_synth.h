@@ -11,6 +11,10 @@
 //   5. a cell neither reached takes the vector of the nearest reached cell to its left, right, above or below (or none), whichever makes the moved
 //      pair agree best (a hole is background just uncovered: one side's vector is right, the average of both is not);
 //   5b. every cell keeps how well its moved pair agrees (its doubt); the frame leans toward the plain mix of the two frames where the doubt is large (`soften`)
+//   0. marks (HUD, read-outs): a cell that was alike in both real frames while the picture at large moves around it and would come out clearly another colour
+//      drawn the way the picture moves is counted up (by two, to 12), down by one where it goes with the picture; a counted-up cell is held as the plain mix of
+//      the two frames, with its neighbours (an anti-aliased letter's edge), where the later frame has it the same (docs/mfg-super-motion-engine-notes.md, step 9;
+//      measured with tools/flowlab/hud_lab.py: +10 dB on a HUD over a turning picture, -0.3 dB elsewhere). The counts live from pair to pair.
 //   6. the frame, at the frame's own size: each pixel takes, of the 2x2 nearest cells' vectors, the one under which the moved pair agrees best at this
 //      pixel, and makes (1 - t) a(q + t F) + t c(q - (1 - t) F).
 // Steps 1 to 5 run on cells of `scale` x `scale` pixels (1: every pixel; 2: half size, a quarter of the work and of the memory). For several times t
@@ -44,17 +48,18 @@ public:
     // (hdr_hlsl.h: 0 SDR, 1 scRGB, 2 HDR10) and the SDR white; HDR frames are compared and blended in their SDR view and the frames made go back into their
     // encoding. Leaves the list's descriptor heap and root signature changed.
     bool Record(ID3D12GraphicsCommandList* list, int slot, ID3D12Resource* before, DXGI_FORMAT beforeFormat, ID3D12Resource* now, DXGI_FORMAT nowFormat,
-                ID3D12Resource* motion, DXGI_FORMAT outFormat, const Target* targets, int count, uint32_t encoding = 0, float whiteNits = 80.0f, float soften = 0.6f);
+                ID3D12Resource* motion, DXGI_FORMAT outFormat, const Target* targets, int count, uint32_t encoding = 0, float whiteNits = 80.0f, float soften = 0.6f, float marks = 1.0f);
+    // marks 0..1: whether the marks (see above) are learnt and held (NR_SYNTH_MARKS=0 in the environment turns them off for comparing)
     // soften 0..1: how far a frame leans toward the plain mix of the two real frames where its motion is doubtful (0: never; 1: up to 80 % where it is clearly wrong)
     // With a timestamp frequency (the queue's) the passes are timed on the GPU: ReadMs(slot) after the slot's work has finished.
     void SetTimestampFrequency(uint64_t f) { m_freq = f; }
     bool ReadMs(int slot, double& ms);
 
 private:
-    enum Entry { Clear, Err0, Box5, ErrA, Splat, Hyp1, Hyp2, Holes, Synth, EntryCount };
+    enum Entry { Clear, Err0, Box5, ErrA, Splat, Hyp1, Hyp2, Holes, Synth, MarkPrep, MarkLarge, MarkUpdate, EntryCount };
     // buffers (one uint a cell): E0, Ea0 (errors, then the hypotheses' disagreement), K1, K2, K3 (splat keys), V1, V2, V3 (their vectors), B, B2 (the 5x5 means),
-    // FL (which hypothesis a cell took)
-    static const int kBuffers = 11, kSrvs = 3, kUavs = kBuffers + 1, kPerSlot = kSrvs + kMaxTargets * kUavs;
+    // FL (which hypothesis a cell took), MK (the marks' counts, kept from pair to pair)
+    static const int kBuffers = 12, kSrvs = 3, kUavs = kBuffers + 1, kPerSlot = kSrvs + kMaxTargets * kUavs;
     void Log(const char* msg) { if (m_log) m_log(msg); }
     LogFn m_log;
     ID3D12Device* m_dev = nullptr; ID3D12RootSignature* m_root = nullptr; ID3D12PipelineState* m_pso[EntryCount] = {};
