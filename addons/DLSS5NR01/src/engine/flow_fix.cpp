@@ -56,7 +56,7 @@ float Luma255(float3 c) { return dot(View(c), float3(0.299, 0.587, 0.114)) * 255
 // 2. per tile: the dominant movement of the trusted, moving pixels in the window of (2 * reach + 1)^2 tiles around it (every second pixel): the 2 px bin with the most votes
 // in its 3 x 3 neighbourhood of bins, then the mean of the vectors within 3 px of that bin's middle; with the share of the window's votes that agree
 groupshared uint gHist[4096];
-groupshared uint gBest, gTotal;
+groupshared uint gBest, gTotal, gAll;   // gAll: every trusted pixel that votes, moving or not
 groupshared int gSumX, gSumY, gCount;
 bool Vote(int2 p, out float2 v) {
     v = tMotion.Load(int3(p, 0));
@@ -69,11 +69,12 @@ bool Vote(int2 p, out float2 v) {
     const int st = int(cs);   // every cs-th pixel votes (cs: 2 or 4)
     const int nx = max(1, (x1 - x0 + st - 1) / st), ny = max(1, (y1 - y0 + st - 1) / st);
     for (uint b = gi; b < 4096u; b += 256u) gHist[b] = 0u;
-    if (gi == 0) { gBest = 0u; gTotal = 0u; gSumX = 0; gSumY = 0; gCount = 0; }
+    if (gi == 0) { gBest = 0u; gTotal = 0u; gAll = 0u; gSumX = 0; gSumY = 0; gCount = 0; }
     GroupMemoryBarrierWithGroupSync();
     for (int idx = int(gi); idx < nx * ny; idx += 256) {
         const int2 p = int2(x0 + st * (idx % nx), y0 + st * (idx / nx));
         float2 v;
+        if (tDistrust.Load(int3(p, 0)) < 0.3) { uint o; InterlockedAdd(gAll, 1u, o); }
         if (Vote(p, v)) {
             const int2 bin = clamp(int2(floor(v * 0.5)) + 32, int2(0, 0), int2(63, 63));
             uint old; InterlockedAdd(gHist[bin.y * 64 + bin.x], 1u, old);
@@ -104,7 +105,7 @@ bool Vote(int2 p, out float2 v) {
     GroupMemoryBarrierWithGroupSync();
     if (gi == 0) {
         float4 r = float4(0, 0, 0, 0);
-        if (gTotal >= 60u && gCount > 0) r = float4(float(gSumX) / (16.0 * gCount), float(gSumY) / (16.0 * gCount), float(gCount) / float(gTotal), 1.0);
+        if (gTotal >= 60u && gCount > 0) r = float4(float(gSumX) / (16.0 * gCount), float(gSumY) / (16.0 * gCount), float(gCount) / float(gTotal), float(gCount) / float(max(gAll, 1u)));
         uModes[t] = r;
     }
 }
@@ -133,7 +134,7 @@ float Contrast(int2 c) {
     const float2 own = tMotion.Load(int3(px, 0));
     const float4 mode = tModes.Load(int3(min(px / int(tile), int2(tiles) - 1), 0));
     float2 outv = own; float take = 0.0;
-    if (mode.w > 0.5 && mode.z > 0.3 && length(mode.xy - own) > 1.0) {
+    if (mode.w > 0.25 && mode.z > 0.3 && length(mode.xy - own) > 1.0) {
         const float2 L = mode.xy;
         const float ownc = PatchCost(c, own), lc = PatchCost(c, L);
         bool amb = false;

@@ -134,3 +134,11 @@ Lab only (`tools/flowlab/field_lab.py`, each idea applied to both flow fields an
 - Cost at 2560x1440: 8.1 ms a pair at first; with 4 x 4 cells from 1920 wide, every fourth pixel voting and two repeat offsets instead of three, **3.8 ms median** (best 1.9, worst 6.1) with the same scores.
 - In EchoFG's engine (`FgEngine`, test build): on by default, `NR_FLOW_FIX=0` turns it off for comparison. The presenter battery passes.
 - Still wanted: a real clip with a fence, railing or tower face to see it on real footage; the cost could go lower (the tile mode is the heavy pass).
+
+### E16 on five real clips: a building with a fence, and a power line (2026-10-20)
+
+- Five Fallout: New Vegas recordings (1920x1080, ~700 frames each; `FalloutNV_2026-10-20_06-51-27` and `06-53-28` face a wooden building and a fence, `06-53-55`, `06-54-13`, `06-54-37` look down a road at power lines). Scored in 6 windows of 40 frames each, flow fix off against on.
+- First version: neutral (within 0.05 dB) in 22 of 24 windows, but two losses after a hard turn when the scene was nearly still (-0.95 and -0.33 dB; frames 629-635 of `06-53-28` lost 2-8 dB): the tile's vector came from the few moving pixels (a character), not from the picture.
+- Fix: a tile's vector is used only when it agrees with at least a quarter of all the trusted pixels in the window, moving or not (`gAll`). The losses are gone (36.89 against 36.90, 38.81 against 38.81) and the made-up scene still gains (the repeating block -0.76 -> +9.27 dB, whole +5.28 -> +5.91).
+- Cost at 1920x1080: about 1 ms a pair (median 0.2-1.4 ms).
+- What the clips do not show: a gain on the fence or the power line themselves. Whole-frame scores hide a small region; a crop score or a look at the frames is still to do.
