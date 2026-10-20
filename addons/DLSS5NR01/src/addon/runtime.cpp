@@ -1434,14 +1434,15 @@ bool ScalerPass(ID3D11DeviceContext* ctx, uint32_t x, uint32_t y, uint32_t z) {
                 {
                     static uint64_t lightAt = 0; static int overRuns = 0, underRuns = 0; static bool autoLight = false;
                     limitPercent = HostGpuLimit();   // the manager's GPU limit (off: this does nothing)
-                    if (lightAuto && limitPercent > 0 && g_nisPerFrame >= 2) {
+                    const float autoLimit = limitPercent > 0 ? limitPercent : 95.0f;   // the manager's GPU limit, or 95 % while that feature is off (the load is read either way)
+                    if (lightAuto && g_nisPerFrame >= 2) {
                         const uint64_t nowMs = GetTickCount64();
                         if (nowMs - lightAt >= 1000) {
                             lightAt = nowMs;
                             const unsigned load = HostGpuLoad();
                             g_gpuPercent = load;
-                            if (load >= limitPercent) { ++overRuns; underRuns = 0; } else if (load + 12.0f < limitPercent) { ++underRuns; overRuns = 0; } else { overRuns = 0; underRuns = 0; }
-                            if (!autoLight && overRuns >= 3) { autoLight = true; Log("%s upscaler: the card is at %u %% (limit %.0f %%): the generated frames get the lighter upscaling until it is well under", kUpscalerName, load, limitPercent); }
+                            if (load >= autoLimit) { ++overRuns; underRuns = 0; } else if (load + 12.0f < autoLimit) { ++underRuns; overRuns = 0; } else { overRuns = 0; underRuns = 0; }
+                            if (!autoLight && overRuns >= 3) { autoLight = true; Log("%s upscaler: the card is at %u %% (limit %.0f %%): the generated frames get the lighter upscaling until it is well under", kUpscalerName, load, autoLimit); }
                             else if (autoLight && underRuns >= 10) { autoLight = false; Log("%s upscaler: the card is at %u %%: the generated frames are upscaled in full again", kUpscalerName, load); }
                         }
                     } else if (autoLight) { autoLight = false; overRuns = underRuns = 0; }

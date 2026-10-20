@@ -178,7 +178,7 @@ Loaded LoadSettings(IHost* host, const char* id) {
     c.motionShapes = flag("motionShapes", false);
     c.scalerReuseMotion = flag("scalerReuseMotion", true);
     c.scalerLightGen = flag("scalerLightGen", false);
-    c.scalerLightAuto = flag("scalerLightAuto", false);
+    c.scalerLightAuto = flag("scalerLightAuto", true);
     c.scalerSkipRepeats = flag("scalerSkipRepeats", false);
     c.leanEasu = flag("leanEasu", false);
     c.scalerStability = std::clamp(static_cast<float>(number("scalerStability", 0.0)), 0.0f, 1.0f);
