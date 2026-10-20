@@ -7,12 +7,13 @@
 #   * a replay buffer of the last 30 s, saved with Ctrl+Shift+F1: the addons' own save-recording key, so one press keeps both, the same moment;
 #   * files in %USERPROFILE%\Videos\Lossless Scaling\OBS, beside the addons' recordings (not a OneDrive Videos folder).
 # Refuses while OBS runs (it would overwrite the files on exit). Rerunning rewrites only the "LS Addon Tests" files.
-#   powershell -File tools\setup_obs_for_tests.ps1 [-Launch] [-Width N] [-Height N] [-Fps N] [-Sdr] [-Cqp 16] [-ReplaySeconds 30] [-SaveKey F1]
+#   powershell -File tools\setup_obs_for_tests.ps1 [-Launch] [-Width N] [-Height N] [-Fps N] [-Sdr] [-Cqp 16] [-ReplaySeconds 30] [-SaveKey F1] [-OutDir <folder>]
 #   (Width, Height, Fps: 0 or left out = the display's own, from OBS's log; -Sdr records SDR even on an HDR display)
 param(
     [switch]$Launch,
     [int]$Width = 0, [int]$Height = 0, [int]$Fps = 0, [switch]$Sdr,
-    [int]$Cqp = 16, [int]$ReplaySeconds = 30, [string]$SaveKey = 'F1'
+    [int]$Cqp = 16, [int]$ReplaySeconds = 30, [string]$SaveKey = 'F1',
+    [string]$OutDir = ''   # where the files go (default: Videos\Lossless Scaling\OBS)
 )
 $ErrorActionPreference = 'Stop'
 $name = 'LS Addon Tests'
@@ -47,7 +48,7 @@ if ($log) {
 if (-not $Width) { $Width = 3840 }; if (-not $Height) { $Height = 2160 }; if (-not $Fps) { $Fps = 60 }
 $colorFormat = if ($hdr) { 'P010' } else { 'NV12' }; $colorSpace = if ($hdr) { '2100PQ' } else { '709' }
 if ($true) {
-    $videos = Join-Path $env:USERPROFILE 'Videos\Lossless Scaling\OBS'   # as the addons' recorder: not a OneDrive Videos folder (it would sync gigabytes)
+    $videos = if ($OutDir) { $OutDir } else { Join-Path $env:USERPROFILE 'Videos\Lossless Scaling\OBS' }   # as the addons' recorder: not a OneDrive Videos folder (it would sync gigabytes)
     New-Item -ItemType Directory -Force $videos | Out-Null
     $profileDir = Join-Path $cfg "basic\profiles\$name"
     New-Item -ItemType Directory -Force $profileDir | Out-Null
