@@ -137,7 +137,10 @@ Progress DownloadAndCheck(const std::string& version, const std::wstring& url, c
     WIN32_FILE_ATTRIBUTE_DATA a{};
     const uint64_t got = GetFileAttributesExW(zip.c_str(), GetFileExInfoStandard, &a) ? (uint64_t(a.nFileSizeHigh) << 32) | a.nFileSizeLow : 0;
     if (size && got != size) { p.error = "the download is not the size GitHub lists (" + std::to_string(got) + " of " + std::to_string(size) + " bytes)"; return p; }
-    if (!sha256.empty()) {
+    if (sha256.empty()) {   // nothing to check it against: not used (a release made by this project always has one; the page's own download is the way then)
+        p.error = "GitHub lists no SHA-256 for this download, so it cannot be checked and was not used (the release page has it)"; DeleteFileW(zip.c_str()); return p;
+    }
+    {
         const std::string actual = AddonSecurity::ComputeSHA256(zip);
         if (_stricmp(actual.c_str(), sha256.c_str()) != 0) { p.error = "the download does not match GitHub's SHA-256 for it; it was not used"; DeleteFileW(zip.c_str()); return p; }
     }
@@ -151,7 +154,7 @@ Progress DownloadAndCheck(const std::string& version, const std::wstring& url, c
         p.error = "the Setup in the zip is not LS Addon Manager " + version + "'s (it says \"" + name + "\" " + setupVersion + ")"; return p;
     }
     p.setupSha256 = AddonSecurity::ComputeSHA256(setup);
-    p.fingerprintChecked = !sha256.empty();
+    p.fingerprintChecked = true;   // (a download without a SHA-256 was refused above)
     p.setup = setup; p.step = Phase::Ready;
     return p;
 }

@@ -13,6 +13,8 @@
 //   nr_fgeval <recording.lsrec> <output folder> [gen=fsr|xess] [first=N] [count=N] [worst=N] [fsr=<amd_fidelityfx_dx12.dll>] [xessfg=<libxess_fg.dll>]
 //             [live=1] [mvcheck=1] [mvscale=N] [depth=motion|noise|layer|orbit [depthpx=N] [layern=N]] [estin=light|view] [depthdir=<folder> [depthinv=0]]
 //             [motion=none] [refine=...] [keepstill=N] [straycap=N] [worstby=band] [mvdump=1] [debugview=1] [ffxdebug=1]
+//   EchoFG's own synthesis (own=1): [direct=1] [owndirect=1] [ownscale=1|2|4] [ownmult=N] [owt=500] [flowfix=1] [analysis=1|2|4] [synthbench=N] [mvfile=FILE] [dumpraw=FILE dumpx= dumpy=];
+//   NR_SYNTH_STOP=N runs only the first N synthesis passes, NR_FLOW_FIX_RULES=1|2|4|7 picks the flow fix's rules; with synthbench=N the slope of the wall time between two N is the cost at steady clocks.
 // Besides the whole picture, a "band" score: around what moves unlike the camera (a character it follows, and a margin), where turn ghosting is.
 // Scores come in full and "coarse" (a quarter of the size: where things are, not their fine detail). In dense foliage the full score cannot
 // tell a sharp frame a little off from a double image; look at the pictures (worst=, live=1) before trusting a fraction of a dB.

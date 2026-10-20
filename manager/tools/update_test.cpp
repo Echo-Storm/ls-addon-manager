@@ -330,6 +330,8 @@ int main(int argc, char** argv) {
             Check("...its progress counted every byte", done == bytes.size(), std::to_string(done.load()) + " of " + std::to_string(bytes.size()));
             const Progress wrongSha = serve(setupVersion, std::string(64, 'c'), "badsha", nullptr);
             Check("a download that does not match GitHub's SHA-256 is refused", wrongSha.step == Phase::Failed && Has(wrongSha.error, "SHA-256"), wrongSha.error);
+            const Progress noSha = serve(setupVersion, "", "nosha", nullptr);
+            Check("a download GitHub lists no SHA-256 for is refused", noSha.step == Phase::Failed && Has(noSha.error, "no SHA-256"), noSha.error);
             const Progress wrongVersion = serve("9.9.9", sha, "badversion", nullptr);
             Check("a Setup of another version than the release's is refused", wrongVersion.step == Phase::Failed && Has(wrongVersion.error, "is not LS Addon Manager"), wrongVersion.error);
             std::atomic<bool> cancel{ true };

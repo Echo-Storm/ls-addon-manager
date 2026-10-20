@@ -56,7 +56,8 @@ int g_lastViewportState = 0;   // the state of the reader the last pass used
 bool ResolveViewports(ID3D11DeviceContext* ctx, const D3D11_TEXTURE2D_DESC& in, const D3D11_TEXTURE2D_DESC& o, uint32_t x, uint32_t y, NisPass& pass,
                       const std::function<void(const char*)>& log) {
     ID3D11Device* dev = nullptr; ctx->GetDevice(&dev);
-    if (dev) dev->Release();   // only compared
+    if (!dev) return false;
+    dev->Release();   // only compared (the context keeps the device alive)
     const ViewportReader::Key key{ in.Width, in.Height, o.Width, o.Height, x, y };
     ID3D11Buffer* bound = nullptr; ctx->CSGetConstantBuffers(0, 1, &bound);
     D3D11_BUFFER_DESC boundDesc{}; if (bound) bound->GetDesc(&boundDesc);

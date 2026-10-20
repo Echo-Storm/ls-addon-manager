@@ -272,7 +272,7 @@ void Recorder::Offer(ID3D11DeviceContext* ctx, ID3D11Texture2D* frame, uint32_t 
 }
 
 void Recorder::Forget() {
-    Collect(true);
+    if (!Collect(true)) StopWorkers();   // the workers did not finish in time: join them before the staging memory goes (they read it through the mapped pointers)
     DropStaging();
     StopWorkers();
     m_w = m_h = 0; m_fmt = DXGI_FORMAT_UNKNOWN;
