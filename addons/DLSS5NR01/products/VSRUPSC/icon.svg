@@ -1,7 +1,6 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round">
-  <!-- FSR Upscaler: a small frame thrown into a large one, with motion lines (Echo-Storm, MIT) -->
-  <path d="M9.5 9.5H20V20H9.5Z"/>
-  <path d="M3 13h3.5M3 16.5h3.5M5 9.5h1.5"/>
-  <path d="M4 4h5v5H4Z"/>
-  <path d="M9 9l4.5 4.5M13.5 10.5v3h-3"/>
+  <!-- Video Super Resolution: a video frame with the picture lifted up (Echo-Storm, MIT) -->
+  <path d="M3 4h18v13H3Z"/>
+  <path d="M8 21h8"/>
+  <path d="M12 13.5V8M9.5 10.5 12 8l2.5 2.5"/>
 </svg>

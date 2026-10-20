@@ -212,6 +212,8 @@ inline constexpr const char* kKeyboard   = "M4 6h16a2 2 0 0 1 2 2v8a2 2 0 0 1-2 
 inline constexpr const char* kMonitor    = "M4 3h16a2 2 0 0 1 2 2v10a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2ZM8 21h8M12 17v4";
 inline constexpr const char* kEye        = "M2 12s3-7 10-7 10 7 10 7-3 7-10 7-10-7-10-7ZM12 15a3 3 0 1 0 0-6 3 3 0 0 0 0 6Z";
 inline constexpr const char* kCircle     = "M12 21a9 9 0 1 0 0-18 9 9 0 0 0 0 18Z";
+inline constexpr const char* kVideo      = "M3 6h11a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H3a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2ZM16 10.5l6-3.5v10l-6-3.5";
+inline constexpr const char* kGauge      = "M12 21a9 9 0 1 0 0-18 9 9 0 0 0 0 18ZM12 12l4-4M7 12h.01M12 7h.01M17 12h.01";
 inline constexpr const char* kAlert      = "M10.3 3.9 1.8 18a2 2 0 0 0 1.7 3h17a2 2 0 0 0 1.7-3L13.7 3.9a2 2 0 0 0-3.4 0ZM12 9v4M12 17h.01";
 } // namespace icons
 

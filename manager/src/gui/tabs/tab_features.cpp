@@ -44,7 +44,8 @@ void Card(int index) {
         const ImVec2 at = ImGui::GetCursorScreenPos();
         draw->AddRectFilled(at, ImVec2(at.x + icon, at.y + icon), U(kPanelAlt), S(4.0f));
         draw->AddRect(at, ImVec2(at.x + icon, at.y + icon), U(on ? kAccentDim : kBorderBright), S(4.0f));
-        const char* shape = std::string(info.id).find("ReShade") != std::string::npos ? eam::ui::icons::kKeyboard : eam::ui::icons::kMonitor;
+        const std::string id = info.id;   // one shape for each: a keyboard, a monitor (windowed mode), a video camera (the recorder), a gauge (the GPU limit)
+        const char* shape = id.find("ReShade") != std::string::npos ? eam::ui::icons::kKeyboard : id == "Recorder" ? eam::ui::icons::kVideo : id == "GpuLimit" ? eam::ui::icons::kGauge : eam::ui::icons::kMonitor;
         eam::ui::svg::Draw(draw, shape, ImVec2(at.x + icon * 0.19f, at.y + icon * 0.19f), icon * 0.62f, U(on ? kAccent : kMuted), 1.7f);
         ImGui::Dummy(ImVec2(icon, icon));
         ImGui::SameLine(0, S(12));
