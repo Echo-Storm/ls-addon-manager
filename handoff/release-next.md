@@ -42,6 +42,17 @@ Build and deploy (the normal build, `addons\DLSS5NR01\build`, has it compiled ou
 4. HDR (Windows HDR on, scRGB or HDR10 frames): same picture quality, no banding or blown highlights in the made frames (offline: scRGB scored the same as SDR; HDR10 PQ is the same code, untried).
 5. Switch things while it runs (the multiplier, own synthesis on/off, the game's window size): no freeze, no black frame (offline: nr_fgpresent switch=1 and resize=1 pass).
 
+## Live test of the 2026-10-19 build (Model preset, new model 310.9.16; deployed to D:\Utilities\Lossless Scaling)
+
+State: the NR addon with the **Model preset** and the 310.9.16 model file are deployed (the old 310.8 file is in `backups\nvngx_dlssnr.310.8-4b8d19bc.20261019-013639.dll`; put it back as `nvngx_dlssnr.dll` to return). The other addons are the 0.10.0 builds. Restart Lossless Scaling first (the recorder folder is `E:\echo-addon-manager\recordings` for all addons now).
+
+1. **Test compatibility** in the Neural Rendering panel (Requirements). Pass: the model row is OK (it will say "not the same file", the hash is new: that is expected until it is added to `kKnownModels`).
+2. **Newer against Older** (panel, Model preset, under Model passes): in WoW (lighting), with the Before / after hotkey (Ctrl+Shift+F7). Newer should cost about 40% less model time (the panel's model ms) with a gentler effect; Older should look like what you had. Changing it makes the model again (a moment of the old result). Look at: the glow beside bright UI (N1), ghosting, flicker, and whether Older at 1 pass and Newer at 2 passes look alike.
+3. If it works: add `cdfa6c1ec7848671` to `kKnownModels` (src/addon/requirements.cpp) and a row to docs/model-compatibility.md (card, driver 617.42, model 310.9.16).
+4. **Recordings** (clips for the model comparisons, N4): recorder on in any addon's panel, "Record what is shown" OFF, Lossless Scaling frame generation OFF, Ctrl+Shift+F1 after the moment; clips: calm detail, fast pan, dark scene with bright UI, one HDR if used. Files land in `recordings\`.
+5. **Videos**: `pwsh tools\setup_obs_for_tests.ps1 -Launch -OutDir E:\echo-addon-manager\recordings\obs` starts OBS (profile "LS Addon Tests": 3840x2160 60 fps SDR, NVENC AV1 CQP 16, MKV, a 30 s replay buffer saved with Ctrl+Shift+F1, the same key as the addons' recorder). Tested 2026-10-19: OBS starts, the replay buffer starts, AV1 hardware encoding is available. NOT tested: a saved file (a synthetic keypress did not reach OBS; press the key yourself once and check `recordings\obs`). OBS was installed with winget (32.2.2). Keep the FSR 4 runtime out of the videos until S7 is looked at.
+6. **S7**: with the FSR Upscaler, try the FSR 4 runtime (Runtimes list, +) for a minute; if the picture stops, the panel should say the engine stopped responding after 20 s (that is the design). Send `logs\FSR3UPSC.log` if it freezes Lossless Scaling.
+
 ## Release day (the procedure that has worked; memory: release-state, verify-package-contents)
 
 1. Bump the version everywhere; CHANGELOG heading "## Unreleased" -> the version and date; README "New in".
