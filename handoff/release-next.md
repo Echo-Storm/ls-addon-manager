@@ -60,3 +60,18 @@ State: the NR addon with the **Model preset** and the 310.9.16 model file are de
 3. `powershell tools/package.ps1` in the main checkout (it stops if an addon is not built; the log must list all five addons; the zip is about 172 MB).
 4. `gh release create vX --target main --notes-file <notes>`; then the open issues: post the drafts in handoff/issue-reply-drafts.md that still apply.
 5. Not in the changelog or notes by the owner's rule: the NVIDIA Video Effects SDK subset that VSR ships with for testing. Before 1.0 it goes (tools/package.ps1 VSR Extra files), with a download option; legal review open (NOTICE.md).
+
+## Toward 1.0 (written 2026-10-20; board card R1; the release itself is the owner's call)
+
+State: everything is on `main`, CI green at 343e2ac, the update-check race fixed after it (599d1bc). The latest manager (Lossless.dll 00:52) and ECHOFG (00:29) were deployed to D:\Utilities\Lossless Scaling on 2026-10-20. Addon API is 1.3.0 (unreleased; the 1.0 interface is only appended to).
+
+Live checks still to do (nothing below has been seen in a game yet):
+1. **Recorder fixes** (Features tab, Recording): Ctrl+Shift+F1 with the addon Enable off; with frame generation off and no addon (the NIS input fallback); the sounds (tick, rising pair, low tone); the note beside the file; "Keep going after the key". Already seen live on 2026-10-19: Compact clips, 15 s = 900 frames.
+2. **GPU limit** (Features tab, 80-100 %): switch it on at 85 %, load the card with a GPU-bound game; the NR panel's Auto quality should go down and come back; the status line shows the load. On a two-card machine the load must be the card Lossless Scaling runs on (D3D11Hook::ActiveCardName).
+3. **Model preset**: Newer against Older (Ctrl+Shift+F7), card N3; the EchoFG panel (E10).
+4. **ReShade and Windowed features** (Features tab): one live look each.
+5. **The update flow** against a real newer release is the one thing that cannot be tried before a release exists (the offline test uses a local server).
+
+Version bump list (the string is "0.10.0" in each): `manager/CMakeLists.txt` (project VERSION), `manager/sdk/include/eam/version.h` (EAM_VERSION_STRING; check the numeric parts too), the six `addon.json` files (`addons/DLSS5NR01/addon.json` and `addons/DLSS5NR01/products/*/addon.json`), `addons/DLSS5NR01/src/echofg/echofg_addon.cpp` (kVersion), README.md line 17 and its "New in" paragraph, the ROADMAP.md status line, CHANGELOG.md ("## Unreleased" becomes the version and date). Grep for "0.10.0" afterwards: installer_test.cpp, update_test.cpp, update_check.h and the "up to 0.10.0" comments in gpu_limit.h / recorder_feature.h are meant to stay.
+
+Before the tag: `tools\ci.ps1` from a clean build, `run_hosttest_matrix.py --jobs 3` on an idle machine, `tools\package.ps1` (all five addons in the log), then the "Release day" steps above. The issue drafts for #20 and #21 (handoff/issue-reply-drafts.md) are posted after the release.
