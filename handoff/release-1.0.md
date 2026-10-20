@@ -1,7 +1,6 @@
 # 1.0: the one-hour test and release day (prepared 2026-10-20; nothing here is done until the owner does it; no tag, no release was made)
 
-State: `main` is green on GitHub (last full runs 2026-10-20), the version is still 0.10.0 everywhere, `python tools/bump_version.py 1.0.0` was tried on a copy of the tree and
-reverted (the dry run lists 11 files; with `--apply` the local CI was run on the bumped tree, result in "Checked before the hour" below). Addon API 1.3.0 is new in this release
+State: `main` carries the **1.0.0 version bump** (committed 2026-10-20 by `python tools/bump_version.py 1.0.0 --apply`: 11 files; the CHANGELOG's "Unreleased" is now "1.0.0 (2026-10-20)", the README header and "New in 1.0.0" are done). The local CI was run on exactly this tree and passed (result in "Checked before the hour" below). Not done, on purpose: the tag, the release, the zip, ROADMAP.md's status. Addon API 1.3.0 is new in this release
 (IHost calls appended: recorder and GPU limit; the 1.0 interface is only appended to).
 
 ## What 1.0 contains (CHANGELOG.md "Unreleased" has the wording)
@@ -17,8 +16,8 @@ Requirements row says so). Back up `D:\Utilities\Lossless Scaling` (deploy.ps1 d
 
 **The full test suite is NOT run in the hour.** `tools\ci.ps1` and the host matrix (`run_hosttest_matrix.py --jobs 3`, about 10 minutes, needs an idle machine) run **once, on the release itself** (release day step 2), not before and not again during the test hour. `tools\ci.ps1` was run once on the bumped tree on 2026-10-20 (below).
 
-**0:10 - 0:15 Bump and package (a dev build to test, not a release).**
-`python tools\bump_version.py 1.0.0 --apply`, build (`python tools\dev.py build`), `powershell -File tools\deploy.ps1 -What all -LsDir 'D:\Utilities\Lossless Scaling'`, `powershell -File tools\package.ps1`
+**0:10 - 0:15 Build and deploy what is on `main` (the bump is already in it; a dev build to test, not a release).**
+Build (`python tools\dev.py build`), `powershell -File tools\deploy.ps1 -What all -LsDir 'D:\Utilities\Lossless Scaling'`, `powershell -File tools\package.ps1`
 (stops if an addon is not built; the log must list the five shipped addons: DLSS5NR01, DLSS4DLAA, FSR3UPSC, XESSUPSC and the manager; no ECHOFG, no VSR, **no nvngx_dlssnr.dll**).
 
 **0:15 - 0:55 Live, with Lossless Scaling and WoW (or any game), in this order.** Each: what to do, what passes. Logs are in `D:\Utilities\Lossless Scaling\logs` (`LSAddonManager.log`, `DLSS5NR01.log`).
@@ -35,7 +34,7 @@ Requirements row says so). Back up `D:\Utilities\Lossless Scaling` (deploy.ps1 d
 
 ## Release day (only when the owner says; these are the steps that worked before, see also release-next.md)
 
-1. `python tools\bump_version.py 1.0.0 --apply` (if not already), write by hand: README "New in 1.0.0" (a short block, below), ROADMAP.md status (below), CHANGELOG.md (the bump moved "Unreleased" under 1.0.0).
+1. The bump, the README text and the CHANGELOG heading are already on `main`. Still by hand: ROADMAP.md's status (text below; check its table row by row first), and fix any change the test hour found.
 2. Commit exactly those paths (never `git add -A .`), push, `gh run watch` the CI until green; then, the once-only full run: `pwsh tools\ci.ps1` (run the Setup exe step with `-ExecutionPolicy Bypass` if this machine's policy blocks it) and `python toolsun_hosttest_matrix.py --jobs 3` on an idle machine; all must pass before the zip is made.
 3. `powershell tools\package.ps1` in the main checkout; open the zip: five addons, the Setup exe, no model file, licences present (about 172 MB). Check the Setup exe against the build (the script does).
 4. `gh release create v1.0.0 --target main --notes-file <notes below> <the zip>`. Then post the reply drafts for issues #20 and #21 (`handoff/issue-reply-drafts.md`).
