@@ -7,8 +7,10 @@ if(NOT EXISTS "${SL_SDK}/include/sl.h")
   message(FATAL_ERROR "Streamline SDK not found at ${SL_SDK} (see the comment at the top of this file)")
 endif()
 set(CMAKE_CXX_STANDARD 17)
-add_executable(dlssg_probe dlssg_probe.cpp)
-target_include_directories(dlssg_probe PRIVATE "${SL_SDK}/include")
+set(NR_SRC "${CMAKE_CURRENT_SOURCE_DIR}/../../addons/DLSS5NR01/src")
+# the recording reader and EchoFG's flow estimator are the addons' own sources
+add_executable(dlssg_probe dlssg_probe.cpp "${NR_SRC}/addon/lsrec.cpp" "${NR_SRC}/engine/flow_estimator.cpp")
+target_include_directories(dlssg_probe PRIVATE "${SL_SDK}/include" "${NR_SRC}")
 # the interposer's own library stands in for d3d12.lib and dxgi.lib: device and factory creation go through it
 target_link_libraries(dlssg_probe PRIVATE "${SL_SDK}/lib/x64/sl.interposer.lib" d3dcompiler)
 target_compile_definitions(dlssg_probe PRIVATE _CRT_SECURE_NO_WARNINGS)

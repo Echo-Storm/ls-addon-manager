@@ -23,6 +23,10 @@
 #include <sl_reflex.h>
 #include <sl_pcl.h>
 #include <sl_dlss_g.h>
+#include "addon/lsrec.h"
+#include "engine/flow_estimator.h"
+#include <memory>
+#include <algorithm>
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
@@ -123,6 +127,9 @@ struct Args {
     std::string mvec = "exact";
     bool onlyGen = false;
     std::string grab;
+    std::string clip;       // a recording (.lsrec) played as the picture: every second frame is shown, the frames between are the truth the generated ones are scored against
+    int start = 0, count = 120;   // the clip's frames used (count is of clip frames: count / 2 are shown)
+    std::string motion = "flow";   // clip: flow (EchoFG's estimator) | zero
     int fps = 60;   // real frames a second (Reflex's frame limiter); 0 = unlimited
 };
 
@@ -141,6 +148,10 @@ static Args ParseArgs(int argc, char** argv) {
         else if (k == "onlygen") a.onlyGen = v == "1";
         else if (k == "grab") a.grab = v;
         else if (k == "fps") a.fps = atoi(v.c_str());
+        else if (k == "clip") a.clip = v;
+        else if (k == "start") a.start = atoi(v.c_str());
+        else if (k == "count") a.count = atoi(v.c_str());
+        else if (k == "motion") a.motion = v;
     }
     return a;
 }
@@ -191,9 +202,9 @@ static bool SaveBurst(HWND hwnd, const char* path, int count) {
 
 // Desktop Duplication: the desktop as the compositor shows it, one image each time it changes, with nothing in between lost (a GDI grab is not a reliable tap). The same
 // 192 x 192 patch at 300,200 of the window, every picture the screen got over `count` pictures, into a raw file.
-static bool SaveDuplication(HWND hwnd, IDXGIAdapter1* adapter, const char* path, int count) {
+static bool SaveDuplication(HWND hwnd, IDXGIAdapter1* adapter, const char* path, int count, int rx = 300, int ry = 200, int rw = 192, int rh = 192) {
     POINT tl{ 0, 0 }; ClientToScreen(hwnd, &tl);
-    const LONG px = tl.x + 300, py = tl.y + 200;
+    const LONG px = tl.x + rx, py = tl.y + ry;
     ComPtr<IDXGIOutput> output;
     for (UINT i = 0; adapter->EnumOutputs(i, &output) != DXGI_ERROR_NOT_FOUND; ++i) {
         DXGI_OUTPUT_DESC od{}; output->GetDesc(&od);
@@ -206,7 +217,7 @@ static bool SaveDuplication(HWND hwnd, IDXGIAdapter1* adapter, const char* path,
     if (FAILED(D3D11CreateDevice(adapter, D3D_DRIVER_TYPE_UNKNOWN, nullptr, 0, nullptr, 0, D3D11_SDK_VERSION, &dev, nullptr, &ctx))) { Say("duplication: no D3D11 device"); return false; }
     ComPtr<IDXGIOutput1> o1; ComPtr<IDXGIOutputDuplication> dup;
     if (FAILED(output.As(&o1)) || FAILED(o1->DuplicateOutput(dev.Get(), &dup))) { Say("duplication: DuplicateOutput failed"); return false; }
-    D3D11_TEXTURE2D_DESC sd{}; sd.Width = 192; sd.Height = 192; sd.MipLevels = 1; sd.ArraySize = 1; sd.Format = DXGI_FORMAT_B8G8R8A8_UNORM; sd.SampleDesc.Count = 1; sd.Usage = D3D11_USAGE_STAGING; sd.CPUAccessFlags = D3D11_CPU_ACCESS_READ;
+    D3D11_TEXTURE2D_DESC sd{}; sd.Width = rw; sd.Height = rh; sd.MipLevels = 1; sd.ArraySize = 1; sd.Format = DXGI_FORMAT_B8G8R8A8_UNORM; sd.SampleDesc.Count = 1; sd.Usage = D3D11_USAGE_STAGING; sd.CPUAccessFlags = D3D11_CPU_ACCESS_READ;
     ComPtr<ID3D11Texture2D> staging; dev->CreateTexture2D(&sd, nullptr, &staging);
     FILE* f = fopen(path, "wb");
     int got = 0, tries = 0;
@@ -218,11 +229,11 @@ static bool SaveDuplication(HWND hwnd, IDXGIAdapter1* adapter, const char* path,
         if (info.LastPresentTime.QuadPart != 0) {
             ComPtr<ID3D11Texture2D> tex; res.As(&tex);
             { static bool said = false; if (!said) { said = true; D3D11_TEXTURE2D_DESC td{}; tex->GetDesc(&td); Say("duplication: the desktop's format is %u (87 = BGRA8, 10 = RGBA16F, 24 = RGB10A2)", (unsigned)td.Format); } }
-            const D3D11_BOX box{ (UINT)(px - od.DesktopCoordinates.left), (UINT)(py - od.DesktopCoordinates.top), 0, (UINT)(px - od.DesktopCoordinates.left) + 192, (UINT)(py - od.DesktopCoordinates.top) + 192, 1 };
+            const D3D11_BOX box{ (UINT)(px - od.DesktopCoordinates.left), (UINT)(py - od.DesktopCoordinates.top), 0, (UINT)(px - od.DesktopCoordinates.left) + rw, (UINT)(py - od.DesktopCoordinates.top) + rh, 1 };
             ctx->CopySubresourceRegion(staging.Get(), 0, 0, 0, 0, tex.Get(), 0, &box);
             D3D11_MAPPED_SUBRESOURCE m{};
             if (SUCCEEDED(ctx->Map(staging.Get(), 0, D3D11_MAP_READ, 0, &m))) {
-                for (UINT y = 0; y < 192; ++y) fwrite((uint8_t*)m.pData + (size_t)m.RowPitch * y, 4, 192, f);
+                for (int y = 0; y < rh; ++y) fwrite((uint8_t*)m.pData + (size_t)m.RowPitch * y, 4, rw, f);
                 ctx->Unmap(staging.Get(), 0); ++got;
             }
         }
@@ -382,6 +393,74 @@ int main(int argc, char** argv) {
     CHECK_HR(makeTexture(DXGI_FORMAT_R16G16_FLOAT, mv, 4, mvecTex));
     Say("depth: constant %.2f; motion vectors: %.1f, 0 pixels (current -> previous)", depthValue, mvx);
 
+    // ---- a clip as the picture (the harder test): its frames cropped to the window, the real ones (every second) on the card, EchoFG's flow estimator for the motion
+    const bool clipMode = !args.clip.empty();
+    std::vector<ComPtr<ID3D12Resource>> clipFrames;       // the frames shown
+    ComPtr<ID3D12Resource> flowMotion, flowDistrust;
+    std::unique_ptr<FlowEstimator> flow;
+    bool flowMotionIsUav = true;
+    int clipReal = 0;
+    if (clipMode) {
+        nr::lsrec::Reader rd; std::string rerr;
+        if (!rd.Open(std::wstring(args.clip.begin(), args.clip.end()), &rerr)) { Say("clip: %s", rerr.c_str()); return 4; }
+        const auto& hd = rd.Header();
+        Say("clip: %ux%u, format %u, %zu frames; using %d from %d, cropped to %dx%d", hd.width, hd.height, hd.format, rd.Count(), args.count, args.start, args.width, args.height);
+        if (hd.bytesPerPixel != 4 || hd.width < (uint32_t)args.width || hd.height < (uint32_t)args.height) { Say("clip: needs an 8-bit clip at least as big as the window (Compact)"); return 4; }
+        const uint32_t cx = (hd.width - args.width) / 2, cy = (hd.height - args.height) / 2;
+        const int total = std::min<int>(args.count, (int)rd.Count() - args.start) & ~1;
+        clipReal = total / 2;
+        FILE* rawOut = args.grab.empty() ? nullptr : fopen((args.grab + ".clip").c_str(), "wb");
+        std::vector<uint8_t> full, crop((size_t)args.width * args.height * 4);
+        for (int i = 0; i < total; ++i) {
+            if (!rd.Read(args.start + i, full)) { Say("clip: frame %d unreadable", args.start + i); return 4; }
+            for (int y = 0; y < args.height; ++y) memcpy(&crop[(size_t)y * args.width * 4], &full[((size_t)(cy + y) * hd.width + cx) * 4], (size_t)args.width * 4);
+            if (rawOut) fwrite(crop.data(), crop.size(), 1, rawOut);
+            if (i % 2 == 0) {   // the real frame
+                ComPtr<ID3D12Resource> tex;
+                D3D12_HEAP_PROPERTIES hp{ D3D12_HEAP_TYPE_DEFAULT };
+                D3D12_RESOURCE_DESC rdsc{ D3D12_RESOURCE_DIMENSION_TEXTURE2D, 0, (UINT64)args.width, (UINT)args.height, 1, 1, DXGI_FORMAT_R8G8B8A8_UNORM, { 1, 0 }, D3D12_TEXTURE_LAYOUT_UNKNOWN, D3D12_RESOURCE_FLAG_NONE };
+                CHECK_HR(device->CreateCommittedResource(&hp, D3D12_HEAP_FLAG_NONE, &rdsc, D3D12_RESOURCE_STATE_COPY_DEST, nullptr, IID_PPV_ARGS(&tex)));
+                D3D12_PLACED_SUBRESOURCE_FOOTPRINT fp{}; UINT rows; UINT64 rowBytes, tot;
+                device->GetCopyableFootprints(&rdsc, 0, 1, 0, &fp, &rows, &rowBytes, &tot);
+                D3D12_HEAP_PROPERTIES up{ D3D12_HEAP_TYPE_UPLOAD };
+                D3D12_RESOURCE_DESC bd{ D3D12_RESOURCE_DIMENSION_BUFFER, 0, tot, 1, 1, 1, DXGI_FORMAT_UNKNOWN, { 1, 0 }, D3D12_TEXTURE_LAYOUT_ROW_MAJOR, D3D12_RESOURCE_FLAG_NONE };
+                ComPtr<ID3D12Resource> upload;
+                CHECK_HR(device->CreateCommittedResource(&up, D3D12_HEAP_FLAG_NONE, &bd, D3D12_RESOURCE_STATE_GENERIC_READ, nullptr, IID_PPV_ARGS(&upload)));
+                uint8_t* mapped = nullptr; upload->Map(0, nullptr, (void**)&mapped);
+                for (int y = 0; y < args.height; ++y) memcpy(mapped + (size_t)fp.Footprint.RowPitch * y, &crop[(size_t)y * args.width * 4], (size_t)args.width * 4);
+                upload->Unmap(0, nullptr);
+                ComPtr<ID3D12CommandAllocator> alloc; ComPtr<ID3D12GraphicsCommandList> cl; ComPtr<ID3D12Fence> f2;
+                device->CreateCommandAllocator(D3D12_COMMAND_LIST_TYPE_DIRECT, IID_PPV_ARGS(&alloc));
+                device->CreateCommandList(0, D3D12_COMMAND_LIST_TYPE_DIRECT, alloc.Get(), nullptr, IID_PPV_ARGS(&cl));
+                D3D12_TEXTURE_COPY_LOCATION dst{ tex.Get(), D3D12_TEXTURE_COPY_TYPE_SUBRESOURCE_INDEX }; dst.SubresourceIndex = 0;
+                D3D12_TEXTURE_COPY_LOCATION src{ upload.Get(), D3D12_TEXTURE_COPY_TYPE_PLACED_FOOTPRINT }; src.PlacedFootprint = fp;
+                cl->CopyTextureRegion(&dst, 0, 0, 0, &src, nullptr);
+                D3D12_RESOURCE_BARRIER b{}; b.Type = D3D12_RESOURCE_BARRIER_TYPE_TRANSITION;
+                b.Transition = { tex.Get(), D3D12_RESOURCE_BARRIER_ALL_SUBRESOURCES, D3D12_RESOURCE_STATE_COPY_DEST, D3D12_RESOURCE_STATE_COPY_SOURCE | D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE };
+                cl->ResourceBarrier(1, &b); cl->Close();
+                ID3D12CommandList* ls[] = { cl.Get() }; queue->ExecuteCommandLists(1, ls);
+                device->CreateFence(0, D3D12_FENCE_FLAG_NONE, IID_PPV_ARGS(&f2)); queue->Signal(f2.Get(), 1);
+                HANDLE ev = CreateEventW(nullptr, FALSE, FALSE, nullptr); f2->SetEventOnCompletion(1, ev); WaitForSingleObject(ev, 10000); CloseHandle(ev);
+                clipFrames.push_back(tex);
+            }
+        }
+        if (rawOut) fclose(rawOut);
+        // the estimator's two outputs
+        auto uavTex = [&](DXGI_FORMAT fmt, ComPtr<ID3D12Resource>& tex, D3D12_RESOURCE_STATES state) -> HRESULT {
+            D3D12_HEAP_PROPERTIES hp{ D3D12_HEAP_TYPE_DEFAULT };
+            D3D12_RESOURCE_DESC rdsc{ D3D12_RESOURCE_DIMENSION_TEXTURE2D, 0, (UINT64)args.width, (UINT)args.height, 1, 1, fmt, { 1, 0 }, D3D12_TEXTURE_LAYOUT_UNKNOWN, D3D12_RESOURCE_FLAG_ALLOW_UNORDERED_ACCESS };
+            return device->CreateCommittedResource(&hp, D3D12_HEAP_FLAG_NONE, &rdsc, state, nullptr, IID_PPV_ARGS(&tex));
+        };
+        CHECK_HR(uavTex(DXGI_FORMAT_R16G16_FLOAT, flowMotion, D3D12_RESOURCE_STATE_UNORDERED_ACCESS));
+        CHECK_HR(uavTex(DXGI_FORMAT_R8_UNORM, flowDistrust, D3D12_RESOURCE_STATE_UNORDERED_ACCESS));
+        if (args.motion == "flow") {
+            flow = std::make_unique<FlowEstimator>();
+            if (!flow->Init(device.Get(), [](const char* m) { Say("[flow] %s", m); })) { Say("flow estimator did not start"); return 5; }
+            flow->Ensure(args.width, args.height);
+        }
+        Say("clip: %d real frames shown (every second one), motion: %s%s", clipReal, args.motion.c_str(), args.grab.empty() ? "" : "; the clip's frames, cropped, are in <grab>.clip for scoring");
+    }
+
     // ---- per-frame objects
     ComPtr<ID3D12CommandAllocator> allocs[kBuffers];
     for (auto& a : allocs) CHECK_HR(device->CreateCommandAllocator(D3D12_COMMAND_LIST_TYPE_DIRECT, IID_PPV_ARGS(&a)));
@@ -449,7 +528,7 @@ int main(int argc, char** argv) {
         if (elapsed >= args.seconds) break;
         if (!args.grab.empty() && !grabbed && elapsed > 3.0) { grabbed = true; 
             const bool raw = args.grab.size() > 4 && args.grab.compare(args.grab.size() - 4, 4, ".raw") == 0;
-            if (raw) { burst = std::thread([&] { SaveDuplication(hwnd, adapter.Get(), args.grab.c_str(), 240); }); Say("grab: burst into %s (on its own thread, while frames go on)", args.grab.c_str()); }
+            if (raw) { burst = std::thread([&] { if (clipMode) SaveDuplication(hwnd, adapter.Get(), args.grab.c_str(), 150, 0, 0, args.width, args.height); else SaveDuplication(hwnd, adapter.Get(), args.grab.c_str(), 240); }); Say("grab: burst into %s (on its own thread, while frames go on)", args.grab.c_str()); }
             else Say("grab: %s (%s)", args.grab.c_str(), SaveGrab(hwnd, args.grab.c_str(), args.width, args.height) ? "saved" : "FAILED");
         }
 
@@ -467,25 +546,46 @@ int main(int argc, char** argv) {
         allocs[bi]->Reset(); cmd->Reset(allocs[bi].Get(), pso.Get());
         slPCLSetMarker(sl::PCLMarker::eRenderSubmitStart, *token);
 
-        // tag the inputs for this frame (the command list is still open; both stay valid until the frame is presented)
+        D3D12_RESOURCE_BARRIER rb{}; rb.Type = D3D12_RESOURCE_BARRIER_TYPE_TRANSITION;
+        D3D12_RESOURCE_BARRIER mvBarrier{}; mvBarrier.Type = D3D12_RESOURCE_BARRIER_TYPE_TRANSITION;
+        ID3D12Resource* mvecForTag = mvecTex.Get();
+        sl::ResourceLifecycle mvecLife = sl::ResourceLifecycle::eValidUntilPresent;
+        if (clipMode && flow) {
+            const int idx = (int)((frameIndex - 1) % clipReal);
+            if (idx == 0 && frameIndex > 1) flow->Forget();   // the clip starts again: no frame before it
+            if (!flowMotionIsUav) { mvBarrier.Transition = { flowMotion.Get(), D3D12_RESOURCE_BARRIER_ALL_SUBRESOURCES, D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE, D3D12_RESOURCE_STATE_UNORDERED_ACCESS }; cmd->ResourceBarrier(1, &mvBarrier); }
+            flow->Record(cmd.Get(), (int)(frameIndex % FlowEstimator::kSlots), clipFrames[idx].Get(), DXGI_FORMAT_R8G8B8A8_UNORM, flowMotion.Get(), flowDistrust.Get());
+            mvBarrier.Transition = { flowMotion.Get(), D3D12_RESOURCE_BARRIER_ALL_SUBRESOURCES, D3D12_RESOURCE_STATE_UNORDERED_ACCESS, D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE };
+            cmd->ResourceBarrier(1, &mvBarrier); flowMotionIsUav = false;
+            mvecForTag = flowMotion.Get(); mvecLife = sl::ResourceLifecycle::eOnlyValidNow;   // rewritten next frame: Streamline keeps its own copy
+        }
+
+        // tag the inputs for this frame (the command list is still open; depth is a constant plane, the motion vectors are what the mode says)
         sl::Resource depthRes(sl::ResourceType::eTex2d, depthTex.Get(), nullptr, nullptr, D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE);
-        sl::Resource mvecRes(sl::ResourceType::eTex2d, mvecTex.Get(), nullptr, nullptr, D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE);
+        sl::Resource mvecRes(sl::ResourceType::eTex2d, mvecForTag, nullptr, nullptr, D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE);
         sl::Extent ext{ 0, 0, (uint32_t)args.width, (uint32_t)args.height };
         sl::ResourceTag tags[] = { sl::ResourceTag(&depthRes, sl::kBufferTypeDepth, sl::ResourceLifecycle::eValidUntilPresent, &ext),
-                                   sl::ResourceTag(&mvecRes, sl::kBufferTypeMotionVectors, sl::ResourceLifecycle::eValidUntilPresent, &ext) };
+                                   sl::ResourceTag(&mvecRes, sl::kBufferTypeMotionVectors, mvecLife, &ext) };
         const sl::Result tagResult = slSetTagForFrame(*token, viewport, tags, 2, cmd.Get());
         if (tagResult != sl::Result::eOk && errorsLogged++ < 3) Say("slSetTagForFrame -> %s", SlResultName(tagResult));
 
-        D3D12_RESOURCE_BARRIER rb{}; rb.Type = D3D12_RESOURCE_BARRIER_TYPE_TRANSITION;
-        rb.Transition = { backBuffers[bi].Get(), D3D12_RESOURCE_BARRIER_ALL_SUBRESOURCES, D3D12_RESOURCE_STATE_PRESENT, D3D12_RESOURCE_STATE_RENDER_TARGET };
-        cmd->ResourceBarrier(1, &rb);
-        D3D12_CPU_DESCRIPTOR_HANDLE rtv = rtvHeap->GetCPUDescriptorHandleForHeapStart(); rtv.ptr += (SIZE_T)bi * rtvSize;
-        D3D12_VIEWPORT vp{ 0, 0, (float)args.width, (float)args.height, 0, 1 }; D3D12_RECT sr{ 0, 0, args.width, args.height };
-        cmd->SetGraphicsRootSignature(rootSig.Get()); cmd->RSSetViewports(1, &vp); cmd->RSSetScissorRects(1, &sr); cmd->OMSetRenderTargets(1, &rtv, FALSE, nullptr);
-        const float consts[4] = { shift, (float)args.width, (float)args.height, 0 };
-        cmd->SetGraphicsRoot32BitConstants(0, 4, consts, 0);
-        cmd->IASetPrimitiveTopology(D3D_PRIMITIVE_TOPOLOGY_TRIANGLELIST); cmd->DrawInstanced(3, 1, 0, 0);
-        std::swap(rb.Transition.StateBefore, rb.Transition.StateAfter); cmd->ResourceBarrier(1, &rb);
+        if (clipMode) {
+            const int idx = (int)((frameIndex - 1) % clipReal);
+            rb.Transition = { backBuffers[bi].Get(), D3D12_RESOURCE_BARRIER_ALL_SUBRESOURCES, D3D12_RESOURCE_STATE_PRESENT, D3D12_RESOURCE_STATE_COPY_DEST };
+            cmd->ResourceBarrier(1, &rb);
+            cmd->CopyResource(backBuffers[bi].Get(), clipFrames[idx].Get());
+            std::swap(rb.Transition.StateBefore, rb.Transition.StateAfter); cmd->ResourceBarrier(1, &rb);
+        } else {
+            rb.Transition = { backBuffers[bi].Get(), D3D12_RESOURCE_BARRIER_ALL_SUBRESOURCES, D3D12_RESOURCE_STATE_PRESENT, D3D12_RESOURCE_STATE_RENDER_TARGET };
+            cmd->ResourceBarrier(1, &rb);
+            D3D12_CPU_DESCRIPTOR_HANDLE rtv = rtvHeap->GetCPUDescriptorHandleForHeapStart(); rtv.ptr += (SIZE_T)bi * rtvSize;
+            D3D12_VIEWPORT vp{ 0, 0, (float)args.width, (float)args.height, 0, 1 }; D3D12_RECT sr{ 0, 0, args.width, args.height };
+            cmd->SetGraphicsRootSignature(rootSig.Get()); cmd->RSSetViewports(1, &vp); cmd->RSSetScissorRects(1, &sr); cmd->OMSetRenderTargets(1, &rtv, FALSE, nullptr);
+            const float consts[4] = { shift, (float)args.width, (float)args.height, 0 };
+            cmd->SetGraphicsRoot32BitConstants(0, 4, consts, 0);
+            cmd->IASetPrimitiveTopology(D3D_PRIMITIVE_TOPOLOGY_TRIANGLELIST); cmd->DrawInstanced(3, 1, 0, 0);
+            std::swap(rb.Transition.StateBefore, rb.Transition.StateAfter); cmd->ResourceBarrier(1, &rb);
+        }
         cmd->Close();
         ID3D12CommandList* lists[] = { cmd.Get() }; queue->ExecuteCommandLists(1, lists);
         slPCLSetMarker(sl::PCLMarker::eRenderSubmitEnd, *token);

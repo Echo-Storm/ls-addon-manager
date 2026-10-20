@@ -85,3 +85,22 @@ The NGX parameter names in their engine are NVIDIA's private interface (they are
 - **What this means for a product**: DLSS-G through Streamline *owns the swap chain* (it presents the extra frames itself, needs Reflex markers, and the extra frames come out of the proxy swap chain). Lossless Scaling already presents its own output, so this can only be the *final presenter* of an own full-screen window (what MFG Super Motion does: capture the game, draw on top), not something added inside Lossless Scaling's pipeline. That is a different product shape from our addons (a presenter process like EchoFG's `nr_fgpresent`, with LS's scaling as the capture). NVIDIA's terms for shipping Streamline/DLSS-G and the application-ID question (we have none) need an answer before anything goes in a release; for a user's own machine the project GUID route above runs today.
 
 Open: how it behaves with real estimated motion (EchoFG's flow field instead of a constant), with a hudless/UI split, at 4K, and at x3/x4 on Ada (which NVIDIA's runtime does not allow; that is what the community compatibility packages the other program carries are for, and we would not use them).
+
+### The harder probe: real footage, EchoFG's flow estimator as the motion (2026-10-20)
+
+`dlssg_probe.exe clip=FILE.lsrec start=N count=M motion=flow|zero grab=OUT.raw` plays a recording (Compact, cropped to a 1280 x 720 window) as the picture: the even clip frames are the real frames (30 a second), the odd ones are the **truth** for the frame generated between two real ones. The motion handed to DLSS-G is either **EchoFG's flow estimator** (`FlowEstimator`, the addons' own source, compiled into the probe; per-pixel, current -> previous, in pixels) or zero; depth is the same constant plane. The screen is read with Desktop Duplication (every picture the compositor made) and `check_clip.py` scores each *generated* picture by the correlation of its brightness with the true in-between frame, next to what needs no model: the two real frames blended half and half (and either repeated). The brightness mapping of the screen is learnt from the real frames and applied to the baselines too; the measurement's own ceiling is 0.988-0.994 (a real frame matches itself that well).
+
+| clip (WoW, 2560x1440 cropped) | motion | DLSS-G generated (mean) | the two frames blended (same pictures) | difference |
+|---|---|---|---|---|
+| 23-16-58, camera moving | EchoFG flow | 0.826 | 0.758 | **+0.068** |
+| 23-16-58 | zero | 0.721 | 0.736 | -0.015 |
+| 23-18-17, sunset, high contrast | EchoFG flow | 0.788 | 0.772 | **+0.016** |
+| 23-18-17 | zero | 0.813 | 0.846 | -0.032 |
+| 23-16-37, building, small steps | EchoFG flow | 0.909 | 0.906 | +0.003 |
+| 23-16-37 | zero | 0.911 | 0.906 | +0.005 |
+
+(Each run captures a different set of about 40 generated pictures, so only the difference to the blend of the *same* pictures is comparable; one run per cell.)
+
+Read: **our flow beats no motion by 0.05-0.08 where the picture moves** (the camera-moving and sunset clips) and equals it where almost nothing moves; with no motion DLSS-G does worse than a plain blend on moving footage. But **DLSS-G with our flow is only a little better than blending the two real frames** (+0.07 at best, +0.003 on a calm clip): it is not a free quality jump. The ceiling is the motion and the flat depth: at object edges, and where the picture's own motion is non-rigid, the flow is the weak part (the 4-5 dB gap to the oracle, board E8). What is still to be measured is the same truth frames scored for **EchoFG's own synthesis** and for FSR's, with the same correlation (the existing battery, `dev.py gen`, scores those in dB against the same kind of truth; the two scales are not comparable until one scorer reads both), which decides whether handing our flow to NVIDIA's generator is worth more than finishing our own.
+
+Not done: exact (oracle) vectors on footage (the game's engine vectors are unavailable); a hudless/UI split; 4K; x3/x4; the same clips at the true 60 Hz of the source (the probe plays them at 30 real a second).
