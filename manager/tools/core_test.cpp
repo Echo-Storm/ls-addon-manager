@@ -726,7 +726,8 @@ int main(int argc, char** argv) {
     const fs::path gamma = MakeAddon(A, "gamma", "zzz.dll");                                   // no manifest, DLL not named after the folder
     WriteFile(gamma / "icon.svg", R"(<svg viewBox="0 0 48 48"><!-- a vector icon --><path d="M4 4h40v40H4Z" stroke="red"/><path fill="none" d="M10 24h28"/></svg>)");
     MakeAddon(A, "newer", "newer.dll", R"({"min_host_version":"9.0.0"})");                     // needs a much newer manager
-    MakeAddon(A, "minok", "minok.dll", R"({"min_host_version":"1.0.0"})");
+    const fs::path minok = MakeAddon(A, "minok", "minok.dll", R"({"min_host_version":"1.0.0"})");
+    WriteFile(minok / "icon.svg", "<svg viewBox=\"0 0 24 24\"><rect x=\"3\" y=\"3\" width=\"10\" height=\"10\" rx=\"2\"/><circle cx=\"12\" cy=\"12\" r=\"4\"/><path\n  d='M1 1h2'/><line x1=\"0\" y1=\"0\" x2=\"5\" y2=\"5\"/><polygon points=\"0,0 4,0 4,4\"/><rect width=\"0\" height=\"5\"/></svg>");   // (an icon of basic shapes, the attributes written in other ways)
     MakeAddon(A, "mingarbage", "mingarbage.dll", R"({"min_host_version":"abc"})");             // unreadable: must not block
     const fs::path restart = MakeAddon(A, "restart", "restart.dll", nullptr, "restart");
     const fs::path crashy = MakeAddon(A, "crashy", "crashy.dll", nullptr, "crash_init");
@@ -781,6 +782,10 @@ int main(int argc, char** argv) {
         Check("with no manifest the display name is the folder name", g && g->GetDisplayName() == "gamma" && !g->manifest.parsed);
         Check("an icon.svg is read as shapes: every path, its viewBox width, and no picture file", g && g->iconSvg.size() == 2 && g->iconSvg[1] == "M10 24h28" &&
               g->iconSvgView == 48.0f && g->iconPath.empty());
+        AddonInfo* sh = Find(mgr, "minok");
+        Check("an icon.svg of basic shapes (rect, circle, a path with its d on the next line and in single quotes, line, polygon) is read as paths; an empty rect is not", sh && sh->iconSvg.size() == 5 &&
+              sh->iconSvg[0] == "M5 3h6a2 2 0 0 1 2 2v6a2 2 0 0 1 -2 2h-6a2 2 0 0 1 -2 -2v-6a2 2 0 0 1 2 -2Z" && sh->iconSvg[1] == "M8 12a4 4 0 1 0 8 0a4 4 0 1 0 -8 0Z" &&
+              sh->iconSvg[2] == "M1 1h2" && sh->iconSvg[3] == "M0 0L5 5" && sh->iconSvg[4] == "M0 0L4 0L4 4Z", sh && sh->iconSvg.size() > 0 ? sh->iconSvg[0] : std::string("none"));
         AddonInfo* bj = Find(mgr, "badjson");
         Check("a broken addon.json does not hide the addon", bj && !bj->manifest.parsed);
         Check("dependencies are listed before what needs them", IndexOf(mgr, "dep_a") >= 0 && IndexOf(mgr, "dep_a") < IndexOf(mgr, "dep_b"));

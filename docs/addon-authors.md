@@ -54,7 +54,7 @@ EAM_EXPORT const char* GetAddonDescription() { return "Does something useful."; 
 `renamed_from` (optional) lists folder names the addon used to have: on the first start under its new name the manager moves the settings saved under an old name to
 the new one, and hides the old folders. `min_host_version` is compared with the **addon API** version (below), not with the manager's release number. An addon that needs a newer
 API than the running manager provides is not loaded, and its card says why. Optional keys: `"dll"` (a DLL name other than the folder's) and `"icon"` (a file name other than `icon.svg` or `icon.png`). An `icon.svg` is drawn,
-not shown as a picture: the manager takes the `d="..."` of each `<path>` (and the width of the `viewBox`, 24 by default), ignores colours, and
+not shown as a picture: the manager takes the `d="..."` of each `<path>` (and the basic shapes `<rect>`, `<circle>`, `<ellipse>`, `<line>`, `<polyline>` and `<polygon>`, as the paths they make) and the width of the `viewBox` (24 by default), ignores colours, and
 strokes the shapes in its accent colour when the addon is on and in grey when it is off, like its own icons. Line icons on a 24 x 24 grid in
 the manner of [Lucide](https://lucide.dev) fit best.
 

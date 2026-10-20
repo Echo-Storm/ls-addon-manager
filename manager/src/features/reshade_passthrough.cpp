@@ -203,8 +203,8 @@ const char* KeyName(int vk) {
 void Start() {
     if (g_running) return;
     LoadSettings();
+    if (g_watcher.joinable()) g_watcher.join();   // a previous run still winding down (joined while g_running is false: its loop ends; with it already true again the join would never return)
     g_running = true;
-    if (g_watcher.joinable()) g_watcher.join();   // a previous run still winding down
     g_watcher = std::thread(Watch);
     LOG_INFO("ReShade", "ReShade input passthrough is on");
 }
