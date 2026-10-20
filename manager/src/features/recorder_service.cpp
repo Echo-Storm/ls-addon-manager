@@ -4,16 +4,51 @@
 #include "recorder_service.h"
 #include "addon/scaler11.h"   // FindNisPass: the pass that scales the captured frame (frame generation off)
 #include <windows.h>
+#include <mmsystem.h>
 #include <shlobj.h>
 #include <algorithm>
+#include <cmath>
 #include <cstdarg>
 #include <cstdio>
+#include <cstring>
 #include <cwchar>
+#include <vector>
+
+#pragma comment(lib, "winmm.lib")
 
 namespace eam {
 namespace rec {
 
 namespace {
+
+// The sounds: a short tone built in memory and played through the normal audio path (PlaySound), not Beep(): Beep did not come out of the owner's speakers (a TV on HDMI, a
+// game running). A tick when the key is pressed (the file may take a minute to write: 8 GB of HDR), a rising pair when it is saved, a low one when there was nothing to save.
+struct Tone { int hz; int ms; };
+void PlayTones(const Tone* tones, int count) {
+    static std::mutex mutex;   // the buffer must stay valid while the sound plays: one buffer, replaced by the next sound
+    static std::vector<uint8_t> wav;
+    std::lock_guard<std::mutex> lock(mutex);
+    constexpr int kRate = 22050;
+    std::vector<int16_t> pcm;
+    for (int t = 0; t < count; ++t) {
+        const int n = kRate * tones[t].ms / 1000, fade = std::max(1, kRate / 200);   // a 5 ms fade at each end: no click
+        for (int i = 0; i < n; ++i) {
+            const double env = std::min({ 1.0, static_cast<double>(i) / fade, static_cast<double>(n - i) / fade });
+            pcm.push_back(static_cast<int16_t>(std::sin(6.283185307179586 * tones[t].hz * i / kRate) * 0.45 * env * 32767.0));
+        }
+    }
+    const uint32_t dataBytes = static_cast<uint32_t>(pcm.size() * 2), total = 44 + dataBytes;
+    wav.assign(total, 0);
+    auto put32 = [&](size_t at, uint32_t v) { memcpy(&wav[at], &v, 4); };
+    auto put16 = [&](size_t at, uint16_t v) { memcpy(&wav[at], &v, 2); };
+    memcpy(&wav[0], "RIFF", 4); put32(4, total - 8); memcpy(&wav[8], "WAVEfmt ", 8); put32(16, 16); put16(20, 1); put16(22, 1);
+    put32(24, kRate); put32(28, kRate * 2); put16(32, 2); put16(34, 16); memcpy(&wav[36], "data", 4); put32(40, dataBytes);
+    if (dataBytes) memcpy(&wav[44], pcm.data(), dataBytes);
+    PlaySoundW(reinterpret_cast<LPCWSTR>(wav.data()), nullptr, SND_MEMORY | SND_ASYNC | SND_NODEFAULT);
+}
+void SoundPress() { const Tone t[] = { { 1000, 70 } }; PlayTones(t, 1); }
+void SoundSaved() { const Tone t[] = { { 660, 90 }, { 880, 130 } }; PlayTones(t, 2); }
+void SoundNothing() { const Tone t[] = { { 300, 300 } }; PlayTones(t, 1); }
 
 constexpr uint64_t kClipMs = 10000;
 constexpr uint64_t kTapQuietMs = 2000;       // a context that has had no captured frame for this long gives up the recording to another
@@ -221,6 +256,8 @@ int Service::SaveNamed(const std::string& name, bool clear) {
     return m_recorder.GetStatus().saving ? 2 : 0;
 }
 
+void Service::TestSound() { const Tone t[] = { { 1000, 70 }, { 0, 220 }, { 660, 90 }, { 880, 130 } }; PlayTones(t, 4); }
+
 void Service::Clip() {
     if (m_clipUntil.load() != 0) return;
     m_clipUntil = GetTickCount64() + kClipMs + 500;
@@ -236,9 +273,10 @@ bool Service::Request() {
         return true;
     }
     const bool saved = Save();
+    if (!saved && m_recorder.GetStatus().saving) Log("recorder: a save is still running (a long clip takes a while to write): this press was not needed");
     if (!saved && !m_recorder.GetStatus().saving) {   // said, not silent: a press that saves nothing was the owner's whole afternoon
         Log("recorder: nothing to save yet: no frames have come in. Frame generation on needs no addon; with it off the recorder uses Lossless Scaling's scaling pass (NIS), or an addon that is switched on (Neural Rendering, an upscaler, EchoFG)");
-        if (s.beep) Beep(300, 280);
+        if (s.beep) SoundNothing();
     }
     return saved;
 }
@@ -257,7 +295,11 @@ void Service::Poll() {
     const Settings s = Current();
     const bool modifiers = (GetAsyncKeyState(VK_CONTROL) & 0x8000) && (GetAsyncKeyState(VK_SHIFT) & 0x8000);
     const bool down = s.hotkeyOn && modifiers && s.key > 0 && (GetAsyncKeyState(s.key) & 0x8000);
-    if (down && !m_wasDown) { Log("hotkey: %s", m_on.load() ? "save the recording" : "record a clip"); Request(); }
+    if (down && !m_wasDown) {
+        Log("hotkey: %s", m_on.load() ? "save the recording" : "record a clip");
+        if (s.beep) SoundPress();   // at once: the press is known to have arrived, whatever the file takes
+        Request();
+    }
     m_wasDown = down;
     AfterSave();
 }
@@ -273,7 +315,7 @@ void Service::AfterSave() {
     if (!m_recorder.LastSave(info)) return;
     if (s.note) WriteNote(info);
     if (m_saved) m_saved(info.path);
-    if (s.beep) { Beep(660, 70); Beep(880, 90); }
+    if (s.beep) SoundSaved();
 }
 
 void Service::WriteNote(const nr::Recorder::SaveInfo& info) {

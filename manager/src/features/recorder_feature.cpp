@@ -208,7 +208,9 @@ void RenderOptions() {
     }
     if (ImGui::IsItemHovered()) ImGui::SetTooltip("Press it while the game has the focus. OBS' replay-buffer key can be the same one: one press then saves both.");
 
-    if (ImGui::Checkbox("Beep when a file is saved", &s.beep)) changed = true;
+    if (ImGui::Checkbox("Sounds (a tick at the key, a rising pair when saved, a low tone if there was nothing)", &s.beep)) changed = true;
+    ImGui::SameLine();
+    if (ImGui::SmallButton("Test the sound")) g_service->TestSound();
     ImGui::SameLine();
     if (ImGui::Checkbox("Write a note beside it", &s.note)) changed = true;
     if (ImGui::IsItemHovered())

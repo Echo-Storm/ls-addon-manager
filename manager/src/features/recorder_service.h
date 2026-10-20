@@ -66,6 +66,7 @@ public:
     int SaveNamed(const std::string& name, bool clear);   // IHost::RecorderSave: 1 saving, 0 nothing to save, 2 a save is running
     void SetSavedCallback(std::function<void(const std::wstring&)> fn) { m_saved = std::move(fn); }   // after a file is written (the polling thread)
     void Clip();                                // the recorder is off: record the next ten seconds, save them by themselves, and be off again
+    void TestSound();                           // the tick and the saved tone, for the Features tab's button
     bool Clipping() const { return m_clipUntil.load() != 0; }
     bool Pending() const { return m_saveAt.load() != 0; }   // the wait after the key is running
 
