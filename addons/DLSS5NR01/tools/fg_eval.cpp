@@ -888,6 +888,8 @@ int main(int argc, char** argv) {
                         if (analysis > 1) g.Barrier(motionA, D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE, D3D12_RESOURCE_STATE_UNORDERED_ACCESS);
                         motionForSynth = motionFix;
                     }
+                    static const int benchReps = std::max(1, Arg(argc, argv, "synthbench", 1));   // synthbench=N: the synthesis recorded N times back to back (the card stays busy and at its clocks; the last one is timed)
+                    for (int rep = 1; rep < benchReps; ++rep) syn.Record(g.list, 0, prevTex, DXGI_FORMAT_R8G8B8A8_UNORM, cur, DXGI_FORMAT_R8G8B8A8_UNORM, motionForSynth, DXGI_FORMAT_R8G8B8A8_UNORM, tgts.data(), static_cast<int>(tgts.size()), 0, 80.0f, ownSoft, 1.0f, ownDirect ? motionRev : nullptr);
                     if (!syn.Record(g.list, 0, prevTex, DXGI_FORMAT_R8G8B8A8_UNORM, cur, DXGI_FORMAT_R8G8B8A8_UNORM, motionForSynth, DXGI_FORMAT_R8G8B8A8_UNORM, tgts.data(), static_cast<int>(tgts.size()), 0, 80.0f, ownSoft, 1.0f, ownDirect ? motionRev : nullptr)) { printf("own synthesis failed\n"); return false; }
                     ID3D12Resource* outTex = outs[pickOut];
                     g.Barrier(outTex, D3D12_RESOURCE_STATE_UNORDERED_ACCESS, D3D12_RESOURCE_STATE_COPY_SOURCE);
