@@ -1069,6 +1069,7 @@ int main(int argc, char** argv) {
 
     struct Score { int frame; double gen, hold, blend, genAbs, genCoarse, blendCoarse, genBand = 0, blendBand = 0, bandFrac = 0; std::vector<uint8_t> picture, mix; };
     std::vector<Score> scores;
+    FILE* dumpRaw = ArgText(argc, argv, "dumpraw").empty() ? nullptr : fopen(ArgText(argc, argv, "dumpraw").c_str(), "wb");
     D3D12_RESOURCE_STATES curState = D3D12_RESOURCE_STATE_COPY_DEST;
     for (int i = 0; i < count; i += stride) {   // the kept frames: 0, 2, 4...; each one's generated frame stands for the one before it (i - 1)
         {   // upload the kept frame
@@ -1286,6 +1287,13 @@ int main(int argc, char** argv) {
         const std::vector<uint8_t>& truth = frames[i - 1];
         s.mix.resize(truth.size());
         for (size_t k = 0; k < truth.size(); ++k) s.mix[k] = static_cast<uint8_t>((frames[i - 2][k] + frames[i][k] + 1) / 2);
+        if (dumpRaw && W >= 1280 && H >= 720) {   // dumpraw=FILE: per rebuilt frame its number, then the middle 1280 x 720 of the rebuilt picture, the true frame, the one before and the one after (check_clip.py in tools/dlssg_probe scores them)
+            const int32_t rel = static_cast<int32_t>(i - 1);
+            fwrite(&rel, 4, 1, dumpRaw);
+            const std::vector<uint8_t>* const dumped[4] = { &s.picture, &truth, &frames[i - 2], &frames[i] };
+            for (const std::vector<uint8_t>* pic : dumped)
+                for (uint32_t y = 0; y < 720; ++y) fwrite(&(*pic)[((static_cast<size_t>((H - 720) / 2 + y)) * W + (W - 1280) / 2) * 4], 4, 1280, dumpRaw);
+        }
         s.gen = Psnr(s.picture, truth, &s.genAbs); s.hold = Psnr(frames[i - 2], truth, nullptr); s.blend = Psnr(s.mix, truth, nullptr);
         s.genCoarse = PsnrCoarse(s.picture, truth, W); s.blendCoarse = PsnrCoarse(s.mix, truth, W);
         s.bandFrac = bandFrac;
@@ -1298,6 +1306,7 @@ int main(int argc, char** argv) {
     }
     if (stride == 1) return 0;
     if (scores.empty()) { printf("nothing was rebuilt\n"); return 5; }
+    if (dumpRaw) fclose(dumpRaw);
     double gen = 0, hold = 0, blend = 0; int better = 0;
     double genC = 0, blendC = 0;
     for (const Score& s : scores) { gen += s.gen; hold += s.hold; blend += s.blend; genC += s.genCoarse; blendC += s.blendCoarse; better += s.gen > std::max(s.hold, s.blend) ? 1 : 0; }

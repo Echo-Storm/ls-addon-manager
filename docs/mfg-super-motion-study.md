@@ -104,3 +104,19 @@ Open: how it behaves with real estimated motion (EchoFG's flow field instead of 
 Read: **our flow beats no motion by 0.05-0.08 where the picture moves** (the camera-moving and sunset clips) and equals it where almost nothing moves; with no motion DLSS-G does worse than a plain blend on moving footage. But **DLSS-G with our flow is only a little better than blending the two real frames** (+0.07 at best, +0.003 on a calm clip): it is not a free quality jump. The ceiling is the motion and the flat depth: at object edges, and where the picture's own motion is non-rigid, the flow is the weak part (the 4-5 dB gap to the oracle, board E8). What is still to be measured is the same truth frames scored for **EchoFG's own synthesis** and for FSR's, with the same correlation (the existing battery, `dev.py gen`, scores those in dB against the same kind of truth; the two scales are not comparable until one scorer reads both), which decides whether handing our flow to NVIDIA's generator is worth more than finishing our own.
 
 Not done: exact (oracle) vectors on footage (the game's engine vectors are unavailable); a hudless/UI split; 4K; x3/x4; the same clips at the true 60 Hz of the source (the probe plays them at 30 real a second).
+
+### Head to head: DLSS-G, FSR 3.1 and EchoFG on the same footage, one scorer (2026-10-20)
+
+`nr_fgeval` (the project's offline generator test) now takes `dumpraw=FILE` and writes, for each frame it rebuilds, the rebuilt picture, the true frame and the two real frames around it (the middle 1280 x 720); `tools/dlssg_probe/score_dump.py` scores them with the **same correlation score** as the probe's screen captures (`check_clip.py`). Same three segments (clip frames, 59 rebuilt frames each), all three generators get **this project's flow estimator and a flat depth**: FSR 3.1 frame generation (`direct=1`), EchoFG's own synthesis (`own=1 direct=1`), and NVIDIA's DLSS-G through Streamline (the probe, about 40 captured pictures each). Gain over the plain blend of the two real frames, on the same pictures (blend itself 0.71 / 0.75 / 0.89):
+
+| segment | DLSS-G + our flow | FSR 3.1 | EchoFG own synthesis |
+|---|---|---|---|
+| 23-16-58 (camera moving) | +0.068 | +0.090 | **+0.096** |
+| 23-18-17 (sunset, high contrast) | +0.016 | +0.098 | **+0.111** |
+| 23-16-37 (building, small steps) | +0.003 | +0.037 | **+0.039** |
+
+(The same pictures in dB, from `nr_fgeval`'s own scorer, gain over the blend: FSR +0.62 / +0.62 / +1.95 dB, EchoFG +0.98 / +1.20 / +2.14 dB.)
+
+Read: **EchoFG's synthesis is at least as good as FSR's and clearly better than DLSS-G driven by our flow and a flat depth** on all three clips; DLSS-G with this input is barely better than a blend on the harder two. Cautions: the DLSS-G numbers come through a screen capture (its ceiling is 0.988-0.994, a few thousandths, nowhere near the 0.03-0.08 gaps), about 40 pictures a cell, one run each; its generated frames are placed in time by its own pacing; and DLSS-G is built for engine depth and engine vectors, so the flat-depth input is its worst case, while FSR and EchoFG take it better. What this does **not** say: how DLSS-G does with real engine data (not available to us), or what a better flow would give each (all three share the flow estimator; board E8).
+
+**Decision input for 1.0 and after**: nothing here argues for adding a DLSS-G generator to the products. The ideas worth keeping from the MFG Super Motion study are on the *motion* side (a persistent per-game HUD mask, an input-lag measurement, a flow consistency check), which help every generator we have. The probe stays in `tools/dlssg_probe` (not built by CI; needs the Streamline SDK, not in the repository).
