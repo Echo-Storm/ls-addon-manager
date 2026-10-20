@@ -61,6 +61,17 @@ GPU load, power and temperature come from NVIDIA's driver library, so they only 
 **Windowed mode or ReShade passthrough does nothing.**
 Both are switched off until you turn them on in the *Features* tab. Windowed mode's virtual display has to exist before Lossless Scaling starts, so restart Lossless Scaling after switching it on.
 
+## Recording and the GPU limit
+
+**How do I record a clip for a bug report?**
+Open the manager's **Features** tab and switch **Recording** on. Play, and when the problem has just happened press **Ctrl+Shift+F1** (you can choose any key from F1 to F12): you hear a tick at once and a rising pair of tones when the file is saved (a low tone means there was nothing to save). The clip is a `.lsrec` file with a note beside it (`<file>.lsrec.json`), in `Videos\Lossless Scaling` unless you chose another folder. No addon has to be on, and it works with Lossless Scaling's frame generation on or off. Attach both files to your report.
+
+**The clip is big. What can I do?**
+*Compact* (the default) already stores HDR frames as an 8-bit picture, about a sixth of the size: ten seconds at 1440p is about 1 GB. *Exact* keeps every frame as captured and can be 8 GB for the same ten seconds. `tools\pack_recordings.ps1` compresses saved clips further, after the fact and checked.
+
+**What does the GPU limit do?**
+It keeps the graphics card under a load you choose (80 to 100 %, 95 % by default) by making the addons' work cheaper while the card is at or over it: Neural Rendering's Auto quality takes the model's working size down, and the upscalers' lighter mode for generated frames starts. When the load is well under the limit they go back. It never changes the game or Lossless Scaling, and it is off until you switch it on in the Features tab.
+
 ## DLSS 5 Neural Rendering
 
 **Where do I get `nvngx_dlssnr.dll`?**

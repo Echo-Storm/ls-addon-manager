@@ -1,41 +1,33 @@
 <p align="center"><img src="docs/images/banner.svg" alt="Addon Manager for Lossless Scaling" width="100%"></p>
 
-<p align="center"><b>Lossless Scaling, extended.</b><br>DLSS 5 Neural Rendering, DLSS, FSR and XeSS upscaling for games that never had them, and an addon manager that keeps it all in one window.</p>
+<p align="center"><b>Lossless Scaling, extended.</b><br>DLSS 5 Neural Rendering, DLSS, FSR and XeSS upscaling for games that never had them, a built-in recorder and GPU limit, and an addon manager that keeps it all in one window.</p>
+
+<p align="center">
+<a href="https://github.com/Echo-Storm/ls-addon-manager/releases/latest"><b>Download</b></a> &nbsp;·&nbsp; <a href="#install">Install</a> &nbsp;·&nbsp; <a href="#the-addons">The addons</a> &nbsp;·&nbsp; <a href="#built-in-features">Features</a> &nbsp;·&nbsp; <a href="CHANGELOG.md">Changelog</a> &nbsp;·&nbsp; <a href="docs/faq.md">Questions</a>
+</p>
 
 <p align="center"><img src="docs/images/addons.png" alt="The manager: the addons at the left (the prototypes greyed out, marked WIP), Neural Rendering's panel at the right, the machine's load in the header" width="100%"></p>
 
 **Addon Manager for Lossless Scaling** loads alongside [Lossless Scaling](https://store.steampowered.com/app/993090/Lossless_Scaling/) and gives it an addon system,
-with four addons that do what Lossless Scaling alone cannot:
+with addons that do what Lossless Scaling alone cannot:
 
 - **DLSS 5 Neural Rendering** gives any game a new look, on every frame Lossless Scaling shows.
 - The **DLSS**, **FSR** and **XeSS Upscalers** put a real temporal upscaler in place of Lossless Scaling's NIS scaler, so games that never had one get one.
 
-Around them, the manager installs and switches addons, shows the machine's load at a glance, explains what limits your frame rate, backs every setting up and
-updates itself. It is free, MIT-licensed and unofficial: not affiliated with the Lossless Scaling developers. Read the [disclaimer](DISCLAIMER.md) before installing.
+Around them, the manager installs and switches addons, records clips of what the game showed, keeps the graphics card under a limit you choose, shows the machine's
+load at a glance, explains what limits your frame rate, backs every setting up and updates itself. It is free, MIT-licensed and unofficial: not affiliated with the Lossless Scaling developers. Read the [disclaimer](DISCLAIMER.md) before installing.
 
 [![build](https://github.com/Echo-Storm/ls-addon-manager/actions/workflows/build.yml/badge.svg)](https://github.com/Echo-Storm/ls-addon-manager/actions/workflows/build.yml)
 &nbsp; **1.0.0** ([roadmap](ROADMAP.md)) &nbsp;·&nbsp; Lossless Scaling 3.2.2.0 &nbsp;·&nbsp; Windows 10 or 11, x64
 
 > [!TIP]
-> **New in 1.0.0: one recorder and one GPU limit for everything, and a choice of model.** Recording is now a feature of the manager (Features tab): press a key, hear it, get a clip and a note beside it, with or without any addon on and with or without frame generation. The GPU limit is a slider there too. Neural Rendering has a Model preset (Newer is lighter, Older is the original look). The addon API is 1.3 (appended calls only; addons built for 1.0-1.2 keep working).
-> **New in 0.10.0: updates that close Lossless Scaling for you, a check that waits for the game, two upscaler tests (skip a picture that repeats; lighter upscaling when the card is full), the addons notice a repeating source, many fixes from three reviews, and the Video Super Resolution prototype marked work in progress (not in the package).**
-> **New in 0.9.38: the end of the 0.9.37 test** (the upscalers name each other as conflicts again). Ctrl+Shift+F9 still steps between NIS and the upscaler that is on, with a label.
-> **New in 0.9.37: a test of the upscalers side by side** (Ctrl+Shift+F9), and tools to pack recordings.
-> **New in 0.9.36: smaller fixes** (the Video Super Resolution test addon needs only its switch in the manager; the build now runs the addon's offline tests).
-> **New in 0.9.35: Neural Rendering's Auto quality is on for new installs again** (0.9.28 to 0.9.34 loaded it as off, so a new install ran the model at full size), and a few smaller fixes.
-> **New in 0.9.34: the XeSS Upscaler is back in the package** (0.9.28 to 0.9.33 went out without it; nothing in it changed).
-> **New in 0.9.33: the upscalers on a 3440x1440 screen, second try** (the extra pass Lossless Scaling draws no longer pushes the real one out; issue #13), and the source of a prototype Video Super Resolution addon.
-> **New in 0.9.26: fixes for issues #11, #12 and #13** (a runtime that crashed Lossless Scaling is not tried again; the compatibility report says more and the panel says whether your model file is a build seen working; Neural Rendering on an ultrawide screen), **a card that says when the recorder is the problem** (recording what is shown now keeps the middle 1920x1080), and **Auto quality no longer cycles** between every frame and every 2nd or 3rd. The test option **Lighter upscaling of generated frames** is safe to try.
-> **New in 0.9.25: safeguards for catch-up hitches on a full graphics card** (the upscalers stop waiting on the GPU for a picture that is very late; Neural Rendering leaves a result that arrives many frames late off the picture), **"Record what is shown" now records the real output** with Lossless Scaling's frame generation, and the addons log the video memory they hold.
-> **New in 0.9.24: a "What stands out" card and a frame trace for pacing problems** (both in each addon's panel and logs), **Neural Rendering backs off when the card is full** (it runs the model on every 2nd or 3rd frame at its lowest size), the upscalers' motion is right for non-whole frame-generation ratios, a settings file with nonsense in it can no longer put the addons out of range, and a new test option, **Lighter upscaling of generated frames**, for a card that is full. Earlier: **0.9.23 and 0.9.22: HDR fixes.** With HDR on, sharpening could turn a highlight into a white speck (up to 10,000 nits) in all three upscalers (0.9.22), and the Catmull-Rom lean could ring around bright highlights (0.9.23): both fixed. Also in 0.9.22: Neural Rendering flickers less (its auto quality no longer ramps, its smoothing is steadier), **Sharpen less in fast motion** (0.5), and the FSR Upscaler sharpens like the others.
-> **0.9.18:** the recorder is one setting for all the addons (switch it on in any panel).
-> **0.9.17:** the upscalers start in about a second again (0.9.14 to 0.9.16 took nearly ten).
-> **0.9.16:** the DLSS Upscaler starts with Neural Rendering on; the Performance tab works on AMD and Intel cards; the compatibility test
-> uses the card Lossless Scaling runs on; and [what to do](docs/antivirus.md) when an antivirus flags the download.
-> **0.9.15:** Neural Rendering in HDR without the neon orange and cyan in bright areas.
-> **0.9.14:** the upscalers in motion, a very big improvement: much less trailing and smearing while you walk and turn, no flicker at the
-> screen's own size with DLSS (the new **Auto** model), and all three now beat a plain stretch in a fast turn, for 3-4 ms a frame at 4K.
-> Everything else is in the [changelog](CHANGELOG.md).
+> **New in 1.0.0: one recorder and one GPU limit for everything, and a choice of model.**
+> - **Recording** is a feature of the manager (Features tab): press a key, hear it, get a clip and a note beside it, with or without any addon on and with or without frame generation. Compact (8-bit, a sixth of the size) or Exact; any key from F1 to F12.
+> - **GPU limit** is a slider there too (80 to 100 %): the addons make their work cheaper while the card is at the limit and go back when it is well under.
+> - **Neural Rendering has a Model preset**: *Newer* (the default with NVIDIA's runtime 310.9.16: lighter, a gentler effect) or *Older* (the original look, at the old cost).
+> - **The addon interface is 1.3** (calls appended only; addons built for 1.0 to 1.2 keep working), and the 1.0 promises are written down in [docs/api-compatibility.md](docs/api-compatibility.md).
+>
+> Everything since 0.9 is in the [changelog](CHANGELOG.md).
 
 <p align="center"><img src="docs/images/shf-original.jpg" alt="Silent Hill f through Lossless Scaling, the original picture" width="100%"></p>
 <p align="center"><img src="docs/images/shf-neural-rendering.jpg" alt="The same scene with DLSS 5 Neural Rendering" width="100%"></p>
@@ -52,9 +44,9 @@ Windows 11. Other games and cards are untested so far: reports are welcome.
 ## Contents
 
 - [Install](#install)
-- [The addons](#the-addons): [Neural Rendering](#dlss-5-neural-rendering), [the upscalers](#the-upscalers-dlss-fsr-and-xess), [built-in features](#built-in-features)
+- [The addons](#the-addons): [Neural Rendering](#dlss-5-neural-rendering), [the upscalers](#the-upscalers-dlss-fsr-and-xess) · [Built-in features](#built-in-features): recording, GPU limit, ReShade, windowed mode
 - [The manager](#the-manager) · [Hotkeys](#hotkeys) · [Updates](#updates) · [If something goes wrong](#if-something-goes-wrong)
-- [For developers](#for-developers): how it works, building, writing an addon · [Credits](#credits)
+- [For developers](#for-developers): how it works, building, writing an addon, [research notes](#research-notes) · [Credits](#credits)
 
 ## Install
 
@@ -122,7 +114,8 @@ Lossless Scaling wait.
   and a ghost guard where the motion cannot be trusted.
 - **HDR games** (scRGB and HDR10), with only the model's change put back, so highlights keep their brightness.
 - **Compare while you play:** before / after, a split view, and before / after pictures (see [Hotkeys](#hotkeys)).
-- **Auto quality** keeps the model within a time budget; a **compatibility test** tries the model on your card before you play.
+- **Model preset:** with NVIDIA's runtime 310.9.16 or newer, *Newer* (the default: about 40 % less model time, a gentler effect) or *Older* (the original look, the old cost); a model file older than that has only the older one.
+- **Auto quality** keeps the model within a time budget (and follows the manager's [GPU limit](#built-in-features)); a **compatibility test** tries the model on your card before you play.
 
 About 5 to 9 ms a frame on an RTX 4070 Ti SUPER with a 1912x1080 model input (8.5 ms at 4K in World of Warcraft). [The addon's README](addons/DLSS5NR01/README.md) has the details.
 
@@ -174,11 +167,18 @@ draws what no upscaler can put back. The [upscalers' guide](addons/DLSS5NR01/doc
 
 ### Built-in features
 
-Built into the manager, on its Features tab, both off until switched on:
+Built into the manager, on its **Features** tab. Recording and the GPU limit work for every addon; each feature has its own switch.
 
-- **ReShade input passthrough:** mouse and keyboard reach a ReShade overlay while Lossless Scaling scales the game. **Home** turns it on and off.
-- **Windowed mode and second monitor:** a virtual display the size of your game window, so Lossless Scaling works with a windowed game or on a second
-  monitor, with split-screen and side-by-side options. Switching it on needs a restart of Lossless Scaling.
+| Feature | What it does |
+|---|---|
+| **Recording** | Press **Ctrl+Shift+F1** (any F-key you choose): a tick the moment you press, a rising pair when the clip is saved, a low tone when there was nothing to save. The clip is a `.lsrec` file that plays the problem back on another computer, with a note beside it (`<file>.lsrec.json`: the game, the picture, which addons were on and their main settings). It finds Lossless Scaling's frames itself, so **no addon has to be on**, and with frame generation off it records the frame the scaling pass reads. *Compact* (the default) turns HDR frames into an 8-bit picture on the card first: a ten-second clip is about 1 GB and saved in seconds; *Exact* keeps every frame as captured. *Keep going after the key* saves a few seconds after the press. |
+| **GPU limit** | Keep the graphics card under 80 to 100 % (95 % by default). The manager reads the load of the card Lossless Scaling runs on (NVML on NVIDIA, Windows' counters on any other card) and tells the addons: Neural Rendering's Auto quality takes the model's working size down, and the upscalers' lighter mode for generated frames starts, while the load stays at or over the limit; they go back when it is well under. |
+| **ReShade input passthrough** | Mouse and keyboard reach a ReShade overlay while Lossless Scaling scales the game. **Home** turns it on and off. |
+| **Windowed mode and second monitor** | A virtual display the size of your game window, so Lossless Scaling works with a windowed game or on a second monitor, with split-screen and side-by-side options. Switching it on needs a restart of Lossless Scaling. |
+
+<p align="center"><img src="docs/images/features.png" alt="The Features tab: ReShade input passthrough, Windowed mode, Recording and GPU limit, each with its own switch" width="100%"></p>
+
+Each feature shows its few options once it is switched on.
 
 ## The manager
 
@@ -189,7 +189,7 @@ Built into the manager, on its Features tab, both off until switched on:
 - **Runtimes list:** every file the addons run on (DLSS, FSR, XeSS, your model) with its version, whether it is loaded, and whether it is signed as its maker
   shipped it. **+** switches to another file while the game runs.
   <p align="center"><img src="docs/images/runtimes.png" alt="The Runtimes list with the FSR menu open" width="75%"></p>
-- **Record a bug:** an addon keeps the last few seconds of frames and saves them as a file that plays the problem back on another computer.
+- **Record a bug:** the manager keeps the last few seconds of frames and saves them, with a note, as a file that plays the problem back on another computer (the Recording feature above).
 - **Stays out of the way:** it opens with Lossless Scaling, hides to the notification area, and comes back with a click or **Ctrl+Shift+F12**.
 - **Back up and restore** every setting to one file, and a **diagnostics zip** of logs and settings for a bug report (nothing is uploaded).
 - **Safe by design:** a faulting addon cannot take Lossless Scaling down, settings are written atomically, and optional SHA-256 checks guard addon DLLs.
@@ -198,7 +198,7 @@ Built into the manager, on its Features tab, both off until switched on:
 | Tab | What is on it |
 |-----|--------------|
 | **Addons** | The addon list with a switch, icon and live status for each, the Runtimes list, and the chosen addon's settings |
-| **Features** | ReShade input passthrough and Windowed mode |
+| **Features** | Recording, GPU limit, ReShade input passthrough and Windowed mode |
 | **Performance** | Frame times, addon cost, GPU load, power, clocks, temperature, memory, and what is limiting you |
 | **Settings** | Backup and restore, interface size, start-up and hotkey, updates, security, log detail, the diagnostics file |
 | **Logs** | The last 10,000 log entries, filtered by level |
@@ -227,7 +227,7 @@ clashes in your game, change it in the addon's *Compare and hotkeys* section.
 | Ctrl+Shift+F4 | Before / after pictures: two PNGs of the same moment, with and without the addon | every addon |
 | Ctrl+Shift+F10 | The next saved look | Neural Rendering |
 | Ctrl+Shift+F9 | Steps through Lossless Scaling's NIS and the upscalers that are on, one at a time, with a label (a temporary test; not configurable, so do not bind F9 to anything else) | the upscalers |
-| Ctrl+Shift+F1 | Save the recording (the last few seconds; or, with the recorder's *Keep the last few seconds* off, record the next ten and save them) | the manager (Features tab, *Recording*) |
+| Ctrl+Shift+F1 | Save the recording (the last few seconds; or, with the recorder's *Keep the last few seconds* off, record the next ten and save them). The key can be any of F1 to F12 | the manager (Features tab, *Recording*) |
 | Home | ReShade input passthrough on and off | the manager |
 
 ## Updates
@@ -267,7 +267,6 @@ That check, and a download you ask for, are the only times the manager goes onli
 | FSR 4 looks wrong, costs too much or does not start | Set *FSR version* back to **FSR 3.1.4** in the FSR Upscaler's panel. A chosen file that goes missing falls back to the shipped one by itself. |
 | An addon says its runtime "stopped responding" | Lossless Scaling carries on without the addon. Choose another runtime with **+** in the Runtimes list, restart Lossless Scaling, and send us the addon's log. |
 | An HDR game looks washed out, too dark or too bright | Set **Frame encoding** (the bottom of the Upscaling section) to HDR or SDR by hand, and tell us which it needed. |
-| Neural Rendering turns bright areas neon orange or cyan in HDR | Fixed in 0.9.15: update. |
 | Windowed mode does nothing | Restart Lossless Scaling after switching it on: its virtual display must exist before Lossless Scaling starts. |
 | Something looks wrong in a game | Switch on *Recording* in the manager's **Features** tab, make it happen, press **Ctrl+Shift+F1** (it beeps when the file is saved), and attach the `.lsrec` file (in `Videos\Lossless Scaling`, or the folder you chose there) and the `.lsrec.json` note beside it to your report. |
 | Stutter or uneven pacing | Look at the **What stands out** lines under *Status* in the addon's panel: they say in plain words whether the game's own frames are uneven, whether the graphics card is full, and what to try. For a report, make it happen, press **Ctrl+Shift+F1** (or close Lossless Scaling), and send the addon's log and `logs\frame-trace-<addon>.csv` from the Lossless Scaling folder: it is a timeline of the frames (`python tools/analyze_frame_trace.py <csv>` reads it). |
@@ -316,8 +315,10 @@ Visual Studio 2022 (Desktop C++) and CMake 3.20+. Dear ImGui and MinHook are fet
 
 ```powershell
 powershell -File tools\build_all.ps1              # the manager and the addons (-Only host: the manager only)
-powershell -File tools\run_addon_tests.ps1        # the offline tests for what changed (-All: everything, as before a release)
+powershell -File tools\run_addon_tests.ps1        # the offline tests for what changed (-All: everything)
 powershell -File tools\ci.ps1                     # what the GitHub build runs: manager, installer, sample addon, and the tests that need no GPU
+python tools\run_hosttest_matrix.py --jobs 3      # the addons on a hidden swap chain, scenario by scenario (GPU; an idle machine)
+python tools\bump_version.py 1.0.1                # every place that holds the release number (dry run; --apply writes)
 powershell -File tools\package.ps1                # the release zip, with Setup built around the files
 powershell -File tools\deploy.ps1 -What all       # copy a build into a Lossless Scaling folder, with backups
 ```
@@ -331,8 +332,17 @@ The addons also need their vendors' SDKs, which are not in this repository. Each
 | `tools\fetch_fsr4.ps1` | FSR 4.1.1b, the OptiScaler team's build (pinned SHA-256; needs 7-Zip) | AMD's FidelityFX SDK licence |
 | `tools\fetch_xess_sdk.ps1` | Intel's XeSS SDK 3.0.2 (headers, `libxess.dll`; pinned SHA-256s, Intel's signature) | Intel Simplified Software License |
 
-The offline test host and its scenarios (`tools\run_hosttest_matrix.py`) exercise every addon path without Lossless Scaling or a game. The
-[tools README](tools/README.md) lists every script.
+The offline test host and its scenarios (`tools\run_hosttest_matrix.py`) exercise every addon path without Lossless Scaling or a game. The full suite (`ci.ps1` and the
+host matrix) is run once, on a release; day to day, `dev.py test changed` runs what a change touches. The [tools README](tools/README.md) lists every script.
+
+### Research notes
+
+Written down so they are not lost; none of it is in a product unless a release note says so.
+
+- [`docs/frame-generation-research.md`](docs/frame-generation-research.md) and [`docs/own-generator-plan.md`](docs/own-generator-plan.md): measuring frame generators on recordings (EchoFG, our own, in the test build only).
+- [`docs/mfg-super-motion-study.md`](docs/mfg-super-motion-study.md): what another project's public files tell about driving NVIDIA's frame generation from outside a game, and a measured head to head (DLSS-G, FSR 3.1 and EchoFG on the same recordings: EchoFG at least as good as FSR, both clearly ahead of DLSS-G fed our motion and a flat depth). Lab: [`tools/dlssg_probe`](tools/dlssg_probe).
+- [`docs/optical-flow-study.md`](docs/optical-flow-study.md): NVIDIA's optical flow hardware against our flow estimator (ours is better; the hardware is cheaper). Lab: [`tools/flowlab`](tools/flowlab).
+- [`docs/model-compatibility.md`](docs/model-compatibility.md): the Neural Rendering model files seen working, and what each looked like.
 
 ### Writing an addon
 

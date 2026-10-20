@@ -1,17 +1,17 @@
-# Road to 1.0
+# Road to 1.0, and after
 
 What 1.0 should mean: someone who has never seen this project can **install it, keep it up to date, understand what it does and does not do, and get help**, without
 editing files by hand, and the promises it makes (the addon API, the settings file, safety) are stable. This page is honest about where each part stands.
 
-Status on 2026-10-11, at version 0.10.0 (released; the current work is on `main`). Since the table below was written: the update flow closes Lossless Scaling for you and waits for the game, the addons notice a repeating source, two upscaler tests (skip a repeated picture, lighter upscaling when the card is full), and the Video Super Resolution prototype is marked work in progress again.
+Status on 2026-10-20, at version **1.0.0**: the promises this page lists (the addon API, the settings file, safety) are stable, and what is not in 1.0 is under "Ideas for after 1.0". Rows 4 and 5 are the honest gaps: ReShade passthrough and Windowed mode have passed offline tests but not a live try of their own, and the games tried are the four listed; reports are welcome.
 
 | # | For 1.0 | State | Notes |
 |---|---------|-------|-------|
 | 1 | **An installer**: install, update, repair after a Lossless Scaling update, uninstall | **Done** (0.6.0) | `LSAddonManagerSetup.exe`: one file, a small wizard, with the core (folder detection, backups, rollback, repair, uninstall) tested on fake folders and the exe tested end to end. Tried on a real install by the maintainer (the folder search, the pages, reinstall, and an update from 0.5.0 to 0.6.0, which worked); the "restart as administrator" path and Windows SmartScreen's reaction are not verified. See below. |
 | 2 | **An update check** | **Done** (0.5.0) | Once a day, on by default, off in *Settings > Updates*. Since 0.9.7 it offers to download and install the release (checked against GitHub's SHA-256); nothing is downloaded unless you choose it. |
-| 3 | **A frozen, documented addon API** | **Done** on `main` | The API is at 1.0.0, documented (`docs/addon-authors.md`), with a written compatibility promise (`docs/api-compatibility.md`: what will and will not change before 2.0) and a sample addon (`examples/SampleAddon`) that builds against the SDK and is tested against the real manager. |
-| 4 | **Every shipped feature checked in real use** | **Needs you** | Neural Rendering, the window, the tray and hotkey, and the exit path are checked live. Not yet: ReShade passthrough (hotkey and auto-click) and Windowed mode (the virtual display after a restart) have only passed offline tests. A short live try settles both. |
-| 5 | **More than one game** | **Four so far** | World of Warcraft: Forever (the beta), Fallout: New Vegas (Tale of Two Wastelands), Silent Hill f (HDR) and Metro 2033 Redux, with Neural Rendering and the DLSS and FSR Upscalers (XeSS not yet in a game). A 4:3 game and one with busy foliage would round it off. |
+| 3 | **A frozen, documented addon API** | **Done** (1.0.0) | The interface is 1.3.0: the 1.0 calls never change and calls are only appended (1.1 and 1.2 earlier; 1.3 adds the recorder and the GPU limit: `RecorderFlags`, `RecorderOffer`, `RecorderSave`, `GpuLimitPercent`, `GpuLoadPercent` and the event `EAM_EVENT_RECORDING_SAVED`). Documented (`docs/addon-authors.md`), with a written compatibility promise (`docs/api-compatibility.md`: what will and will not change before 2.0) and a sample addon (`examples/SampleAddon`) that builds against the SDK and is tested against the manager in the build. |
+| 4 | **Every shipped feature checked in real use** | **Mostly** | Neural Rendering (with its Model preset), the upscalers, Recording (clips seen live on 2026-10-19, Compact, 900 frames at 1440p), the window, the tray and hotkey, and the exit path are checked live. Not yet: ReShade passthrough (hotkey and auto-click), Windowed mode (the virtual display after a restart) and the GPU limit slider have passed offline tests only. A short live try settles each; reports are welcome. |
+| 5 | **More than one game** | **Four so far** (not part of the 1.0 gate) | World of Warcraft: Forever (the beta), Fallout: New Vegas (Tale of Two Wastelands), Silent Hill f (HDR) and Metro 2033 Redux, with Neural Rendering and the DLSS and FSR Upscalers (XeSS not yet in a game). A 4:3 game and one with busy foliage would round it off. |
 | 6 | **Signed files** | Not before 1.0 | Decided: the files stay unsigned until after 1.0. SmartScreen's warning and the way past it are explained in the README. |
 | 7 | **Help when something goes wrong** | **Done** on `main` | A troubleshooting table in the README, a questions-and-answers page (`docs/faq.md`), the diagnostics zip and the log. More entries will come from real questions. |
 | 8 | **Crash safety** | Done | Exit-path tests, isolated addon calls, the compatibility test in its own process, atomic settings writes. |
@@ -35,6 +35,14 @@ What it has to do (and what it must never do):
 - **Uninstall**: put the original back; leave the addons and settings unless asked.
 - **Say the one thing people must do themselves**: provide their own `nvngx_dlssnr.dll` (never shipped, never downloaded), and offer to place it.
 - **Be honest about being unsigned**, and be a single file.
+
+## Done in 1.0
+
+- **Recording is one feature of the manager** (Features tab), not a section in each addon: a key (F1 to F12), sounds (a tick on the press, a rising pair when saved, a low tone when there was nothing to save), a note beside each file, *Compact* (8-bit, a sixth of the size) or *Exact*, *keep going after the key*. It finds Lossless Scaling's frames itself, so no addon has to be on, and with frame generation off it records the frame the scaling pass reads.
+- **GPU limit is one feature of the manager** (80 to 100 %): the manager reads the load of the card Lossless Scaling runs on (NVML, or Windows' counters on any card) and the addons make their work cheaper while it is at the limit. This is the load part of the limiter below; temperature, power and memory limits are still ideas.
+- **Neural Rendering: a Model preset** (Newer / Older) for NVIDIA's runtime 310.9.16, and the new model file on the list of builds seen working.
+- **Addon API 1.3** (above), and a review pass over the recorder, the host's graphics-card naming and the update check that fixed ten findings and a race in "Check now".
+- **Research kept in the repository** (none of it in a product): measured comparisons of frame generators on real recordings (EchoFG, FSR 3.1, and NVIDIA's DLSS-G driven from outside a game: `docs/mfg-super-motion-study.md`) and of NVIDIA's optical flow hardware against our flow estimator (`docs/optical-flow-study.md`), with the lab tools (`tools/dlssg_probe`, `tools/flowlab`).
 
 ## Done in the 0.8 interface pass
 
@@ -87,7 +95,7 @@ What it has to do (and what it must never do):
 
 Agreed as worth doing, in no particular order; none of them is started. They come after the hardening and optimization work toward 1.0.
 
-- **A limiter in the Performance tab.** Limits that keep the GPU under a ceiling: load (%), temperature (°C), power (W) or graphics memory, and more than one at once ("under 80 °C *or* under 90 %",
+- **More limits in the Performance tab.** The load limit is done (the GPU limit feature, 1.0). Next: temperature (°C), power (W) or graphics memory, and more than one at once ("under 80 °C *or* under 90 %",
   whichever is hit first). When one is reached the manager lowers the cost of what it controls (Neural Rendering's working scale and passes first) until the reading is back under it, and says which limit is
   active ("limiting: 83 °C"), so it never looks like unexplained stutter. Steps down and back up slowly, with a pause after each step, so it does not swing back and forth.
 - **More from the auto mode.** It keeps a model time budget now (0.8.0). Room to grow: a budget per game, and "keep 20 % of the GPU free" as well as a model time.
@@ -95,10 +103,7 @@ Agreed as worth doing, in no particular order; none of them is started. They com
 - **A display mode per game.** Many TVs run 120 Hz only below 4K (1440p 120 Hz against 4K 60 Hz). A per-game choice (for example "World of Warcraft: Forever: 2560×1440 at 120 Hz")
   that the manager switches to when the game starts scaling and puts back when it ends, with Lossless Scaling's frame generation target to match.
 - **A before/after capture.** One key saves a matching pair of screenshots with and without Neural Rendering, for comparing looks and for bug reports.
-- **Frame generation of our own.** Whether AMD's FSR 3 frame interpolation or Intel's XeSS frame generation (which now runs on non-Intel
-  cards too), fed with this project's motion measurement, beats Lossless
-  Scaling's own frame generation. First an offline comparison on real footage (the recorder's `.lsrec` files, frames dropped and rebuilt
-  and scored against the real ones); only if it clearly wins, the work of putting it in Lossless Scaling's place.
+- **Frame generation of our own.** EchoFG (the test build; off in every release) rebuilds frames between real ones from this project's motion measurement. On three recordings it scores at least as well as AMD's FSR 3.1 frame generation and clearly better than NVIDIA's DLSS-G fed the same motion and a flat depth (`docs/mfg-super-motion-study.md`). Still open: whether it beats Lossless Scaling's own frame generation on a real screen, its pacing and display timing, and the work of putting it in Lossless Scaling's place. The motion side is the lever: a persistent per-game HUD mask, a flow consistency check, input-to-picture lag (board E11 to E13).
 - **Translations.** The interface's text in other languages, once the text lives in one table rather than in the code.
 - **A session summary.** When a game closes: average and worst frame time, peak temperature and power, how long the limiter or the auto mode was active. Real numbers for the "tested with" list.
 - **A stuck-state watchdog, the rest of it.** A runtime that stops responding is caught now (the engines' own threads). Still open: frames that
