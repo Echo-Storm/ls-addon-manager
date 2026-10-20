@@ -771,6 +771,7 @@ void FollowFrameGeneration(bool allowed) {
 struct BarProbe {
     ID3D11Texture2D* stage = nullptr; UINT sw = 0, sh = 0; DXGI_FORMAT fmt = DXGI_FORMAT_UNKNOWN; bool pending = false, vertical = false; uint64_t lastAt = 0;
     int bars = -1;   // -1 not known yet, 0 no bars, 1 bars
+    ID3D11Device* owner = nullptr;   // the device the staging texture was made on (compared only: Lossless Scaling drops and makes devices, and a texture of another device cannot be copied into)
     ~BarProbe() { if (stage) stage->Release(); }
     static bool Dark(const uint8_t* p, DXGI_FORMAT f) {
         switch (f) {
@@ -785,6 +786,9 @@ struct BarProbe {
     // vw, vh: the viewport's size as shares of the buffer; called at every compose with the buffer and its context
     void Update(ID3D11DeviceContext* ctx, ID3D11Texture2D* buf, const D3D11_TEXTURE2D_DESC& bd, float vw, float vh) {
         const bool vert = vw < 0.985f;   // pillarbox (bars left and right) or letterbox (top and bottom)
+        { ID3D11Device* current = nullptr; buf->GetDevice(&current); if (current) current->Release();
+          if (current != owner) { if (stage) { stage->Release(); stage = nullptr; } pending = false; bars = -1; sw = sh = 0; owner = current; } }   // a new device: nothing of the old one's is used
+        if (pending && !(stage && sw == (vert ? 2u : bd.Width) && sh == (vert ? bd.Height : 2u) && fmt == bd.Format)) pending = false;   // (the strip it holds is of another shape now: it would never be read, and the probe would wait for it for ever)
         if (pending && stage && sw == (vert ? 2u : bd.Width) && sh == (vert ? bd.Height : 2u) && fmt == bd.Format) {
             D3D11_MAPPED_SUBRESOURCE m{};
             const HRESULT hr = ctx->Map(stage, 0, D3D11_MAP_READ, D3D11_MAP_FLAG_DO_NOT_WAIT, &m);
