@@ -274,26 +274,25 @@ void StartCheckAsync() {
         url = g_url;
     }
     std::thread([url] {
+        // The result is published, and the check marked as finished, together at the end: whoever sees "not checking" can start the next check at once
+        // (publishing first left a moment in which that new check was refused as 'still busy').
+        Status s;
         try {
-            const Status s = Check(EAM_VERSION_STRING, url);
+            s = Check(EAM_VERSION_STRING, url);
             if (s.state == State::Failed) LOG_INFO("Update", "The update check failed: %s", s.error.c_str());
             else LOG_INFO("Update", "The update check found %s (this is %s)", s.latest.c_str(), s.current.c_str());
-            {
-                std::lock_guard<std::mutex> lk(g_mu);
-                g_status = s;
-            }
             auto& cfg = ConfigManager::Instance();   // remembered even when it failed, so an offline machine is not asked again every minute
             cfg.GlobalSet("updates", "last_check", static_cast<int64_t>(s.checkedAt));
             cfg.Save();
         } catch (const std::exception& e) {
-            std::lock_guard<std::mutex> lk(g_mu);
-            g_status.state = State::Failed;
-            g_status.error = std::string("unexpected problem: ") + e.what();
+            s.state = State::Failed;
+            s.error = std::string("unexpected problem: ") + e.what();
         } catch (...) {
-            std::lock_guard<std::mutex> lk(g_mu);
-            g_status.state = State::Failed;
-            g_status.error = "unexpected problem";
+            s.state = State::Failed;
+            s.error = "unexpected problem";
         }
+        std::lock_guard<std::mutex> lk(g_mu);
+        g_status = s;
         g_busy = false;
     }).detach();
 }
