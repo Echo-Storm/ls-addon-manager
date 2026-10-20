@@ -6,7 +6,7 @@
 <a href="https://github.com/Echo-Storm/ls-addon-manager/releases/latest"><b>Download</b></a> &nbsp;·&nbsp; <a href="#install">Install</a> &nbsp;·&nbsp; <a href="#the-addons">The addons</a> &nbsp;·&nbsp; <a href="#built-in-features">Features</a> &nbsp;·&nbsp; <a href="CHANGELOG.md">Changelog</a> &nbsp;·&nbsp; <a href="docs/faq.md">Questions</a>
 </p>
 
-<p align="center"><img src="docs/images/addons.png" alt="The manager: the addons at the left (the prototypes greyed out, marked WIP), Neural Rendering's panel at the right, the machine's load in the header" width="100%"></p>
+<p align="center"><img src="docs/images/addons.png" alt="The manager, version 1.0.0: the addons at the left with a switch and live status each, the FSR Upscaler's panel at the right, the machine's load in the header" width="100%"></p>
 
 **Addon Manager for Lossless Scaling** loads alongside [Lossless Scaling](https://store.steampowered.com/app/993090/Lossless_Scaling/) and gives it an addon system,
 with addons that do what Lossless Scaling alone cannot:
