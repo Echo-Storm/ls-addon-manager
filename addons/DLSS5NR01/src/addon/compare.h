@@ -20,6 +20,10 @@ enum Mode : int { kNis = 0, kDlss = 1, kFsr = 2, kXess = 3, kVsrGated = 4, kVsrA
 void Register(int mode, const char* name, uint32_t rgb);
 void Unregister(int mode);
 
+// A second line for this addon's label (what the label says besides the name: the runtime's version, like "RUNTIME 310.9.1"); the letters of the label's font only (A-Z, 0-9, + - . : /),
+// at most 40 of them; an empty text takes it away. Kept by this addon's DLL, which is the one that draws its label.
+void SetDetail(const char* text);
+
 // Reads the key; every addon calls it in its pass (cheap).
 void Poll();
 

@@ -81,6 +81,9 @@ void Advance(Shared* s) {
 
 } // namespace
 
+namespace { char g_detail[44] = {}; int g_detailRev = 0; }
+void SetDetail(const char* text) { strncpy_s(g_detail, sizeof g_detail, text ? text : "", _TRUNCATE); ++g_detailRev; }
+
 void Register(int mode, const char* name, uint32_t rgb) {
     Shared* s = S();
     if (!s || mode <= kNis || mode >= kModes) return;
@@ -262,9 +265,10 @@ void DrawLabel(ID3D11DeviceContext* ctx, uint32_t outX, uint32_t outY, uint32_t 
     }
     const int mode = static_cast<int>(s->current);
     const int scale = std::clamp(static_cast<int>(outW / 800), 2, 8);
-    const int key = mode * 16 + scale;
+    const int key = mode * 16 + scale + g_detailRev * 256;
     if (key != g_label.key || !g_label.tex) {
         std::vector<std::string> rows = { s->name[mode] };
+        if (g_detail[0]) rows.push_back(g_detail);
         uint32_t w = 0, h = 0; const std::vector<uint32_t> px = LabelImage(rows, s->rgb[mode], scale, w, h);
         Release(g_label.srv); Release(g_label.tex);
         D3D11_TEXTURE2D_DESC d{}; d.Width = w; d.Height = h; d.MipLevels = 1; d.ArraySize = 1; d.Format = DXGI_FORMAT_R8G8B8A8_UNORM; d.SampleDesc.Count = 1; d.Usage = D3D11_USAGE_DEFAULT; d.BindFlags = D3D11_BIND_SHADER_RESOURCE;

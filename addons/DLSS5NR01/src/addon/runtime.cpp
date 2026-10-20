@@ -180,6 +180,7 @@ void NoteSource(ID3D11DeviceContext* ctx, ID3D11Texture2D* frame) {
 uint32_t RecorderFlagsNow() { return g_host && g_host->GetHostVersion() >= 0x010300 ? g_host->RecorderFlags() : 0u; }
 // The GPU limit is the manager's too (IHost API 1.3, the Features tab, "GPU limit"): the percent the card's load should stay under (0: off) and the load of the card Lossless Scaling runs on.
 float HostGpuLimit() { return g_host && g_host->GetHostVersion() >= 0x010300 ? static_cast<float>(g_host->GpuLimitPercent()) : 0.0f; }
+std::string FileVersion(const std::wstring& path);   // (defined below)
 unsigned HostGpuLoad() { return g_host && g_host->GetHostVersion() >= 0x010300 ? g_host->GpuLoadPercent() : 0u; }
 
 ID3D11ShaderResourceView* g_tapBound[8] = {}; bool g_tapBoundOpen = false;   // what Tap took off the pass (under g_frameMutex)
@@ -1277,6 +1278,10 @@ void StartEngineFor(const LUID& card) {   // the engine's own device only: safe 
         QueryPerformanceCounter(&b);
         Log("%s upscaler: engine %s in %.0f ms, on a thread of its own", kUpscalerName, ok ? "started" : "failed", (b.QuadPart - a.QuadPart) * 1000.0 / f.QuadPart);
         if (ok) LogVideoMemory("the upscaler started: the figure after, then what it added (its textures are made at the first frame)");
+        if (ok) {   // the comparison's label (Ctrl+Shift+F9) says which runtime is running (issue 21)
+            const std::string version = FileVersion(dir + L"\\" + kRuntimeFileW);
+            compare::SetDetail(version.empty() ? "" : (std::string("RUNTIME ") + version).c_str());
+        }
         SetStatus(ok ? std::string(kUpscalerName) + " ready" : g_sr.LastError());
         g_srStarting = false;
     }).detach();
