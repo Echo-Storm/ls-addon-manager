@@ -97,3 +97,18 @@ Built into `own_synth` as a second mode (`Record(..., motionReverse)`; `nr_fgeva
 - **The cost does not pay.** The motion estimate costs about 4 to 5.5 ms a pair at 2560x1440 on this card (pyramid 0.4-0.9, search 2.0-2.7, pixels 1.5-2.1; the measurements are noisy, the card's clocks move), so **the second estimate adds about as much as the whole estimate again**, far more than the splat synthesis it replaces (about 0.7 ms best, 2 ms median). The direct pass itself was not cheaper than the splat's Synth either (2.7-4.5 ms median for a full-resolution pass with the marks lookup). The splat pipeline is, in effect, the cheap way to get the second field (it carries the one estimate's vectors onto the other frame and reverses them).
 - **Not adopted**; the mode stays in the code as an experiment (`owndirect=1`), not used by EchoFG. Where it could pay: a way-back field that costs less than a second estimate (their step 6 derives the check from the first estimate's own vectors), or a "light" synthesis from one field (the lab's one-way draw: about 0.3 dB below EchoFG's synthesis) for the GPU-limit use case, if the splat passes turn out to be the cost there.
 - The estimate itself is the large cost: **4 to 5 ms of the pair's budget at 1440p**. Its search stage is half of it. The coarse-seed idea from the optical flow study (E14) now has a number to beat.
+
+## Result of E12: the way-back check on our flow (2026-10-20)
+
+Lab only (`tools/flowlab/check_lab.py`, three segments, 8 pairs each): each pixel's vector is checked by the other field at its end point (a right vector comes home within 1.5 px plus a tenth of its length); a pixel whose vector does not come home takes, of 33 neighbours' vectors and none, the best one that does and that carries its 3 x 3 surroundings within 15 levels of what its own did (or keeps its own where none does). About 11-15 % of the pixels were replaced.
+
+| draw | gain over the blend, without the check | with the check (a real second field) | with the check (the way back made by splatting the forward field alone) |
+|---|---|---|---|
+| one field, 23-16-58 | +2.20 dB | +2.29 | +2.27 |
+| one field, 23-18-17 | +1.69 | +1.76 | +1.75 |
+| one field, 23-16-37 | +2.03 | +2.15 | +2.17 |
+| both fields (direct draw), the three | +2.53 / +1.79 / +2.17 | +2.54 / +1.82 / +2.25 | n/a |
+
+- **The check helps a little: +0.06 to +0.14 dB on a draw from one field, +0.01 to +0.08 on the direct draw from both**, and the cheap way back (the forward vectors splatted onto the other frame and reversed, which EchoFG's pipeline already does) gives nearly all of what a real second estimate gives.
+- **Not built into the estimator**: a candidate search of 33 neighbours per pixel (plus the splat) is a pass worth perhaps a millisecond at 1440p, for about a tenth of a dB, and EchoFG's synthesis already picks between two hypotheses per cell using the same splat, so its gain there would be smaller still. Kept as a measured option (board E12 done, "marginal").
+- What this leaves as the open levers on the flow: the picture at large for plain and repeating blocks (E16), the far search (E15), the smoothing of the field (E17), and the cost of the estimate itself.
