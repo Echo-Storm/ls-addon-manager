@@ -1,5 +1,6 @@
 #include <chrono>
 #include "engine/flow_estimator.h"
+#include "engine/shader_cache.h"
 #include "engine/hdr_hlsl.h"
 #include <d3dcompiler.h>
 #include <algorithm>
@@ -365,7 +366,7 @@ bool FlowEstimator::Init(ID3D12Device* dev, LogFn log) {
         const std::string text = std::string(kCommonHlsl) + sources[i];
         ID3DBlob* code = nullptr; ID3DBlob* err = nullptr;
         const auto compileStart = std::chrono::steady_clock::now();
-        if (FAILED(D3DCompile(text.c_str(), text.size(), names[i], nullptr, nullptr, "main", "cs_5_0", D3DCOMPILE_OPTIMIZATION_LEVEL3, 0, &code, &err))) {
+        if (FAILED(nr::CompileCached(text.c_str(), text.size(), names[i], nullptr, "main", "cs_5_0", D3DCOMPILE_OPTIMIZATION_LEVEL3, &code, &err))) {
             Log("motion estimator: %s: %s", names[i], err ? static_cast<const char*>(err->GetBufferPointer()) : "?"); SafeRelease(err); Shutdown(); return false;
         }
         Log("motion estimator: %s compiled in %.0f ms", names[i], std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - compileStart).count());
@@ -425,7 +426,7 @@ void CompileShapeJob(const std::shared_ptr<FlowEstimator::ShapeJob>& job, ID3D12
     const D3D_SHADER_MACRO defines[] = { { "SHAPE_COST", "1" }, { nullptr, nullptr } };
     ID3DBlob* code = nullptr; ID3DBlob* err = nullptr;
     char line[400];
-    if (FAILED(D3DCompile(text.c_str(), text.size(), "flow_search_shape", defines, nullptr, "main", "cs_5_0", D3DCOMPILE_OPTIMIZATION_LEVEL3, 0, &code, &err))) {
+    if (FAILED(nr::CompileCached(text.c_str(), text.size(), "flow_search_shape", defines, "main", "cs_5_0", D3DCOMPILE_OPTIMIZATION_LEVEL3, &code, &err))) {
         snprintf(line, sizeof line, "motion estimator: the shape cost did not compile: %s", err ? static_cast<const char*>(err->GetBufferPointer()) : "?");
         if (log) log(line);
         SafeRelease(err); job->state = 3; return;

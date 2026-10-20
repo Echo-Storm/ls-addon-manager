@@ -1,4 +1,5 @@
 #include "engine/nr_engine.h"
+#include "engine/shader_cache.h"
 #include "engine/ngx_users.h"
 #include "engine/ngx_paths.h"
 #include <chrono>
@@ -259,7 +260,7 @@ bool NrEngine::CreatePipelines() {
 
     auto build = [&](const char* source, const char* entry, ID3D12PipelineState** pso) {
         ID3DBlob* code = nullptr, * err = nullptr;
-        if (FAILED(D3DCompile(source, strlen(source), "nr_model", nullptr, nullptr, entry, "cs_5_0", D3DCOMPILE_OPTIMIZATION_LEVEL3, 0, &code, &err))) {
+        if (FAILED(nr::CompileCached(source, strlen(source), "nr_model", nullptr, entry, "cs_5_0", D3DCOMPILE_OPTIMIZATION_LEVEL3, &code, &err))) {
             Fail("HLSL %s: %s", entry, err ? static_cast<const char*>(err->GetBufferPointer()) : "?"); SafeRelease(err); return false;
         }
         D3D12_COMPUTE_PIPELINE_STATE_DESC pd{}; pd.pRootSignature = m_rootSig; pd.CS = { code->GetBufferPointer(), code->GetBufferSize() };

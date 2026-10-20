@@ -1,5 +1,6 @@
 #define NOMINMAX
 #include "engine/repeat_gate.h"
+#include "engine/shader_cache.h"
 #include <d3dcompiler.h>
 #include <windows.h>
 #include <cstring>
@@ -63,7 +64,7 @@ bool RepeatGate::Init(ID3D12Device* dev, ID3D12CommandQueue* queue) {
     Rel(blob); Rel(error);
     if (!rootOk) { Shutdown(); return false; }
     ID3DBlob* code = nullptr;
-    if (FAILED(D3DCompile(kCompareHlsl, strlen(kCompareHlsl), "repeat_gate", nullptr, nullptr, "main", "cs_5_0", D3DCOMPILE_OPTIMIZATION_LEVEL3, 0, &code, &error))) { Rel(error); Shutdown(); return false; }
+    if (FAILED(nr::CompileCached(kCompareHlsl, strlen(kCompareHlsl), "repeat_gate", nullptr, "main", "cs_5_0", D3DCOMPILE_OPTIMIZATION_LEVEL3, &code, &error))) { Rel(error); Shutdown(); return false; }
     D3D12_COMPUTE_PIPELINE_STATE_DESC pso{}; pso.pRootSignature = m_root; pso.CS = { code->GetBufferPointer(), code->GetBufferSize() };
     const bool psoOk = SUCCEEDED(dev->CreateComputePipelineState(&pso, IID_PPV_ARGS(&m_pso)));
     Rel(code); Rel(error);

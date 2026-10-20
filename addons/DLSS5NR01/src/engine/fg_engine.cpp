@@ -1,4 +1,5 @@
 #include "engine/fg_engine.h"
+#include "engine/shader_cache.h"
 #include "engine/hdr_hlsl.h"
 #include <chrono>
 #include <d3dcompiler.h>
@@ -126,7 +127,7 @@ bool FgEngine::InitGuard() {
     SafeRelease(blob); SafeRelease(error);
     if (!rootOk) return false;
     ID3DBlob* code = nullptr; ID3DBlob* err = nullptr;
-    if (FAILED(D3DCompile(kGuardHlsl, strlen(kGuardHlsl), "fg_guard", nullptr, nullptr, "main", "cs_5_0", D3DCOMPILE_OPTIMIZATION_LEVEL3, 0, &code, &err))) {
+    if (FAILED(nr::CompileCached(kGuardHlsl, strlen(kGuardHlsl), "fg_guard", nullptr, "main", "cs_5_0", D3DCOMPILE_OPTIMIZATION_LEVEL3, &code, &err))) {
         Log("frame generation engine: the guard: %s", err ? static_cast<const char*>(err->GetBufferPointer()) : "?"); SafeRelease(err); return false;
     }
     D3D12_COMPUTE_PIPELINE_STATE_DESC pso{}; pso.pRootSignature = m_guardRoot; pso.CS = { code->GetBufferPointer(), code->GetBufferSize() };

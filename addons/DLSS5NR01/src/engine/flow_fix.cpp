@@ -2,6 +2,7 @@
 #define NOMINMAX
 #endif
 #include "engine/flow_fix.h"
+#include "engine/shader_cache.h"
 #include "engine/hdr_hlsl.h"
 #include <d3dcompiler.h>
 #include <algorithm>
@@ -205,7 +206,7 @@ bool FlowFix::Init(ID3D12Device* dev, LogFn log) {
     static const char* const names[EntryCount] = { "Luma", "TileMode", "Decide", "Apply" };
     for (int e = 0; e < EntryCount; ++e) {
         ID3DBlob* code = nullptr;
-        if (FAILED(D3DCompile(kHlsl, strlen(kHlsl), "flow_fix", nullptr, nullptr, names[e], "cs_5_0", D3DCOMPILE_OPTIMIZATION_LEVEL3, 0, &code, &error))) {
+        if (FAILED(nr::CompileCached(kHlsl, strlen(kHlsl), "flow_fix", nullptr, names[e], "cs_5_0", D3DCOMPILE_OPTIMIZATION_LEVEL3, &code, &error))) {
             std::string m = std::string("flow fix: ") + names[e] + ": " + (error ? static_cast<const char*>(error->GetBufferPointer()) : "?");
             Log(m.c_str()); Rel(error); Shutdown(); return false;
         }

@@ -1,4 +1,5 @@
 #include "engine/sr_engine.h"
+#include "engine/shader_cache.h"
 #include "addon/agility.h"
 #include "engine/ngx_users.h"
 #include "engine/ngx_paths.h"
@@ -514,7 +515,7 @@ bool SrEngine::Init(const LUID& card, const std::wstring& dataPath, const std::w
     auto build = [&](const char* source, const char* name, ID3D12PipelineState** out) {
         ID3DBlob* code = nullptr; ID3DBlob* err = nullptr;
         const std::string text = std::string(NR_HDR_HLSL) + source;   // the HDR curve (hdr_hlsl.h) in front of every pass
-        if (FAILED(D3DCompile(text.c_str(), text.size(), name, nullptr, nullptr, "main", "cs_5_0", D3DCOMPILE_OPTIMIZATION_LEVEL3, 0, &code, &err))) {
+        if (FAILED(nr::CompileCached(text.c_str(), text.size(), name, nullptr, "main", "cs_5_0", D3DCOMPILE_OPTIMIZATION_LEVEL3, &code, &err))) {
             Log("%s: %s", name, err ? static_cast<const char*>(err->GetBufferPointer()) : "?"); SafeRelease(err); Fail("the %s shader did not compile", name); return false;
         }
         D3D12_COMPUTE_PIPELINE_STATE_DESC pso{}; pso.pRootSignature = m_rootSig; pso.CS = { code->GetBufferPointer(), code->GetBufferSize() };
@@ -859,7 +860,7 @@ bool SrEngine::InitLean() {   // its own root signature: three pictures in, one 
     if (!rootOk) return false;
     ID3DBlob* code = nullptr; ID3DBlob* err = nullptr;
     const ULONGLONG compileStart = GetTickCount64();
-    if (FAILED(D3DCompile(kLeanHlsl, strlen(kLeanHlsl), "sr_lean", nullptr, nullptr, "main", "cs_5_0", D3DCOMPILE_OPTIMIZATION_LEVEL3, 0, &code, &err))) {
+    if (FAILED(nr::CompileCached(kLeanHlsl, strlen(kLeanHlsl), "sr_lean", nullptr, "main", "cs_5_0", D3DCOMPILE_OPTIMIZATION_LEVEL3, &code, &err))) {
         Log("sr_lean: %s", err ? static_cast<const char*>(err->GetBufferPointer()) : "?"); SafeRelease(err); return false;
     }
     D3D12_COMPUTE_PIPELINE_STATE_DESC pso{}; pso.pRootSignature = m_leanRoot; pso.CS = { code->GetBufferPointer(), code->GetBufferSize() };
@@ -881,7 +882,7 @@ bool SrEngine::InitLean() {   // its own root signature: three pictures in, one 
                         SUCCEEDED(m_dev->CreateRootSignature(0, sb->GetBufferPointer(), sb->GetBufferSize(), IID_PPV_ARGS(&m_steadyRoot)));
         SafeRelease(sb); SafeRelease(se);
         const std::string text = std::string(NR_HDR_HLSL) + kSteadySharpenHlsl;
-        if (ok && SUCCEEDED(D3DCompile(text.c_str(), text.size(), "sr_steady_sharpen", nullptr, nullptr, "main", "cs_5_0", D3DCOMPILE_OPTIMIZATION_LEVEL3, 0, &code, &err))) {
+        if (ok && SUCCEEDED(nr::CompileCached(text.c_str(), text.size(), "sr_steady_sharpen", nullptr, "main", "cs_5_0", D3DCOMPILE_OPTIMIZATION_LEVEL3, &code, &err))) {
             D3D12_COMPUTE_PIPELINE_STATE_DESC sdesc{}; sdesc.pRootSignature = m_steadyRoot; sdesc.CS = { code->GetBufferPointer(), code->GetBufferSize() };
             if (FAILED(m_dev->CreateComputePipelineState(&sdesc, IID_PPV_ARGS(&m_steadyPso)))) m_steadyPso = nullptr;
             SafeRelease(code);
