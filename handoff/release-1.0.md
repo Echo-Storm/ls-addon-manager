@@ -1,4 +1,4 @@
-# 1.0: the one-hour test and release day (prepared 2026-10-20; nothing here is done until the owner does it; no tag, no release was made)
+# 1.0: the one-hour test and release day (prepared 2026-10-20; **released 2026-10-20 as v1.0.0**: https://github.com/Echo-Storm/ls-addon-manager/releases/tag/v1.0.0, zip SHA-256 cdbe28774d451f12f8384b893018c412a19c2782ae22e8deb6fa5150f4b7c9eb)
 
 State: `main` carries the **1.0.0 version bump** (committed 2026-10-20 by `python tools/bump_version.py 1.0.0 --apply`: 11 files; the CHANGELOG's "Unreleased" is now "1.0.0 (2026-10-20)", the README header and "New in 1.0.0" are done). The local CI was run on exactly this tree and passed (result in "Checked before the hour" below). Not done, on purpose: the tag, the release, the zip, ROADMAP.md's status. Addon API 1.3.0 is new in this release
 (IHost calls appended: recorder and GPU limit; the 1.0 interface is only appended to).
@@ -35,7 +35,8 @@ Build (`python tools\dev.py build`), `powershell -File tools\deploy.ps1 -What al
 ## Release day (only when the owner says; these are the steps that worked before, see also release-next.md)
 
 1. The bump, the README text and the CHANGELOG heading are already on `main`. Still by hand: ROADMAP.md's status (text below; check its table row by row first), and fix any change the test hour found.
-2. Commit exactly those paths (never `git add -A .`), push, `gh run watch` the CI until green; then, the once-only full run: `pwsh tools\ci.ps1` (run the Setup exe step with `-ExecutionPolicy Bypass` if this machine's policy blocks it) and `python toolsun_hosttest_matrix.py --jobs 3` on an idle machine; all must pass before the zip is made.
+2. Commit exactly those paths (never `git add -A .`), push, `gh run watch` the CI until green; then, the once-only full run: `pwsh tools\ci.ps1` (run the Setup exe step with `-ExecutionPolicy Bypass` if this machine's policy blocks it) and `python tools
+un_hosttest_matrix.py --jobs 3` on an idle machine; all must pass before the zip is made.
 3. `powershell tools\package.ps1` in the main checkout; open the zip: five addons, the Setup exe, no model file, licences present (about 172 MB). Check the Setup exe against the build (the script does).
 4. `gh release create v1.0.0 --target main --notes-file <notes below> <the zip>`. Then post the reply drafts for issues #20 and #21 (`handoff/issue-reply-drafts.md`).
 5. Not in the notes by the owner's rule: the NVIDIA Video Effects SDK subset the VSR prototype uses for testing.
@@ -67,3 +68,7 @@ Build (`python tools\dev.py build`), `powershell -File tools\deploy.ps1 -What al
 - 2026-10-20, `pwsh tools\ci.ps1` on the tree with the 1.0.0 bump applied (then reverted): version check, manager and its tests (install, handling, update check, sample addon), installer core and payload tests, the addons' offline tests: all passed. The one failing step, "Setup exe, silent mode", failed only because this PC's PowerShell policy refuses scripts ("running scripts is disabled"); run with `-ExecutionPolicy Bypass` the same test passes (SETUP EXE TEST PASSED, 0 failed).
 - The host matrix was not run (release only).
 - GitHub: every completed run of 2026-10-20 is green; the last two (docs and tools only) were still running at the time of writing.
+
+## What happened on release day (2026-10-20)
+
+The owner asked for the release directly (the live hour was not held first; the live checks above are still the open list for 1.0.1). The host matrix at `--jobs 3` failed 11-12 early scenarios twice while the owner was using the GPU; each passed alone, and the full matrix at `--jobs 1` passed all 75 (1700 s). GitHub CI green on the 1.0.0 and docs commits. `package.ps1` rebuilt and packed 33 files (DLSS5NR01, DLSS4DLAA, FSR3UPSC, XESSUPSC; VSR not packaged), the Setup exe self-checked byte for byte. Not done: issue replies #20 and #21 (drafts in `handoff/issue-reply-drafts.md`), the live checks, ROADMAP rows 4 and 5.
