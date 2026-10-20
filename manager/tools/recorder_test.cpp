@@ -65,7 +65,8 @@ int main() {
     if (!gpu.Make()) { printf("no Direct3D 11 device\n"); return 1; }
     const std::wstring dir = TempDir();
     eam::rec::Service svc;
-    svc.SetLog([](const char* m) { printf("    [recorder] %s\n", m); });
+    std::vector<std::string> logLines;
+    svc.SetLog([&](const char* m) { printf("    [recorder] %s\n", m); logLines.push_back(m); });
     svc.SetInfoProvider([] { return std::string("\"manager_version\": \"test\",\n  \"addons\": { \"DLSS5NR01\": { \"enabled\": true } }"); });
 
     printf("== off\n");
@@ -172,6 +173,22 @@ int main() {
                       read ? std::to_string(px[0]) + "," + std::to_string(px[1]) + "," + std::to_string(px[2]) + "," + std::to_string(px[3]) : "unreadable");
             }
         }
+    }
+
+    printf("== a save that cannot be written says so\n");
+    {
+        const std::wstring blocker = dir + L"\\blocker";
+        FILE* f = _wfopen(blocker.c_str(), L"wb"); if (f) { fputs("x", f); fclose(f); }   // a file where the folder would have to be made
+        eam::rec::Settings b; b.on = true; b.seconds = 5; b.budgetMb = 512; b.folder = blocker + L"\\sub"; b.beep = false; b.note = false; b.saveAfter = 6;
+        svc.Configure(eam::rec::Settings());   // off first: the test's save-by-itself is armed again
+        svc.Configure(b);
+        logLines.clear();
+        auto said = [&](const char* text) { for (const std::string& l : logLines) if (l.find(text) != std::string::npos) return true; return false; };
+        for (int i = 0; i < 400 && !said("the save failed"); ++i) {
+            ID3D11Texture2D* t = gpu.Frame(128, 96, 77); svc.Offer(gpu.ctx, t, 2, 0, 0, 0, 0); t->Release(); gpu.ctx->Flush(); svc.Poll(); Sleep(10);
+        }
+        Check("the failed save is logged, not silent", said("the save failed"));
+        Check("...and the service did not fault", !svc.Faulted());
     }
 
     svc.Shutdown();

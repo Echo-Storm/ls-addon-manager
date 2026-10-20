@@ -7,6 +7,10 @@
 #include <d3d11_4.h>
 #include <algorithm>
 #include <atomic>
+#include <cstring>
+#include <mutex>
+#include <string>
+#include <dxgi.h>
 #include <utility>
 #include <vector>
 
@@ -20,9 +24,34 @@ std::atomic<eam::HostImpl*> g_host{ nullptr };
 constexpr int kContexts = 8;
 std::atomic<ID3D11DeviceContext*> g_lsContexts[kContexts] = {};
 std::atomic<int> g_nextContext{ 0 };
-bool IsLossless(ID3D11DeviceContext* ctx) {
-    for (const auto& c : g_lsContexts) if (c.load(std::memory_order_acquire) == ctx) return true;
-    return false;
+int LosslessIndex(ID3D11DeviceContext* ctx) {
+    for (int i = 0; i < kContexts; ++i) if (g_lsContexts[i].load(std::memory_order_acquire) == ctx) return i;
+    return -1;
+}
+// What each of those contexts' passes have been, and the adapter name of its device (named inside a dispatch of its own, when the context is known to be alive).
+std::atomic<uint32_t> g_ctxPasses[kContexts] = {};
+char g_ctxCard[kContexts][128] = {};
+std::atomic<bool> g_ctxCardKnown[kContexts] = {};
+void AdapterName(ID3D11Device* dev, char (&text)[128]) {   // a real device
+    IDXGIDevice* dxgi = nullptr; IDXGIAdapter* adapter = nullptr;
+    text[0] = 0;
+    if (dev && SUCCEEDED(dev->QueryInterface(IID_PPV_ARGS(&dxgi))) && SUCCEEDED(dxgi->GetAdapter(&adapter))) {
+        DXGI_ADAPTER_DESC desc{};
+        if (SUCCEEDED(adapter->GetDesc(&desc))) WideCharToMultiByte(CP_UTF8, 0, desc.Description, -1, text, sizeof text - 1, nullptr, nullptr);
+    }
+    if (adapter) adapter->Release();
+    if (dxgi) dxgi->Release();
+}
+char g_newestCard[128] = {};   // the card of the device Lossless Scaling made last (under g_newestMutex)
+std::mutex g_newestMutex;
+void NameCard(int index, ID3D11DeviceContext* ctx) {
+    ID3D11Device* dev = nullptr;
+    ctx->GetDevice(&dev);
+    char text[128] = {};
+    AdapterName(dev, text);
+    if (dev) dev->Release();
+    memcpy(g_ctxCard[index], text, sizeof text);
+    g_ctxCardKnown[index].store(true, std::memory_order_release);
 }
 std::atomic<uint32_t> g_dispatches{ 0 };
 std::atomic<DispatchObserver> g_observer{ nullptr };
@@ -58,9 +87,12 @@ int g_hooked = 0;
 // jumps on into the real implementation (hooked as well), and an addon may dispatch its own work from a callback.
 template <int I> void STDMETHODCALLTYPE Detour(ID3D11DeviceContext* ctx, UINT x, UINT y, UINT z) {
     const DispatchFn original = g_hooks[I].original;
-    if (t_dispatching || !ctx || !IsLossless(ctx)) { original(ctx, x, y, z); return; }
+    const int index = (t_dispatching || !ctx) ? -1 : LosslessIndex(ctx);
+    if (index < 0) { original(ctx, x, y, z); return; }
     t_dispatching = ctx;
     g_dispatches.fetch_add(1, std::memory_order_relaxed);
+    g_ctxPasses[index].fetch_add(1, std::memory_order_relaxed);
+    if (!g_ctxCardKnown[index].load(std::memory_order_acquire)) NameCard(index, ctx);
     if (const DispatchObserver observer = g_observer.load(std::memory_order_acquire)) observer(ctx, x, y, z);
     eam::HostImpl* const host = g_host.load(std::memory_order_acquire);
     const bool skip = host && host->InvokePreDispatch(x, y, z);
@@ -159,7 +191,13 @@ void Attach(ID3D11Device* device, ID3D11DeviceContext* context) {
     if (!host) return;
     void* const before = host->GetD3D11Device();
     host->SetD3D11Device(device, context);
-    if (!IsLossless(context)) g_lsContexts[g_nextContext.fetch_add(1) % kContexts].store(context, std::memory_order_release);
+    { char name[128]; AdapterName(device, name); std::lock_guard<std::mutex> lock(g_newestMutex); memcpy(g_newestCard, name, sizeof name); }
+    if (LosslessIndex(context) < 0) {
+        const int slot = g_nextContext.fetch_add(1) % kContexts;
+        g_ctxCardKnown[slot].store(false, std::memory_order_release);   // a new context in the slot: its card is named at its first pass
+        g_ctxPasses[slot].store(0, std::memory_order_relaxed);
+        g_lsContexts[slot].store(context, std::memory_order_release);
+    }
     if (!before) g_dispatches.store(0, std::memory_order_relaxed);
     if (before && before != static_cast<void*>(device)) eam::EventBus::Instance().Publish(EAM_EVENT_D3D11_DEVICE_CHANGED);
     eam::EventBus::Instance().Publish(EAM_EVENT_D3D11_DEVICE_READY);
@@ -175,6 +213,19 @@ void* GetCurrentComputeShader() {
 }
 
 uint32_t GetDispatchCount() { return g_dispatches.load(std::memory_order_relaxed); }
+
+std::string ActiveCardName() {
+    int best = -1; uint32_t most = 0;
+    for (int i = 0; i < kContexts; ++i) {
+        const uint32_t n = g_ctxPasses[i].exchange(0, std::memory_order_relaxed);   // (taken: the next call sees only what came after)
+        if (n > most && g_ctxCardKnown[i].load(std::memory_order_acquire)) { most = n; best = i; }
+    }
+    static std::mutex mutex; static std::string last;   // the card of the last busiest context: kept while no pass has come since (several callers share the counts)
+    std::lock_guard<std::mutex> lock(mutex);
+    if (best >= 0) last = g_ctxCard[best];
+    if (last.empty()) { std::lock_guard<std::mutex> newest(g_newestMutex); last = g_newestCard; }   // before any pass: the card of the newest device
+    return last;
+}
 
 ID3D11DeviceContext* DispatchingContext() { return t_dispatching; }
 

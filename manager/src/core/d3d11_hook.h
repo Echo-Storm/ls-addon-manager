@@ -9,6 +9,7 @@
 // Scaling calls) swaps the copy's entries, dropping a patched slot.
 #pragma once
 #include <cstdint>
+#include <string>
 
 struct ID3D11Device;
 struct ID3D11DeviceContext;
@@ -28,6 +29,10 @@ void Shutdown();
 // wait or dispatch. An addon's callbacks are separate (IHost).
 using DispatchObserver = void (*)(ID3D11DeviceContext* ctx, uint32_t x, uint32_t y, uint32_t z);
 void SetDispatchObserver(DispatchObserver observer);
+
+// The name of the graphics card whose device runs most of Lossless Scaling's compute passes lately (its adapter name), empty before any pass: the card Lossless Scaling works on, which on
+// a machine with two cards is not always the one whose device it made last. Any thread; the counts it goes by are halved at each call, so it follows a change.
+std::string ActiveCardName();
 
 // What the D3D11CreateDevice hook does with a new device (the tests call it directly).
 void Attach(ID3D11Device* device, ID3D11DeviceContext* context);

@@ -3,6 +3,7 @@
 #include "../log/logger.h"
 #include "imgui.h"
 #include <algorithm>
+#include <windows.h>
 #include <atomic>
 #include <cstdio>
 #include <cstdlib>
@@ -18,7 +19,12 @@ Backends g_backends;
 std::atomic<bool> g_on{ false };
 
 uint32_t Percent() { return static_cast<uint32_t>(std::clamp(std::atoi(Cfg().Get(kId, "percent", "95").c_str()), 80, 100)); }
-uint32_t Load() { return g_backends.readLoad ? g_backends.readLoad() : 0u; }
+uint32_t Load() {   // read at most once a second (the status line asks every frame the window is shown)
+    static uint64_t at = 0; static uint32_t last = 0;
+    const uint64_t now = GetTickCount64();
+    if (now - at >= 1000) { at = now; last = g_backends.readLoad ? g_backends.readLoad() : 0u; }
+    return last;
+}
 
 } // namespace
 

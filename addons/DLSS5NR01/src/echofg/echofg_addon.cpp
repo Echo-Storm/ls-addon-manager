@@ -39,11 +39,11 @@ IHost* g_host = nullptr;
 std::wstring g_addonDir;
 
 // the settings, read from the host's config twice a second (the presenting thread reads them every frame: atomics)
-std::atomic<bool> g_enabled{ true }, g_own{ true }, g_align{ true }, g_guard{ true }, g_hotkeys{ true };
+std::atomic<bool> g_enabled{ true }, g_own{ true }, g_align{ true }, g_guard{ true };
 std::atomic<int> g_multiplier{ 2 };
 std::atomic<float> g_soften{ 0.6f };
 std::mutex g_textMutex;
-std::string g_focusExe, g_notice;
+std::string g_notice;
 std::atomic<uint64_t> g_configAt{ 0 };
 std::atomic<bool> g_wasOn{ false };
 
@@ -86,31 +86,10 @@ void ReadConfig() {
     auto flag = [](const char* key, bool def) { return std::string(g_host->GetConfig(kId, key, def ? "1" : "0")) == "1"; };
     g_enabled = flag("enabled", true);   // (the manager's switch for the addon is the real one: this only pauses)
     g_own = flag("own", true); g_align = flag("align", true); g_guard = flag("guard", true);
-    g_hotkeys = flag("hotkeys", true);
     g_multiplier = std::clamp(atoi(g_host->GetConfig(kId, "multiplier", "2")), 2, 9);
     g_soften = std::clamp(static_cast<float>(atof(g_host->GetConfig(kId, "soften", "0.6"))), 0.0f, 1.0f);
 }
 void Set(const char* key, const std::string& value) { g_host->SetConfig(kId, key, value.c_str()); g_host->SaveConfig(); g_configAt = 0; }
-
-// The program in focus (the game), without .exe; empty when it is this process (Lossless Scaling) or unknown.
-std::string FocusGame() {
-    const HWND window = GetForegroundWindow(); DWORD pid = 0;
-    if (!window) return {};
-    GetWindowThreadProcessId(window, &pid);
-    if (!pid || pid == GetCurrentProcessId()) return {};
-    const HANDLE process = OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, FALSE, pid);
-    if (!process) return {};
-    wchar_t path[MAX_PATH]; DWORD size = MAX_PATH; std::string exe;
-    if (QueryFullProcessImageNameW(process, 0, path, &size)) {
-        const wchar_t* name = wcsrchr(path, L'\\'); name = name ? name + 1 : path;
-        char utf8[260]; const int n = WideCharToMultiByte(CP_UTF8, 0, name, -1, utf8, sizeof utf8, nullptr, nullptr);
-        if (n > 0) exe = utf8;
-    }
-    CloseHandle(process);
-    if (exe.size() > 4 && _stricmp(exe.c_str() + exe.size() - 4, ".exe") == 0) exe.resize(exe.size() - 4);
-    for (char& c : exe) if (c == ' ') c = '_';
-    return exe;
-}
 
 DXGI_FORMAT ViewFormat(DXGI_FORMAT f) {
     switch (f) {
@@ -130,7 +109,6 @@ void OnPresent(IDXGISwapChain* sc, UINT sync, UINT flags) {
         if (g_wasOn.exchange(false)) nr::framegen::Shutdown();   // switched off: its engine, device and textures go
         return;
     }
-    { const std::string game = FocusGame(); if (!game.empty()) { std::lock_guard<std::mutex> lock(g_textMutex); g_focusExe = game; } }
     static const bool runtimeSet = (nr::framegen::SetRuntime(g_addonDir + L"\\fsr\\amd_fidelityfx_dx12.dll"), true);   // the shipped FSR 3.1
     (void)runtimeSet;
     float white = 80.0f; uint32_t encoding = 0;

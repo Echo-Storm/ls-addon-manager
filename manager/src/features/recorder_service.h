@@ -69,6 +69,8 @@ public:
     void Clip();                                // the recorder is off: record the next ten seconds, save them by themselves, and be off again
     void TestSound();                           // the tick and the saved tone, for the Features tab's button
     bool Clipping() const { return m_clipUntil.load() != 0; }
+    // A fault in the frame tap or the recorder (caught, so Lossless Scaling goes on) left locks held that nothing can release: the service is off for good and must be leaked, not destroyed.
+    bool Faulted() const { return m_faulted.load(); }
     bool Pending() const { return m_saveAt.load() != 0; }   // the wait after the key is running
 
     nr::Recorder::Status GetStatus() const { return m_recorder.GetStatus(); }
@@ -77,13 +79,14 @@ public:
     void Shutdown();                            // the threads stop and the memory goes
 
 private:
-    struct TapState { std::unique_ptr<FrameTap> tap; uint64_t firstMs = 0, lastMs = 0; };
+    struct TapState { std::unique_ptr<FrameTap> tap; std::atomic<uint64_t> firstMs{ 0 }, lastMs{ 0 }; };   // shared: a dispatch uses its tap outside the map's lock
     void Log(const char* fmt, ...);
     void ApplyToRecorder();
     void NoteForeground();
     std::string GameName();
     std::wstring Folder() const;
     void OnDispatchImpl(ID3D11DeviceContext* ctx, uint32_t x, uint32_t y, uint32_t z);
+    void OfferLocked(ID3D11DeviceContext* ctx, ID3D11Texture2D* frame, uint32_t source, uint32_t content, uint32_t tag, uint32_t cropW, uint32_t cropH);
     void AfterSave();
     void WriteNote(const nr::Recorder::SaveInfo& info);
 
@@ -91,27 +94,26 @@ private:
     Settings m_settings;
     std::atomic<bool> m_on{ false }, m_shown{ false };
     std::atomic<int> m_saveAfter{ 0 };
-    std::atomic<uint64_t> m_clipUntil{ 0 }, m_saveAt{ 0 };
+    std::atomic<uint64_t> m_clipUntil{ 0 }, m_saveAt{ 0 }, m_lastForegroundMs{ 0 };
     LogFn m_log;
     std::function<std::string()> m_info;
     std::function<void(const std::wstring&)> m_saved;
 
     std::mutex m_recMutex;                      // the recorder is one thread's at a time
     nr::Recorder m_recorder;
-    bool m_savedForTest = false;
-    uint32_t m_seenSaves = 0;
+    std::atomic<bool> m_savedForTest{ false };
+    uint32_t m_seenSaves = 0, m_seenFails = 0;
 
     std::mutex m_tapMutex;
-    std::map<ID3D11DeviceContext*, TapState> m_taps;   // one tap per context Lossless Scaling dispatches on (a few)
-    ID3D11DeviceContext* m_owner = nullptr; uint64_t m_ownerMs = 0;   // the context whose captured frames are recorded; another one takes over when it goes quiet
-    std::atomic<uint64_t> m_lastTapOfferMs{ 0 };
-    uint64_t m_lastCleanMs = 0;
+    std::map<ID3D11DeviceContext*, std::shared_ptr<TapState>> m_taps;   // one tap per context Lossless Scaling dispatches on (a few); the lock covers the map, not the taps
+    std::atomic<ID3D11DeviceContext*> m_owner{ nullptr };   // the context whose captured frames are recorded; another one takes over when it goes quiet
+    std::atomic<uint64_t> m_ownerMs{ 0 }, m_lastTapOfferMs{ 0 };
+    uint64_t m_lastCleanMs = 0;   // (under the map's lock)
 
     mutable std::mutex m_gameMutex;
     std::string m_game;                         // the program in front before Lossless Scaling's window took the focus
     bool m_wasDown = false;
-    bool m_faulted = false;
-    bool m_noTapRecording = false;   // the frames come from Lossless Scaling's scaling pass (frame generation off), not from the tap
+    std::atomic<bool> m_faulted{ false };
 };
 
 } // namespace rec

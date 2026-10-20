@@ -73,7 +73,6 @@ private:
     mutable std::deque<std::string> m_returnBuffers;
 
     void* m_d3d11Device = nullptr;    // borrowed, not owned
-    std::string m_cardName;           // the adapter of that device, named when it was made (the card the load is read from)
     void* m_d3d11Context = nullptr;
 
     std::mutex m_dispatchMutex;

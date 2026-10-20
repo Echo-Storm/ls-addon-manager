@@ -1,5 +1,6 @@
 #include "addon/recorder.h"
 #include "addon/hdr.h"
+#include "addon/text_util.h"
 #include <windows.h>
 #include <d3dcompiler.h>
 #include <shlobj.h>
@@ -24,18 +25,8 @@ DXGI_FORMAT ViewFormatOf(DXGI_FORMAT f) {
     }
 }
 int64_t Qpc() { LARGE_INTEGER t; QueryPerformanceCounter(&t); return t.QuadPart; }
-std::wstring Wide(const std::string& s) {
-    std::wstring w(s.size(), L'\0');
-    const int n = MultiByteToWideChar(CP_UTF8, 0, s.c_str(), static_cast<int>(s.size()), w.data(), static_cast<int>(w.size()));
-    w.resize(n > 0 ? n : 0);
-    return w;
-}
-std::string Utf8(const std::wstring& w) {
-    std::string s(w.size() * 3, '\0');
-    const int n = WideCharToMultiByte(CP_UTF8, 0, w.c_str(), static_cast<int>(w.size()), s.data(), static_cast<int>(s.size()), nullptr, nullptr);
-    s.resize(n > 0 ? n : 0);
-    return s;
-}
+using nr::util::Wide;
+using nr::util::Utf8;
 } // namespace
 
 void Recorder::Log(const char* fmt, ...) {
@@ -332,6 +323,7 @@ bool Recorder::Save(const std::wstring& folder, const std::string& game, bool cl
         Log("recorder: %s", text);
         {
             std::lock_guard<std::mutex> lock(m_resultMutex); m_result = text; m_resultOk = ok;
+            if (!ok) ++m_fails;
             if (ok) {
                 m_lastSave = SaveInfo{ path, static_cast<uint32_t>(frames.size()), seconds, bytes, header.width, header.height, header.format, header.source, left };
                 ++m_saves;

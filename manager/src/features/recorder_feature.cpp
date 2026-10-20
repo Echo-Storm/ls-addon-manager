@@ -5,6 +5,7 @@
 #include "recorder_service.h"
 #include "../config/config_manager.h"
 #include "../log/logger.h"
+#include "addon/text_util.h"
 #include "../../sdk/include/eam/version.h"
 #include "imgui.h"
 #include <windows.h>
@@ -31,27 +32,20 @@ std::atomic<rec::Service*> g_live{ nullptr };   // what the hooks use (null whil
 std::thread g_poll;
 std::atomic<bool> g_stop{ false };
 
-std::wstring Wide(const std::string& s) {
-    std::wstring w(s.size(), L'\0');
-    const int n = MultiByteToWideChar(CP_UTF8, 0, s.c_str(), static_cast<int>(s.size()), w.data(), static_cast<int>(w.size()));
-    w.resize(n > 0 ? n : 0);
-    return w;
-}
-std::string Utf8(const std::wstring& w) {
-    std::string s(w.size() * 3 + 1, '\0');
-    const int n = WideCharToMultiByte(CP_UTF8, 0, w.c_str(), static_cast<int>(w.size()), s.data(), static_cast<int>(s.size()), nullptr, nullptr);
-    s.resize(n > 0 ? n : 0);
-    return s;
-}
-std::string JsonText(const std::string& s) {
-    std::string out = "\"";
-    for (const unsigned char c : s) {
-        if (c == '"' || c == '\\') { out += '\\'; out += static_cast<char>(c); }
-        else if (c < 0x20) out += ' ';
-        else out += static_cast<char>(c);
-    }
-    return out + "\"";
-}
+// Every call into the service from outside (the dispatch observer, the addons' calls, the poll thread) counts itself in while it runs, so that Stop() frees the service only after the
+// last of them has left it (a sleep was not enough: a frame being copied or a save being started can take longer).
+std::atomic<int> g_inFlight{ 0 };
+struct InService {
+    rec::Service* service;
+    InService() { g_inFlight.fetch_add(1); service = g_live.load(); }
+    ~InService() { g_inFlight.fetch_sub(1); }
+    InService(const InService&) = delete;
+    InService& operator=(const InService&) = delete;
+};
+
+using nr::util::Wide;
+using nr::util::Utf8;
+using nr::util::JsonString;
 
 // ---- the settings (config.json, section "Recorder")
 
@@ -90,29 +84,30 @@ void Store(const rec::Settings& s) {
 // ---- what the hooks do
 
 void Observe(ID3D11DeviceContext* ctx, uint32_t x, uint32_t y, uint32_t z) {
-    if (rec::Service* const s = g_live.load(std::memory_order_acquire)) s->OnDispatch(ctx, x, y, z);
+    InService in;
+    if (in.service) in.service->OnDispatch(ctx, x, y, z);
 }
 uint32_t FlagsFn() {
-    rec::Service* const s = g_live.load(std::memory_order_acquire);
-    return s ? s->Flags() : 0u;
+    InService in;
+    return in.service ? in.service->Flags() : 0u;
 }
 void OfferFn(void* ctx, void* texture, uint32_t source, uint32_t content, uint32_t tag, uint32_t cropW, uint32_t cropH) {
-    if (rec::Service* const s = g_live.load(std::memory_order_acquire))
-        s->Offer(static_cast<ID3D11DeviceContext*>(ctx), static_cast<ID3D11Texture2D*>(texture), source, content, tag, cropW, cropH);
+    InService in;
+    if (in.service) in.service->Offer(static_cast<ID3D11DeviceContext*>(ctx), static_cast<ID3D11Texture2D*>(texture), source, content, tag, cropW, cropH);
 }
 
 // What the note beside a saved file says about the manager and the addons: which are on and the few settings that decide how a picture comes out.
 std::string Info() {
     static const char* const ids[] = { "DLSS5NR01", "DLSS4DLAA", "FSR3UPSC", "XESSUPSC", "ECHOFG", "VSRUPSC" };
     static const char* const keys[] = { "modelPreset", "passes", "workingScale", "autoQuality", "intensity", "style", "dlaaPreset", "sharpen", "multiplier", "own" };
-    std::string out = std::string("\"manager_version\": ") + JsonText(EAM_VERSION_STRING) + ",\n  \"addons\": {";
+    std::string out = std::string("\"manager_version\": ") + JsonString(EAM_VERSION_STRING) + ",\n  \"addons\": {";
     bool firstAddon = true;
     for (const char* id : ids) {
         out += firstAddon ? "\n" : ",\n"; firstAddon = false;
-        out += std::string("    ") + JsonText(id) + ": { \"enabled\": " + (Cfg().IsAddonEnabled(id, false) ? "true" : "false");
+        out += std::string("    ") + JsonString(id) + ": { \"enabled\": " + (Cfg().IsAddonEnabled(id, false) ? "true" : "false");
         for (const char* key : keys) {
             const std::string v = Cfg().Get(id, key, "");
-            if (!v.empty()) out += std::string(", ") + JsonText(key) + ": " + JsonText(v);
+            if (!v.empty()) out += std::string(", ") + JsonString(key) + ": " + JsonString(v);
         }
         out += " }";
     }
@@ -121,13 +116,13 @@ std::string Info() {
 }
 
 int SaveFn(const char* name, bool clear) {
-    rec::Service* const s = g_live.load(std::memory_order_acquire);
-    return s ? s->SaveNamed(name ? name : "", clear) : 0;
+    InService in;
+    return in.service ? in.service->SaveNamed(name ? name : "", clear) : 0;
 }
 
 void PollLoop() {
     while (!g_stop.load()) {
-        if (rec::Service* const s = g_live.load(std::memory_order_acquire)) s->Poll();
+        { InService in; if (in.service) in.service->Poll(); }
         std::this_thread::sleep_for(std::chrono::milliseconds(30));
     }
 }
@@ -144,10 +139,10 @@ void Start() {
     g_service->SetLog([](const char* m) { LOG_INFO("Recorder", "%s", m); });
     g_service->SetInfoProvider(&Info);
     ApplyFromConfig();
-    g_stop = false;
-    g_poll = std::thread(PollLoop);
-    g_live.store(g_service.get(), std::memory_order_release);
     if (g_backends.publishSaved) g_service->SetSavedCallback([](const std::wstring& path) { g_backends.publishSaved(path.c_str()); });
+    g_stop = false;
+    g_live.store(g_service.get(), std::memory_order_release);
+    g_poll = std::thread(PollLoop);
     if (g_backends.setHostHooks) g_backends.setHostHooks(&FlagsFn, &OfferFn, &SaveFn);
     if (g_backends.setDispatchObserver) g_backends.setDispatchObserver(&Observe);
     LOG_INFO("Recorder", "on");
@@ -160,7 +155,12 @@ void Stop() {
     g_live.store(nullptr, std::memory_order_release);
     g_stop = true;
     if (g_poll.joinable()) g_poll.join();
-    std::this_thread::sleep_for(std::chrono::milliseconds(50));   // a dispatch that had the pointer finishes
+    for (int i = 0; i < 3000 && g_inFlight.load() > 0; ++i) std::this_thread::sleep_for(std::chrono::milliseconds(1));   // the callers that had the pointer leave
+    if (g_inFlight.load() > 0 || g_service->Faulted()) {   // still inside after three seconds, or a fault left locks held: freeing it could crash Lossless Scaling, leaking it cannot
+        LOG_WARN("Recorder", "off; the recorder's memory is left alone (%s)", g_service->Faulted() ? "after a fault" : "a call is still inside it");
+        g_service.release();
+        return;
+    }
     g_service->Shutdown();
     g_service.reset();
     LOG_INFO("Recorder", "off");
