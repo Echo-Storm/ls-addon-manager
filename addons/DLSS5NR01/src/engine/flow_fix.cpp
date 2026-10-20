@@ -30,7 +30,7 @@ RWTexture2D<float4> uModes : register(u2);
 RWTexture2D<float4> uCells : register(u3);
 RWTexture2D<float2> uOut : register(u4);
 SamplerState sLin : register(s0);
-cbuffer C : register(b0) { uint2 fsize; uint2 csize; uint2 tiles; uint tile; uint reach; uint encoding; float white; uint cs; uint S; uint2 fullsize; uint fixOn; uint pad1; };   // cs: a cell is cs x cs pixels (2, or 4 at 1920 wide and up)
+cbuffer C : register(b0) { uint2 fsize; uint2 csize; uint2 tiles; uint tile; uint reach; uint encoding; float white; uint cs; uint S; uint2 fullsize; uint fixOn; uint rules; };   // rules: bit 1 plain cells, 2 repeating cells, 4 "clearly better" (all by default; NR_FLOW_FIX_RULES for experiments)   // cs: a cell is cs x cs pixels (2, or 4 at 1920 wide and up)
 
 float3 View(float3 c) { return ToSdr(c, encoding, white); }
 float Luma255(float3 c) { return dot(View(c), float3(0.299, 0.587, 0.114)) * 255.0; }
@@ -140,16 +140,27 @@ float Contrast(int2 c) {
         bool amb = false;
         if (ownc < 8.0 && lc <= ownc * 1.1 + 1.5 && length(own) <= length(L) + 2.0) {
             const float contrast = Contrast(c);
-            amb = contrast < 2.5;
-            if (!amb) {   // repeating: matched about as well 6, 10 or 14 pixels along or across
-                [unroll] for (int k = 0; k < 2; ++k) {
-                    const float d = 8.0 + 6.0 * k;
-                    amb = amb || PatchCost(c, own + float2(d, 0)) <= ownc + 0.15 * contrast + 0.5 || PatchCost(c, own - float2(d, 0)) <= ownc + 0.15 * contrast + 0.5
-                              || PatchCost(c, own + float2(0, d)) <= ownc + 0.15 * contrast + 0.5 || PatchCost(c, own - float2(0, d)) <= ownc + 0.15 * contrast + 0.5;
+            amb = contrast < 2.5 && (rules & 1u) != 0u && length(own) < 1.5;   // a plain block reads as still (it matches anywhere); one the estimate already moved is left
+            if (!amb && (rules & 2u) != 0u && contrast >= 2.5) {
+                // repeating lines: the patch matches about as well one or two periods on, along or across (d), yet NOT a little way on (within a period the cost rises: s). Grain or a long edge
+                // (which matches at every shift along it) fails the second test, so it is left alone.
+                const float thr = ownc + 0.15 * contrast + 0.5, rise = ownc + 0.4 * contrast + 2.0;
+                [unroll] for (int ax = 0; ax < 2; ++ax) {
+                    const float2 dir = ax == 0 ? float2(1, 0) : float2(0, 1);
+                    float far = 1e9, near = 0.0;
+                    [unroll] for (int k = 0; k < 2; ++k) {
+                        const float d = 8.0 + 6.0 * k;
+                        far = min(far, min(PatchCost(c, own + dir * d), PatchCost(c, own - dir * d)));
+                    }
+                    [unroll] for (int k = 0; k < 3; ++k) {
+                        const float sh = 1.5 + 1.5 * k;
+                        near = max(near, max(PatchCost(c, own + dir * sh), PatchCost(c, own - dir * sh)));
+                    }
+                    amb = amb || (far <= thr && near > rise);
                 }
             }
         }
-        if (amb || lc + 8.0 < ownc) { outv = L; take = 1.0; }
+        if (amb || (lc + 8.0 < ownc && (rules & 4u) != 0u)) { outv = L; take = 1.0; }
     }
     uCells[c] = float4(outv, take, 0.0);
 }
@@ -164,7 +175,7 @@ float Contrast(int2 c) {
 }
 )";
 
-struct Constants { uint32_t fw, fh, cw, ch, tx, ty, tile, reach, encoding; float white; uint32_t cs, S, fullW, fullH, fixOn, pad1; };
+struct Constants { uint32_t fw, fh, cw, ch, tx, ty, tile, reach, encoding; float white; uint32_t cs, S, fullW, fullH, fixOn, rules; };
 
 void Transition(ID3D12GraphicsCommandList* list, ID3D12Resource* r, D3D12_RESOURCE_STATES a, D3D12_RESOURCE_STATES b) {
     D3D12_RESOURCE_BARRIER br{}; br.Type = D3D12_RESOURCE_BARRIER_TYPE_TRANSITION; br.Transition = { r, D3D12_RESOURCE_BARRIER_ALL_SUBRESOURCES, a, b };
@@ -285,7 +296,8 @@ bool FlowFix::Record(ID3D12GraphicsCommandList* list, int slot, ID3D12Resource* 
     list->SetComputeRootDescriptorTable(0, gpu);
     D3D12_GPU_DESCRIPTOR_HANDLE ugpu = gpu; ugpu.ptr += static_cast<UINT64>(kSrvs) * m_descriptorSize;
     list->SetComputeRootDescriptorTable(1, ugpu);
-    const Constants c{ m_w, m_h, m_cw, m_ch, m_tx, m_ty, m_tile, m_w >= 1920u ? 2u : 3u, encoding, whiteNits > 0.0f ? whiteNits : 80.0f, m_cs, m_s, m_fw, m_fh, fix ? 1u : 0u, 0 };
+    static const uint32_t rules = [] { char b[16]; return GetEnvironmentVariableA("NR_FLOW_FIX_RULES", b, 16) ? static_cast<uint32_t>(atoi(b)) & 7u : 7u; }();
+    const Constants c{ m_w, m_h, m_cw, m_ch, m_tx, m_ty, m_tile, m_w >= 1920u ? 2u : 3u, encoding, whiteNits > 0.0f ? whiteNits : 80.0f, m_cs, m_s, m_fw, m_fh, fix ? 1u : 0u, rules };
     list->SetComputeRoot32BitConstants(2, sizeof(Constants) / 4, &c, 0);
     const D3D12_RESOURCE_STATES uavState = D3D12_RESOURCE_STATE_UNORDERED_ACCESS, srvState = D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE;
     auto uavBarrier = [&]() { D3D12_RESOURCE_BARRIER b{}; b.Type = D3D12_RESOURCE_BARRIER_TYPE_UAV; b.UAV.pResource = nullptr; list->ResourceBarrier(1, &b); };
