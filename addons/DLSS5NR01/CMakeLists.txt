@@ -76,8 +76,8 @@ endif()
 
 nr_addon(FSR3UPSC)
 target_compile_definitions(FSR3UPSC PRIVATE NR_PRODUCT_FSR)
-# (frame generation of our own is the ECHOFG addon below, made only with -DNR_FRAMEGEN=ON)
-option(NR_FRAMEGEN "EchoFG frame generation, an addon of its own (a prototype: test builds only)" OFF)
+# (frame generation of our own is the ECHOFG addon below; a prototype, in the package since 1.0.1, off until switched on; -DNR_FRAMEGEN=OFF leaves it out)
+option(NR_FRAMEGEN "EchoFG frame generation, an addon of its own (a prototype)" ON)
 # AMD's FidelityFX runtime (FSR 3.1), in an fsr folder next to the built addon (as in the release): tools/fetch_ffx_sdk.ps1 fetches it
 set(FFX_DLL ${CMAKE_SOURCE_DIR}/external/ffx/bin/amd_fidelityfx_dx12.dll)
 if(EXISTS ${FFX_DLL})
@@ -86,7 +86,7 @@ if(EXISTS ${FFX_DLL})
         COMMAND ${CMAKE_COMMAND} -E copy_if_different ${FFX_DLL} $<TARGET_FILE_DIR:FSR3UPSC>/fsr)
 endif()
 
-# ECHOFG: EchoFG frame generation, an addon of its own (src/echofg/echofg_addon.cpp), a prototype: built only in a test build (-DNR_FRAMEGEN=ON), never in a release until it is ready.
+# ECHOFG: EchoFG frame generation, an addon of its own (src/echofg/echofg_addon.cpp), a prototype, in the package since 1.0.1 (off until switched on); -DNR_FRAMEGEN=OFF leaves it out.
 # It needs AMD's FidelityFX runtime for its FSR 3.1 alternative, in an fsr folder next to it (the FSR Upscaler's copy).
 if(NR_FRAMEGEN)
     add_library(ECHOFG SHARED src/echofg/echofg_addon.cpp src/addon/present_hook.cpp src/addon/framegen11.cpp src/addon/lsrec.cpp src/addon/hdr.cpp src/echofg/bridge_formats.cpp

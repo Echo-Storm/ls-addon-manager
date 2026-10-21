@@ -44,7 +44,7 @@ vof`) | A lab: motion measured by this project's flow estimator and by NVIDIA's 
 | `compare_ui_renders.py` | Compares two folders of offscreen renders picture by picture (used to prove a rewrite of window code changed nothing you can see). |
 | `measure_original_share.py` | How much of `manager/src` and `manager/sdk` is still the code this project started from, against a checkout of the original (see NOTICE.md). |
 | `board_note.py` | `python tools/board_note.py ID --status S --note TEXT`: sets a card's status and puts a dated note in front of its note in `handoff/board.json` (the file's layout is kept). |
-| `build_framegen_test.ps1` | Builds the addons with EchoFG (`NR_FRAMEGEN=ON`, test only, never in a release) into `addons/DLSS5NR01/build_fg`, leaving the normal build alone; then `deploy.ps1 -What echofg -BuildDir build_fg`. `nr_fgeval` and the other evaluators are built there too. |
+| `build_framegen_test.ps1` | Builds the addons with EchoFG into its own folder, `addons/DLSS5NR01/build_fg`, leaving the normal build alone (EchoFG is in the normal build too since 1.0.1; this folder is where `nr_fgeval` and the test builds live); then `deploy.ps1 -What echofg -BuildDir build_fg`. `nr_fgeval` and the other evaluators are built there too. |
 | `fgeval_compare.py` | Two `nr_fgeval` runs over the same recording, frame by frame: both averages, how many frames got better or worse, the frames that changed most. |
 | `nr_filter_lab.py` | CPU lab for the temporal filters on Neural Rendering's change, on a dump from `nr_nreval dump=`. |
 | `shell_events.ps1` | After Explorer or the taskbar misbehaves: what Windows recorded in 14 days (shell crashes, display-driver resets, Lossless Scaling crashes). Read-only. |

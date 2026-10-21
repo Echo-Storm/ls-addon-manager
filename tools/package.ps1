@@ -2,7 +2,7 @@
 # that build, with an install note and the licences. The files are not in the zip a second time: `LSAddonManagerSetup.exe --extract <folder>`
 # writes them out for installing by hand (since 0.9.12; the zip held every file twice before).
 # The DLSSNR model is never packaged. NVIDIA's NGX library is linked into Neural Rendering and ships under NVIDIA's licence (NOTICE.md), with
-# NVIDIA-LICENSE.txt beside it. An addon that did not build STOPS the packaging unless -AllowMissing is given; work-in-progress addons unless -IncludeWip.
+# NVIDIA-LICENSE.txt beside it. An addon that did not build STOPS the packaging unless -AllowMissing is given; an addon marked work in progress (wip in its addon.json) only with -IncludeWip.
 #   powershell -File tools\package.ps1 [-Version 0.7.0] [-SkipBuild] [-AllowMissing]
 # An addon that is not built (or whose extra files are missing) STOPS the packaging, because a release without it goes out silently (XESSUPSC was
 # left out of 0.9.28 to 0.9.33 that way); -AllowMissing packages without it anyway, for a test build.
@@ -10,7 +10,7 @@ param(
     [string]$Version = '',
     [switch]$SkipBuild,
     [switch]$AllowMissing,
-    [switch]$IncludeWip   # also package addons marked work in progress (the Video Super Resolution prototype is one: it is in the repository, not in the package)
+    [switch]$IncludeWip   # also package addons marked $a.Wip in this list (none is, since 1.0.1: the prototypes are packaged and off until switched on)
 )
 $ErrorActionPreference = 'Stop'
 $root = Split-Path $PSScriptRoot -Parent
@@ -56,22 +56,14 @@ $addons = @(
                   # Microsoft's Direct3D 12 Agility SDK core, beside that runtime: the FSR Upscaler makes its device on it (issue #11; tools\fetch_agility_sdk.ps1)
                   'runtimes\FSR\0dd77d9c\D3D12Core.dll' = "$root\addons\DLSS5NR01\external\agility\D3D12Core.dll";
                   'runtimes\FSR\0dd77d9c\Microsoft-D3D12-LICENSE.txt' = "$root\addons\DLSS5NR01\external\agility\LICENSE.txt" } },
-    # Video Super Resolution (prototype): its own small addon (src\vsr). It is in the package so that people can test it (the owner, 2026-10-02: strip it later, no one can test without it;
-    # a download option for NVIDIA's files is to come). The files of NVIDIA's Video Effects SDK it needs (about 66 MB of the SDK's 1.6 GB, found by taking files out until it stopped working)
-    # go in its vfx folder, where it looks by default (setting vfxDir), with the SDK's licences. Packaging needs the SDK in external\vfx_x64.
-    @{ Id = 'VSRUPSC'; Wip = $true; Dir = "$root\addons\DLSS5NR01\products\VSRUPSC"; Bin = "$root\addons\DLSS5NR01\build\Release"; Files = @('VSRUPSC.dll');
-       Extra = @{ 'LICENSE.txt' = "$root\addons\DLSS5NR01\LICENSE";
-                  'vfx\bin\NVCVImage.dll' = "$root\addons\DLSS5NR01\external\vfx_x64\bin\NVCVImage.dll";
-                  'vfx\bin\NVVideoEffects.dll' = "$root\addons\DLSS5NR01\external\vfx_x64\bin\NVVideoEffects.dll";
-                  'vfx\bin\nvngxruntime.dll' = "$root\addons\DLSS5NR01\external\vfx_x64\bin\nvngxruntime.dll";
-                  'vfx\bin\cudart64_12.dll' = "$root\addons\DLSS5NR01\external\vfx_x64\bin\cudart64_12.dll";
-                  'vfx\bin\libcrypto-3-x64.dll' = "$root\addons\DLSS5NR01\external\vfx_x64\bin\libcrypto-3-x64.dll";
-                  'vfx\bin\ThirdPartyLicenses.txt' = "$root\addons\DLSS5NR01\external\vfx_x64\bin\ThirdPartyLicenses.txt";
-                  'vfx\features\nvvfxvideosuperres\bin\nvngx_vsr.dll' = "$root\addons\DLSS5NR01\external\vfx_x64\features\nvvfxvideosuperres\bin\nvngx_vsr.dll";
-                  'vfx\features\nvvfxvideosuperres\bin\nvVFXVideoSuperRes.dll' = "$root\addons\DLSS5NR01\external\vfx_x64\features\nvvfxvideosuperres\bin\nvVFXVideoSuperRes.dll";
-                  'vfx\license\NVIDIA-Software-License-Agreement-2025.05.05.pdf' = "$root\addons\DLSS5NR01\external\vfx_x64\license\NVIDIA-Software-License-Agreement-2025.05.05.pdf";
-                  'vfx\license\product-specific-terms-for-nvidia-ai-products-2025.05.05.pdf' = "$root\addons\DLSS5NR01\external\vfx_x64\license\product-specific-terms-for-nvidia-ai-products-2025.05.05.pdf";
-                  'vfx\license\NVIDIA-Open-Model-License-Agreements-24-10-2025.pdf' = "$root\addons\DLSS5NR01\external\vfx_x64\license\NVIDIA-Open-Model-License-Agreements-24-10-2025.pdf" } },
+    # Video Super Resolution (prototype): its own small addon (src\vsr), in the package so that people can test it. It needs the user's own NVIDIA Video Effects SDK (x64, with the
+    # Video Super Resolution feature) in its vfx folder, where it looks by default (setting vfxDir): none of NVIDIA's SDK is packaged (the owner's decision of 0.10.0, kept).
+    @{ Id = 'VSRUPSC'; Dir = "$root\addons\DLSS5NR01\products\VSRUPSC"; Bin = "$root\addons\DLSS5NR01\build\Release"; Files = @('VSRUPSC.dll');
+       Extra = @{ 'LICENSE.txt' = "$root\addons\DLSS5NR01\LICENSE" } },
+    # EchoFG (prototype): our own frame generator, an addon of its own (src\echofg), off until switched on. Its FSR 3.1 alternative uses AMD's FidelityFX runtime, in its fsr folder (the FSR Upscaler's copy).
+    @{ Id = 'ECHOFG'; Dir = "$root\addons\DLSS5NR01\products\ECHOFG"; Bin = "$root\addons\DLSS5NR01\build\Release"; Files = @('ECHOFG.dll');
+       Extra = @{ 'AMD-FidelityFX-LICENSE.txt' = "$root\addons\DLSS5NR01\third_party\ffx\LICENSE.txt"; 'LICENSE.txt' = "$root\addons\DLSS5NR01\LICENSE";
+                  'fsr\amd_fidelityfx_dx12.dll' = "$root\addons\DLSS5NR01\external\ffx\bin\amd_fidelityfx_dx12.dll" } },
     # XeSS Upscaler: the same sources again; Intel's XeSS runtime (Intel Simplified Software License, signed by Intel) ships in its xess folder,
     # with Intel's licence next to it, as that licence asks (tools\fetch_xess_sdk.ps1)
     @{ Id = 'XESSUPSC'; Dir = "$root\addons\DLSS5NR01\products\XESSUPSC"; Bin = "$root\addons\DLSS5NR01\build\Release"; Files = @('XESSUPSC.dll');
@@ -200,8 +192,9 @@ Install by hand (Lossless Scaling 3.2.2.0 was the tested version)
    one of the upscalers runs at a time), choose NIS as the Scaling Type in Lossless Scaling, and run the game in a window smaller than the
    screen (for example 2560x1440 on a 4K screen); at the screen's own size they anti-alias. 4:3 windows work too.
    Guide: https://github.com/Echo-Storm/ls-addon-manager/blob/main/addons/DLSS5NR01/docs/upscalers.md
-7. Video Super Resolution (a prototype, NVIDIA's RTX Video Super Resolution in place of NIS) is a work in progress: its source is in the repository (addons/DLSS5NR01/src/vsr), it is not in this package and
-   nothing of NVIDIA's Video Effects SDK is included.
+7. Two prototypes are included, off until you switch them on (the addon list marks them as prototypes; expect rough edges):
+   EchoFG, our own frame generator: with Lossless Scaling's frame generation OFF it shows 1 to 8 frames made between each two real ones (choose NIS as the Scaling Type).
+   Video Super Resolution (NVIDIA's RTX Video Super Resolution in place of NIS): it needs your own copy of NVIDIA's Video Effects SDK; nothing of it is included.
 
 Updating: close Lossless Scaling, extract the new release's files (step 3) and copy them over the old ones. Your settings (addons\config.json) carry over.
 From 0.1.0: Neural Rendering is now addons\DLSS5NR01 (it was addons\LSP-NeuralRender) and its saved settings and looks move to the new name by themselves

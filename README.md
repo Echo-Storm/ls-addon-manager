@@ -6,7 +6,7 @@
 <a href="https://github.com/Echo-Storm/ls-addon-manager/releases/latest"><b>Download</b></a> &nbsp;·&nbsp; <a href="#install">Install</a> &nbsp;·&nbsp; <a href="#the-addons">The addons</a> &nbsp;·&nbsp; <a href="#built-in-features">Features</a> &nbsp;·&nbsp; <a href="CHANGELOG.md">Changelog</a> &nbsp;·&nbsp; <a href="docs/faq.md">Questions</a>
 </p>
 
-<p align="center"><img src="docs/images/addons.png" alt="The manager as it runs: the addons at the left (the prototypes greyed out, marked WIP) with a switch and live status each, Neural Rendering's panel at the right, the machine's load in the header" width="100%"></p>
+<p align="center"><img src="docs/images/addons.png" alt="The manager as it runs: the addons at the left with a switch and live status each, Neural Rendering's panel at the right, the machine's load in the header" width="100%"></p>
 
 **Addon Manager for Lossless Scaling** loads alongside [Lossless Scaling](https://store.steampowered.com/app/993090/Lossless_Scaling/) and gives it an addon system,
 with addons that do what Lossless Scaling alone cannot:
@@ -51,6 +51,8 @@ Windows 11. Other games and cards are untested so far: reports are welcome.
 | **For DLSS 5 Neural Rendering** | An NVIDIA RTX graphics card and your own `nvngx_dlssnr.dll` (see above). |
 | **For the DLSS Upscaler** | An NVIDIA RTX card. The runtime comes with the addon. |
 | **For the FSR Upscaler** | Any DirectX 12 graphics card. The runtime comes with the addon. |
+| **For EchoFG (prototype)** | Any DirectX 12 graphics card. AMD's FSR 3.1 runtime for its alternative comes with the addon. |
+| **For Video Super Resolution (prototype)** | An NVIDIA RTX card and your own NVIDIA Video Effects SDK (not included). |
 | **For the XeSS Upscaler** | Any card with Shader Model 6.4 (Intel Arc, NVIDIA, AMD). The runtime comes with the addon. |
 | **Everything else** (recording, GPU limit, ReShade passthrough, windowed mode, the update check) | Nothing more: it is built into the manager. |
 
@@ -108,13 +110,14 @@ Like every file here, Setup is **unsigned**, so Windows SmartScreen may warn you
 | **DLSS Upscaler** | NVIDIA DLSS in place of NIS: upscaling, or DLAA at the screen's own size | NVIDIA RTX | off |
 | **FSR Upscaler** | AMD FSR 3.1 or FSR 4 in the same place | any DirectX 12 card | off |
 | **XeSS Upscaler** | Intel XeSS in the same place | any card with Shader Model 6.4 | off |
-| **Video Super Resolution** (work in progress) | NVIDIA's RTX Video Super Resolution in the same place, for a picture that is still: in the repository, not in the package | NVIDIA RTX | not available yet |
+| **Video Super Resolution** (prototype) | NVIDIA's RTX Video Super Resolution in the same place, for a picture that is still | NVIDIA RTX and your own copy of NVIDIA's Video Effects SDK | off |
+| **EchoFG frame generation** (prototype) | Our own frame generator: 1 to 8 frames made between each two real ones, with Lossless Scaling's own frame generation off | any DirectX 12 card | off |
 
 Every runtime the upscalers need comes with them. Only one upscaler runs at a time; any of them works beside Neural Rendering.
 
 
 > [!NOTE]
-> The Video Super Resolution addon is a work in progress: its source is in `addons/DLSS5NR01/src/vsr`, it is listed greyed out in the manager and is not in the package. It will need your own copy of NVIDIA's Video Effects SDK, or a download you start yourself.
+> **Two prototypes are in the package, off until you switch them on, and rough in places.** **EchoFG** makes frames between the real ones with its own shaders (or AMD's FSR 3.1 frame generation fed our motion estimate); choose NIS as the Scaling Type and leave Lossless Scaling's own frame generation off. It scores level with or better than FSR 3.1 on recordings (`docs/own-generator-plan.md`) but has been tried in few games live: reports are welcome. **Video Super Resolution** needs your own copy of NVIDIA's Video Effects SDK (nothing of it is included); its source is in `addons/DLSS5NR01/src/vsr`.
 
 ### DLSS 5 Neural Rendering
 
@@ -367,7 +370,7 @@ host matrix) is run once, on a release; day to day, `dev.py test changed` runs w
 
 Written down so they are not lost; none of it is in a product unless a release note says so.
 
-- [`docs/frame-generation-research.md`](docs/frame-generation-research.md) and [`docs/own-generator-plan.md`](docs/own-generator-plan.md): measuring frame generators on recordings (EchoFG, our own, in the test build only).
+- [`docs/frame-generation-research.md`](docs/frame-generation-research.md) and [`docs/own-generator-plan.md`](docs/own-generator-plan.md): measuring frame generators on recordings (EchoFG, our own, a prototype in the package).
 - [`docs/mfg-super-motion-study.md`](docs/mfg-super-motion-study.md): what another project's public files tell about driving NVIDIA's frame generation from outside a game, and a measured head to head (DLSS-G, FSR 3.1 and EchoFG on the same recordings: EchoFG at least as good as FSR, both clearly ahead of DLSS-G fed our motion and a flat depth). Lab: [`tools/dlssg_probe`](tools/dlssg_probe).
 - [`docs/optical-flow-study.md`](docs/optical-flow-study.md): NVIDIA's optical flow hardware against our flow estimator (ours is better; the hardware is cheaper). Lab: [`tools/flowlab`](tools/flowlab).
 - [`docs/model-compatibility.md`](docs/model-compatibility.md): the Neural Rendering model files seen working, and what each looked like.
