@@ -76,6 +76,53 @@ inline double PsnrCoarse(const std::vector<uint8_t>& a, const std::vector<uint8_
     return mse <= 1e-12 ? 99.0 : 10.0 * std::log10(255.0 * 255.0 / mse);
 }
 
+// Structural similarity (SSIM) of two RGBA8 pictures, on luma (Rec. 709), over 8 x 8 windows every 4 pixels: 1 is the same picture. Where PSNR rewards a
+// soft or doubled picture over a sharp one that is a pixel or two off (a fast turn: a ghost of the blend beats a crisp fence that sits 3 px away),
+// SSIM looks at local structure (contrast and edges) as well as level, so it is the second opinion beside the dB scores. W: the pictures' width.
+inline double Ssim(const std::vector<uint8_t>& a, const std::vector<uint8_t>& b, uint32_t W) {
+    const uint32_t H = static_cast<uint32_t>(a.size() / 4 / W);
+    const double c1 = 6.5025, c2 = 58.5225;   // (0.01 * 255)^2, (0.03 * 255)^2
+    auto luma = [](const std::vector<uint8_t>& p, size_t i) { return 0.2126 * p[i] + 0.7152 * p[i + 1] + 0.0722 * p[i + 2]; };
+    double sum = 0; size_t n = 0;
+    for (uint32_t y = 0; y + 8 <= H; y += 4) for (uint32_t x = 0; x + 8 <= W; x += 4) {
+        double sa = 0, sb = 0, saa = 0, sbb = 0, sab = 0;
+        for (uint32_t j = 0; j < 8; ++j) for (uint32_t i = 0; i < 8; ++i) {
+            const size_t p = (static_cast<size_t>(y + j) * W + x + i) * 4;
+            const double va = luma(a, p), vb = luma(b, p);
+            sa += va; sb += vb; saa += va * va; sbb += vb * vb; sab += va * vb;
+        }
+        const double ma = sa / 64, mb = sb / 64, va = saa / 64 - ma * ma, vb = sbb / 64 - mb * mb, cov = sab / 64 - ma * mb;
+        sum += ((2 * ma * mb + c1) * (2 * cov + c2)) / ((ma * ma + mb * mb + c1) * (va + vb + c2)); ++n;
+    }
+    return n ? sum / n : 1.0;
+}
+
+// PSNR on luma after each 32 x 32 block is moved to where it matches best (within +-reach pixels): what is left once a small misplacement is forgiven.
+// A crisp picture that sits a few pixels off the truth scores badly in plain PSNR, and a blurred or doubled one scores better; here the crisp one is
+// brought back into register and the double image is not (two copies cannot both be moved). W: the pictures' width.
+inline double PsnrAligned(const std::vector<uint8_t>& a, const std::vector<uint8_t>& b, uint32_t W, int reach = 4) {
+    const uint32_t H = static_cast<uint32_t>(a.size() / 4 / W);
+    auto luma = [](const std::vector<uint8_t>& p, size_t i) { return 0.2126f * p[i] + 0.7152f * p[i + 1] + 0.0722f * p[i + 2]; };
+    std::vector<float> la(static_cast<size_t>(W) * H), lb(la.size());
+    for (size_t i = 0; i < la.size(); ++i) { la[i] = luma(a, i * 4); lb[i] = luma(b, i * 4); }
+    double se = 0; size_t n = 0;
+    for (uint32_t by = 0; by + 32 <= H; by += 32) for (uint32_t bx = 0; bx + 32 <= W; bx += 32) {
+        double best = 1e300;
+        for (int dy = -reach; dy <= reach; ++dy) for (int dx = -reach; dx <= reach; ++dx) {
+            if (static_cast<int>(bx) + dx < 0 || static_cast<int>(by) + dy < 0 || bx + 32 + dx > W || by + 32 + dy > H) continue;
+            double s = 0;
+            for (uint32_t j = 0; j < 32; ++j) {
+                const float* pa = &la[static_cast<size_t>(by + dy + j) * W + bx + dx]; const float* pb = &lb[static_cast<size_t>(by + j) * W + bx];
+                for (uint32_t i = 0; i < 32; ++i) { const float d = pa[i] - pb[i]; s += d * d; }
+            }
+            best = std::min(best, s);
+        }
+        se += best; n += 32 * 32;
+    }
+    const double mse = n ? se / n : 0;
+    return mse <= 1e-12 ? 99.0 : 10.0 * std::log10(255.0 * 255.0 / mse);
+}
+
 // Steadiness (shimmer): how far the picture's change since the frame before strays from the true change (dB; higher is steadier).
 // A picture that flickers where the truth holds still, or crawls along edges, costs; a picture that changes as the truth does costs
 // nothing even if it is soft. a, aPrev: this and the frame before's picture; b, bPrev: the same frames' truth. Luma (Rec. 709) only.

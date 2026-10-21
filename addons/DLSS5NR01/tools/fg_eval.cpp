@@ -607,6 +607,7 @@ int main(int argc, char** argv) {
     const std::string mvFile = ArgText(argc, argv, "mvfile");   // mvfile=FILE: the motion vectors come from this file (float32 x, y per pixel, one W x H block per kept pair, the flow at the later frame back to the earlier: what tools/flowlab writes, or a corrected copy of it) instead of the estimate
     const int analysis = std::clamp(Arg(argc, argv, "analysis", 1), 1, 4);   // analysis=2: the motion estimated at half the frames' size and brought back up by FlowFix (with flowfix=1, corrected too)
     const bool flowFix = Arg(argc, argv, "flowfix", 0) != 0;   // flowfix=1: EchoFG's motion corrected by the picture at large (FlowFix) before the synthesis
+    const bool alignedScore = Arg(argc, argv, "aligned", 0) != 0;   // aligned=1: also the luma PSNR after each 32 x 32 block is shifted (+-4 px) to its best match: a crisp picture a few pixels off is not punished below a blur (slow)
     const bool ownDirect = Arg(argc, argv, "owndirect", 0) != 0;   // owndirect=1: EchoFG's direct draw (a second motion estimate, the pair the other way round) instead of the splat synthesis
     const bool useOwn = Arg(argc, argv, "own", 0) != 0; const float ownT = Arg(argc, argv, "owt", 500) / 1000.0f;
     // guard=N: the guard against pasted background (Guard): the frame made must be N levels further from both real frames than they are from
@@ -871,6 +872,8 @@ int main(int argc, char** argv) {
             step = [&](int i, float frameMs, std::vector<uint8_t>& picture) -> bool {
                 (void)frameMs;
                 if (i >= 2) {
+                    static const bool realTime = Arg(argc, argv, "owtreal", 0) != 0;   // owtreal=1: the frame is made at the time the true frame was captured (a test: how much of the error is the capture's uneven timing)
+                    if (realTime && tgts.size() == 1 && times[i] > times[i - 2]) tgts[0].t = static_cast<float>(std::clamp((times[i - 1] - times[i - 2]) / (times[i] - times[i - 2]), 0.0, 1.0));
                     if (prevState != D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE) { g.Barrier(prevTex, prevState, D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE); prevState = D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE; }
                     if (ownDirect) {
                         g.Barrier(motionRev, D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE, D3D12_RESOURCE_STATE_UNORDERED_ACCESS);
@@ -1113,7 +1116,7 @@ int main(int argc, char** argv) {
 #endif
     }
 
-    struct Score { int frame; double gen, hold, blend, genAbs, genCoarse, blendCoarse, genBand = 0, blendBand = 0, bandFrac = 0; std::vector<uint8_t> picture, mix; };
+    struct Score { int frame; double gen, hold, blend, genAbs, genCoarse, blendCoarse, genSsim = 0, blendSsim = 0, genAl = 0, blendAl = 0, genBand = 0, blendBand = 0, bandFrac = 0; std::vector<uint8_t> picture, mix; };
     std::vector<Score> scores;
     const uint32_t dumpX = std::min<uint32_t>(static_cast<uint32_t>(Arg(argc, argv, "dumpx", static_cast<int>((W >= 1280 ? W - 1280 : 0) / 2))), W >= 1280 ? W - 1280 : 0);   // dumpx= dumpy=: where the 1280 x 720 piece dumpraw writes starts (default: the middle)
     const uint32_t dumpY = std::min<uint32_t>(static_cast<uint32_t>(Arg(argc, argv, "dumpy", static_cast<int>((H >= 720 ? H - 720 : 0) / 2))), H >= 720 ? H - 720 : 0);
@@ -1352,6 +1355,8 @@ int main(int argc, char** argv) {
         }
         s.gen = Psnr(s.picture, truth, &s.genAbs); s.hold = Psnr(frames[i - 2], truth, nullptr); s.blend = Psnr(s.mix, truth, nullptr);
         s.genCoarse = PsnrCoarse(s.picture, truth, W); s.blendCoarse = PsnrCoarse(s.mix, truth, W);
+        s.genSsim = Ssim(s.picture, truth, W); s.blendSsim = Ssim(s.mix, truth, W);
+        if (alignedScore) { s.genAl = PsnrAligned(s.picture, truth, W); s.blendAl = PsnrAligned(s.mix, truth, W); }
         s.bandFrac = bandFrac;
         if (bandFrac > 0.002) { s.genBand = PsnrMasked(s.picture, truth, band); s.blendBand = PsnrMasked(s.mix, truth, band); }
         const double same = Psnr(s.picture, frames[i], nullptr);
@@ -1368,6 +1373,10 @@ int main(int argc, char** argv) {
     for (const Score& s : scores) { gen += s.gen; hold += s.hold; blend += s.blend; genC += s.genCoarse; blendC += s.blendCoarse; better += s.gen > std::max(s.hold, s.blend) ? 1 : 0; }
     const double n = static_cast<double>(scores.size());
     printf("average over %zu rebuilt frames: %s %.2f dB, hold %.2f dB, blend %.2f dB; %s the closest in %d of them; coarse: %s %.2f dB, blend %.2f dB\n", scores.size(), G, gen / n, hold / n, blend / n, G, better, G, genC / n, blendC / n);
+    { double gs = 0, bs = 0; int wins = 0; for (const Score& s : scores) { gs += s.genSsim; bs += s.blendSsim; wins += s.genSsim > s.blendSsim ? 1 : 0; }
+      printf("ssim (structure, 1 = the true frame): %s %.4f, blend %.4f; %s the closer in %d of %zu\n", G, gs / n, bs / n, G, wins, scores.size()); }
+    if (alignedScore) { double ga = 0, ba = 0; for (const Score& s : scores) { ga += s.genAl; ba += s.blendAl; }
+      printf("aligned (each 32x32 block moved +-4 px to its best match, luma): %s %.2f dB, blend %.2f dB\n", G, ga / n, ba / n); }
     { double gb = 0, bb = 0; int nb = 0; for (const Score& s : scores) if (s.bandFrac > 0.002) { gb += s.genBand; bb += s.blendBand; ++nb; }
       if (nb) printf("band (around what moves unlike the picture, over %d turning frames): %s %.2f dB, blend %.2f dB\n", nb, G, gb / nb, bb / nb); }
     std::vector<const Score*> order; for (const Score& s : scores) order.push_back(&s);

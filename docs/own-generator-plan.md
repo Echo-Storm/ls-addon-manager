@@ -162,6 +162,21 @@ The owner's Saints Row 2 test (a native 30 fps game, 3840x2160 HDR, EchoFG x2) h
 - **Tried and dropped: preferring the slower (background) vector in a hole** (a cost per pixel of the vector's length, 0.1 to 1 level a pixel): it lowered every score (fast clip 27.87 -> 27.69 -> 27.44; no better at 3 to 4x). The agreement test stays.
 - **Next**: the real frames from the owner's own session ("Record what is shown", then Ctrl+Shift+F1 within a few seconds of a glitch: his log said the recorder was armed but nothing was saved); then what to try for the periodic-texture cells (the vector field checked against its neighbours before the synthesis; a motion limit that blends outright when the average vector is a large part of the picture's width).
 
+### Fast motion again, with two more scores (2026-10-20, E2)
+
+`nr_fgeval` now also prints **SSIM** (structure of the luma, 8 x 8 windows; 1 = the true frame) and, with `aligned=1`, the luma PSNR **after each 32 x 32 block is shifted up to 4 px to its best match**; `owtreal=1` makes the frame at the time the true frame was captured (a test). Five real clips (FalloutNV 1920x1080 at about 49 fps: a house with a picket fence, wood siding; WoW 2560x1440), 40 frames each, `step=1/2/4` = a game at 2x / 1x / 0.5x of the recording's frame rate between the real frames, FlowFix on. Mean over the clips (EchoFG / plain blend; FSR 3.1 in the last column):
+
+| step | PSNR dB | SSIM | aligned dB | FSR 3.1 (dB / aligned) |
+|---|---|---|---|---|
+| 1 | 30.41 / 28.20 | 0.829 / 0.726 | 32.47 / 29.47 | 30.20 / 32.24 |
+| 2 | 27.37 / 26.11 | 0.744 / 0.703 | 29.58 / 27.29 | 27.03 / 29.26 |
+| 4 | 23.38 / 23.44 | 0.648 / 0.669 | 25.61 / 24.47 | 22.92 / 25.20 |
+
+- **At 4x the plain scores put EchoFG level with, or below, the blend, but that is the metric.** On the fence clip (`FalloutNV_..._06-53-28`, 4x) PSNR says 25.3 against 27.0 dB for the blend and SSIM 0.595 against 0.759, yet the pictures (`worst=`) show the frame crisp, with every picket and board where it belongs to within a few pixels, and the blend a double image of every picket. A sharp picture a few pixels off loses to a blur in PSNR and SSIM alike. With the small misplacement forgiven (aligned) EchoFG is ahead of the blend at every step (+1.1 dB at 4x) and ahead of FSR 3.1 by 0.4 dB.
+- **The misplacement is not the capture's timing**: making the frame at the capture time of the true one (`owtreal=1`) scores lower, not higher (29.69 against 30.41 dB at 1x): the capture's timestamps are not the game's.
+- **The blocky cells on periodic textures of the 2026-10-11 note are what FlowFix mends** (the fence and siding frames above show none); the soften setting at 100 % instead of 60 % changes the mean by +0.02 dB at 3 to 4x, so no further doubt rule is built.
+- **What is left at 4x** is the true path of a turning camera not being a straight line between the two frames (an acceleration the pair cannot show; a third frame was tried and did not pay) and real disocclusions. Neither is a doubt problem.
+
 ## The plan
 
 Not a rewrite of FSR's job in one go; stages, each measured offline against `nr_fgeval`'s FSR number (30.4 dB on Silent Hill f) and then judged by eye live against LSFG (the only judge of "better than LSFG"):
