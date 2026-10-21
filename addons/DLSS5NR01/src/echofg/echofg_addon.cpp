@@ -33,7 +33,7 @@ namespace {
 
 constexpr const char* kId = "ECHOFG";
 constexpr const char* kName = "EchoFG frame generation (prototype)";
-constexpr const char* kVersion = "1.0.1";
+constexpr const char* kVersion = "1.0.2";
 
 IHost* g_host = nullptr;
 std::wstring g_addonDir;

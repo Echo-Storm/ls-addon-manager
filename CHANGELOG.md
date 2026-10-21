@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+## 1.0.2 (2026-10-20)
+
+- **Video Super Resolution is out of prototype, and made for movies, images and other pictures.** NVIDIA's RTX Video Super Resolution in place of Lossless Scaling's NIS. It now works on the **whole picture by default** (the motion gate that keeps NIS where a game moves is a setting for games, off by default), and **a picture that is the same as the one it last worked on is not worked on again**: a still image, a paused video, or a film at 24 or 30 pictures a second on a 60 Hz or faster screen runs VSR once per new picture (the check is on the card, exact enough that video noise does not count; about 0.5 ms for a repeat against 2 to 3 ms for a picture at 1440p to 4K). New settings `skipRepeats` and `repeatTolerance`; the panel and the documentation are rewritten for pictures that are not games; the host test has scenarios for repeats and for a moving picture.
+
 ## 1.0.1 (2026-10-20)
 
 - **Setup no longer replaces a file you have changed.** It records what it puts in the `addons` folder; an update replaces a file only if it is still that (or a file an earlier release shipped), and says which files it kept. To get our current version of a file you modified (the rest of the update is applied either way), delete it and run Setup again (an update or Reinstall). Everything else is replaced, with the old files saved in `backups`, as before.

@@ -80,7 +80,7 @@ void RenderTabAbout() {
         widgets::OpenKofi();
     if (ImGui::IsItemHovered()) ImGui::SetTooltip("If this is useful, a Ko-fi helps a lot. Opens your browser.");
 
-    // what comes with it: the three plugins and what is built into the manager
+    // what comes with it: the plugins and what is built into the manager
     ImGui::Dummy(ImVec2(0, S(18)));
     eam::ui::SectionLabel("What comes with it");
     {
@@ -95,6 +95,9 @@ void RenderTabAbout() {
             { eam::ui::icons::kUpscaleFast, "FSR Upscaler",
               "AMD FSR (3.1, or FSR 4) in the same place, on any DirectX 12 graphics card. Both upscalers take 4:3 games too, keep their settings per game, and "
               "have Stability and Edge smoothing for older games without anti-aliasing." },
+            { eam::ui::icons::kUpscale, "Video Super Resolution",
+              "NVIDIA's RTX Video Super Resolution in place of NIS, for movies, images, text and interface: crisp where the temporal upscalers only stay smooth. "
+              "A picture that has not changed is not worked on again. NVIDIA RTX; the NVIDIA files it needs come with it." },
             { eam::ui::icons::kSliders, "Built into the manager",
               "ReShade input passthrough, windowed games and a second monitor, a Performance tab that says what limits the frame rate, a tray "
               "icon and hotkey, a one-file installer that repairs itself after a Lossless Scaling update, and an update check." },

@@ -1,14 +1,14 @@
-// VSRUPSC: Video Super Resolution (prototype). NVIDIA's RTX Video Super Resolution, from the person's own NVIDIA Video Effects SDK (external\vfx, or the folder named by the setting
-// vfxDir), in place of Lossless Scaling's NIS pass (issue #8: "only VSR gives the look I want").
+// VSRUPSC: Video Super Resolution. NVIDIA's RTX Video Super Resolution, from NVIDIA's Video Effects SDK (the addon's own vfx folder, or the one named by the setting vfxDir),
+// in place of Lossless Scaling's NIS pass (issue #8: "only VSR gives the look I want"): for movies, images and anything else that is a picture rather than a game.
 //
 // Lossless Scaling scales every frame it presents with one compute pass (NIS, when that is the Scaling Type). The pass is recognised from what is bound to it (nis_pass.cpp, the same
 // code the other upscalers use), skipped, and the picture VSR makes from the pass's input goes into its output, from the input viewport to the output viewport:
 //   1. the grab pass reads the frame through the NIS pass's own t0 view into an 8-bit texture (an HDR frame as its SDR view, engine/hdr_hlsl.h);
 //   2. the SDK's own transfer helpers take that texture to a CUDA buffer, the effect runs, and they bring the result back into a texture;
 //   3. the place pass writes the result into the NIS pass's output (back into the frame's encoding).
-// All of it on Lossless Scaling's own context, synchronously (the prototype's first question is what that costs and whether Lossless Scaling minds; a device and a thread of its own, the way
-// the other upscalers work, is the next step if it does). Off unless the setting enabled is 1 (a prototype). Any failure hands the pass back to NIS and says so in the log.
-// NVIDIA's SDK is the person's own download (its licence): nothing of it is in this repository or shipped.
+// All of it on Lossless Scaling's own context, synchronously. A picture that is the same as the one VSR last worked on (a still image, a paused video, a film at 24 or 30 pictures a second
+// shown at 60 Hz or more) is not worked on again: the last result is put out again (checked on the card, exactly enough that video noise does not count). Any failure hands the pass back to NIS
+// and says so in the log. NVIDIA's SDK files are NVIDIA's, under their licences (NOTICE.md); the release package carries the ones it needs.
 #include <eam/addon_exports.h>
 #include <eam/events.h>
 #include <imgui.h>
@@ -41,15 +41,17 @@ char* g_nvVFXSDKPath = nullptr;   // (the SDK's proxy asks for it: where NVVideo
 namespace {
 
 constexpr const char* kId = "VSRUPSC";
-constexpr const char* kName = "Video Super Resolution (prototype)";
-constexpr const char* kVersion = "0.0.1";
+constexpr const char* kName = "Video Super Resolution";
+constexpr const char* kVersion = "1.0.2";
 
 IHost* g_host = nullptr;
 std::wstring g_addonDir;
 bool g_enabled = false, g_failed = false, g_sdkLoaded = false;
 uint64_t g_configAt = 0;
 int g_quality = 1;                // 1 Low .. 4 Ultra (VSR_Bicubic is 0)
-bool g_gate = true;               // VSR only where the frame did not change from the pass before; NIS's picture elsewhere
+bool g_gate = false;              // VSR only where the frame did not change from the pass before; NIS's picture elsewhere (a game wants it; a film or an image wants VSR everywhere)
+bool g_skipRepeats = true;        // a picture the same as the one VSR last worked on is not worked on again
+int g_repeatTolerance = 1;        // levels (of 255) a pixel may differ by and still count as the same
 float g_gateLow = 0.012f, g_gateHigh = 0.05f;
 int g_vsrIntervalMs = 20;        // VSR runs at most this often while gated: where the picture is still its last result is still right (0: at every pass)
 constexpr float kMotionDecay = 0.85f;   // the share of the motion memory kept from one pass to the next   // the change (of the 8-bit SDR view, 0..1) that still counts as still, and the one that counts as moving
@@ -149,6 +151,27 @@ void CSMotion(uint3 id : SV_DispatchThreadID) {
 }
 )HLSL";
 
+// The repeat check: how many pixels of the picture now differ, by more than `tol` levels in any channel, from the picture VSR last worked on. One counter on the card, read back at once
+// (the pass has to wait for the card for VSR anyway; a repeat saves all of VSR's work).
+const char* const kCompareHlsl = R"HLSL(
+Texture2D<float4>      tNow  : register(t0);
+Texture2D<float4>      tRun  : register(t1);
+RWStructuredBuffer<uint> uCount : register(u0);
+cbuffer C : register(b0) { uint2 size; uint tol; uint pad; };
+groupshared uint gCount;
+[numthreads(8, 8, 1)]
+void CSCompare(uint3 id : SV_DispatchThreadID, uint gi : SV_GroupIndex) {
+    if (gi == 0) gCount = 0;
+    GroupMemoryBarrierWithGroupSync();
+    if (id.x < size.x && id.y < size.y) {
+        const float3 d = abs(tNow.Load(int3(id.xy, 0)).rgb - tRun.Load(int3(id.xy, 0)).rgb) * 255.0;
+        if (max(d.r, max(d.g, d.b)) > float(tol) + 0.5) InterlockedAdd(gCount, 1u);
+    }
+    GroupMemoryBarrierWithGroupSync();
+    if (gi == 0 && gCount != 0) InterlockedAdd(uCount[0], gCount);
+}
+)HLSL";
+
 // The blend (the motion gate): NIS has drawn its picture; this puts VSR's over it where the frame did not change from the pass before (a 3x3 neighbourhood of the input pixel, so the edge of
 // something that moves is kept clear of it), and leaves NIS's where it did. VSR sees one frame at a time and blurs and shifts colour on what moves; NIS does not.
 const char* const kBlendHlsl = R"HLSL(
@@ -187,6 +210,8 @@ struct Chain {
     ID3D11ComputeShader* grab = nullptr, * place = nullptr, * blend = nullptr; ID3D11Buffer* grabCb = nullptr, * placeCb = nullptr, * blendCb = nullptr;
     ID3D11Texture2D* texPrev = nullptr, * scratch = nullptr; ID3D11ShaderResourceView* inSrv = nullptr, * prevSrv = nullptr, * scratchSrv = nullptr;   // the motion gate: the pass before's input, and NIS's picture copied
     uint32_t scratchW = 0, scratchH = 0; DXGI_FORMAT scratchFmt = DXGI_FORMAT_UNKNOWN; bool havePrev = false;
+    ID3D11ComputeShader* compare = nullptr; ID3D11Buffer* compareCb = nullptr, * countBuf = nullptr, * countStage = nullptr; ID3D11UnorderedAccessView* countUav = nullptr;   // the repeat check
+    ID3D11Texture2D* texRun = nullptr; ID3D11ShaderResourceView* runSrv = nullptr, * nowSrv = nullptr; bool runValid = false; uint64_t repeats = 0, runs = 0;   // texRun: the picture VSR last worked on
     ID3D11ComputeShader* motion = nullptr; ID3D11Buffer* motionCb = nullptr;   // the motion memory: two textures in turn
     ID3D11Texture2D* texMot[2] = {}; ID3D11ShaderResourceView* motSrv[2] = {}; ID3D11UnorderedAccessView* motUav[2] = {}; int motIdx = 0;
     std::chrono::steady_clock::time_point lastRun{}; bool outValid = false;   // when VSR last ran, and whether texOut holds a result of it
@@ -199,11 +224,12 @@ struct Chain {
         if (fx) { NvVFX_DestroyEffect(fx); fx = nullptr; }
         NvCVImage_Dealloc(&gIn); NvCVImage_Dealloc(&gOut); gIn = {}; gOut = {}; dIn = {}; dOut = {};
         SafeRelease(inUav); SafeRelease(outSrv); SafeRelease(texIn); SafeRelease(texOut);
+        SafeRelease(runSrv); SafeRelease(nowSrv); SafeRelease(texRun); runValid = false;
         SafeRelease(inSrv); SafeRelease(prevSrv); SafeRelease(texPrev); SafeRelease(scratchSrv); SafeRelease(scratch); scratchW = scratchH = 0; havePrev = false;
         for (int i = 0; i < 2; ++i) { SafeRelease(motSrv[i]); SafeRelease(motUav[i]); SafeRelease(texMot[i]); } motIdx = 0; outValid = false;
         inW = inH = outW = outH = 0; quality = -1; effectLoaded = false;
     }
-    void Release() { ReleaseSizes(); SafeRelease(grab); SafeRelease(place); SafeRelease(blend); SafeRelease(motion); SafeRelease(grabCb); SafeRelease(placeCb); SafeRelease(blendCb); SafeRelease(motionCb); dev = nullptr; }
+    void Release() { ReleaseSizes(); SafeRelease(compare); SafeRelease(compareCb); SafeRelease(countUav); SafeRelease(countBuf); SafeRelease(countStage); SafeRelease(grab); SafeRelease(place); SafeRelease(blend); SafeRelease(motion); SafeRelease(grabCb); SafeRelease(placeCb); SafeRelease(blendCb); SafeRelease(motionCb); dev = nullptr; }
 };
 // (made after the SDK is loaded, never as a global: NvCVImage's constructors call the SDK's loader stub, which keeps its first failure for good if it is asked before the folder is known)
 Chain* g_chainPtr = nullptr;
@@ -229,6 +255,37 @@ ID3D11Texture2D* MakeTex(ID3D11Device* dev, uint32_t w, uint32_t h) {
     ID3D11Texture2D* t = nullptr; dev->CreateTexture2D(&d, nullptr, &t); return t;
 }
 
+
+// The counter the repeat check adds into (a structured buffer of four uints, the first used) and the staging copy it is read back from.
+bool MakeCountBuffers(ID3D11Device* dev, Chain& c) {
+    if (c.countBuf && c.countStage && c.countUav) return true;
+    D3D11_BUFFER_DESC d{}; d.ByteWidth = 16; d.Usage = D3D11_USAGE_DEFAULT; d.BindFlags = D3D11_BIND_UNORDERED_ACCESS; d.MiscFlags = D3D11_RESOURCE_MISC_BUFFER_STRUCTURED; d.StructureByteStride = 4;
+    if (FAILED(dev->CreateBuffer(&d, nullptr, &c.countBuf))) return false;
+    D3D11_UNORDERED_ACCESS_VIEW_DESC u{}; u.Format = DXGI_FORMAT_UNKNOWN; u.ViewDimension = D3D11_UAV_DIMENSION_BUFFER; u.Buffer.NumElements = 4;
+    if (FAILED(dev->CreateUnorderedAccessView(c.countBuf, &u, &c.countUav))) return false;
+    d.Usage = D3D11_USAGE_STAGING; d.BindFlags = 0; d.CPUAccessFlags = D3D11_CPU_ACCESS_READ;
+    return SUCCEEDED(dev->CreateBuffer(&d, nullptr, &c.countStage));
+}
+
+// Is the picture in texIn the same as the one VSR last worked on (texRun)? Then its result (texOut) is still right and VSR need not run. A few pixels may differ (noise, a blinking cursor).
+bool SameAsLastRun(ID3D11DeviceContext* ctx, Chain& c, uint32_t w, uint32_t h) {
+    if (!g_skipRepeats || !c.runValid || !c.outValid || !c.compare || !c.countUav) return false;
+    const UINT zero[4] = {};
+    ctx->ClearUnorderedAccessViewUint(c.countUav, zero);
+    { D3D11_MAPPED_SUBRESOURCE m{}; if (FAILED(ctx->Map(c.compareCb, 0, D3D11_MAP_WRITE_DISCARD, 0, &m))) return false;
+      uint32_t* v = static_cast<uint32_t*>(m.pData); v[0] = w; v[1] = h; v[2] = static_cast<uint32_t>(g_repeatTolerance); v[3] = 0; ctx->Unmap(c.compareCb, 0); }
+    ID3D11ShaderResourceView* srvs[2] = { c.inSrv, c.runSrv }; ID3D11ShaderResourceView* none[2] = {}; ID3D11UnorderedAccessView* noUav = nullptr;
+    ctx->CSSetShader(c.compare, nullptr, 0); ctx->CSSetConstantBuffers(0, 1, &c.compareCb);
+    ctx->CSSetShaderResources(0, 2, srvs); ctx->CSSetUnorderedAccessViews(0, 1, &c.countUav, nullptr);
+    ctx->Dispatch((w + 7) / 8, (h + 7) / 8, 1);
+    ctx->CSSetShaderResources(0, 2, none); ctx->CSSetUnorderedAccessViews(0, 1, &noUav, nullptr);
+    ctx->CopyResource(c.countStage, c.countBuf);
+    D3D11_MAPPED_SUBRESOURCE r{};
+    if (FAILED(ctx->Map(c.countStage, 0, D3D11_MAP_READ, 0, &r))) return false;
+    const uint32_t differing = *static_cast<const uint32_t*>(r.pData);
+    ctx->Unmap(c.countStage, 0);
+    return differing <= std::max(16u, w * h / 20000u);   // (a twenty-thousandth of the picture: noise, not a new picture)
+}
 
 const char* NvError(NvCV_Status s, const char* what) { static char t[200]; snprintf(t, sizeof t, "%s: %s (%d)", what, NvCV_GetErrorStringFromCode(s), static_cast<int>(s)); return t; }
 
@@ -282,17 +339,18 @@ bool Fit(ID3D11Device* dev, uint32_t inW, uint32_t inH, uint32_t outW, uint32_t 
     Chain& g_chain = ChainRef();
     if (g_chain.dev != dev) { g_chain.Release(); g_chain.dev = dev; }
     if (!g_chain.grab) {
-        g_chain.grabCb = MakeCb(dev, 16); g_chain.placeCb = MakeCb(dev, 32); g_chain.blendCb = MakeCb(dev, 48); g_chain.motionCb = MakeCb(dev, 16);
+        g_chain.grabCb = MakeCb(dev, 16); g_chain.placeCb = MakeCb(dev, 32); g_chain.blendCb = MakeCb(dev, 48); g_chain.motionCb = MakeCb(dev, 16); g_chain.compareCb = MakeCb(dev, 16);
+        if (!g_chain.compareCb || !CompileShader(dev, kCompareHlsl, "CSCompare", &g_chain.compare) || !MakeCountBuffers(dev, g_chain)) { Problem("the repeat check could not be made"); return false; }
         if (!g_chain.grabCb || !g_chain.placeCb || !g_chain.blendCb || !g_chain.motionCb || !CompileShader(dev, kGrabHlsl, "CSGrab", &g_chain.grab) || !CompileShader(dev, kPlaceHlsl, "CSPlace", &g_chain.place) || !CompileShader(dev, kBlendHlsl, "CSBlend", &g_chain.blend) || !CompileShader(dev, kMotionHlsl, "CSMotion", &g_chain.motion)) { Problem("the shaders could not be made"); return false; }
     }
     if (g_chain.inW == inW && g_chain.inH == inH && g_chain.outW == outW && g_chain.outH == outH && g_chain.quality == EffQuality() && g_chain.effectLoaded) return true;
     g_chain.ReleaseSizes();
     const auto t0 = std::chrono::steady_clock::now();
     if (!g_chain.stream) { if (NvCV_Status s = NvVFX_CudaStreamCreate(&g_chain.stream)) { Problem("%s", NvError(s, "NvVFX_CudaStreamCreate")); return false; } }
-    g_chain.texIn = MakeTex(dev, inW, inH); g_chain.texOut = MakeTex(dev, outW, outH); g_chain.texPrev = MakeTex(dev, inW, inH);
-    if (!g_chain.texIn || !g_chain.texOut || !g_chain.texPrev) { Problem("the textures could not be made (%ux%u, %ux%u)", inW, inH, outW, outH); g_chain.ReleaseSizes(); return false; }
+    g_chain.texIn = MakeTex(dev, inW, inH); g_chain.texOut = MakeTex(dev, outW, outH); g_chain.texPrev = MakeTex(dev, inW, inH); g_chain.texRun = MakeTex(dev, inW, inH);
+    if (!g_chain.texIn || !g_chain.texOut || !g_chain.texPrev || !g_chain.texRun) { Problem("the textures could not be made (%ux%u, %ux%u)", inW, inH, outW, outH); g_chain.ReleaseSizes(); return false; }
     if (FAILED(dev->CreateUnorderedAccessView(g_chain.texIn, nullptr, &g_chain.inUav)) || FAILED(dev->CreateShaderResourceView(g_chain.texOut, nullptr, &g_chain.outSrv)) ||
-        FAILED(dev->CreateShaderResourceView(g_chain.texIn, nullptr, &g_chain.inSrv)) || FAILED(dev->CreateShaderResourceView(g_chain.texPrev, nullptr, &g_chain.prevSrv))) { Problem("the views could not be made"); g_chain.ReleaseSizes(); return false; }
+        FAILED(dev->CreateShaderResourceView(g_chain.texIn, nullptr, &g_chain.inSrv)) || FAILED(dev->CreateShaderResourceView(g_chain.texRun, nullptr, &g_chain.runSrv)) || FAILED(dev->CreateShaderResourceView(g_chain.texPrev, nullptr, &g_chain.prevSrv))) { Problem("the views could not be made"); g_chain.ReleaseSizes(); return false; }
     for (int i = 0; i < 2; ++i) {   // the motion memory: one 16-bit channel at the input's size, two in turn, cleared
         D3D11_TEXTURE2D_DESC d{}; d.Width = inW; d.Height = inH; d.MipLevels = 1; d.ArraySize = 1; d.Format = DXGI_FORMAT_R16_FLOAT; d.SampleDesc.Count = 1; d.Usage = D3D11_USAGE_DEFAULT; d.BindFlags = D3D11_BIND_SHADER_RESOURCE | D3D11_BIND_UNORDERED_ACCESS;
         if (FAILED(dev->CreateTexture2D(&d, nullptr, &g_chain.texMot[i])) || FAILED(dev->CreateShaderResourceView(g_chain.texMot[i], nullptr, &g_chain.motSrv[i])) || FAILED(dev->CreateUnorderedAccessView(g_chain.texMot[i], nullptr, &g_chain.motUav[i]))) { Problem("the motion memory could not be made"); g_chain.ReleaseSizes(); return false; }
@@ -318,7 +376,9 @@ void ReadConfig() {
     g_enabled = atoi(g_host->GetConfig(kId, "enabled", "1")) != 0;   // (the addon is loaded only once its switch in the manager is on: a second switch that starts off would be a trap for someone testing it)
     g_quality = std::clamp(atoi(g_host->GetConfig(kId, "quality", "1")), 0, 23);
     g_vfxDir = g_host->GetConfig(kId, "vfxDir", "");
-    g_gate = atoi(g_host->GetConfig(kId, "motionGate", "1")) != 0;
+    g_gate = atoi(g_host->GetConfig(kId, "motionGate", "0")) != 0;
+    g_skipRepeats = atoi(g_host->GetConfig(kId, "skipRepeats", "1")) != 0;
+    g_repeatTolerance = std::clamp(atoi(g_host->GetConfig(kId, "repeatTolerance", "1")), 0, 8);
     g_vsrIntervalMs = std::clamp(atoi(g_host->GetConfig(kId, "vsrIntervalMs", "20")), 0, 200);
     g_gateLow = std::clamp(static_cast<float>(atof(g_host->GetConfig(kId, "gateLow", "0.012"))), 0.0f, 0.5f);
     g_gateHigh = std::clamp(static_cast<float>(atof(g_host->GetConfig(kId, "gateHigh", "0.05"))), g_gateLow + 0.002f, 1.0f);
@@ -358,7 +418,9 @@ bool RunVsr(ID3D11DeviceContext* ctx, const nr::NisPass& pass) {
 
     // 2. the SDK: texture to CUDA, VSR, CUDA to texture. Gated, VSR runs at most every vsrIntervalMs: the picture is used only where it is still, and there its last result is still right.
     const auto runNow = std::chrono::steady_clock::now();
-    const bool due = !EffGate() || !g_chain.outValid || g_vsrIntervalMs <= 0 || std::chrono::duration<double, std::milli>(runNow - g_chain.lastRun).count() >= g_vsrIntervalMs;
+    const bool same = SameAsLastRun(ctx, g_chain, pass.inW, pass.inH);   // (the grab is behind us: texIn is this frame's picture)
+    if (same) ++g_chain.repeats;
+    const bool due = !same && (!EffGate() || !g_chain.outValid || g_vsrIntervalMs <= 0 || std::chrono::duration<double, std::milli>(runNow - g_chain.lastRun).count() >= g_vsrIntervalMs);
     if (due) {
     NvCV_Status s = NvCVImage_Transfer(&g_chain.dIn, &g_chain.gIn, 1.0f, g_chain.stream, nullptr);
     if (s == NVCV_SUCCESS) s = NvVFX_Run(g_chain.fx, 0);
@@ -367,6 +429,7 @@ bool RunVsr(ID3D11DeviceContext* ctx, const nr::NisPass& pass) {
     { NvCVImage corner{}, cornerCpu{}; unsigned char px[16 * 16 * 4]; NvCVImage_InitView(&corner, &g_chain.gOut, 0, 0, 16, 16);   // (waits for the stream)
       NvCVImage_Init(&cornerCpu, 16, 16, 16 * 4, px, NVCV_RGBA, NVCV_U8, NVCV_CHUNKY, NVCV_CPU); NvCVImage_Transfer(&corner, &cornerCpu, 1.0f, g_chain.stream, nullptr); }
     g_chain.outValid = true; g_chain.lastRun = runNow;
+    ctx->CopyResource(g_chain.texRun, g_chain.texIn); g_chain.runValid = true; ++g_chain.runs;   // (the picture this result is of)
     }
 
     const bool gated = EffGate();
@@ -388,7 +451,7 @@ bool RunVsr(ID3D11DeviceContext* ctx, const nr::NisPass& pass) {
     const uint64_t now = NowMs();
     if (now - g_chain.statusAt > 1000 && g_chain.n) {
         g_chain.statusAt = now;
-        char t[160]; snprintf(t, sizeof t, "VSR quality %d%s, %ux%u to %ux%u: %.1f ms a frame on the render thread (%d frames)", EffQuality(), gated ? "" : " everywhere", pass.inW, pass.inH, pass.outW, pass.outH, g_chain.sumMs / g_chain.n, g_chain.n);
+        char t[260]; snprintf(t, sizeof t, "VSR quality %d%s, %ux%u to %ux%u: %.1f ms a frame on the render thread (%d frames; %llu pictures worked on, %llu repeats put out again)", EffQuality(), gated ? "" : " everywhere", pass.inW, pass.inH, pass.outW, pass.outH, g_chain.sumMs / g_chain.n, g_chain.n, static_cast<unsigned long long>(g_chain.runs), static_cast<unsigned long long>(g_chain.repeats));
         g_host->SetStatus(kId, t, 1); { std::lock_guard<std::mutex> lock(g_textMutex); g_liveStatus = t; g_notice.clear(); }
         if (g_chain.n >= 300) { Log("%s", t); g_chain.sumMs = 0; g_chain.n = 0; }
     }
@@ -536,7 +599,7 @@ EAM_EXPORT void AddonInitialize(IHost* host, ImGuiContext* ctx, void* allocFunc,
     if (host->GetHostVersion() >= 0x010100) { host->SetPreDispatchCallback(OnPass, nullptr); host->SetPostDispatchCallback(OnPostPass, nullptr); }
     else { g_failed = true; Log("needs LS Addon Manager with addon API 1.1 or newer"); }
     Log("%s %s initialised (enabled %d, quality %d, SDK folder %s)", kName, kVersion, g_enabled ? 1 : 0, g_quality, g_vfxDir.c_str());
-    host->SetStatus(kId, g_enabled ? "Prototype: on, waits for a NIS pass" : "Prototype: off (set enabled to 1)", 0);
+    host->SetStatus(kId, g_enabled ? "On, waits for a NIS pass" : "Off (set enabled to 1)", 0);
 }
 
 EAM_EXPORT void AddonShutdown() {
@@ -549,7 +612,7 @@ EAM_EXPORT void AddonShutdown() {
 
 EAM_EXPORT void AddonRenderSettings() {
     ReadConfig();
-    ImGui::TextWrapped("Prototype. NVIDIA's RTX Video Super Resolution, from your own copy of the NVIDIA Video Effects SDK, in place of Lossless Scaling's NIS scaling: a trained network that sharpens the picture it upscales, one frame at a time. Nothing of NVIDIA's comes with this addon.");
+    ImGui::TextWrapped("NVIDIA's RTX Video Super Resolution in place of Lossless Scaling's NIS scaling: a trained network that sharpens the picture it upscales, one frame at a time. Made for movies, images, text and interface, anything that is a picture; a game that moves a lot is better served by the temporal upscalers (or this with the motion gate on). The NVIDIA files it needs are in the addon's vfx folder.");
     ImGui::Spacing();
     bool enabled = g_enabled;
     if (ImGui::Checkbox("Use Video Super Resolution", &enabled)) { g_host->SetConfig(kId, "enabled", enabled ? "1" : "0"); g_host->SaveConfig(); g_configAt = 0; g_enabled = enabled; }
@@ -559,8 +622,8 @@ EAM_EXPORT void AddonRenderSettings() {
     if (g_quality <= 4 && ImGui::Combo("Quality", &q, kQualities, 5)) { char t[16]; snprintf(t, sizeof t, "%d", q); g_host->SetConfig(kId, "quality", t); g_host->SaveConfig(); g_configAt = 0; g_quality = q; }
     if (ImGui::IsItemHovered()) ImGui::SetTooltip("Low and Medium cost 2 to 3 ms a frame at 4K and look as good as High and Ultra in the tests; High and Ultra cost 6 to 8 ms and shimmer more.");
     bool gate = g_gate;
-    if (ImGui::Checkbox("Only where the picture is still", &gate)) { g_host->SetConfig(kId, "motionGate", gate ? "1" : "0"); g_host->SaveConfig(); g_configAt = 0; g_gate = gate; }
-    if (ImGui::IsItemHovered()) ImGui::SetTooltip("VSR looks at one frame at a time, so on what moves it blurs and shifts colour. With this on, Lossless Scaling's own NIS picture is kept wherever the frame changes from the one before, and VSR's is used where it does not (the interface, a standing character, a still camera). Recommended.");
+    if (ImGui::Checkbox("Only where the picture is still (for games)", &gate)) { g_host->SetConfig(kId, "motionGate", gate ? "1" : "0"); g_host->SaveConfig(); g_configAt = 0; g_gate = gate; }
+    if (ImGui::IsItemHovered()) ImGui::SetTooltip("For games. VSR looks at one frame at a time, so on what moves it blurs and shifts colour. With this on, Lossless Scaling's own NIS picture is kept wherever the frame changes from the one before, and VSR's is used where it does not (the interface, a standing character, a still camera). Leave it off for movies and images: VSR then works on the whole picture.");
     if (g_gate) {
         float hi = g_gateHigh;
         ImGui::SetNextItemWidth(220);
@@ -573,11 +636,14 @@ EAM_EXPORT void AddonRenderSettings() {
         if (ImGui::SliderInt("Run VSR at most every", &ms, 0, 60, ms == 0 ? "every frame" : "%d ms")) { char a[16]; snprintf(a, sizeof a, "%d", ms); g_host->SetConfig(kId, "vsrIntervalMs", a); g_host->SaveConfig(); g_configAt = 0; g_vsrIntervalMs = ms; }
         if (ImGui::IsItemHovered()) ImGui::SetTooltip("Where the picture is still, VSR's last result is still right, so it does not have to run for every frame Lossless Scaling presents (with frame generation that is several a real frame). 20 ms saves about two thirds of its cost; 0 runs it every time.");
     }
+    bool skip = g_skipRepeats;
+    if (ImGui::Checkbox("Do not work again on a picture that is the same as the last", &skip)) { g_host->SetConfig(kId, "skipRepeats", skip ? "1" : "0"); g_host->SaveConfig(); g_configAt = 0; g_skipRepeats = skip; }
+    if (ImGui::IsItemHovered()) ImGui::SetTooltip("On (the default): a still image, a paused video, or a film at 24 or 30 pictures a second shown at 60 Hz or more is worked on once, and its result is put out again for the repeats: VSR runs 2 to 6 times less. A few pixels may differ (noise, a cursor) and it still counts as the same. Off: every frame Lossless Scaling presents goes through VSR.");
     static char folder[520]; static bool folderInit = false;
     if (!folderInit) { strncpy_s(folder, g_vfxDir.c_str(), sizeof folder - 1); folderInit = true; }
     ImGui::SetNextItemWidth(-1);
     if (ImGui::InputText("##vfxdir", folder, sizeof folder, ImGuiInputTextFlags_EnterReturnsTrue) || ImGui::IsItemDeactivatedAfterEdit()) { g_host->SetConfig(kId, "vfxDir", folder); g_host->SaveConfig(); g_configAt = 0; }
-    ImGui::TextDisabled("The folder of your NVIDIA Video Effects SDK (x64), with the Video Super Resolution feature installed. A change of folder takes effect after Lossless Scaling restarts.");
+    ImGui::TextDisabled("The folder of the NVIDIA Video Effects SDK files (x64, with the Video Super Resolution feature): the addon's own vfx folder unless you change it. A change of folder takes effect after Lossless Scaling restarts.");
     ImGui::Spacing();
     { std::lock_guard<std::mutex> lock(g_textMutex);
       if (!g_liveStatus.empty()) ImGui::TextWrapped("%s", g_liveStatus.c_str());
@@ -591,10 +657,10 @@ EAM_EXPORT void AddonRenderSettings() {
     ImGui::TextWrapped("Compare by eye: Ctrl+Shift+F9 steps through Lossless Scaling's NIS and every upscaler addon that is loaded (DLSS, FSR, XeSS, this one gated and everywhere), then off; a label with a coloured square in the top left says which is on. Needs the other addons switched on at the same time (a test copy of the manager lifts their conflicts).");
     if (compare::Active()) ImGui::TextColored(ImVec4(0.7f, 0.9f, 0.5f, 1.0f), "Comparing now: %s", compare::Name(compare::Current()));
     ImGui::Spacing();
-    ImGui::TextDisabled("Works with: NIS as the Scaling Type, the game in a window smaller than the screen. It replaces the DLSS, FSR and XeSS upscalers (only one can take the NIS pass). A frame is 2 to 4 ms of the render thread at 4K; the picture is as steady as bicubic plus about a quarter more shimmer.");
+    ImGui::TextDisabled("Works with: NIS as the Scaling Type, and the picture in a window smaller than the screen (a player or viewer at 1920x1080 on a 4K screen, for example). It replaces the DLSS, FSR and XeSS upscalers (only one can take the NIS pass). At 4K a frame is 2 to 4 ms of the render thread; a repeated picture costs a fraction of that.");
 }
 EAM_EXPORT uint32_t GetAddonCapabilities() { return EAM_CAP_HAS_SETTINGS | EAM_CAP_D3D11_DEVICE_ACCESS | EAM_CAP_DISPATCH_HOOK; }
 EAM_EXPORT const char* GetAddonName() { return kName; }
 EAM_EXPORT const char* GetAddonVersion() { return kVersion; }
 EAM_EXPORT const char* GetAddonAuthor() { return "Echo-Storm"; }
-EAM_EXPORT const char* GetAddonDescription() { return "Prototype. NVIDIA RTX Video Super Resolution (from your own NVIDIA Video Effects SDK) in place of Lossless Scaling's NIS pass. Off until the setting enabled is 1."; }
+EAM_EXPORT const char* GetAddonDescription() { return "NVIDIA RTX Video Super Resolution in place of Lossless Scaling's NIS pass: for movies, images and other pictures. A picture that is the same as the last is not worked on again."; }

@@ -3,7 +3,7 @@
     python tools/bump_version.py 1.0.0                 what would change (nothing is written)
     python tools/bump_version.py 1.0.0 --apply        write it (then: git diff, run tools\\ci.ps1, commit; the tag and the release are the owner's)
 
-What it changes: manager/CMakeLists.txt (project VERSION), manager/sdk/include/eam/version.h (EAM_VERSION_STRING), the six addon.json files, kVersion in echofg_addon.cpp, the number in
+What it changes: manager/CMakeLists.txt (project VERSION), manager/sdk/include/eam/version.h (EAM_VERSION_STRING), the six addon.json files, kVersion in echofg_addon.cpp and vsr_addon.cpp, the number in
 README.md's header line, and CHANGELOG.md ("## Unreleased" becomes "## NEW_VERSION (date)" with a fresh empty "## Unreleased" above it). What it does NOT change, on purpose: the
 addon API's own number (it moves with the interface, not the release), the "New in" paragraph of README.md and the status of ROADMAP.md (words, written by hand: see handoff/release-1.0.md),
 and the places that name 0.10.0 as an example or as history (the update and installer tests compare versions as numbers; comments say "up to 0.10.0").
@@ -59,6 +59,7 @@ def main():
     for addon in sorted((ROOT / 'addons/DLSS5NR01').glob('addon.json')) + sorted((ROOT / 'addons/DLSS5NR01/products').glob('*/addon.json')):
         edits.append((str(addon.relative_to(ROOT)).replace('\\', '/'), r'("version":\s*")%s(")' % esc, r'\g<1>%s\g<2>' % new, 1))
     edits.append(('addons/DLSS5NR01/src/echofg/echofg_addon.cpp', r'(kVersion = ")%s(")' % esc, r'\g<1>%s\g<2>' % new, 1))
+    edits.append(('addons/DLSS5NR01/src/vsr/vsr_addon.cpp', r'(kVersion = ")%s(")' % esc, r'\g<1>%s\g<2>' % new, 1))
     edits.append(('README.md', r'(&nbsp; \*\*)%s(\*\*)' % esc, r'\g<1>%s\g<2>' % new, 1))
     problems = []
     changes = []

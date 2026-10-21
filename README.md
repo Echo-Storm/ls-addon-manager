@@ -12,12 +12,13 @@
 
 - **Upscalers.** The **DLSS**, **FSR** and **XeSS Upscalers** put a real temporal upscaler in place of Lossless Scaling's NIS scaler, so a game that never had one gets one. They need no support from the game.
 - **DLSS 5 Neural Rendering** gives any game a new look, on every frame Lossless Scaling shows (you provide the model file yourself, see below).
-- **Prototypes:** **EchoFG**, our own frame generator, and **Video Super Resolution**. They are in the package, off until you switch them on, and rough in places.
+- **Video Super Resolution** for pictures that are not a game: **movies, images**, text and interface, sharpened by NVIDIA's RTX Video Super Resolution (an NVIDIA RTX card).
+- **EchoFG**, our own frame generator, a prototype: in the package, off until you switch it on, and rough in places.
 
 And built into the manager: a **recorder** that saves what the game showed (a clip that plays a problem back on another computer), a **GPU limit**, ReShade input passthrough, windowed mode, a **Performance tab** that says what limits your frame rate, backups of every setting, and updates. It is free, MIT-licensed and **unofficial**: not affiliated with the Lossless Scaling developers. Read the [disclaimer](DISCLAIMER.md) before installing.
 
 [![build](https://github.com/Echo-Storm/ls-addon-manager/actions/workflows/build.yml/badge.svg)](https://github.com/Echo-Storm/ls-addon-manager/actions/workflows/build.yml)
-&nbsp; **1.0.1** ([roadmap](ROADMAP.md)) &nbsp;·&nbsp; Lossless Scaling 3.2.2.0 &nbsp;·&nbsp; Windows 10 or 11, x64
+&nbsp; **1.0.2** ([roadmap](ROADMAP.md)) &nbsp;·&nbsp; Lossless Scaling 3.2.2.0 &nbsp;·&nbsp; Windows 10 or 11, x64
 
 > [!IMPORTANT]
 > **DLSS 5 Neural Rendering needs a file you provide yourself:** your own copy of `nvngx_dlssnr.dll`. It is **not included**, this project **never downloads it**,
@@ -44,18 +45,18 @@ Something wrong? [If something goes wrong](#if-something-goes-wrong) and the [qu
 | **XeSS Upscaler** | Any card with Shader Model 6.4 (Intel Arc, NVIDIA, AMD). Intel's runtime comes with the addon. |
 | **DLSS 5 Neural Rendering** | An NVIDIA RTX card and your own `nvngx_dlssnr.dll` (see above). |
 | **EchoFG** (prototype) | Any DirectX 12 card. AMD's FSR 3.1 runtime, for its alternative way of making frames, comes with the addon. |
-| **Video Super Resolution** (prototype) | An NVIDIA RTX card. The files of NVIDIA's Video Effects SDK it needs come with the addon. |
+| **Video Super Resolution** | An NVIDIA RTX card. The files of NVIDIA's Video Effects SDK it needs come with the addon. |
 | **Everything else** | Recording, GPU limit, ReShade passthrough, windowed mode and the update check are built into the manager: nothing more. |
 
-**Tried with** World of Warcraft: Forever, Fallout: New Vegas (Tale of Two Wastelands), Silent Hill f (HDR) and Metro 2033 Redux, on an RTX 4070 Ti SUPER and Windows 11. Other games and cards are untested so far, and the prototypes have had the least use: reports are welcome.
+**Tried with** World of Warcraft: Forever, Fallout: New Vegas (Tale of Two Wastelands), Silent Hill f (HDR) and Metro 2033 Redux, on an RTX 4070 Ti SUPER and Windows 11. Other games and cards are untested so far, and EchoFG, the prototype, has had the least use: reports are welcome.
 
 > [!TIP]
-> **New in 1.0.1:** heavy upscalers no longer take a game's frame rate under frame generation (issue #22: while the card is full, the frames Lossless Scaling generates get a much lighter upscaling; the game's own frames stay in full; on by default, untick it in the upscaler's panel); shaders are compiled once and kept, so the addons start without 1 to 5 seconds of compiling; the comparison label shows the runtime's version; **EchoFG and Video Super Resolution are in the package as prototypes**; and **Setup leaves a file you have changed alone** (see [Install](#install)). The [changelog](CHANGELOG.md) has everything since 0.9.
+> **New in 1.0.2: Video Super Resolution is out of prototype, made for movies and images** (it works on the whole picture by default, a picture that has not changed is not worked on again, and the NVIDIA files it needs come with it). **In 1.0.1:** heavy upscalers no longer take a game's frame rate under frame generation (issue #22: while the card is full, the frames Lossless Scaling generates get a much lighter upscaling; on by default); shaders are compiled once and kept, so the addons start without 1 to 5 seconds of compiling; EchoFG is in the package as a prototype; and **Setup leaves a file you have changed alone** (see [Install](#install)). The [changelog](CHANGELOG.md) has everything since 0.9.
 
 ## Contents
 
 - [Quick start](#quick-start) · [What you need](#what-you-need) · [Install](#install)
-- [The addons](#the-addons): [the upscalers](#the-upscalers-dlss-fsr-and-xess), [Neural Rendering](#dlss-5-neural-rendering), [the prototypes](#the-prototypes-echofg-and-video-super-resolution) · [Built-in features](#built-in-features): recording, GPU limit, ReShade, windowed mode
+- [The addons](#the-addons): [the upscalers](#the-upscalers-dlss-fsr-and-xess), [Neural Rendering](#dlss-5-neural-rendering), [Video Super Resolution](#video-super-resolution-movies-and-images), [EchoFG](#echofg-a-prototype) · [Built-in features](#built-in-features): recording, GPU limit, ReShade, windowed mode
 - [The manager](#the-manager) · [Hotkeys](#hotkeys) · [Updates](#updates) · [If something goes wrong](#if-something-goes-wrong)
 - [Documentation](#documentation) · [For developers](#for-developers): how it works, building, writing an addon, [research notes](#research-notes) · [Credits](#credits)
 
@@ -106,7 +107,7 @@ Like every file here, Setup is **unsigned**, so Windows SmartScreen may warn you
 | **XeSS Upscaler** | Intel XeSS in the same place | any card with Shader Model 6.4 | off |
 | **DLSS 5 Neural Rendering** | NVIDIA's neural rendering model on every frame Lossless Scaling shows: a new look for any game | NVIDIA RTX, your own model file | on |
 | **EchoFG frame generation** (prototype) | Our own frame generator: 1 to 8 frames made between each two real ones | any DirectX 12 card | off |
-| **Video Super Resolution** (prototype) | NVIDIA's RTX Video Super Resolution in place of NIS, for a picture that is still | NVIDIA RTX | off |
+| **Video Super Resolution** | NVIDIA's RTX Video Super Resolution in place of NIS, for movies, images and other pictures | NVIDIA RTX | off |
 
 Only one upscaler runs at a time (switching one on switches the others off); any of them works beside Neural Rendering and EchoFG.
 
@@ -181,12 +182,18 @@ About 5 to 9 ms a frame on an RTX 4070 Ti SUPER with a 1912x1080 model input (8.
 
 <p align="center"><img src="docs/images/hud-editor.png" alt="HUD areas drawn on a snapshot of World of Warcraft: Forever" width="100%"></p>
 
-### The prototypes: EchoFG and Video Super Resolution
+### Video Super Resolution: movies and images
 
-Both are in the package and **off until you switch them on**. They work, they are measured, and they have been used in far fewer games than the rest: expect rough edges, and tell us what you find.
+NVIDIA's RTX Video Super Resolution in place of Lossless Scaling's NIS, for **anything that is a picture rather than a game**: a film or a video in your player, photographs and images in a viewer, slides, text, an interface. It is a trained network that sharpens what it upscales, one picture at a time, so text and fine detail come out crisp where the temporal upscalers above can only stay smooth.
 
-- **EchoFG** is **our own frame generator.** With Lossless Scaling's own frame generation **off**, it shows 1 to 8 frames made between each two real ones, evenly spaced, in Lossless Scaling's window; choose **NIS** as the Scaling Type. It makes the frames with its own shaders from this project's own motion estimate (per pixel, with a correction for repeating patterns such as fences and a lighter analysis on 4K frames), or, as an alternative, with AMD's FSR 3.1 frame generation fed that motion; it holds a HUD that stays put while the picture turns. It works beside the upscalers or without them. The real frames are shown about one frame later than without it. Measured offline on real recordings it scores at least as well as FSR 3.1 and clearly better than a plain blend ([`docs/own-generator-plan.md`](docs/own-generator-plan.md), which also says how the scores behave at very fast motion); what is still open is how it compares with Lossless Scaling's own frame generation on a real screen, and its pacing on every display.
-- **Video Super Resolution** puts NVIDIA's RTX Video Super Resolution in place of NIS: a trained network that sharpens the picture one frame at a time, which suits still scenes, menus, interface text and video. It comes with the files of NVIDIA's Video Effects SDK it needs, in its `vfx` folder, with NVIDIA's licences. Choose **NIS** as the Scaling Type; one upscaler runs at a time.
+- **Use it:** switch it on in the addon list, choose **NIS** as the Scaling Type and show the picture in a window smaller than the screen (a player at 1920x1080 on a 4K screen). It needs an NVIDIA RTX card; the files of NVIDIA's Video Effects SDK it uses come with the addon, in its `vfx` folder, with NVIDIA's licences.
+- **Cheap on a picture that does not change.** A still image, a paused video, or a film at 24 or 30 pictures a second shown at 60 Hz or more gives the same picture to many frames in a row: the addon compares each with the one VSR last worked on, on the card, and only works on a new one, so a film at 24 fps runs VSR 24 times a second, not 60, and a still image once. (About 2.3 ms for a picture at 1440p to 4K on an RTX 4070 Ti SUPER, about 0.5 ms for a repeat.)
+- **For a game** it has a motion gate (NIS stays where the picture moves) and a time limit between runs, but a game that moves a lot is better served by the upscalers above. VSR takes an 8-bit picture, so an HDR film loses highlights above the SDR white; for HDR, the temporal upscalers keep them.
+- Details, costs and settings: [`addons/DLSS5NR01/docs/vsr.md`](addons/DLSS5NR01/docs/vsr.md).
+
+### EchoFG, a prototype
+
+**EchoFG** is **our own frame generator**, in the package and **off until you switch it on**. It works and it is measured, but it has been used in far fewer games than the rest: expect rough edges, and tell us what you find. With Lossless Scaling's own frame generation **off**, it shows 1 to 8 frames made between each two real ones, evenly spaced, in Lossless Scaling's window; choose **NIS** as the Scaling Type. It makes the frames with its own shaders from this project's own motion estimate (per pixel, with a correction for repeating patterns such as fences and a lighter analysis on 4K frames), or, as an alternative, with AMD's FSR 3.1 frame generation fed that motion; it holds a HUD that stays put while the picture turns. It works beside the upscalers or without them. The real frames are shown about one frame later than without it. Measured offline on real recordings it scores at least as well as FSR 3.1 and clearly better than a plain blend ([`docs/own-generator-plan.md`](docs/own-generator-plan.md), which also says how the scores behave at very fast motion); what is still open is how it compares with Lossless Scaling's own frame generation on a real screen, and its pacing on every display.
 
 ### Built-in features
 

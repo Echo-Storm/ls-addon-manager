@@ -111,6 +111,9 @@ With frame generation the upscaler runs on every picture shown, the generated on
 **Do the addons take long to start?**
 The first time after an update they compile their shaders (1 to 5 seconds); since 1.0.1 the compiled code is kept in `%LOCALAPPDATA%\LSAddonManager\shader-cache` (about half a megabyte; files unused for 90 days are removed), so later starts skip it. Deleting that folder is safe: it is made again. `NR_SHADER_CACHE=0` in the environment turns it off.
 
+**What is Video Super Resolution, and when do I use it?**
+It is NVIDIA's RTX Video Super Resolution in place of NIS: a trained network that sharpens what it upscales, one picture at a time. It is made for **movies, images, text and interface**: a film in your player, photos in a viewer. It works on the whole picture, and a picture that has not changed (a still image, a paused video, a film at 24 or 30 pictures a second on a 60 Hz or faster screen) is worked on once, not for every refresh. A game that moves a lot is better served by the DLSS, FSR or XeSS Upscalers. It needs an NVIDIA RTX card; the NVIDIA files it uses come with the addon. Choose NIS as the Scaling Type and show the picture in a window smaller than the screen. The [guide](../addons/DLSS5NR01/docs/vsr.md) has the settings and costs.
+
 **Does it work with HDR games?**
 Yes: 16-bit (scRGB) and 10-bit (HDR10) frames are upscaled in the upscaler's own HDR mode (since 0.9.10) and go back as HDR. If a game looks washed out or too dark,
 set *Frame encoding* under Upscaling by hand.

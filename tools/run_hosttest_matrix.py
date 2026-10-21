@@ -668,7 +668,7 @@ def scenario_selftest(ctx, res, text, frame):
 # name, config overrides, checker
 # Video Super Resolution (the prototype addon VSRUPSC, tools of the user's own NVIDIA Video Effects SDK): only run when the addon is built and the SDK is there (VFX_DIR, or external/vfx_x64)
 VFX_DIR = os.environ.get('VFX_DIR') or os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), 'addons', 'DLSS5NR01', 'external', 'vfx_x64')
-NEEDS_VFX = {'vsr', 'vsr_4_3', 'vsr_move', 'vsr_nogate', 'vsr_fade', 'vsr_fade_nogate', 'compare_vsr', 'compare_all'}
+NEEDS_VFX = {'vsr', 'vsr_repeat', 'vsr_norepeat', 'vsr_4_3', 'vsr_move', 'vsr_nogate', 'vsr_fade', 'vsr_fade_nogate', 'compare_vsr', 'compare_all'}
 
 
 def scenario_vsr(ctx, res, text, frame):
@@ -676,6 +676,28 @@ def scenario_vsr(ctx, res, text, frame):
     res.check('no exception or failure in the VSR chain', 'raised exception' not in text and 'FAULT' not in text and 'VSRUPSC: cannot load' not in text and 'the VSR chain' not in text)
     m = re.search(r'VSR quality \d+(?: everywhere)?, \d+x\d+ to \d+x\d+: ([0-9.]+) ms a frame', text)
     res.check('a frame costs under 8 ms on the render thread', m is not None and float(m.group(1)) < 8.0, (m.group(1) + ' ms') if m else 'no status line')
+
+
+def scenario_vsr_repeat(ctx, res, text, frame):
+    # a source that gives every picture twice (a 30 fps film at 60 Hz): VSR works on a picture once and puts its result out again for the repeat
+    res.check('the Video Super Resolution addon takes the NIS pass', 'DLSS REPLACED NIS' in text)
+    res.check('no exception or failure in the VSR chain', 'raised exception' not in text and 'FAULT' not in text and 'the VSR chain' not in text)
+    m = re.search(r'(\d+) pictures worked on, (\d+) repeats put out again', text)
+    res.check('repeats are recognised (about as many as pictures worked on)', m is not None and int(m.group(2)) > 0 and int(m.group(2)) >= int(m.group(1)) // 2, m.group(0) if m else 'no status line')
+
+
+def scenario_vsr_nogate(ctx, res, text, frame):
+    # a picture that slides everywhere, the gate off: every picture is new, so none is taken for a repeat and VSR works on all of them
+    scenario_vsr(ctx, res, text, frame)
+    m = re.search(r'(\d+) pictures worked on, (\d+) repeats put out again', text)
+    res.check('a moving picture is never taken for a repeat', m is not None and int(m.group(2)) <= int(m.group(1)) // 50, m.group(0) if m else 'no status line')
+
+
+def scenario_vsr_norepeat(ctx, res, text, frame):
+    # the same source with the check off: every frame goes through VSR
+    res.check('no exception or failure in the VSR chain', 'raised exception' not in text and 'FAULT' not in text and 'the VSR chain' not in text)
+    m = re.search(r'(\d+) pictures worked on, (\d+) repeats put out again', text)
+    res.check('no repeat is put out again with the check off', m is not None and int(m.group(2)) == 0, m.group(0) if m else 'no status line')
 
 
 def scenario_vsr_move(ctx, res, text, frame):
@@ -704,9 +726,11 @@ def scenario_vsr_viewport(ctx, res, text, frame):
 
 SCENARIOS = [
     ('vsr', ['addon=VSRUPSC.dll', 'nis=1', 'nisbgra=1', 'nisnoflow=1', 'enabled=1', 'quality=1', 'vfxDir=' + VFX_DIR], scenario_vsr),
-    ('vsr_move', ['addon=VSRUPSC.dll', 'nis=1', 'nisbgra=1', 'nisnoflow=1', 'nismove=1', 'enabled=1', 'quality=1', 'vfxDir=' + VFX_DIR], scenario_vsr_move),
-    ('vsr_nogate', ['addon=VSRUPSC.dll', 'nis=1', 'nisbgra=1', 'nisnoflow=1', 'nismove=1', 'motionGate=0', 'enabled=1', 'quality=1', 'vfxDir=' + VFX_DIR], scenario_vsr),   # the gate off: VSR everywhere, also on what moves
-    ('vsr_fade', ['addon=VSRUPSC.dll', 'nis=1', 'nisbgra=1', 'nisnoflow=1', 'nisfade=1', 'enabled=1', 'quality=1', 'vfxDir=' + VFX_DIR], scenario_vsr_fade),
+    ('vsr_repeat', ['addon=VSRUPSC.dll', 'nis=1', 'nisbgra=1', 'nisnoflow=1', 'srcdup=2', 'enabled=1', 'quality=1', 'vfxDir=' + VFX_DIR], scenario_vsr_repeat),
+    ('vsr_norepeat', ['addon=VSRUPSC.dll', 'nis=1', 'nisbgra=1', 'nisnoflow=1', 'srcdup=2', 'skipRepeats=0', 'enabled=1', 'quality=1', 'vfxDir=' + VFX_DIR], scenario_vsr_norepeat),
+    ('vsr_move', ['addon=VSRUPSC.dll', 'nis=1', 'nisbgra=1', 'nisnoflow=1', 'nismove=1', 'motionGate=1', 'enabled=1', 'quality=1', 'vfxDir=' + VFX_DIR], scenario_vsr_move),
+    ('vsr_nogate', ['addon=VSRUPSC.dll', 'nis=1', 'nisbgra=1', 'nisnoflow=1', 'nismove=1', 'motionGate=0', 'enabled=1', 'quality=1', 'vfxDir=' + VFX_DIR], scenario_vsr_nogate),   # the gate off: VSR everywhere, also on what moves
+    ('vsr_fade', ['addon=VSRUPSC.dll', 'nis=1', 'nisbgra=1', 'nisnoflow=1', 'nisfade=1', 'motionGate=1', 'enabled=1', 'quality=1', 'vfxDir=' + VFX_DIR], scenario_vsr_fade),
     ('vsr_fade_nogate', ['addon=VSRUPSC.dll', 'nis=1', 'nisbgra=1', 'nisnoflow=1', 'nisfade=1', 'motionGate=0', 'enabled=1', 'quality=1', 'vfxDir=' + VFX_DIR], scenario_vsr_fade_nogate),
     ('vsr_4_3', ['addon=VSRUPSC.dll', 'nis=1', 'nisbgra=1', 'nisnoflow=1', 'nisvp=1', 'nisW=960', 'nisH=720', 'nisScale=1.5', 'enabled=1', 'quality=1', 'vfxDir=' + VFX_DIR], scenario_vsr_viewport),
 
