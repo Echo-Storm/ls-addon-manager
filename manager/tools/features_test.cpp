@@ -6,6 +6,7 @@
 //   eam_featurestest.exe off      Windowed mode switched off at start-up: no virtual display, and switching it on says a restart is needed
 #include "src/config/config_manager.h"
 #include "src/features/features.h"
+#include "src/features/ls_config.h"
 #include "src/features/reshade_passthrough.h"
 #include "src/features/reshade_windows.h"
 #include "src/features/windowed_mode.h"
@@ -187,7 +188,22 @@ static void WindowedOnce(bool startOn) {
     Check("DXGI still works after the feature is stopped", after.count == before.count);
 }
 
+static void TestIni() {
+    using namespace features::lsconfig;
+    const std::string src = "[a]\r\nx = 1\r\n\r\n[fps_counter]\r\nscale = 1.0\r\ncolor = 0xD3D3D3\r\n\r\n[b]\r\ny = 2";
+    Check("ini: a value is read", IniGet(src, "fps_counter", "color", "?") == "0xD3D3D3");
+    Check("ini: a missing key gives the fallback", IniGet(src, "fps_counter", "font", "Consolas") == "Consolas");
+    const std::string one = IniSet(src, "fps_counter", "scale", "2.00");
+    Check("ini: a value is replaced, the rest kept", IniGet(one, "fps_counter", "scale", "") == "2.00" && IniGet(one, "fps_counter", "color", "") == "0xD3D3D3" && IniGet(one, "b", "y", "") == "2" && one.find("\r\n\r\n[b]") != std::string::npos);
+    const std::string two = IniSet(src, "fps_counter", "font", "Arial");
+    Check("ini: a new key lands inside its section", IniGet(two, "fps_counter", "font", "") == "Arial" && IniGet(two, "b", "font", "none") == "none" && two.find("font = Arial\r\n\r\n[b]") != std::string::npos);
+    const std::string three = IniSet(src, "new", "k", "v");
+    Check("ini: a new section is added at the end", IniGet(three, "new", "k", "") == "v" && IniGet(three, "b", "y", "") == "2");
+    Check("ini: an empty file gets a section", IniGet(IniSet("", "s", "k", "v"), "s", "k", "") == "v");
+}
+
 int main(int argc, char** argv) {
+    TestIni();
     setvbuf(stdout, nullptr, _IONBF, 0);
     const bool startOn = !(argc > 1 && !strcmp(argv[1], "off"));
 
@@ -213,7 +229,7 @@ int main(int argc, char** argv) {
     }
 
     printf("== the list of features\n");
-    Check("four features are built in", features::Count() == 4 && IndexOfFeature("ReShadePassthrough") == 0 && IndexOfFeature("WindowedMode") == 1 && IndexOfFeature("Recorder") == 2 && IndexOfFeature("GpuLimit") == 3);
+    Check("five features are built in", features::Count() == 5 && IndexOfFeature("ReShadePassthrough") == 0 && IndexOfFeature("WindowedMode") == 1 && IndexOfFeature("Recorder") == 2 && IndexOfFeature("GpuLimit") == 3);
     {   // the recorder feature: switched on it says so (no frames yet), off it says nothing and holds nothing
         const int rec = IndexOfFeature("Recorder");
         features::SetOn(rec, true);

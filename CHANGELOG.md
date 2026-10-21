@@ -2,6 +2,7 @@
 
 ## Unreleased
 
+- **New feature: Lossless Scaling's hidden settings (Features tab).** Edits the `config.ini` beside Lossless Scaling for what its window does not show: its frame rate counter's size, colour, font and position, and a few expert values. Only the lines you change are touched; a copy is kept as `config.ini.bak-manager`. Applies from the next time scaling starts.
 ## 1.0.5 (2026-10-21)
 
 - **EchoFG is no longer called a prototype** (name, description and README; it stays off until switched on).

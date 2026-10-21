@@ -64,6 +64,7 @@ set(RECORDER_SOURCES
 set(FEATURE_SOURCES
     ${RECORDER_SOURCES}
     src/features/gpu_limit.cpp
+    src/features/ls_config.cpp
     src/features/features.cpp
     src/features/reshade_passthrough.cpp
     src/features/reshade_windows.cpp

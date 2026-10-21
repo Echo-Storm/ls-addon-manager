@@ -1,5 +1,6 @@
 #include "features.h"
 #include "gpu_limit.h"
+#include "ls_config.h"
 #include "recorder_feature.h"
 #include "reshade_passthrough.h"
 #include "windowed_mode.h"
@@ -12,7 +13,7 @@ namespace features {
 
 namespace {
 
-enum Which { kReShade = 0, kWindowed = 1, kRecorder = 2, kGpuLimit = 3, kCount = 4 };
+enum Which { kReShade = 0, kWindowed = 1, kRecorder = 2, kGpuLimit = 3, kLsConfig = 4, kCount = 5 };
 
 const Info kInfo[kCount] = {
     { reshade::kId,
@@ -39,6 +40,10 @@ const Info kInfo[kCount] = {
       "The manager reads the load of the card Lossless Scaling runs on. While it stays at or over the limit for a few seconds, the addons lower their cost: Neural Rendering's Auto quality "
       "takes the model's working size down, and the upscalers' \"lighter upscaling when the card is full\" starts; they go back when the load is well under the limit. One setting for all the "
       "addons. It can be switched on and off at any time." },
+    { lsconfig::kId,
+      "Lossless Scaling's hidden settings",
+      "Change the look and place of its frame rate counter, and a few expert values, that its window does not show.",
+      "Edits Lossless Scaling's own config.ini (beside this program): the counter's size, colour, font and position, and some expert values. Lossless Scaling reads the file when scaling starts, so a change applies from the next time. Only the lines you change are touched; the first change keeps a copy as config.ini.bak-manager." },
 };
 
 ConfigManager& Cfg() { return ConfigManager::Instance(); }
@@ -80,6 +85,7 @@ std::string Status(int index) {
         case kWindowed: return IsOn(index) ? windowed::Status() : std::string();
         case kRecorder: return IsOn(index) ? recorder::Status() : std::string();
         case kGpuLimit: return IsOn(index) ? gpulimit::Status() : std::string();
+        case kLsConfig: return {};
     }
     return {};
 }
@@ -90,12 +96,13 @@ void RenderOptions(int index) {
         case kWindowed: windowed::RenderOptions(); break;
         case kRecorder: recorder::RenderOptions(); break;
         case kGpuLimit: gpulimit::RenderOptions(); break;
+        case kLsConfig: lsconfig::RenderOptions(); break;
     }
 }
 
 // Up to 0.7.4 the features kept their settings under the ids of the standalone addons they came from; move them once.
 void MoveOldSettings() {
-    const char* const oldIds[kCount] = { reshade::kOldId, windowed::kOldId, recorder::kId, gpulimit::kId };   // (the recorder is new: its old id is its own, which renames nothing)
+    const char* const oldIds[kCount] = { reshade::kOldId, windowed::kOldId, recorder::kId, gpulimit::kId, lsconfig::kId };   // (the recorder is new: its old id is its own, which renames nothing)
     bool moved = false;
     for (int i = 0; i < kCount; ++i)
         if (Cfg().RenameAddonSection(oldIds[i], kInfo[i].id)) { moved = true; LOG_INFO("Features", "%s: settings moved from %s to %s", kInfo[i].title, oldIds[i], kInfo[i].id); }

@@ -205,6 +205,7 @@ Built into the manager, on its **Features** tab. Recording and the GPU limit wor
 | **GPU limit** | Keep the graphics card under 80 to 100 % (95 % by default). The manager reads the load of the card Lossless Scaling runs on (NVML on NVIDIA, Windows' counters on any other card) and tells the addons: Neural Rendering's Auto quality takes the model's working size down, and the upscalers' lighter mode for generated frames starts, while the load stays at or over the limit; they go back when it is well under. |
 | **ReShade input passthrough** | Mouse and keyboard reach a ReShade overlay while Lossless Scaling scales the game. **Home** turns it on and off. |
 | **Windowed mode and second monitor** | A virtual display the size of your game window, so Lossless Scaling works with a windowed game or on a second monitor, with split-screen and side-by-side options. Switching it on needs a restart of Lossless Scaling. |
+| **Lossless Scaling's hidden settings** | Edits Lossless Scaling's own `config.ini` for what its window does not show: the size, colour, font and place of its frame rate counter, and a few expert values. Applies from the next time scaling starts; the file is kept as `config.ini.bak-manager` before the first change. |
 
 <p align="center"><img src="docs/images/features.png" alt="The Features tab: ReShade input passthrough, Windowed mode, Recording and GPU limit, each with its own switch" width="100%"></p>
 
