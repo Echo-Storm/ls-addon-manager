@@ -7,6 +7,7 @@
 #include <mutex>
 #include <string>
 #include <unordered_map>
+#include <unordered_set>
 #include <vector>
 
 namespace ShaderHook {
@@ -78,6 +79,12 @@ HRSRC WINAPI OnFindResourceW(HMODULE module, LPCWSTR name, LPCWSTR type) {
         g_handleFor[key] = handle;
         LOG_DEBUG("ShaderHook", "Resource %s replaced by an addon (%u bytes)", std::filesystem::path(key).u8string().c_str(), size);
         return reinterpret_cast<HRSRC>(handle);
+    }
+    {   // (debug log level) which resources Lossless Scaling asks for, each once: shows what a scaling type or a frame generation mode uses
+        static std::unordered_set<std::wstring> seen;
+        std::lock_guard<std::mutex> lock(g_mutex);
+        const std::wstring key = KeyOf(name, type);
+        if (seen.insert(key).second) LOG_DEBUG("ShaderHook", "Resource %s asked for", std::filesystem::path(key).u8string().c_str());
     }
     const auto real = Original<FindResourceWFn>(0);
     return real ? real(module, name, type) : nullptr;
