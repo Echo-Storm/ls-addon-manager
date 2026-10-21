@@ -72,7 +72,7 @@ $addons = @(
                   'vfx\license\NVIDIA-Software-License-Agreement-2025.05.05.pdf' = "$root\addons\DLSS5NR01\external\vfx_x64\license\NVIDIA-Software-License-Agreement-2025.05.05.pdf";
                   'vfx\license\product-specific-terms-for-nvidia-ai-products-2025.05.05.pdf' = "$root\addons\DLSS5NR01\external\vfx_x64\license\product-specific-terms-for-nvidia-ai-products-2025.05.05.pdf";
                   'vfx\license\NVIDIA-Open-Model-License-Agreements-24-10-2025.pdf' = "$root\addons\DLSS5NR01\external\vfx_x64\license\NVIDIA-Open-Model-License-Agreements-24-10-2025.pdf" } },
-    # EchoFG (prototype): our own frame generator, an addon of its own (src\echofg), off until switched on. Its FSR 3.1 alternative uses AMD's FidelityFX runtime, in its fsr folder (the FSR Upscaler's copy).
+    # EchoFG: our own frame generator, an addon of its own (src\echofg), off until switched on. Its FSR 3.1 alternative uses AMD's FidelityFX runtime, in its fsr folder (the FSR Upscaler's copy).
     @{ Id = 'ECHOFG'; Dir = "$root\addons\DLSS5NR01\products\ECHOFG"; Bin = "$root\addons\DLSS5NR01\build\Release"; Files = @('ECHOFG.dll');
        Extra = @{ 'AMD-FidelityFX-LICENSE.txt' = "$root\addons\DLSS5NR01\third_party\ffx\LICENSE.txt"; 'LICENSE.txt' = "$root\addons\DLSS5NR01\LICENSE";
                   'fsr\amd_fidelityfx_dx12.dll' = "$root\addons\DLSS5NR01\external\ffx\bin\amd_fidelityfx_dx12.dll" } },

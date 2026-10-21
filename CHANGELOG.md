@@ -4,6 +4,7 @@
 
 ## 1.0.5 (2026-10-21)
 
+- **EchoFG is no longer called a prototype** (name, description and README; it stays off until switched on).
 - **EchoFG draws its own frame rate readout.** Lossless Scaling's counter only counts the frames Lossless Scaling makes, so with its frame generation off and EchoFG on it showed the real rate (60 where the screen got 120). EchoFG now stamps a small label into every frame it shows: the frames a second the screen gets, and "REAL 60 X2" (the real rate and the multiplier). Top right by default; the panel's *Frame rate readout* setting: off, top left, top right. Checked on every frame shown, in SDR and HDR (`nr_fgpresent fpslabel=1`).
 
 ## 1.0.4 (2026-10-21)

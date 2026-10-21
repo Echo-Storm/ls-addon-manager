@@ -1,4 +1,4 @@
-// ECHOFG: EchoFG frame generation (prototype), an addon of its own (it began inside the FSR Upscaler's panel, where little of the rest applied to it).
+// ECHOFG: EchoFG frame generation, an addon of its own (it began inside the FSR Upscaler's panel, where little of the rest applied to it).
 //
 // With Lossless Scaling's own frame generation OFF, every frame it presents is held back, and the frames between it and the one before are made
 // and presented first, in Lossless Scaling's own swap chain, evenly spaced: the frame rate multiplied by 2 to 9 (src/addon/framegen11.cpp is the presenter,
@@ -33,7 +33,7 @@
 namespace {
 
 constexpr const char* kId = "ECHOFG";
-constexpr const char* kName = "EchoFG frame generation (prototype)";
+constexpr const char* kName = "EchoFG frame generation";
 constexpr const char* kVersion = "1.0.5";
 
 IHost* g_host = nullptr;
@@ -221,7 +221,7 @@ EAM_EXPORT void AddonRenderSettings() {
     ImGui::Spacing();
     bool on = g_enabled;
     if (ImGui::Checkbox("EchoFG is on (untick to pause it without switching the addon off)", &on)) Set("enabled", on ? "1" : "0");
-    if (ImGui::IsItemHovered()) ImGui::SetTooltip("Turn Lossless Scaling's own frame generation OFF first: with both on, the frames are doubled twice. A prototype: the real frames are shown a little later than without it (about one real frame).");
+    if (ImGui::IsItemHovered()) ImGui::SetTooltip("Turn Lossless Scaling's own frame generation OFF first: with both on, the frames are doubled twice. The real frames are shown a little later than without it (about one real frame).");
     int engine = g_own ? 0 : 1;
     ImGui::SetNextItemWidth(260);
     if (ImGui::Combo("Makes the frames", &engine, "EchoFG (our own)\0FSR 3.1 (AMD's, fed our motion)\0")) Set("own", engine == 0 ? "1" : "0");
@@ -266,4 +266,4 @@ EAM_EXPORT uint32_t GetAddonCapabilities() { return EAM_CAP_HAS_SETTINGS | EAM_C
 EAM_EXPORT const char* GetAddonName() { return kName; }
 EAM_EXPORT const char* GetAddonVersion() { return kVersion; }
 EAM_EXPORT const char* GetAddonAuthor() { return "Echo-Storm"; }
-EAM_EXPORT const char* GetAddonDescription() { return "A prototype. Multiplies the frame rate with frames made between the real ones (EchoFG's own passes, or AMD's FSR 3.1 frame generation fed our motion estimate), shown in Lossless Scaling's own window. Turn Lossless Scaling's own frame generation off."; }
+EAM_EXPORT const char* GetAddonDescription() { return "Multiplies the frame rate with frames made between the real ones (EchoFG's own passes, or AMD's FSR 3.1 frame generation fed our motion estimate), shown in Lossless Scaling's own window. Turn Lossless Scaling's own frame generation off."; }
