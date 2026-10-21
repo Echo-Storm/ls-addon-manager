@@ -42,7 +42,7 @@ namespace {
 
 constexpr const char* kId = "VSRUPSC";
 constexpr const char* kName = "Video Super Resolution";
-constexpr const char* kVersion = "1.0.3";
+constexpr const char* kVersion = "1.0.4";
 
 IHost* g_host = nullptr;
 std::wstring g_addonDir;

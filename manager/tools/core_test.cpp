@@ -709,6 +709,15 @@ int main(int argc, char** argv) {
         printf("abrupt exit with the GPU sampler running\n"); fflush(stdout);
         exit(0);   // runs the static destructors, as a DLL's are run when the process ends
     }
+    {   // a test build or an old file of ours left in an addon's folder (the manager says so on its card)
+        AddonInfo t; t.hModule = (HMODULE)1; t.manifest.author = "Echo-Storm"; t.dllVersion = "1.0.1";
+        Check("an addon of ours whose DLL says an older version than the manager is flagged as an old build", t.OlderBuild("1.0.3") && !t.OlderBuild("1.0.1") && !t.OlderBuild("1.0.0"));
+        t.dllVersion = "1.0.3"; const bool same = !t.OlderBuild("1.0.3");
+        t.dllVersion = "1.0.1"; t.manifest.author = "Someone else"; const bool other = !t.OlderBuild("1.0.3");
+        t.manifest.author = "Echo-Storm"; t.hModule = nullptr; const bool unloaded = !t.OlderBuild("1.0.3");
+        Check("...but not one at the manager's version, another author's addon, or one that is not loaded", same && other && unloaded);
+        Check("versions compare as numbers (1.0.10 is newer than 1.0.9; text is never older)", VersionOlder("1.0.9", "1.0.10") && !VersionOlder("1.0.10", "1.0.9") && !VersionOlder("dev", "1.0.0") && !VersionOlder("1.0.3", "1.0.3"));
+    }
     const fs::path T = fs::temp_directory_path() / ("eam_coretest_" + std::to_string(GetCurrentProcessId()));
     std::error_code ec;
     fs::remove_all(T, ec);

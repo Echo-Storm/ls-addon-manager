@@ -145,6 +145,15 @@ struct Shipped {
     std::vector<std::string> kept;     // files left as the person has them
 };
 
+// A file of a vendor's runtime inside an addon's folder (addons\<addon>\dlss, fsr, xess, vfx or runtimes: NVIDIA's DLSS, AMD's FSR, Intel's XeSS, NVIDIA's Video Effects SDK, and the runtimes the person added). These are the files a person
+// swaps for a newer one of their own; the files of ours (the addons' DLLs, their addon.json, icons and licences) are always the release's.
+bool IsVendorRuntime(const std::wstring& key) {
+    size_t first = key.find(L'\\'); if (first == std::wstring::npos) return false;
+    const size_t second = key.find(L'\\', first + 1); if (second == std::wstring::npos) return false;   // (a file straight in the addon's folder is ours)
+    const std::wstring sub = key.substr(first + 1, second - first - 1);
+    return sub == L"dlss" || sub == L"fsr" || sub == L"xess" || sub == L"vfx" || sub == L"runtimes";
+}
+
 void CopyTree(Journal& j, const std::wstring& srcRoot, const std::wstring& dstRoot, const std::wstring& backupRoot, const std::wstring& relRoot, Shipped& shipped) {
     std::error_code ec;
     for (fs::recursive_directory_iterator it(fs::path(srcRoot), fs::directory_options::skip_permission_denied, ec), end; !ec && it != end; it.increment(ec)) {
@@ -153,12 +162,12 @@ void CopyTree(Journal& j, const std::wstring& srcRoot, const std::wstring& dstRo
         if (_wcsicmp(it->path().filename().wstring().c_str(), L"config.json") == 0) continue;   // never the person's settings
         const std::wstring src = it->path().wstring(), dst = JoinPath(dstRoot, rel), key = LowerCase(rel);
         const std::string want = Sha256File(src);
-        if (Exists(dst) && !want.empty()) {
+        if (Exists(dst) && !want.empty() && IsVendorRuntime(key)) {   // (only these can be the person's own: everything else is replaced, the old file in the backups)
             const std::string have = Sha256File(dst);
             const auto rec = shipped.recorded.find(key);
             const bool unchanged = have.empty() || have == want ||   // (a file that cannot be read cannot be told from ours: it goes the usual way, which fails cleanly if it is locked)
                                 (rec != shipped.recorded.end() && rec->second == have) || shipped.known.count({ key, have }) != 0;
-            if (!unchanged) {   // the person's own file: not ours to replace (the new one stays in the release's files, and Repair after deleting it puts it back)
+            if (!unchanged) {   // a vendor runtime the person replaced with one of their own: not ours to replace (the new one stays in the release's files, and Repair after deleting it puts it back)
                 shipped.kept.push_back(Narrow(JoinPath(relRoot, rel)));
                 j.Note("kept the file you changed: " + Narrow(JoinPath(relRoot, rel)));
                 if (rec != shipped.recorded.end()) shipped.now[key] = rec->second;

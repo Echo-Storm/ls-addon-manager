@@ -18,7 +18,7 @@
 And built into the manager: a **recorder** that saves what the game showed (a clip that plays a problem back on another computer), a **GPU limit**, ReShade input passthrough, windowed mode, a **Performance tab** that says what limits your frame rate, backups of every setting, and updates. It is free, MIT-licensed and **unofficial**: not affiliated with the Lossless Scaling developers. Read the [disclaimer](DISCLAIMER.md) before installing.
 
 [![build](https://github.com/Echo-Storm/ls-addon-manager/actions/workflows/build.yml/badge.svg)](https://github.com/Echo-Storm/ls-addon-manager/actions/workflows/build.yml)
-&nbsp; **1.0.3** ([roadmap](ROADMAP.md)) &nbsp;·&nbsp; Lossless Scaling 3.2.2.0 &nbsp;·&nbsp; Windows 10 or 11, x64
+&nbsp; **1.0.4** ([roadmap](ROADMAP.md)) &nbsp;·&nbsp; Lossless Scaling 3.2.2.0 &nbsp;·&nbsp; Windows 10 or 11, x64
 
 > [!IMPORTANT]
 > **DLSS 5 Neural Rendering needs a file you provide yourself:** your own copy of `nvngx_dlssnr.dll`. It is **not included**, this project **never downloads it**,
@@ -51,7 +51,7 @@ Something wrong? [If something goes wrong](#if-something-goes-wrong) and the [qu
 **Tried with** World of Warcraft: Forever, Fallout: New Vegas (Tale of Two Wastelands), Silent Hill f (HDR) and Metro 2033 Redux, on an RTX 4070 Ti SUPER and Windows 11. Other games and cards are untested so far, and EchoFG, the prototype, has had the least use: reports are welcome.
 
 > [!TIP]
-> **New in 1.0.3: the DLSS Upscaler ships NVIDIA's DLSS runtime 310.9.16, and the upscalers notice a window that moves. In 1.0.2: Video Super Resolution is out of prototype, made for movies and images** (it works on the whole picture by default, a picture that has not changed is not worked on again, and the NVIDIA files it needs come with it). **In 1.0.1:** heavy upscalers no longer take a game's frame rate under frame generation (issue #22: while the card is full, the frames Lossless Scaling generates get a much lighter upscaling; on by default); shaders are compiled once and kept, so the addons start without 1 to 5 seconds of compiling; EchoFG is in the package as a prototype; and **Setup leaves a file you have changed alone** (see [Install](#install)). The [changelog](CHANGELOG.md) has everything since 0.9.
+> **New in 1.0.4 (a hotfix): Setup now always replaces the files of ours (a test build of an addon included), keeping only a vendor runtime you replaced, and an addon card says OLD BUILD when its file is older than the manager.** In 1.0.3: the DLSS Upscaler ships NVIDIA's DLSS runtime 310.9.16, and the upscalers notice a window that moves. In 1.0.2: Video Super Resolution is out of prototype, made for movies and images** (it works on the whole picture by default, a picture that has not changed is not worked on again, and the NVIDIA files it needs come with it). **In 1.0.1:** heavy upscalers no longer take a game's frame rate under frame generation (issue #22: while the card is full, the frames Lossless Scaling generates get a much lighter upscaling; on by default); shaders are compiled once and kept, so the addons start without 1 to 5 seconds of compiling; EchoFG is in the package as a prototype; and **Setup leaves a file you have changed alone** (see [Install](#install)). The [changelog](CHANGELOG.md) has everything since 0.9.
 
 ## Contents
 
@@ -78,7 +78,7 @@ Something wrong? [If something goes wrong](#if-something-goes-wrong) and the [qu
 - Keeps Lossless Scaling's own `Lossless.dll` as `Lossless_original.dll` (the manager forwards to it) and puts ours in, with the `addons` folder.
 - **Backs up everything it replaces** into a `backups` folder, checks every file after copying, and puts the folder back as it was if anything fails.
 - **Never touches your settings** or your other addons, and refuses to run while Lossless Scaling runs from that folder.
-- **Overwrites every file of the addons it ships, except one you have changed.** Setup keeps a record of what it put in the `addons` folder. A file that is no longer what it put there last time (a newer runtime of your own under the same name, an edited `addon.json`) is left as it is, and Setup tells you which. **If you modified a file, or use a modified one, you have to remove that file to get our current version of it** (the rest of the update is applied either way): delete or rename it, then run Setup again (an update, or **Reinstall**) and it puts ours back.
+- **Overwrites every file of ours, every time:** the manager, the addons' DLLs (a test build of one included), their `addon.json`, icons and licences. The old ones go to `backups`. **The one thing it leaves alone is a vendor runtime you have replaced with one of your own** (a newer NVIDIA DLSS, AMD FSR or Intel XeSS file in an addon's `dlss`, `fsr`, `xess`, `vfx` or `runtimes` folder): Setup keeps that file and says so. **To get our copy of such a file back, delete or rename yours and run Setup again** (an update, or **Reinstall**). Setup keeps a record of what it put in the `addons` folder to tell your file from its own.
 - After a **Lossless Scaling update** (which may put its own `Lossless.dll` back), run it again: it offers **Repair**.
 - Asks for administrator rights only when the folder needs them (Program Files, for example).
 
@@ -290,7 +290,7 @@ That check, and a download you ask for, are the only times the manager goes onli
 | The manager does not appear | It may be hidden: look under the ^ arrow by the clock, or press Ctrl+Shift+F12. If not, a Lossless Scaling update may have put its own `Lossless.dll` back: run Setup and choose **Repair**. |
 | Setup says Lossless Scaling is running | Close it (also from its notification-area icon), then press **Check again**. |
 | Setup does not find your Lossless Scaling folder | Choose **Use a different folder...** and pick the folder that holds `LosslessScaling.exe`. Setup remembers it. |
-| After an update, an addon still behaves like the old version | Setup leaves a file you changed (or a runtime of your own under the same name) as it is, and says which. Delete or rename that file and run Setup again (**Reinstall**): it puts ours back. |
+| After an update, an addon still behaves like the old version, or its card says **OLD BUILD** | The card says it when an addon's DLL is older than the manager (a test build left in the folder). Setup replaces such a file when you run it again (**Reinstall**); it keeps only a vendor runtime of your own (the file in `dlss`, `fsr`, `xess`, `vfx` or `runtimes`), and says which. Delete or rename that one and run Setup again to get ours back. |
 | SmartScreen or your antivirus objects to a file, or flags the zip as a trojan | The files are not signed, and a new unsigned file that replaces a DLL looks suspicious to a cloud check; it is a false positive. [What to do](docs/antivirus.md): compare the SHA-256 on the release page, build it yourself, or allow it. If your antivirus removes `nr_selftest.exe`, only *Test compatibility* stops working. |
 | Neural Rendering says the model file is missing | It needs your own `nvngx_dlssnr.dll` next to `LosslessScaling.exe`: use **Browse for the model file...**, then **Test compatibility**. |
 | An upscaler is on but the picture looks like NIS | Choose **NIS** as the Scaling Type in Lossless Scaling. The panel's status line says what the upscaler is doing. |
@@ -312,7 +312,7 @@ All inside the Lossless Scaling folder, except the recordings and the shader cac
 | File | What |
 |------|------|
 | `addons\config.json` | Every addon's state and settings, and the manager's. Written atomically; an unreadable one is kept as `config.json.corrupt`. |
-| `addons\.installed-files.txt` | What Setup put in the `addons` folder (a hash a file), so an update can tell a file you changed from one it put there. Safe to delete: the next update then keeps any file that differs from a release's own. |
+| `addons\.installed-files.txt` | What Setup put in the `addons` folder (a hash a file), so an update can tell a vendor runtime you replaced from one it put there. Safe to delete: the next update then keeps any runtime that differs from a release's own. |
 | `addons\trusted_addons.json` | Optional: `{ "<addon id>": ["<sha256 of its DLL>"] }`, for the Security setting. |
 | `addons\.removed\` | Addons you removed, each in a folder with a timestamp. |
 | `addons\<addon>\runtimes\` | Runtime files added with **+** in the Runtimes list (and the FSR 4 build), one folder each. Updates leave them alone. |

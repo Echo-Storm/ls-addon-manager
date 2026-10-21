@@ -244,7 +244,9 @@ void AddonManager::LoadModule(AddonInfo& addon) {
     BindExports(module, addon.exports);
     addon.capabilities = guarded::Capabilities(module);
     FillFromExports(addon);
+    if (const char* text = guarded::Text(addon.exports.version)) addon.dllVersion = text;
     LOG_INFO("AddonManager", "Loaded addon '%s' v%s", addon.GetDisplayName().c_str(), addon.GetDisplayVersion().c_str());
+    if (addon.OlderBuild(EAM_VERSION_STRING)) LOG_WARN("AddonManager", "'%s': its DLL says v%s, older than the manager (v%s): a test build or an old file. Setup (Reinstall) puts the release's file back.", addon.id.c_str(), addon.dllVersion.c_str(), EAM_VERSION_STRING);
 }
 
 bool AddonManager::StartAddon(AddonInfo& addon, ImGuiContext* ctx) {

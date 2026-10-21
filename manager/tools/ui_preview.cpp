@@ -129,6 +129,7 @@ int main(int argc, char** argv) {
     b.id = "DLSS4DLAA"; b.manifest.name = "DLSS Upscaler"; b.manifest.version = EAM_VERSION_STRING; b.manifest.author = "Echo-Storm"; b.enabled = false;
     c.id = "FSR3UPSC"; c.manifest.name = "FSR Upscaler"; c.manifest.version = EAM_VERSION_STRING; c.manifest.author = "Echo-Storm"; c.hModule = (HMODULE)1; c.enabled = true;
     d.id = "XESSUPSC"; d.manifest.name = "XeSS Upscaler"; d.manifest.version = EAM_VERSION_STRING; d.manifest.author = "Echo-Storm"; d.enabled = false;
+    if (getenv("EAM_PREVIEW_OLD")) c.dllVersion = "1.0.1";   // the FSR Upscaler's DLL says an older version than the manager: its card shows OLD BUILD
     a.security = b.security = c.security = d.security = SecurityVerdict::Trusted;   // as a real install of our own addons shows them
     if (!clean) { b.enabled = true; b.faulted = true; }   // the other scene shows the ERROR state
     ReadSvgIcon(plugins / "icon.svg", a.iconSvg, a.iconSvgView);

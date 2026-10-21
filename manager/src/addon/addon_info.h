@@ -57,6 +57,17 @@ struct AddonExports {
     GetAddonDescription_t description = nullptr;
 };
 
+// Is version a older than version b (numbers up to three parts: "1.0.3")? A text that is not numbers counts as equal.
+inline bool VersionOlder(const std::string& a, const std::string& b) {
+    auto parts = [](const std::string& t, int out[3]) { out[0] = out[1] = out[2] = 0; int i = 0; size_t at = 0; bool any = false;
+        while (i < 3 && at < t.size() && t[at] >= '0' && t[at] <= '9') { int v = 0; while (at < t.size() && t[at] >= '0' && t[at] <= '9') { v = v * 10 + (t[at] - '0'); ++at; } out[i++] = v; any = true; if (at < t.size() && t[at] == '.') ++at; else break; }
+        return any; };
+    int x[3], y[3];
+    if (!parts(a, x) || !parts(b, y)) return false;
+    for (int i = 0; i < 3; ++i) if (x[i] != y[i]) return x[i] < y[i];
+    return false;
+}
+
 struct AddonInfo {
     // who it is
     std::wstring folderName;   // the folder under addons\, which is also the addon's id
@@ -74,6 +85,7 @@ struct AddonInfo {
     bool faulted = false;                  // it crashed while starting
     bool settingsFaulted = false;          // its settings panel hit an invalid CRT parameter and is no longer drawn
     AddonExports exports;
+    std::string dllVersion;                // what the loaded DLL itself says its version is (GetAddonVersion): the manifest's can be newer than the file (a test build left in the folder)
 
     // its icon
     std::wstring iconPath;
@@ -96,6 +108,8 @@ struct AddonInfo {
         return manifest.author.empty() ? kUnknown : manifest.author;
     }
     bool IsLoaded() const { return hModule != nullptr; }
+    // One of ours (Echo-Storm's) whose DLL says an older version than the manager's: a test build or an old file left in the folder, which Setup replaces (Reinstall)
+    bool OlderBuild(const std::string& managerVersion) const { return IsLoaded() && manifest.author == "Echo-Storm" && !dllVersion.empty() && VersionOlder(dllVersion, managerVersion); }
     bool RequiresRestart() const { return (capabilities & EAM_CAP_REQUIRES_RESTART) != 0; }
 };
 

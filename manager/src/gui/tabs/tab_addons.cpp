@@ -1,6 +1,7 @@
 #include "eam/widgets.h"
 #include "tab_addons.h"
 #include "../gui_scale.h"
+#include "../../../sdk/include/eam/version.h"
 #include "../gui_style.h"
 #include "../../addon/addon_manager.h"
 #include "../../config/config_manager.h"
@@ -300,6 +301,11 @@ static void RenderDetail(AddonManager* manager, AddonInfo& addon, int index) {
     if (TitleFont()) ImGui::PopFont();
     ImGui::TextDisabled("v%s  \xc2\xb7  %s", addon.GetDisplayVersion().c_str(), addon.GetDisplayAuthor().c_str());
     ImGui::EndGroup();
+    if (addon.OlderBuild(EAM_VERSION_STRING)) {   // a test build or an old file left in the folder: Setup replaces it
+        ImGui::PushStyleColor(ImGuiCol_Text, eam::ui::theme::V(eam::ui::theme::kWarn));
+        ImGui::TextWrapped("This addon's file is version %s, older than the manager (%s): a test build or an old file left in the folder. Close Lossless Scaling and run Setup (Reinstall) to put the release's file back.", addon.dllVersion.c_str(), EAM_VERSION_STRING);
+        ImGui::PopStyleColor();
+    }
 
     const float switchWidth = ImGui::GetFrameHeight() * 0.8f * 1.8f;
     ImGui::SameLine(ImGui::GetWindowWidth() - switchWidth - ImGui::GetStyle().WindowPadding.x - S(4));

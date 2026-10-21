@@ -27,7 +27,7 @@ Once a day it asks github.com for the latest release number: GitHub sees your IP
 ## Setup
 
 **I changed a file in an addon's folder (or put a newer runtime there). Does an update overwrite it?**
-No. Setup keeps a record of the files it puts in the `addons` folder; a file that is no longer what it put there is yours, and an update leaves it and says so. To get our current version of such a file (everything else is updated either way), delete or rename it and run Setup again (an update or **Reinstall**): it is put back. The files that you have not changed are replaced as before, with the old ones saved in `backups`.
+It depends on the file. Setup replaces **every file of ours** on an update (the addons' DLLs, `addon.json`, icons, licences), a test build of one included; the old file goes to `backups`. The one thing it leaves alone is a **vendor runtime you replaced with your own** (a newer DLSS, FSR or XeSS file in an addon's `dlss`, `fsr`, `xess`, `vfx` or `runtimes` folder): Setup keeps a record of what it put there, and a file that is no longer that is yours. It says which it kept. To get our copy of such a file back, delete or rename yours and run Setup again (an update or **Reinstall**). An addon card that says **OLD BUILD** has a DLL older than the manager: run Setup again (Reinstall) to replace it.
 
 **Setup says Lossless Scaling is running, but I closed the window.**
 Make sure it has really quit: look for its icon in the notification area, and for `LosslessScaling.exe` in Task Manager, and close it there. Then press *Check again*.

@@ -5,6 +5,7 @@
 #include "../gui_style.h"
 #include "../../host/metrics.h"
 #include "eam/widgets.h"
+#include "eam/version.h"
 #include <cstdio>
 #include <string>
 
@@ -34,6 +35,7 @@ Chip ChipFor(const AddonInfo& a) {
     if (a.manifest.wip) return { "WIP", U(kWarn) };
     if (a.faulted) return { "ERROR", kChipRed };
     if (a.security == SecurityVerdict::Tampered) return { "TAMPERED", kChipRed };
+    if (a.OlderBuild(EAM_VERSION_STRING)) return { "OLD BUILD", U(kWarn) };   // (its DLL is older than the manager: see the addon's page)
     if (a.enabled && !a.IsLoaded()) return { a.RequiresRestart() ? "RESTART TO APPLY" : "NOT LOADED", U(kWarn) };
     return {};
 }
@@ -88,6 +90,7 @@ std::string SwitchTooltip(const AddonInfo& a) {
     if (a.manifest.wip) tip += "Work in progress: it cannot be switched on yet.";
     else tip += a.enabled ? "On: switch it off to stop using this addon." : "Off: switch it on to use this addon.";
     if (a.RequiresRestart()) tip += "\nChanging this takes effect the next time Lossless Scaling starts.";
+    if (a.OlderBuild(EAM_VERSION_STRING)) tip += "\n\nIts file is version " + a.dllVersion + ", older than the manager (" EAM_VERSION_STRING "): a test build or an old file. Close Lossless Scaling and run Setup (Reinstall) to put the release's file back.";
     return tip;
 }
 

@@ -2,6 +2,11 @@
 
 ## Unreleased
 
+## 1.0.4 (2026-10-21)
+
+- **Hotfix: Setup updates every file of ours, always.** 1.0.1 to 1.0.3 left a file of ours alone if it differed from what Setup had put there, so an addon DLL that was a test build (or an old file) stayed as it was while the manager moved on. Now the files of ours are always replaced (the old one saved in `backups`); only a vendor runtime you replaced with your own (in an addon's `dlss`, `fsr`, `xess`, `vfx` or `runtimes` folder) is kept, and Setup says so.
+- **An addon card says OLD BUILD** when its DLL is older than the manager (a test build or an old file left in the folder), with the reason on its page, in its tooltip and in the log; Setup (Reinstall) replaces it.
+
 - **Video Super Resolution: the repeat check is stricter.** A picture counts as the same only if at most about 18 pixels (at 1440p) differ, down from about 180, so a clock digit or a small indicator that changes is a new picture; and VSR now runs at least every 2 seconds whatever the compare says, so a change too small to count is never kept out for long.
 
 ## 1.0.3 (2026-10-21)
@@ -17,7 +22,7 @@
 
 ## 1.0.1 (2026-10-20)
 
-- **Setup no longer replaces a file you have changed.** It records what it puts in the `addons` folder; an update replaces a file only if it is still that (or a file an earlier release shipped), and says which files it kept. To get our current version of a file you modified (the rest of the update is applied either way), delete it and run Setup again (an update or Reinstall). Everything else is replaced, with the old files saved in `backups`, as before.
+- **Setup keeps only a vendor runtime you replaced, not every file you changed (1.0.4 narrows this).** It records what it puts in the `addons` folder; the files of ours (the addons' DLLs, `addon.json`, icons, licences) are always replaced, and only a runtime of a vendor in an addon's `dlss`, `fsr`, `xess`, `vfx` or `runtimes` folder that is no longer what Setup put there is left alone, and Setup says which. To get our copy of that runtime back, delete it and run Setup again (an update or Reinstall).
 - **The two prototypes are in the package: EchoFG and Video Super Resolution** (both off until you switch them on; the addon list calls them prototypes and they are no longer greyed out). **EchoFG** is our own frame generator: with Lossless Scaling's frame generation off it shows 1 to 8 frames made between each two real ones, from its own shaders (or AMD's FSR 3.1 frame generation fed our motion estimate); it scores level with or better than FSR 3.1 on recordings and has been tried live in few games. **Video Super Resolution** comes with the files of NVIDIA's Video Effects SDK it needs (about 66 MB, under NVIDIA's licences, in its `vfx` folder). Both can be left out of a build (`-DNR_FRAMEGEN=OFF`).
 
 - **Addon icons:** an `icon.svg` may use the basic shapes (rect, circle, ellipse, line, polyline, polygon) as well as paths, and its attributes may be in single quotes or on the next line (an icon with only rects used to fall back to the package glyph).
