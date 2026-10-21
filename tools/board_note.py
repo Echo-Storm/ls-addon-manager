@@ -27,6 +27,11 @@ def main():
         if d['id'] != a.id:
             continue
         if a.status:
+            if a.status == 'done' and d.get('status') != 'done':
+                import datetime
+                d['doneAt'] = datetime.date.today().isoformat()   # (the board shows the newest 12 done cards; the rest are its archive)
+            elif a.status != 'done':
+                d.pop('doneAt', None)
             d['status'] = a.status
         if a.note:
             d['note'] = a.note + (' ' + d['note'] if d.get('note') else '')

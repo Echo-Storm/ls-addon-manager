@@ -476,6 +476,81 @@ def cmd_rec(a):
         print('\n'.join(text.strip().splitlines()[-6:]))
 
 
+DONE_VISIBLE = 12   # the Done column shows this many cards, the newest; the rest are the archive (still in board.json, listed small)
+
+
+def split_done(items):
+    """(the newest DONE_VISIBLE done cards, the older ones): by the date a card was marked done ("doneAt"); cards without one count as the oldest, in file order"""
+    done = [i for i in items if i.get('status') == 'done']
+    ranked = sorted(enumerate(done), key=lambda t: (t[1].get('doneAt', ''), t[0]), reverse=True)
+    recent = [i for _, i in ranked[:DONE_VISIBLE]]
+    old = [i for _, i in ranked[DONE_VISIBLE:]]
+    return recent, old
+
+
+def mark_done(item, status):
+    """the status of a card changes: a card that becomes done gets the day, one that leaves done loses it"""
+    if status == 'done' and item.get('status') != 'done':
+        item['doneAt'] = datetime.date.today().isoformat()
+    elif status != 'done':
+        item.pop('doneAt', None)
+    item['status'] = status
+
+
+def github_stats():
+    """what GitHub says about the repository (the gh tool, signed in): stars, forks, downloads, the last 14 days of views and clones, the top referrers;
+    None when gh cannot say. One snapshot a day is kept in .dev/gh_stats.json, so the page can show what changed."""
+    rc, text, _ = run(['gh', 'repo', 'view', '--json', 'nameWithOwner,stargazerCount,forkCount,watchers,issues,createdAt'], timeout=60)
+    if rc != 0:
+        return None
+    repo = json.loads(text)
+    name = repo['nameWithOwner']
+    def api(path):
+        r, t, _ = run(['gh', 'api', 'repos/%s/%s' % (name, path)], timeout=60)
+        return json.loads(t) if r == 0 and t.strip() else None
+    rc, text, _ = run(['gh', 'api', 'repos/%s/releases' % name, '--paginate', '--jq', '.[] | [.tag_name, ([.assets[].download_count] | add // 0)] | @tsv'], timeout=120)
+    rels = []
+    for line in text.splitlines() if rc == 0 else []:
+        tag, _, n = line.partition('\t')
+        if tag and n.strip().isdigit():
+            rels.append((tag, int(n)))
+    views, clones, refs = api('traffic/views') or {}, api('traffic/clones') or {}, api('traffic/popular/referrers') or []
+    st = {'at': datetime.datetime.now().strftime('%Y-%m-%d %H:%M'), 'day': datetime.date.today().isoformat(), 'stars': repo.get('stargazerCount', 0), 'forks': repo.get('forkCount', 0),
+          'watchers': (repo.get('watchers') or {}).get('totalCount', 0), 'open_issues': (repo.get('issues') or {}).get('totalCount', 0),
+          'downloads': sum(n for _, n in rels), 'latest': rels[0] if rels else None, 'top_releases': sorted(rels, key=lambda r: -r[1])[:3],
+          'views': views.get('count', 0), 'view_uniques': views.get('uniques', 0), 'clones': clones.get('count', 0), 'clone_uniques': clones.get('uniques', 0),
+          'referrers': [(r.get('referrer', ''), r.get('count', 0)) for r in refs[:4]]}
+    snap = DEV / 'gh_stats.json'
+    try:
+        hist = json.loads(snap.read_text(encoding='utf-8')) if snap.exists() else []
+    except Exception:
+        hist = []
+    before = [h for h in hist if h.get('day') != st['day']]
+    st['since'] = before[-1] if before else None   # (the last snapshot of an earlier day)
+    if not hist or hist[-1].get('day') != st['day']:
+        hist.append(st)
+    else:
+        hist[-1] = st
+    try:
+        DEV.mkdir(parents=True, exist_ok=True)
+        snap.write_text(json.dumps([{k: v for k, v in h.items() if k != 'since'} for h in hist[-60:]], ensure_ascii=False), encoding='utf-8')
+    except OSError:
+        pass
+    return st
+
+
+def stats_line(st):
+    """one line for BOARD.md"""
+    if not st:
+        return ''
+    d = st.get('since') or {}
+    def delta(k):
+        return (' (%+d)' % (st[k] - d[k])) if d and k in d and st[k] != d[k] else ''
+    return ('GitHub (%s): %d stars%s, %d forks, %d watchers; %d downloads%s, the latest release %s %d; last 14 days %d views from %d visitors, %d clones; %d open issues.'
+            % (st['at'], st['stars'], delta('stars'), st['forks'], st['watchers'], st['downloads'], delta('downloads'), (st['latest'] or ('-', 0))[0], (st['latest'] or ('-', 0))[1],
+               st['views'], st['view_uniques'], st['clones'], st['open_issues']))
+
+
 def board_dump(board):
     """the board as JSON with one line per card, so a change reads as a one-line diff"""
     head = {k: v for k, v in board.items() if k != 'items'}
@@ -501,14 +576,14 @@ def board_sync(board):
         for m in re.finditer(r'^Board:\s*(\S+)\s+(doing|next|blocked|backlog|done)\b(.*)$', chunk, re.M | re.I):
             i = items.get(m.group(1))
             if i and i.get('status') != m.group(2).lower():
-                moved.append('%s %s -> %s' % (i['id'], i.get('status'), m.group(2).lower())); i['status'] = m.group(2).lower()
+                moved.append('%s %s -> %s' % (i['id'], i.get('status'), m.group(2).lower())); mark_done(i, m.group(2).lower())
                 if m.group(3).strip():
                     i['note'] = m.group(3).strip()
     board['synced'] = head
     return moved
 
 
-def render_board_html(board, results, issues, status_text, token=None):
+def render_board_html(board, results, issues, status_text, token=None, stats=None):
     import html as H
     cols = [('doing', 'Doing'), ('next', 'Next'), ('blocked', 'Waiting'), ('backlog', 'Backlog'), ('done', 'Done')]
     items = board.get('items', [])
@@ -528,13 +603,30 @@ def render_board_html(board, results, issues, status_text, token=None):
                 '<div class="title">%s</div>%s%s%s' + mv + '</article>') % (H.escape(i.get('area', '')), H.escape((i.get('id', '') + ' ' + i.get('title', '') + ' ' + i.get('note', '')).lower()),
                 H.escape(i.get('id', '')), H.escape(i.get('area', '').lower()), H.escape(i.get('area', '')), H.escape(i.get('title', '')), w, n, wh)
     columns = ''
+    recent_done, old_done = split_done(items)
     for key, label in cols:
-        group = [i for i in items if i.get('status') == key]
-        columns += '<section class="col col-%s"><h2>%s <span class="count">%d</span></h2>%s</section>' % (key, label, len(group), ''.join(card(i) for i in group) or '<p class="empty">nothing</p>')
+        group = recent_done if key == 'done' else [i for i in items if i.get('status') == key]
+        arch = ''
+        if key == 'done' and old_done:
+            arch = '<details class="arch"><summary>Archive: %d done earlier</summary><ul>%s</ul></details>' % (len(old_done), ''.join('<li><b>%s</b> %s</li>' % (H.escape(i.get('id', '')), H.escape(i.get('title', '')[:90])) for i in old_done))
+        columns += '<section class="col col-%s"><h2>%s <span class="count">%d</span></h2>%s%s</section>' % (key, label, len(group) + (len(old_done) if key == 'done' else 0), ''.join(card(i) for i in group) or '<p class="empty">nothing</p>', arch)
     res = ''.join('<li class="%s"><span>%s</span> %s</li>' % ('ok' if v.get('ok') else 'bad', H.escape(k), H.escape(str(v.get('summary', ''))[:90])) for k, v in sorted(results.items()))
     iss = ''.join('<li><span>#%d</span> %s <em>%s</em></li>' % (i['number'], H.escape(i['title'][:80]), H.escape(i['updatedAt'][:10])) for i in sorted(issues, key=lambda x: x['number']))
     youn = ''.join('<li><span>%s</span> %s <em>%s</em></li>' % (H.escape(i['id']), H.escape(i['title'][:90]), H.escape(str(i.get('blocked_on', ''))[:80])) for i in mine)
     chips = ''.join('<button class="f" data-a="%s">%s</button>' % (H.escape(a), H.escape(a)) for a in areas)
+
+    stats_html = ''
+    if stats:
+        d = stats.get('since') or {}
+        def tile(label, value, key=None):
+            dd = (' <em>%+d</em>' % (stats[key] - d[key])) if key and d and key in d and stats[key] != d[key] else ''
+            return '<div class="stat"><b>%s%s</b><span>%s</span></div>' % (H.escape(str(value)), dd, H.escape(label))
+        latest = stats.get('latest') or ('-', 0)
+        stats_html = ('<div class="stats">' + tile('stars', stats['stars'], 'stars') + tile('forks', stats['forks'], 'forks') + tile('downloads, all releases', '{:,}'.format(stats['downloads']), 'downloads')
+                      + tile('latest release %s' % latest[0], latest[1]) + tile('views, 14 days (%d visitors)' % stats['view_uniques'], '{:,}'.format(stats['views']))
+                      + tile('clones, 14 days (%d unique)' % stats['clone_uniques'], stats['clones']) + tile('open issues', stats['open_issues'])
+                      + '<div class="refs"><b>Where they come from</b><br>%s<br>as of %s%s</div></div>' % (H.escape(', '.join('%s %d' % r for r in stats['referrers']) or 'no data'), H.escape(stats['at']),
+                                                                                                    (', changes since ' + H.escape(d['day'])) if d else ''))
     return """<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>LS Project Manager</title>
 <style>
 :root{--bg:#f6f7f9;--panel:#fff;--ink:#1d2330;--mut:#6b7280;--line:#e3e6eb;--ok:#1f8f4e;--bad:#c0392b;--you:#b9560b;--chip:#e8ecf3}
@@ -559,9 +651,14 @@ li.ok span{color:var(--ok)}li.bad span{color:var(--bad)}pre{margin:0;white-space
 .wait{margin-top:5px;font-size:12px;padding:3px 7px;border-radius:6px;background:var(--chip)}.wait.you{background:transparent;border:1px solid var(--you);color:var(--you)}
 .live{margin:10px 0 0;display:flex;gap:8px;flex-wrap:wrap;align-items:center}.live button,.live input,.live select,.mv{padding:6px 10px;border-radius:8px;border:1px solid var(--line);background:var(--panel);color:var(--ink);font:inherit}.live button{cursor:pointer}.live button:disabled{opacity:.5}.mv{margin-top:6px;font-size:12px;padding:2px 6px}
 #runout{flex-basis:100%;max-height:220px;overflow:auto;background:var(--panel);border:1px solid var(--line);border-radius:8px;padding:8px;font:12px/1.5 ui-monospace,Consolas,monospace;white-space:pre-wrap;display:none}
+.stats{max-width:1500px;margin:10px auto 0;padding:0 16px;display:flex;gap:10px;flex-wrap:wrap}
+.stat{background:var(--panel);border:1px solid var(--line);border-radius:10px;padding:8px 14px;min-width:120px}.stat b{display:block;font-size:20px;line-height:1.2}.stat span{color:var(--mut);font-size:12px}.stat em{font-style:normal;font-size:12px;margin-left:6px;color:var(--ok)}
+.refs{flex:1 1 260px;background:var(--panel);border:1px solid var(--line);border-radius:10px;padding:8px 14px;font-size:12px;color:var(--mut)}.refs b{color:var(--ink)}
+details.arch{margin:6px 2px;font-size:12px;color:var(--mut)}details.arch summary{cursor:pointer}details.arch li{list-style:none;padding:2px 0}details.arch ul{margin:4px 0 0;padding:0}
 .note,.where{margin-top:4px;color:var(--mut);font-size:12px}.where{font-family:ui-monospace,Consolas,monospace}.empty{color:var(--mut);margin:6px 4px}
 </style></head><body>
 <header><h1>LS Project Manager</h1><div class="sub">__SUB__</div>__LIVE__</header>
+__STATS__
 <div class="strip">
 <div class="box you"><h3>Waiting on you (__N__)</h3><ul>__YOU__</ul></div>
 <div class="box"><h3>Where things stand</h3><pre>__STATUS__</pre></div>
@@ -583,7 +680,7 @@ const cards=[...document.querySelectorAll('.card')];let area=null;
 function apply(){const q=document.getElementById('q').value.toLowerCase();cards.forEach(c=>c.classList.toggle('hide',!((!area||c.dataset.area===area)&&(!q||c.dataset.text.includes(q)))))}
 document.getElementById('q').addEventListener('input',apply);
 document.querySelectorAll('.f').forEach(b=>b.addEventListener('click',()=>{const on=b.classList.contains('on');document.querySelectorAll('.f').forEach(x=>x.classList.remove('on'));area=on?null:b.dataset.a;if(!on)b.classList.add('on');apply()}));
-</script></body></html>""".replace('__SUB__', ('Live: moving a card or adding one writes handoff/board.json. Closing the terminal that runs <code>python tools/dev.py serve</code> stops it.' if token else 'Generated %s from handoff/board.json by <code>python tools/dev.py board --html</code>. Edit the JSON, or add a <code>Board: ID status</code> line to a commit message.' % datetime.datetime.now().strftime('%Y-%m-%d %H:%M'))).replace('__LIVE__', LIVE_BAR if token else '').replace('__TOKEN__', token or '').replace('__N__', str(len(mine))).replace('__YOU__', youn or '<li>nothing</li>').replace('__STATUS__', H.escape(status_text.strip())).replace('__RES__', res or '<li>no results yet</li>').replace('__NI__', str(len(issues))).replace('__ISS__', iss or '<li>none (or gh is not available)</li>').replace('__CHIPS__', chips).replace('__COLUMNS__', columns)
+</script></body></html>""".replace('__SUB__', ('Live: moving a card or adding one writes handoff/board.json. Closing the terminal that runs <code>python tools/dev.py serve</code> stops it.' if token else 'Generated %s from handoff/board.json by <code>python tools/dev.py board --html</code>. Edit the JSON, or add a <code>Board: ID status</code> line to a commit message.' % datetime.datetime.now().strftime('%Y-%m-%d %H:%M'))).replace('__LIVE__', LIVE_BAR if token else '').replace('__TOKEN__', token or '').replace('__N__', str(len(mine))).replace('__YOU__', youn or '<li>nothing</li>').replace('__STATUS__', H.escape(status_text.strip())).replace('__RES__', res or '<li>no results yet</li>').replace('__NI__', str(len(issues))).replace('__ISS__', iss or '<li>none (or gh is not available)</li>').replace('__CHIPS__', chips).replace('__COLUMNS__', columns).replace('__STATS__', stats_html)
 
 
 LIVE_BAR = """<form class="live" id="addf"><input name="title" placeholder="add a card: what is it" size="38" required><select name="status"><option>next</option><option>doing</option><option>blocked</option><option>backlog</option></select><input name="area" placeholder="area" size="9"><input name="blocked_on" placeholder="waiting on (if blocked)" size="22"><button>Add</button>
@@ -655,7 +752,7 @@ def cmd_serve(a):
             if path == '/':
                 with lock:
                     board = json.loads(bp.read_text(encoding='utf-8'))
-                    page = render_board_html(board, load_latest(), cached('iss', 300, issues) or [], cached('status', 120, status_text) or '', token)
+                    page = render_board_html(board, load_latest(), cached('iss', 300, issues) or [], cached('status', 120, status_text) or '', token, cached('gh', 600, github_stats))
                 return self.send(200, page, 'text/html')
             if path == '/api/run':
                 if not self.authed():
@@ -688,7 +785,7 @@ def cmd_serve(a):
                         it = next((i for i in items if i.get('id') == data.get('id')), None)
                         if not it or data.get('status') not in ('doing', 'next', 'blocked', 'backlog', 'done'):
                             return self.send(400, '{"ok":false,"error":"no such card or status"}')
-                        it['status'] = data['status']
+                        mark_done(it, data['status'])
                     else:
                         title = str(data.get('title', '')).strip()
                         if not title or data.get('status') not in ('doing', 'next', 'blocked', 'backlog'):
@@ -780,11 +877,15 @@ def cmd_board(a):
     order = ['doing', 'next', 'blocked', 'backlog', 'done']
     items = board.get('items', [])
     lines = ['# Project board', '', 'Generated by `python tools/dev.py board` from `handoff/board.json` (edit that, not this). Updated %s.' % datetime.date.today().isoformat(), '']
+    stats = github_stats()
+    if stats:
+        lines += [stats_line(stats), '']
+    recent_done, old_done = split_done(items)
     for st in order:
-        group = [i for i in items if i.get('status') == st]
+        group = recent_done if st == 'done' else [i for i in items if i.get('status') == st]
         if not group:
             continue
-        lines += ['## %s (%d)' % (st.capitalize(), len(group)), '']
+        lines += ['## %s (%d)' % (st.capitalize(), len(group) + (len(old_done) if st == 'done' else 0)), '']
         for i in group:
             extra = []
             if i.get('blocked_on'):
@@ -797,6 +898,8 @@ def cmd_board(a):
             if i.get('note'):
                 lines.append('  - ' + i['note'])
         lines.append('')
+        if st == 'done' and old_done:
+            lines += ['### Archive (%d done earlier; the newest %d are above)' % (len(old_done), DONE_VISIBLE), ''] + ['- **%s** %s' % (i.get('id', ''), i.get('title', '')[:100]) for i in old_done] + ['']
     r = load_latest()
     if r:
         lines += ['## Last test results', '']
@@ -824,7 +927,7 @@ def cmd_board(a):
                 print('status: %s' % e)
         out = DEV / 'board.html'
         DEV.mkdir(parents=True, exist_ok=True)
-        out.write_text(render_board_html(board, r, iss, buf.getvalue()), encoding='utf-8')
+        out.write_text(render_board_html(board, r, iss, buf.getvalue(), None, stats), encoding='utf-8')
         print('%s' % out)
         if a.open:
             os.startfile(str(out))
@@ -984,6 +1087,12 @@ def cmd_selftest(a):
     page = render_board_html(b, {'t': {'ok': True, 'summary': 'fine'}}, [{'number': 1, 'title': 'issue', 'updatedAt': '2026-01-01'}], 'status', None)
     check('board html', 'LS Project Manager' in page and 'A2' in page and 'waiting on owner' in page and 'class="mv"' not in page)
     check('board html live', 'class="mv"' in render_board_html(b, {}, [], '', 'tok') and 'const TOKEN="tok"' in render_board_html(b, {}, [], '', 'tok'))
+    many = {'items': [{'id': 'D%d' % n, 'title': 't', 'status': 'done', 'doneAt': '2026-10-%02d' % (n % 28 + 1)} for n in range(20)] + [{'id': 'N1', 'title': 'x', 'status': 'next'}]}
+    recent, old = split_done(many['items'])
+    check('board archive', len(recent) == DONE_VISIBLE and len(old) == 8 and min(i['doneAt'] for i in recent) >= max(i['doneAt'] for i in old))
+    st = {'at': '2026-10-21 09:00', 'day': '2026-10-21', 'stars': 200, 'forks': 2, 'watchers': 3, 'open_issues': 3, 'downloads': 8100, 'latest': ('v1.0.2', 30), 'views': 5000, 'view_uniques': 1400, 'clones': 500, 'clone_uniques': 120, 'referrers': [('Google', 10)], 'since': {'day': '2026-10-20', 'stars': 193, 'downloads': 8078}}
+    pg = render_board_html(many, {}, [], '', None, st)
+    check('board stats bar', 'class="stats"' in pg and '<em>+7</em>' in pg and 'Archive: 8 done earlier' in pg and 'GitHub (2026-10-21 09:00): 200 stars (+7)' in stats_line(st))
     with tempfile.TemporaryDirectory() as td:
         pa, pb, pc = Path(td) / 'a', Path(td) / 'b', Path(td) / 'c'
         pa.write_bytes(b'abcd'); pb.write_bytes(b'abcd'); pc.write_bytes(b'abce')
