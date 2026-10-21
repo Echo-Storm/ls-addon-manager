@@ -1,4 +1,15 @@
-# Release 1.0.1: what is in it, what to test, what to do on release day (prepared 2026-10-20; not tagged, not released)
+# Release 1.0.1: **released 2026-10-20** (tag v1.0.1, https://github.com/Echo-Storm/ls-addon-manager/releases/tag/v1.0.1)
+
+## What happened on release day
+
+- Full `tools\ci.ps1` passed; `run_addon_tests.ps1 -All` passed; the host matrix (`--jobs 1`, 75 scenarios) passed except `vsr`, which failed once while the machine was busy with file extraction and passed alone straight after.
+- The owner decided on the day: **everything goes in, as prototypes** (EchoFG and the VSR addon: `wip` removed, `NR_FRAMEGEN` defaults to ON, packaged, off until switched on; VSR comes with NVIDIA's Video Effects SDK files again, with the licence PDFs); only `nvngx_dlssnr.dll` is the user's own. And **Setup must not replace a file the person changed**: it records what it places (`addons\.installed-files.txt`) and carries `known-hashes.txt` (every earlier release's files, `tools/make_known_hashes.py`); a changed file is kept and reported.
+- Zip: `LSAddonManager-1.0.1-x64.zip`, 175,871,477 bytes, SHA-256 0125a41853d6fe68d37f8ae3a3c4647535325df502b28a77af84e9fe7d25ccfb (the release page shows the same).
+- **Not done**: the hour of live testing below (board R1), and the replies on issues #22 and #21 (not posted: the owner's yes first).
+- The README was rewritten (quick start, requirements, the prototypes, the keep-changed-files rule), the docs have a map (`docs/README.md`), every script is in `tools/`.
+
+The text below is what was written before the release.
+
 
 State: the version is 1.0.1 everywhere (`tools/bump_version.py 1.0.1 --apply`), CHANGELOG.md has a "1.0.1 (2026-10-20)" section, the README's "New in" paragraph and ROADMAP.md's status line say 1.0.1.
 Nothing is tagged. The tag, the zip and the release are the owner's. The full suite (`tools\ci.ps1`, the host matrix) has NOT been run for this number: it runs once, on release day.
