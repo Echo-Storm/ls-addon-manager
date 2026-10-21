@@ -4,7 +4,10 @@
 #include <windows.h>
 #include <ctime>
 #include <filesystem>
+#include <fstream>
 #include <functional>
+#include <map>
+#include <set>
 
 namespace fs = std::filesystem;
 
@@ -108,13 +111,62 @@ void Place(Journal& j, const std::wstring& src, const std::wstring& dst, const s
           });
 }
 
-void CopyTree(Journal& j, const std::wstring& srcRoot, const std::wstring& dstRoot, const std::wstring& backupRoot, const std::wstring& relRoot) {
+// What an earlier Setup put in the addons folder: "<sha256> TAB <path under addons>" a line, kept in addons\.installed-files.txt. A file of the addons
+// folder is replaced by an update only if it is still what was put there (or what an earlier release shipped): a file the person has changed (a newer
+// runtime of their own under the same name, an edited addon.json) is theirs and is left alone.
+using HashMap = std::map<std::wstring, std::string>;                     // path under addons (lower case) -> sha256
+using KnownSet = std::set<std::pair<std::wstring, std::string>>;         // (path under addons (lower case), sha256) of files earlier releases shipped
+
+void ReadHashLines(const std::wstring& file, const std::function<void(const std::wstring&, const std::string&)>& take) {
+    std::ifstream in(fs::path(file), std::ios::binary);
+    std::string line;
+    while (std::getline(in, line)) {
+        while (!line.empty() && (line.back() == '\r' || line.back() == '\n')) line.pop_back();
+        const size_t tab = line.find('\t');
+        if (tab != 64 || line.size() <= 65) continue;
+        take(LowerCase(Widen(line.substr(65))), line.substr(0, 64));
+    }
+}
+
+std::wstring ManifestPath(const std::wstring& lsDir) { return JoinPath(lsDir, L"addons\\.installed-files.txt"); }
+
+void WriteManifest(const std::wstring& lsDir, const HashMap& files) {
+    std::string text;
+    for (const auto& f : files) text += f.second + "\t" + Narrow(f.first) + "\n";
+    const std::wstring path = ManifestPath(lsDir), tmp = path + L".new";
+    { std::ofstream out(fs::path(tmp), std::ios::binary | std::ios::trunc); out << text; if (!out) { DeleteFileW(tmp.c_str()); return; } }
+    if (!MoveFileExW(tmp.c_str(), path.c_str(), MOVEFILE_REPLACE_EXISTING)) DeleteFileW(tmp.c_str());   // (a note kept for next time is not worth failing an install for)
+}
+
+struct Shipped {
+    HashMap recorded;                  // what the last Setup placed
+    KnownSet known;                    // what earlier releases shipped (the payload's known-hashes.txt)
+    HashMap now;                       // what this run leaves recorded
+    std::vector<std::string> kept;     // files left as the person has them
+};
+
+void CopyTree(Journal& j, const std::wstring& srcRoot, const std::wstring& dstRoot, const std::wstring& backupRoot, const std::wstring& relRoot, Shipped& shipped) {
     std::error_code ec;
     for (fs::recursive_directory_iterator it(fs::path(srcRoot), fs::directory_options::skip_permission_denied, ec), end; !ec && it != end; it.increment(ec)) {
         if (!it->is_regular_file(ec)) continue;
         const std::wstring rel = fs::relative(it->path(), fs::path(srcRoot), ec).wstring();
         if (_wcsicmp(it->path().filename().wstring().c_str(), L"config.json") == 0) continue;   // never the person's settings
-        Place(j, it->path().wstring(), JoinPath(dstRoot, rel), backupRoot, JoinPath(relRoot, rel));
+        const std::wstring src = it->path().wstring(), dst = JoinPath(dstRoot, rel), key = LowerCase(rel);
+        const std::string want = Sha256File(src);
+        if (Exists(dst) && !want.empty()) {
+            const std::string have = Sha256File(dst);
+            const auto rec = shipped.recorded.find(key);
+            const bool unchanged = have.empty() || have == want ||   // (a file that cannot be read cannot be told from ours: it goes the usual way, which fails cleanly if it is locked)
+                                (rec != shipped.recorded.end() && rec->second == have) || shipped.known.count({ key, have }) != 0;
+            if (!unchanged) {   // the person's own file: not ours to replace (the new one stays in the release's files, and Repair after deleting it puts it back)
+                shipped.kept.push_back(Narrow(JoinPath(relRoot, rel)));
+                j.Note("kept the file you changed: " + Narrow(JoinPath(relRoot, rel)));
+                if (rec != shipped.recorded.end()) shipped.now[key] = rec->second;
+                continue;
+            }
+        }
+        Place(j, src, dst, backupRoot, JoinPath(relRoot, rel));
+        if (!want.empty()) shipped.now[key] = want;
     }
 }
 
@@ -156,6 +208,10 @@ Result Install(const std::wstring& lsDir, const std::wstring& payloadDir) {
     Journal j(r.log);
     const std::wstring backupDir = FreshBackupDir(JoinPath(lsDir, L"backups\\installer-" + Stamp()));
     const std::wstring lossless = JoinPath(lsDir, L"Lossless.dll"), original = JoinPath(lsDir, L"Lossless_original.dll");
+    Shipped shipped;
+    ReadHashLines(ManifestPath(lsDir), [&](const std::wstring& rel, const std::string& hash) { shipped.recorded[rel] = hash; });
+    ReadHashLines(JoinPath(payloadDir, L"known-hashes.txt"), [&](const std::wstring& rel, const std::string& hash) { shipped.known.insert({ rel, hash }); });
+    shipped.now = shipped.recorded;   // (what was recorded stays, for files this payload does not carry)
     try {
         if (!MakeDirs(backupDir)) throw Failure{ "could not create the backups folder" };
         r.backupDir = backupDir;
@@ -182,7 +238,7 @@ Result Install(const std::wstring& lsDir, const std::wstring& payloadDir) {
         // the icons under the names they had up to 0.7.4
         for (const wchar_t* icon : { L"LP-icon.ico", L"LP-icon.png" })
             if (Exists(JoinPath(lsDir, icon))) Rename(j, JoinPath(lsDir, icon), JoinPath(backupDir, icon), "moved an icon file under its old name to the backups");
-        if (Exists(JoinPath(payloadDir, L"addons"))) CopyTree(j, JoinPath(payloadDir, L"addons"), JoinPath(lsDir, L"addons"), backupDir, L"addons");
+        if (Exists(JoinPath(payloadDir, L"addons"))) CopyTree(j, JoinPath(payloadDir, L"addons"), JoinPath(lsDir, L"addons"), backupDir, L"addons", shipped);
 
         // a helper DLL an earlier version left behind under its old name
         const std::wstring stale = JoinPath(lsDir, L"addons\\DLSS5NR01\\nvngx.dll_lspnr.dll");
@@ -203,12 +259,20 @@ Result Install(const std::wstring& lsDir, const std::wstring& payloadDir) {
     }
 
     RememberFolder(lsDir);
+    WriteManifest(lsDir, shipped.now);
+    r.kept = shipped.kept;
     std::error_code ec;
     fs::remove(fs::path(backupDir), ec);       // empty when nothing had to be saved
     if (Exists(backupDir)) r.backupDir = backupDir; else r.backupDir.clear();
     r.ok = true;
     r.message = std::string(before.situation == Situation::Installed ? "Updated to " : (before.situation == Situation::AfterLsUpdate ? "Repaired: LS Addon Manager " : "Installed LS Addon Manager ")) + payload.version + ".";
     if (r.message.rfind("Updated to ", 0) == 0) r.message = "Updated LS Addon Manager to " + payload.version + ".";
+    if (!r.kept.empty()) {
+        r.message += " Kept " + std::to_string(r.kept.size()) + " file" + (r.kept.size() == 1 ? "" : "s") + " you had changed, as they are: ";
+        for (size_t i = 0; i < r.kept.size() && i < 3; ++i) r.message += (i ? ", " : "") + r.kept[i];
+        if (r.kept.size() > 3) r.message += ", and " + std::to_string(r.kept.size() - 3) + " more (all in the log)";
+        r.message += ".";
+    }
     return r;
 }
 

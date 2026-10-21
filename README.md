@@ -1,67 +1,61 @@
 <p align="center"><img src="docs/images/banner.svg" alt="Addon Manager for Lossless Scaling" width="100%"></p>
 
-<p align="center"><b>Lossless Scaling, extended.</b><br>DLSS 5 Neural Rendering, DLSS, FSR and XeSS upscaling for games that never had them, a built-in recorder and GPU limit, and an addon manager that keeps it all in one window.</p>
+<p align="center"><b>Lossless Scaling, extended.</b><br>DLSS 5 Neural Rendering, DLSS, FSR and XeSS upscaling for games that never had them, frame generation of our own (a prototype), a built-in recorder and GPU limit, and one window that keeps it all.</p>
 
 <p align="center">
-<a href="https://github.com/Echo-Storm/ls-addon-manager/releases/latest"><b>Download</b></a> &nbsp;·&nbsp; <a href="#install">Install</a> &nbsp;·&nbsp; <a href="#the-addons">The addons</a> &nbsp;·&nbsp; <a href="#built-in-features">Features</a> &nbsp;·&nbsp; <a href="CHANGELOG.md">Changelog</a> &nbsp;·&nbsp; <a href="docs/faq.md">Questions</a>
+<a href="https://github.com/Echo-Storm/ls-addon-manager/releases/latest"><b>Download</b></a> &nbsp;·&nbsp; <a href="#quick-start">Quick start</a> &nbsp;·&nbsp; <a href="#install">Install</a> &nbsp;·&nbsp; <a href="#the-addons">The addons</a> &nbsp;·&nbsp; <a href="#built-in-features">Features</a> &nbsp;·&nbsp; <a href="CHANGELOG.md">Changelog</a> &nbsp;·&nbsp; <a href="docs/faq.md">Questions</a>
 </p>
 
 <p align="center"><img src="docs/images/addons.png" alt="The manager as it runs: the addons at the left with a switch and live status each, Neural Rendering's panel at the right, the machine's load in the header" width="100%"></p>
 
-**Addon Manager for Lossless Scaling** loads alongside [Lossless Scaling](https://store.steampowered.com/app/993090/Lossless_Scaling/) and gives it an addon system,
-with addons that do what Lossless Scaling alone cannot:
+**Addon Manager for Lossless Scaling** loads alongside [Lossless Scaling](https://store.steampowered.com/app/993090/Lossless_Scaling/) and gives it an addon system. What it adds, as addons you switch on and off:
 
-- **DLSS 5 Neural Rendering** gives any game a new look, on every frame Lossless Scaling shows.
-- The **DLSS**, **FSR** and **XeSS Upscalers** put a real temporal upscaler in place of Lossless Scaling's NIS scaler, so games that never had one get one.
+- **Upscalers.** The **DLSS**, **FSR** and **XeSS Upscalers** put a real temporal upscaler in place of Lossless Scaling's NIS scaler, so a game that never had one gets one. They need no support from the game.
+- **DLSS 5 Neural Rendering** gives any game a new look, on every frame Lossless Scaling shows (you provide the model file yourself, see below).
+- **Prototypes:** **EchoFG**, our own frame generator, and **Video Super Resolution**. They are in the package, off until you switch them on, and rough in places.
 
-Around them, the manager installs and switches addons, records clips of what the game showed, keeps the graphics card under a limit you choose, shows the machine's
-load at a glance, explains what limits your frame rate, backs every setting up and updates itself. It is free, MIT-licensed and unofficial: not affiliated with the Lossless Scaling developers. Read the [disclaimer](DISCLAIMER.md) before installing.
+And built into the manager: a **recorder** that saves what the game showed (a clip that plays a problem back on another computer), a **GPU limit**, ReShade input passthrough, windowed mode, a **Performance tab** that says what limits your frame rate, backups of every setting, and updates. It is free, MIT-licensed and **unofficial**: not affiliated with the Lossless Scaling developers. Read the [disclaimer](DISCLAIMER.md) before installing.
 
 [![build](https://github.com/Echo-Storm/ls-addon-manager/actions/workflows/build.yml/badge.svg)](https://github.com/Echo-Storm/ls-addon-manager/actions/workflows/build.yml)
 &nbsp; **1.0.1** ([roadmap](ROADMAP.md)) &nbsp;·&nbsp; Lossless Scaling 3.2.2.0 &nbsp;·&nbsp; Windows 10 or 11, x64
-
-> [!TIP]
-> **New in 1.0.1: heavy upscalers no longer take a game's frame rate under frame generation, and faster starts.**
-> - **The upscalers lighten the frames Lossless Scaling generates when the card is full** (on by default; issue #22). With frame generation the upscaler runs on every picture shown, so a heavy model (DLSS 4.5, FSR 4) could cost most of a game's frame rate. Now, while the card's load is at or over the GPU limit (95 % if that feature is off), the generated frames get a much lighter picture; the game's own frames are still upscaled in full. Untick it in the upscaler's panel to turn it off.
-> - **Shaders are compiled once and kept**, so the addons start without the 1 to 5 seconds of compiling (a small cache under `%LOCALAPPDATA%\LSAddonManager\shader-cache`).
-> - **The comparison label** (Ctrl+Shift+F9) now also says which runtime version is running.
-> - The manager's feature tiles and the VSR and EchoFG icons were redrawn (the recorder gets a camera, the GPU limit a gauge).
->
-> 1.0.0 added one recorder and one GPU limit for everything and a choice of model for Neural Rendering; see the [changelog](CHANGELOG.md).
->
-> Everything since 0.9 is in the [changelog](CHANGELOG.md).
-
-<p align="center"><img src="docs/images/shf-original.jpg" alt="Silent Hill f through Lossless Scaling, the original picture" width="100%"></p>
-<p align="center"><img src="docs/images/shf-neural-rendering.jpg" alt="The same scene with DLSS 5 Neural Rendering" width="100%"></p>
-<p align="center"><sub>Silent Hill f (Unreal Engine 5, HDR) through Lossless Scaling: the original above, DLSS 5 Neural Rendering below.</sub></p>
 
 > [!IMPORTANT]
 > **DLSS 5 Neural Rendering needs a file you provide yourself:** your own copy of `nvngx_dlssnr.dll`. It is **not included**, this project **never downloads it**,
 > and it does not say where to get it. Put it next to `LosslessScaling.exe` (Setup and the addon's **Browse for the model file...** button can copy it there), then
 > press **Test compatibility** in the addon's panel. Everything else, the upscalers included, works without it.
 
-**Tried with** World of Warcraft: Forever, Fallout: New Vegas (Tale of Two Wastelands), Silent Hill f (HDR) and Metro 2033 Redux, on an RTX 4070 Ti SUPER and
-Windows 11. Other games and cards are untested so far: reports are welcome.
+## Quick start
+
+1. Download the zip from the [releases page](https://github.com/Echo-Storm/ls-addon-manager/releases), unzip it, close Lossless Scaling and run **`LSAddonManagerSetup.exe`**. ([Install](#install) has the details.)
+2. Start Lossless Scaling. The manager opens by itself.
+3. In Lossless Scaling choose **NIS** as the **Scaling Type**, and run your game in a window **smaller than your screen** (for example 2560x1440 on a 4K screen).
+4. In the manager's **Addons** tab switch on the upscaler for your card: **DLSS** on an NVIDIA RTX card, otherwise **FSR**.
+5. Press **Ctrl+Shift+F7** in the game to flip between the upscaler and NIS and judge for yourself.
+
+Something wrong? [If something goes wrong](#if-something-goes-wrong) and the [questions and answers](docs/faq.md) come first; the manager's **Settings** tab makes a diagnostics file for a report.
 
 ## What you need
 
 | | |
 |---|---|
 | **Lossless Scaling** | 3.2.2.0 (the Steam version), on Windows 10 or 11, x64. The manager forwards to Lossless Scaling's own `Lossless.dll`; nothing is patched on disk. |
-| **For DLSS 5 Neural Rendering** | An NVIDIA RTX graphics card and your own `nvngx_dlssnr.dll` (see above). |
-| **For the DLSS Upscaler** | An NVIDIA RTX card. The runtime comes with the addon. |
-| **For the FSR Upscaler** | Any DirectX 12 graphics card. The runtime comes with the addon. |
-| **For EchoFG (prototype)** | Any DirectX 12 graphics card. AMD's FSR 3.1 runtime for its alternative comes with the addon. |
-| **For Video Super Resolution (prototype)** | An NVIDIA RTX card and your own NVIDIA Video Effects SDK (not included). |
-| **For the XeSS Upscaler** | Any card with Shader Model 6.4 (Intel Arc, NVIDIA, AMD). The runtime comes with the addon. |
-| **Everything else** (recording, GPU limit, ReShade passthrough, windowed mode, the update check) | Nothing more: it is built into the manager. |
+| **DLSS Upscaler** | An NVIDIA RTX graphics card. NVIDIA's runtime comes with the addon. |
+| **FSR Upscaler** | Any DirectX 12 graphics card. AMD's runtimes (FSR 3.1.4 and FSR 4.1.1b) come with the addon. |
+| **XeSS Upscaler** | Any card with Shader Model 6.4 (Intel Arc, NVIDIA, AMD). Intel's runtime comes with the addon. |
+| **DLSS 5 Neural Rendering** | An NVIDIA RTX card and your own `nvngx_dlssnr.dll` (see above). |
+| **EchoFG** (prototype) | Any DirectX 12 card. AMD's FSR 3.1 runtime, for its alternative way of making frames, comes with the addon. |
+| **Video Super Resolution** (prototype) | An NVIDIA RTX card. The files of NVIDIA's Video Effects SDK it needs come with the addon. |
+| **Everything else** | Recording, GPU limit, ReShade passthrough, windowed mode and the update check are built into the manager: nothing more. |
 
-**In a hurry?** Run Setup ([Install](#install)), start Lossless Scaling, choose **NIS** as the Scaling Type, open the **Addons** tab and switch on the upscaler for your card (DLSS on NVIDIA RTX, otherwise FSR), run your game in a window smaller than your screen. Compare with **Ctrl+Shift+F7** (before / after). Something wrong? [If something goes wrong](#if-something-goes-wrong) and the [questions and answers](docs/faq.md) come first; the manager's **Settings** tab makes a diagnostics file for a report.
+**Tried with** World of Warcraft: Forever, Fallout: New Vegas (Tale of Two Wastelands), Silent Hill f (HDR) and Metro 2033 Redux, on an RTX 4070 Ti SUPER and Windows 11. Other games and cards are untested so far, and the prototypes have had the least use: reports are welcome.
+
+> [!TIP]
+> **New in 1.0.1:** heavy upscalers no longer take a game's frame rate under frame generation (issue #22: while the card is full, the frames Lossless Scaling generates get a much lighter upscaling; the game's own frames stay in full; on by default, untick it in the upscaler's panel); shaders are compiled once and kept, so the addons start without 1 to 5 seconds of compiling; the comparison label shows the runtime's version; **EchoFG and Video Super Resolution are in the package as prototypes**; and **Setup leaves a file you have changed alone** (see [Install](#install)). The [changelog](CHANGELOG.md) has everything since 0.9.
 
 ## Contents
 
-- [Install](#install)
-- [The addons](#the-addons): [Neural Rendering](#dlss-5-neural-rendering), [the upscalers](#the-upscalers-dlss-fsr-and-xess) · [Built-in features](#built-in-features): recording, GPU limit, ReShade, windowed mode
+- [Quick start](#quick-start) · [What you need](#what-you-need) · [Install](#install)
+- [The addons](#the-addons): [the upscalers](#the-upscalers-dlss-fsr-and-xess), [Neural Rendering](#dlss-5-neural-rendering), [the prototypes](#the-prototypes-echofg-and-video-super-resolution) · [Built-in features](#built-in-features): recording, GPU limit, ReShade, windowed mode
 - [The manager](#the-manager) · [Hotkeys](#hotkeys) · [Updates](#updates) · [If something goes wrong](#if-something-goes-wrong)
 - [Documentation](#documentation) · [For developers](#for-developers): how it works, building, writing an addon, [research notes](#research-notes) · [Credits](#credits)
 
@@ -69,8 +63,8 @@ Windows 11. Other games and cards are untested so far: reports are welcome.
 
 1. Download `LSAddonManager-<version>-x64.zip` from the [releases page](https://github.com/Echo-Storm/ls-addon-manager/releases) and unzip it.
 2. Close Lossless Scaling and run **`LSAddonManagerSetup.exe`**. It finds your Lossless Scaling folder (Steam or not; otherwise choose **Use a different
-   folder...**) and offers what fits: **Install**, **Update**, **Repair** or **Uninstall**.
-3. Start Lossless Scaling. The manager opens by itself. Neural Rendering is on; the upscalers are off until you switch one on.
+   folder...**) and offers what fits: **Install**, **Update**, **Reinstall**, **Repair** or **Uninstall**.
+3. Start Lossless Scaling. The manager opens by itself. Neural Rendering is on; every other addon is off until you switch it on.
 
 <table>
 <tr>
@@ -83,6 +77,7 @@ Windows 11. Other games and cards are untested so far: reports are welcome.
 - Keeps Lossless Scaling's own `Lossless.dll` as `Lossless_original.dll` (the manager forwards to it) and puts ours in, with the `addons` folder.
 - **Backs up everything it replaces** into a `backups` folder, checks every file after copying, and puts the folder back as it was if anything fails.
 - **Never touches your settings** or your other addons, and refuses to run while Lossless Scaling runs from that folder.
+- **Overwrites every file of the addons it ships, except one you have changed.** Setup keeps a record of what it put in the `addons` folder. A file that is no longer what it put there last time (a newer runtime of your own under the same name, an edited `addon.json`) is left as it is, and Setup tells you which. **If you modified a file, or use a modified one, you have to remove that file to get our current version of it** (the rest of the update is applied either way): delete or rename it, then run Setup again (an update, or **Reinstall**) and it puts ours back.
 - After a **Lossless Scaling update** (which may put its own `Lossless.dll` back), run it again: it offers **Repair**.
 - Asks for administrator rights only when the folder needs them (Program Files, for example).
 
@@ -94,7 +89,7 @@ Like every file here, Setup is **unsigned**, so Windows SmartScreen may warn you
 1. Close Lossless Scaling and open its folder (for Steam, for example `C:\Program Files (x86)\Steam\steamapps\common\Lossless Scaling`).
 2. **First time only:** rename its `Lossless.dll` to `Lossless_original.dll`. Keep it: the manager forwards to it.
 3. The files are inside Setup. In a command prompt in the unzipped folder, run `LSAddonManagerSetup.exe --extract files`: it writes them into a new
-   `files` folder and changes nothing else. Copy everything from there (`Lossless.dll`, the two `manager-icon` files and `addons`) into the Lossless Scaling folder.
+   `files` folder and changes nothing else. Copy `Lossless.dll`, the two `manager-icon` files and the `addons` folder from there into the Lossless Scaling folder.
 4. Start Lossless Scaling.
 
 **Updating:** extract the new release's files the same way and copy them over the old ones. **After a Lossless Scaling update:** delete the stale
@@ -106,38 +101,14 @@ Like every file here, Setup is **unsigned**, so Windows SmartScreen may warn you
 
 | | What it does | Needs | Starts |
 |---|---|---|---|
-| **DLSS 5 Neural Rendering** | NVIDIA's neural rendering model on every frame Lossless Scaling shows: a new look for any game | NVIDIA RTX, your own model file | on |
 | **DLSS Upscaler** | NVIDIA DLSS in place of NIS: upscaling, or DLAA at the screen's own size | NVIDIA RTX | off |
 | **FSR Upscaler** | AMD FSR 3.1 or FSR 4 in the same place | any DirectX 12 card | off |
 | **XeSS Upscaler** | Intel XeSS in the same place | any card with Shader Model 6.4 | off |
-| **Video Super Resolution** (prototype) | NVIDIA's RTX Video Super Resolution in the same place, for a picture that is still | NVIDIA RTX and your own copy of NVIDIA's Video Effects SDK | off |
-| **EchoFG frame generation** (prototype) | Our own frame generator: 1 to 8 frames made between each two real ones, with Lossless Scaling's own frame generation off | any DirectX 12 card | off |
+| **DLSS 5 Neural Rendering** | NVIDIA's neural rendering model on every frame Lossless Scaling shows: a new look for any game | NVIDIA RTX, your own model file | on |
+| **EchoFG frame generation** (prototype) | Our own frame generator: 1 to 8 frames made between each two real ones | any DirectX 12 card | off |
+| **Video Super Resolution** (prototype) | NVIDIA's RTX Video Super Resolution in place of NIS, for a picture that is still | NVIDIA RTX | off |
 
-Every runtime the upscalers need comes with them. Only one upscaler runs at a time; any of them works beside Neural Rendering.
-
-
-> [!NOTE]
-> **Two prototypes are in the package, off until you switch them on, and rough in places.** **EchoFG** makes frames between the real ones with its own shaders (or AMD's FSR 3.1 frame generation fed our motion estimate); choose NIS as the Scaling Type and leave Lossless Scaling's own frame generation off. It scores level with or better than FSR 3.1 on recordings (`docs/own-generator-plan.md`) but has been tried in few games live: reports are welcome. **Video Super Resolution** needs your own copy of NVIDIA's Video Effects SDK (nothing of it is included); its source is in `addons/DLSS5NR01/src/vsr`.
-
-### DLSS 5 Neural Rendering
-
-Runs NVIDIA's DLSS 5 neural model on Lossless Scaling's frames and puts the result on **every frame it presents, real and generated**, without ever making
-Lossless Scaling wait.
-
-- **Frame generation on or off.** With it on, the model's result is carried onto the generated frames along the motion; with it off, the model takes the presented frames.
-- **Its own motion measurement**, per pixel, so the picture holds together while the camera turns.
-- **Looks:** saved sets of sliders, a look per game that follows the game in focus, and a hotkey to cycle them.
-- **Keep the HUD untouched:** draw the areas the model must leave alone (action bars, chat, the minimap) on a snapshot of the game.
-- **Picture controls:** intensity, fine detail, local contrast, skin detail, sharpening, tone, colour, shadows and highlights, film grain, temporal smoothing,
-  and a ghost guard where the motion cannot be trusted.
-- **HDR games** (scRGB and HDR10), with only the model's change put back, so highlights keep their brightness.
-- **Compare while you play:** before / after, a split view, and before / after pictures (see [Hotkeys](#hotkeys)).
-- **Model preset:** with NVIDIA's runtime 310.9.16 or newer, *Newer* (the default: about 40 % less model time, a gentler effect) or *Older* (the original look, the old cost); a model file older than that has only the older one.
-- **Auto quality** keeps the model within a time budget (and follows the manager's [GPU limit](#built-in-features)); a **compatibility test** tries the model on your card before you play.
-
-About 5 to 9 ms a frame on an RTX 4070 Ti SUPER with a 1912x1080 model input (8.5 ms at 4K in World of Warcraft). [The addon's README](addons/DLSS5NR01/README.md) has the details.
-
-<p align="center"><img src="docs/images/hud-editor.png" alt="HUD areas drawn on a snapshot of World of Warcraft: Forever" width="100%"></p>
+Only one upscaler runs at a time (switching one on switches the others off); any of them works beside Neural Rendering and EchoFG.
 
 ### The upscalers: DLSS, FSR and XeSS
 
@@ -165,7 +136,7 @@ frame (no trailing), and at rest the upscaler smooths (the **Sharpness at rest**
 **Which one?** On an NVIDIA RTX card, try DLSS and FSR 4. On any other card, FSR, and XeSS on Intel Arc. All three are tried in World of Warcraft.
 
 What all three do:
-- **Every presented frame**, real and generated, with frame generation on or off.
+- **Every presented frame**, real and generated, with frame generation on or off. With frame generation on, the generated frames get a lighter upscaling while the card is full (on by default).
 - **HDR games** (scRGB and HDR10) in the upscaler's own HDR mode, highlights kept; *Frame encoding* overrides the automatic choice.
 - **4:3 and other window shapes**, upscaled into the part of the screen Lossless Scaling uses, borders left alone.
 - **Steady in fast motion:** Lossless Scaling gives an upscaler none of the camera jitter a game gives it, so in motion its memory of
@@ -185,6 +156,37 @@ What they cost on an RTX 4070 Ti SUPER, everything included (the 1:1 row: 0.9.14
 
 FSR 4 costs more than FSR 3.1; the panel's status line shows what it takes on your card. If the game has its own anti-aliasing (MSAA), switch it on: it
 draws what no upscaler can put back. The [upscalers' guide](addons/DLSS5NR01/docs/upscalers.md) covers every setting.
+
+### DLSS 5 Neural Rendering
+
+<p align="center"><img src="docs/images/shf-original.jpg" alt="Silent Hill f through Lossless Scaling, the original picture" width="100%"></p>
+<p align="center"><img src="docs/images/shf-neural-rendering.jpg" alt="The same scene with DLSS 5 Neural Rendering" width="100%"></p>
+<p align="center"><sub>Silent Hill f (Unreal Engine 5, HDR) through Lossless Scaling: the original above, DLSS 5 Neural Rendering below.</sub></p>
+
+Runs NVIDIA's DLSS 5 neural model on Lossless Scaling's frames and puts the result on **every frame it presents, real and generated**, without ever making
+Lossless Scaling wait. It needs your own `nvngx_dlssnr.dll` (see the note at the top).
+
+- **Frame generation on or off.** With it on, the model's result is carried onto the generated frames along the motion; with it off, the model takes the presented frames.
+- **Its own motion measurement**, per pixel, so the picture holds together while the camera turns.
+- **Looks:** saved sets of sliders, a look per game that follows the game in focus, and a hotkey to cycle them.
+- **Keep the HUD untouched:** draw the areas the model must leave alone (action bars, chat, the minimap) on a snapshot of the game.
+- **Picture controls:** intensity, fine detail, local contrast, skin detail, sharpening, tone, colour, shadows and highlights, film grain, temporal smoothing,
+  and a ghost guard where the motion cannot be trusted.
+- **HDR games** (scRGB and HDR10), with only the model's change put back, so highlights keep their brightness.
+- **Compare while you play:** before / after, a split view, and before / after pictures (see [Hotkeys](#hotkeys)).
+- **Model preset:** with NVIDIA's runtime 310.9.16 or newer, *Newer* (the default: about 40 % less model time, a gentler effect) or *Older* (the original look, the old cost); a model file older than that has only the older one.
+- **Auto quality** keeps the model within a time budget (and follows the manager's [GPU limit](#built-in-features)); a **compatibility test** tries the model on your card before you play.
+
+About 5 to 9 ms a frame on an RTX 4070 Ti SUPER with a 1912x1080 model input (8.5 ms at 4K in World of Warcraft). [The addon's README](addons/DLSS5NR01/README.md) has the details.
+
+<p align="center"><img src="docs/images/hud-editor.png" alt="HUD areas drawn on a snapshot of World of Warcraft: Forever" width="100%"></p>
+
+### The prototypes: EchoFG and Video Super Resolution
+
+Both are in the package and **off until you switch them on**. They work, they are measured, and they have been used in far fewer games than the rest: expect rough edges, and tell us what you find.
+
+- **EchoFG** is **our own frame generator.** With Lossless Scaling's own frame generation **off**, it shows 1 to 8 frames made between each two real ones, evenly spaced, in Lossless Scaling's window; choose **NIS** as the Scaling Type. It makes the frames with its own shaders from this project's own motion estimate (per pixel, with a correction for repeating patterns such as fences and a lighter analysis on 4K frames), or, as an alternative, with AMD's FSR 3.1 frame generation fed that motion; it holds a HUD that stays put while the picture turns. It works beside the upscalers or without them. The real frames are shown about one frame later than without it. Measured offline on real recordings it scores at least as well as FSR 3.1 and clearly better than a plain blend ([`docs/own-generator-plan.md`](docs/own-generator-plan.md), which also says how the scores behave at very fast motion); what is still open is how it compares with Lossless Scaling's own frame generation on a real screen, and its pacing on every display.
+- **Video Super Resolution** puts NVIDIA's RTX Video Super Resolution in place of NIS: a trained network that sharpens the picture one frame at a time, which suits still scenes, menus, interface text and video. It comes with the files of NVIDIA's Video Effects SDK it needs, in its `vfx` folder, with NVIDIA's licences. Choose **NIS** as the Scaling Type; one upscaler runs at a time.
 
 ### Built-in features
 
@@ -247,7 +249,7 @@ clashes in your game, change it in the addon's *Compare and hotkeys* section.
 | Ctrl+Shift+F2 / F3 | Sharpening down / up | every addon |
 | Ctrl+Shift+F4 | Before / after pictures: two PNGs of the same moment, with and without the addon | every addon |
 | Ctrl+Shift+F10 | The next saved look | Neural Rendering |
-| Ctrl+Shift+F9 | Steps through Lossless Scaling's NIS and the upscalers that are on, one at a time, with a label (a temporary test; not configurable, so do not bind F9 to anything else) | the upscalers |
+| Ctrl+Shift+F9 | Steps through Lossless Scaling's NIS and the upscalers that are on, one at a time, with a label that names the upscaler and its runtime version (a temporary test; not configurable, so do not bind F9 to anything else) | the upscalers |
 | Ctrl+Shift+F1 | Save the recording (the last few seconds; or, with the recorder's *Keep the last few seconds* off, record the next ten and save them). The key can be any of F1 to F12 | the manager (Features tab, *Recording*) |
 | Home | ReShade input passthrough on and off | the manager |
 
@@ -257,7 +259,7 @@ At start-up (if the last check is over an hour old) and then once a day while it
 *Settings > Updates* turns it off, *Check now* always works). It waits while a game is being scaled, so nothing is shown over a game. When there is one, it asks once, and
 an **Update available** badge stays in the header (also after *Not now*) to open the offer again:
 
-- **Download and install** downloads the release, checks its size and SHA-256 against GitHub's and that the Setup inside is that version. Then you choose:
+- **Download and install** downloads the release, checks its size and SHA-256 against GitHub's (a download GitHub lists no SHA-256 for is refused: use the release page) and that the Setup inside is that version. Then you choose:
   **Close it and install** asks Lossless Scaling to close itself (as its window's X would; any scaling in progress ends) and Setup updates it and starts it
   again; **Install when I close it** leaves the closing to you and Setup waits. If Lossless Scaling does not close when asked (a dialog open in it), the offer says
   so and gives **Ask again** and **End it now**. Your settings carry over, and the Setup that runs is hashed again just before it starts.
@@ -272,7 +274,7 @@ an **Update available** badge stays in the header (also after *Not now*) to open
 
 (The pictures show a sample release.)
 
-That check, and a download you ask for, are the only times the manager goes online. To update by hand, download the zip and run Setup: it offers **Update**.
+That check, and a download you ask for, are the only times the manager goes online. To update by hand, download the zip and run Setup: it offers **Update**. Setup replaces every file it ships except one you have changed (see [Install](#install)).
 
 ## If something goes wrong
 
@@ -281,9 +283,11 @@ That check, and a download you ask for, are the only times the manager goes onli
 | The manager does not appear | It may be hidden: look under the ^ arrow by the clock, or press Ctrl+Shift+F12. If not, a Lossless Scaling update may have put its own `Lossless.dll` back: run Setup and choose **Repair**. |
 | Setup says Lossless Scaling is running | Close it (also from its notification-area icon), then press **Check again**. |
 | Setup does not find your Lossless Scaling folder | Choose **Use a different folder...** and pick the folder that holds `LosslessScaling.exe`. Setup remembers it. |
+| After an update, an addon still behaves like the old version | Setup leaves a file you changed (or a runtime of your own under the same name) as it is, and says which. Delete or rename that file and run Setup again (**Reinstall**): it puts ours back. |
 | SmartScreen or your antivirus objects to a file, or flags the zip as a trojan | The files are not signed, and a new unsigned file that replaces a DLL looks suspicious to a cloud check; it is a false positive. [What to do](docs/antivirus.md): compare the SHA-256 on the release page, build it yourself, or allow it. If your antivirus removes `nr_selftest.exe`, only *Test compatibility* stops working. |
 | Neural Rendering says the model file is missing | It needs your own `nvngx_dlssnr.dll` next to `LosslessScaling.exe`: use **Browse for the model file...**, then **Test compatibility**. |
 | An upscaler is on but the picture looks like NIS | Choose **NIS** as the Scaling Type in Lossless Scaling. The panel's status line says what the upscaler is doing. |
+| The frame rate drops a lot with DLSS or FSR 4 and frame generation | Since 1.0.1 the generated frames get a lighter upscaling while the card is full (the panel's *Lighter upscaling of generated frames when the card is full*, on by default). A frame cap with some headroom helps too. [Questions and answers](docs/faq.md). |
 | The DLSS Upscaler names a card that is not NVIDIA's | Lossless Scaling runs on that card. Set its **Preferred GPU** to your NVIDIA card, or use the FSR or XeSS Upscaler, which run on any card. |
 | FSR 4 looks wrong, costs too much or does not start | Set *FSR version* back to **FSR 3.1.4** in the FSR Upscaler's panel. A chosen file that goes missing falls back to the shipped one by itself. |
 | An addon says its runtime "stopped responding" | Lossless Scaling carries on without the addon. Choose another runtime with **+** in the Runtimes list, restart Lossless Scaling, and send us the addon's log. |
@@ -296,17 +300,19 @@ That check, and a download you ask for, are the only times the manager goes onli
 <details>
 <summary><b>The files it keeps</b></summary>
 
-All inside the Lossless Scaling folder, except the recordings.
+All inside the Lossless Scaling folder, except the recordings and the shader cache.
 
 | File | What |
 |------|------|
 | `addons\config.json` | Every addon's state and settings, and the manager's. Written atomically; an unreadable one is kept as `config.json.corrupt`. |
+| `addons\.installed-files.txt` | What Setup put in the `addons` folder (a hash a file), so an update can tell a file you changed from one it put there. Safe to delete: the next update then keeps any file that differs from a release's own. |
 | `addons\trusted_addons.json` | Optional: `{ "<addon id>": ["<sha256 of its DLL>"] }`, for the Security setting. |
 | `addons\.removed\` | Addons you removed, each in a folder with a timestamp. |
 | `addons\<addon>\runtimes\` | Runtime files added with **+** in the Runtimes list (and the FSR 4 build), one folder each. Updates leave them alone. |
 | `backups\` | What Setup replaced, and settings saved before a restore replaced them. |
-| `logs\` | `LSAddonManager.log` and each addon's own (`DLSS5NR01.log`, `DLSS4DLAA.log`, `FSR3UPSC.log`, `XESSUPSC.log`); the manager's rolls over to `.old` at 8 MB. |
+| `logs\` | `LSAddonManager.log` and each addon's own (`DLSS5NR01.log`, `DLSS4DLAA.log`, `FSR3UPSC.log`, `XESSUPSC.log`, ...); the manager's rolls over to `.old` at 8 MB. |
 | `Videos\Lossless Scaling\*.lsrec` | Recordings, in your Videos folder. |
+| `%LOCALAPPDATA%\LSAddonManager\shader-cache` | The addons' compiled shaders (about half a megabyte; files unused for 90 days are removed). Safe to delete. |
 </details>
 
 ## Documentation
@@ -348,7 +354,7 @@ Visual Studio 2022 (Desktop C++) and CMake 3.20+. Dear ImGui and MinHook are fet
 powershell -File tools\build_all.ps1              # the manager and the addons (-Only host: the manager only)
 powershell -File tools\run_addon_tests.ps1        # the offline tests for what changed (-All: everything)
 powershell -File tools\ci.ps1                     # what the GitHub build runs: manager, installer, sample addon, and the tests that need no GPU
-python tools\run_hosttest_matrix.py --jobs 3      # the addons on a hidden swap chain, scenario by scenario (GPU; an idle machine)
+python tools\run_hosttest_matrix.py --jobs 1      # the addons on a hidden swap chain, scenario by scenario (GPU; an idle machine)
 python tools\bump_version.py 1.0.1                # every place that holds the release number (dry run; --apply writes)
 powershell -File tools\package.ps1                # the release zip, with Setup built around the files
 powershell -File tools\deploy.ps1 -What all       # copy a build into a Lossless Scaling folder, with backups

@@ -130,7 +130,7 @@ Advice Advise(const State& s, const std::string& payloadVersion) {
             a.actionLabel = "Update to " + payloadVersion;
         } else if (cmp == 0) {
             a.headline = (s.installedVersion.empty() ? std::string("An earlier LS Addon Manager") : "LS Addon Manager " + s.installedVersion) + " is installed" + (s.installedVersion.empty() ? "." : " and up to date.");
-            a.detail = "You can reinstall it to put its files back as they came.";
+            a.detail = "You can reinstall it to put its files back as they came (a file you changed is left as it is: delete it first to get ours).";
             a.action = Action::Reinstall;
             a.actionLabel = "Reinstall";
         } else {

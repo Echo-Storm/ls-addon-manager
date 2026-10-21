@@ -219,7 +219,7 @@ Page& MainPage(App& a) {
         if (a.advice.action == Action::Install) label += L"\nKeeps Lossless Scaling's own file, adds the manager and its addons";
         else if (a.advice.action == Action::Update) label += L"\nReplaces the earlier version";
         else if (a.advice.action == Action::Repair) label += L"\nPuts the manager back after the Lossless Scaling update";
-        else if (a.advice.action == Action::Reinstall) label += L"\nPuts its files back as they came";
+        else if (a.advice.action == Action::Reinstall) label += L"\nPuts its files back as they came (not the ones you changed)";
         p.links.push_back({kAction, label});
         p.expanded = PlanText(a.advice.action);
     }

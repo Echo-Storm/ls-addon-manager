@@ -26,6 +26,9 @@ Once a day it asks github.com for the latest release number: GitHub sees your IP
 
 ## Setup
 
+**I changed a file in an addon's folder (or put a newer runtime there). Does an update overwrite it?**
+No. Setup keeps a record of the files it puts in the `addons` folder; a file that is no longer what it put there is yours, and an update leaves it and says so. To get our current version of such a file (everything else is updated either way), delete or rename it and run Setup again (an update or **Reinstall**): it is put back. The files that you have not changed are replaced as before, with the old ones saved in `backups`.
+
 **Setup says Lossless Scaling is running, but I closed the window.**
 Make sure it has really quit: look for its icon in the notification area, and for `LosslessScaling.exe` in Task Manager, and close it there. Then press *Check again*.
 

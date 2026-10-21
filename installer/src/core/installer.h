@@ -24,6 +24,7 @@ struct Result {
     std::vector<std::string> log;    // what was done, step by step
     std::wstring backupDir;          // where replaced files went (empty when nothing had to be saved)
     bool rolledBack = false;         // it failed part-way and the folder was put back as it was
+    std::vector<std::string> kept;   // addon files the person had changed, which were left as they are (paths under the Lossless Scaling folder)
 };
 
 // Install, update or repair, whichever the folder needs. Refuses while Lossless Scaling is running, and for a folder in a state it cannot mend.

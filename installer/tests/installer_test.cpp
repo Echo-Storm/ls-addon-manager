@@ -219,6 +219,51 @@ int wmain(int argc, wchar_t** argv) {
         Check("...and still leaves the person's settings and the original alone", UntouchedByInstall(ls) && Hash(ls / L"Lossless_original.dll") == originalHash);
     }
 
+    printf("== an update leaves a file of the addons folder the person has changed (it is not the one Setup put there last time)\n");
+    {
+        const fs::path ls = MakeLs(L"keep_ls", L"fake_original.dll");
+        const fs::path helper = ls / L"addons" / L"DLSS5NR01" / L"nvngx.dll_dlss5nr01.dll";
+        Result r = Install(ls.wstring(), MakePayload(L"payload_keep_a", g_ours, "A").wstring());
+        Check("a first install works and writes the record of what it placed", r.ok && r.kept.empty() && Exists((ls / L"addons" / L".installed-files.txt").wstring()), r.message);
+        Write(helper, "my own newer helper");   // the person swapped a file for one of their own
+        r = Install(ls.wstring(), MakePayload(L"payload_keep_b", g_ours, "B").wstring());
+        Check("an update replaces the files nobody changed...", r.ok && Read(ls / L"addons" / L"DLSS5NR01" / L"DLSS5NR01.dll") == "addon B" && Read(ls / L"addons" / L"DLSS5NR01" / L"addon.json").find("\"B\"") != std::string::npos, r.message);
+        Check("...and leaves the one the person changed as it is, and says so", Read(helper) == "my own newer helper" && r.kept.size() == 1 && Has(r.kept[0], "nvngx.dll_dlss5nr01.dll") && Has(r.message, "Kept 1 file"), r.message);
+        Check("...with the settings and the person's other addons untouched", UntouchedByInstall(ls));
+        r = Install(ls.wstring(), MakePayload(L"payload_keep_c", g_ours, "C").wstring());
+        Check("the next update keeps it again (it is still not what was put there)", r.ok && Read(helper) == "my own newer helper" && r.kept.size() == 1 && Read(ls / L"addons" / L"DLSS5NR01" / L"DLSS5NR01.dll") == "addon C", r.message);
+        Check("a file the person changed and put back as it was is replaced again", [&] { Write(helper, "helper A"); return Install(ls.wstring(), MakePayload(L"payload_keep_d", g_ours, "D").wstring()).ok && Read(helper) == "helper D"; }());
+        fs::remove(helper);
+        r = Install(ls.wstring(), MakePayload(L"payload_keep_e", g_ours, "E").wstring());
+        Check("a file that was deleted is put back", r.ok && Read(helper) == "helper E" && r.kept.empty(), r.message);
+    }
+
+    printf("== an install from before the record existed: earlier releases' files are known by their hashes\n");
+    {
+        const fs::path ls = MakeLs(L"keep_known_ls", L"fake_original.dll");
+        const fs::path payA = MakePayload(L"payload_known_a", g_ours, "A");
+        Result r = Install(ls.wstring(), payA.wstring());
+        fs::remove(ls / L"addons" / L".installed-files.txt");   // as an install of an earlier release left it: no record
+        const fs::path helper = ls / L"addons" / L"DLSS5NR01" / L"nvngx.dll_dlss5nr01.dll";
+        Write(helper, "my own newer helper");
+        // a payload that carries the list of what release A shipped
+        const fs::path payB = MakePayload(L"payload_known_b", g_ours, "B");
+        {
+            std::string lines;
+            for (const char* name : { "DLSS5NR01.dll", "nvngx.dll_dlss5nr01.dll", "nr_selftest.exe", "addon.json" })
+                lines += Hash(payA / L"addons" / L"DLSS5NR01" / Widen(name)) + "\tdlss5nr01\\" + name + "\n";
+            Write(payB / L"known-hashes.txt", lines);
+        }
+        r = Install(ls.wstring(), payB.wstring());
+        Check("files that are a release's own are replaced, the changed one is kept", r.ok && Read(ls / L"addons" / L"DLSS5NR01" / L"DLSS5NR01.dll") == "addon B" && Read(helper) == "my own newer helper" && r.kept.size() == 1, r.message);
+        // with no record and no list, nothing can be told apart from the person's own: what differs stays
+        const fs::path ls2 = MakeLs(L"keep_unknown_ls", L"fake_original.dll");
+        r = Install(ls2.wstring(), MakePayload(L"payload_unknown_a", g_ours, "A").wstring());
+        fs::remove(ls2 / L"addons" / L".installed-files.txt");
+        r = Install(ls2.wstring(), MakePayload(L"payload_unknown_b", g_ours, "B").wstring());
+        Check("with neither a record nor a list, files that differ are kept (and Lossless.dll and the icons are still ours)", r.ok && Read(ls2 / L"addons" / L"DLSS5NR01" / L"DLSS5NR01.dll") == "addon A" && !r.kept.empty() && Same(ls2 / L"Lossless.dll", g_ours) && Read(ls2 / L"manager-icon.png") == "png B", r.message);
+    }
+
     printf("== an older install (0.1.0, when it was called Echo Addon Manager) is updated\n");
     {
         const fs::path ls = MakeLs(L"old_install");

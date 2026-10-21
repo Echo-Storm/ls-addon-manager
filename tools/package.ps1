@@ -56,10 +56,22 @@ $addons = @(
                   # Microsoft's Direct3D 12 Agility SDK core, beside that runtime: the FSR Upscaler makes its device on it (issue #11; tools\fetch_agility_sdk.ps1)
                   'runtimes\FSR\0dd77d9c\D3D12Core.dll' = "$root\addons\DLSS5NR01\external\agility\D3D12Core.dll";
                   'runtimes\FSR\0dd77d9c\Microsoft-D3D12-LICENSE.txt' = "$root\addons\DLSS5NR01\external\agility\LICENSE.txt" } },
-    # Video Super Resolution (prototype): its own small addon (src\vsr), in the package so that people can test it. It needs the user's own NVIDIA Video Effects SDK (x64, with the
-    # Video Super Resolution feature) in its vfx folder, where it looks by default (setting vfxDir): none of NVIDIA's SDK is packaged (the owner's decision of 0.10.0, kept).
+    # Video Super Resolution (prototype): its own small addon (src\vsr). It is in the package so that people can test it (the owner, 2026-10-02: strip it later, no one can test without it;
+    # a download option for NVIDIA's files is to come). The files of NVIDIA's Video Effects SDK it needs (about 66 MB of the SDK's 1.6 GB, found by taking files out until it stopped working)
+    # go in its vfx folder, where it looks by default (setting vfxDir), with the SDK's licences. Packaging needs the SDK in external\vfx_x64.
     @{ Id = 'VSRUPSC'; Dir = "$root\addons\DLSS5NR01\products\VSRUPSC"; Bin = "$root\addons\DLSS5NR01\build\Release"; Files = @('VSRUPSC.dll');
-       Extra = @{ 'LICENSE.txt' = "$root\addons\DLSS5NR01\LICENSE" } },
+       Extra = @{ 'LICENSE.txt' = "$root\addons\DLSS5NR01\LICENSE";
+                  'vfx\bin\NVCVImage.dll' = "$root\addons\DLSS5NR01\external\vfx_x64\bin\NVCVImage.dll";
+                  'vfx\bin\NVVideoEffects.dll' = "$root\addons\DLSS5NR01\external\vfx_x64\bin\NVVideoEffects.dll";
+                  'vfx\bin\nvngxruntime.dll' = "$root\addons\DLSS5NR01\external\vfx_x64\bin\nvngxruntime.dll";
+                  'vfx\bin\cudart64_12.dll' = "$root\addons\DLSS5NR01\external\vfx_x64\bin\cudart64_12.dll";
+                  'vfx\bin\libcrypto-3-x64.dll' = "$root\addons\DLSS5NR01\external\vfx_x64\bin\libcrypto-3-x64.dll";
+                  'vfx\bin\ThirdPartyLicenses.txt' = "$root\addons\DLSS5NR01\external\vfx_x64\bin\ThirdPartyLicenses.txt";
+                  'vfx\features\nvvfxvideosuperres\bin\nvngx_vsr.dll' = "$root\addons\DLSS5NR01\external\vfx_x64\features\nvvfxvideosuperres\bin\nvngx_vsr.dll";
+                  'vfx\features\nvvfxvideosuperres\bin\nvVFXVideoSuperRes.dll' = "$root\addons\DLSS5NR01\external\vfx_x64\features\nvvfxvideosuperres\bin\nvVFXVideoSuperRes.dll";
+                  'vfx\license\NVIDIA-Software-License-Agreement-2025.05.05.pdf' = "$root\addons\DLSS5NR01\external\vfx_x64\license\NVIDIA-Software-License-Agreement-2025.05.05.pdf";
+                  'vfx\license\product-specific-terms-for-nvidia-ai-products-2025.05.05.pdf' = "$root\addons\DLSS5NR01\external\vfx_x64\license\product-specific-terms-for-nvidia-ai-products-2025.05.05.pdf";
+                  'vfx\license\NVIDIA-Open-Model-License-Agreements-24-10-2025.pdf' = "$root\addons\DLSS5NR01\external\vfx_x64\license\NVIDIA-Open-Model-License-Agreements-24-10-2025.pdf" } },
     # EchoFG (prototype): our own frame generator, an addon of its own (src\echofg), off until switched on. Its FSR 3.1 alternative uses AMD's FidelityFX runtime, in its fsr folder (the FSR Upscaler's copy).
     @{ Id = 'ECHOFG'; Dir = "$root\addons\DLSS5NR01\products\ECHOFG"; Bin = "$root\addons\DLSS5NR01\build\Release"; Files = @('ECHOFG.dll');
        Extra = @{ 'AMD-FidelityFX-LICENSE.txt' = "$root\addons\DLSS5NR01\third_party\ffx\LICENSE.txt"; 'LICENSE.txt' = "$root\addons\DLSS5NR01\LICENSE";
@@ -96,6 +108,10 @@ if (Test-Path $payloadDir) { Remove-Item -Recurse -Force $payloadDir }
 New-Item -ItemType Directory -Force $payloadDir | Out-Null
 Copy-Item "$stage\Lossless.dll", "$stage\manager-icon.ico", "$stage\manager-icon.png" $payloadDir
 Copy-Item "$stage\addons" "$payloadDir\addons" -Recurse
+# The files earlier releases shipped (and this one's): Setup replaces a file of the addons folder only if it is still what it put there last time or one of these, so a file the
+# person has changed is left alone (tools\make_known_hashes.py, installer\known-hashes.txt)
+& python "$root\tools\make_known_hashes.py" --add $stage | Out-Null
+if (Test-Path "$root\installer\known-hashes.txt") { Copy-Item "$root\installer\known-hashes.txt" "$payloadDir\known-hashes.txt" }
 if (-not (Test-Path "$setupBuild\CMakeCache.txt")) { & cmake -S "$root\installer" -B $setupBuild -G 'Visual Studio 17 2022' -A x64 | Out-Null }
 & cmake --build $setupBuild --config Release --target pack_payload | Out-Null
 if ($LASTEXITCODE -ne 0) { throw 'the installer packer did not build' }
@@ -124,12 +140,12 @@ if (Test-Path $fakeOriginal) {
     $ilog = "$check\install.log"
     $p = Start-Process $setupExe -ArgumentList '--silent', 'install', '--folder', "`"$fake`"", '--no-remember', '--log', "`"$ilog`"" -PassThru -Wait -WindowStyle Hidden
     if ($p.ExitCode -ne 0) { throw "the Setup exe could not install into a test folder: $(Get-Content $ilog -Raw)" }
-    $bad = @(Get-ChildItem $payloadDir -Recurse -File | Where-Object {
-        $rel = $_.FullName.Substring($payloadDir.Length + 1)
+    $bad = @(Get-ChildItem $payloadDir -Recurse -File | Where-Object { $_.Name -ne 'known-hashes.txt' } | Where-Object {   # (known-hashes.txt is Setup's own, read and not installed)
+        $rel =$_.FullName.Substring($payloadDir.Length + 1)
         (Get-FileHash $_.FullName).Hash -ne (Get-FileHash "$fake\$rel" -ErrorAction SilentlyContinue).Hash })
     if ($bad.Count) { throw "the Setup exe installed files that differ from the package: $($bad.Name -join ', ')" }
     if ((Get-FileHash "$fake\Lossless_original.dll").Hash -ne (Get-FileHash $fakeOriginal).Hash) { throw 'the Setup exe did not keep the original Lossless.dll' }
-    Write-Host "  Setup exe checked: reports $Version and installs $((Get-ChildItem $payloadDir -Recurse -File).Count) files byte for byte into a test folder"
+    Write-Host "  Setup exe checked: reports $Version and installs $((Get-ChildItem $payloadDir -Recurse -File | Where-Object { $_.Name -ne "known-hashes.txt" }).Count) files byte for byte into a test folder"
 } else {
     Write-Host '  (Setup exe installed-files check skipped: build the installer tests first to get the stand-in Lossless.dll)'
 }
@@ -194,7 +210,7 @@ Install by hand (Lossless Scaling 3.2.2.0 was the tested version)
    Guide: https://github.com/Echo-Storm/ls-addon-manager/blob/main/addons/DLSS5NR01/docs/upscalers.md
 7. Two prototypes are included, off until you switch them on (the addon list marks them as prototypes; expect rough edges):
    EchoFG, our own frame generator: with Lossless Scaling's frame generation OFF it shows 1 to 8 frames made between each two real ones (choose NIS as the Scaling Type).
-   Video Super Resolution (NVIDIA's RTX Video Super Resolution in place of NIS): it needs your own copy of NVIDIA's Video Effects SDK; nothing of it is included.
+   Video Super Resolution (NVIDIA's RTX Video Super Resolution in place of NIS): the files of NVIDIA's Video Effects SDK it needs are in its vfx folder, with NVIDIA's licences.
 
 Updating: close Lossless Scaling, extract the new release's files (step 3) and copy them over the old ones. Your settings (addons\config.json) carry over.
 From 0.1.0: Neural Rendering is now addons\DLSS5NR01 (it was addons\LSP-NeuralRender) and its saved settings and looks move to the new name by themselves
