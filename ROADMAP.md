@@ -3,7 +3,7 @@
 What 1.0 should mean: someone who has never seen this project can **install it, keep it up to date, understand what it does and does not do, and get help**, without
 editing files by hand, and the promises it makes (the addon API, the settings file, safety) are stable. This page is honest about where each part stands.
 
-Status on 2026-10-20, at version **1.0.2**: the promises this page lists (the addon API, the settings file, safety) are stable, and what is not in 1.0 is under "Ideas for after 1.0". Rows 4 and 5 are the honest gaps: ReShade passthrough and Windowed mode have passed offline tests but not a live try of their own, and the games tried are the four listed; reports are welcome.
+Status on 2026-10-20, at version **1.0.3**: the promises this page lists (the addon API, the settings file, safety) are stable, and what is not in 1.0 is under "Ideas for after 1.0". Rows 4 and 5 are the honest gaps: ReShade passthrough and Windowed mode have passed offline tests but not a live try of their own, and the games tried are the four listed; reports are welcome.
 
 | # | For 1.0 | State | Notes |
 |---|---------|-------|-------|

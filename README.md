@@ -18,7 +18,7 @@
 And built into the manager: a **recorder** that saves what the game showed (a clip that plays a problem back on another computer), a **GPU limit**, ReShade input passthrough, windowed mode, a **Performance tab** that says what limits your frame rate, backups of every setting, and updates. It is free, MIT-licensed and **unofficial**: not affiliated with the Lossless Scaling developers. Read the [disclaimer](DISCLAIMER.md) before installing.
 
 [![build](https://github.com/Echo-Storm/ls-addon-manager/actions/workflows/build.yml/badge.svg)](https://github.com/Echo-Storm/ls-addon-manager/actions/workflows/build.yml)
-&nbsp; **1.0.2** ([roadmap](ROADMAP.md)) &nbsp;·&nbsp; Lossless Scaling 3.2.2.0 &nbsp;·&nbsp; Windows 10 or 11, x64
+&nbsp; **1.0.3** ([roadmap](ROADMAP.md)) &nbsp;·&nbsp; Lossless Scaling 3.2.2.0 &nbsp;·&nbsp; Windows 10 or 11, x64
 
 > [!IMPORTANT]
 > **DLSS 5 Neural Rendering needs a file you provide yourself:** your own copy of `nvngx_dlssnr.dll`. It is **not included**, this project **never downloads it**,
@@ -51,7 +51,7 @@ Something wrong? [If something goes wrong](#if-something-goes-wrong) and the [qu
 **Tried with** World of Warcraft: Forever, Fallout: New Vegas (Tale of Two Wastelands), Silent Hill f (HDR) and Metro 2033 Redux, on an RTX 4070 Ti SUPER and Windows 11. Other games and cards are untested so far, and EchoFG, the prototype, has had the least use: reports are welcome.
 
 > [!TIP]
-> **New in 1.0.2: Video Super Resolution is out of prototype, made for movies and images** (it works on the whole picture by default, a picture that has not changed is not worked on again, and the NVIDIA files it needs come with it). **In 1.0.1:** heavy upscalers no longer take a game's frame rate under frame generation (issue #22: while the card is full, the frames Lossless Scaling generates get a much lighter upscaling; on by default); shaders are compiled once and kept, so the addons start without 1 to 5 seconds of compiling; EchoFG is in the package as a prototype; and **Setup leaves a file you have changed alone** (see [Install](#install)). The [changelog](CHANGELOG.md) has everything since 0.9.
+> **New in 1.0.3: the DLSS Upscaler ships NVIDIA's DLSS runtime 310.9.16, and the upscalers notice a window that moves. In 1.0.2: Video Super Resolution is out of prototype, made for movies and images** (it works on the whole picture by default, a picture that has not changed is not worked on again, and the NVIDIA files it needs come with it). **In 1.0.1:** heavy upscalers no longer take a game's frame rate under frame generation (issue #22: while the card is full, the frames Lossless Scaling generates get a much lighter upscaling; on by default); shaders are compiled once and kept, so the addons start without 1 to 5 seconds of compiling; EchoFG is in the package as a prototype; and **Setup leaves a file you have changed alone** (see [Install](#install)). The [changelog](CHANGELOG.md) has everything since 0.9.
 
 ## Contents
 
