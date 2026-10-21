@@ -1,3 +1,5 @@
+> **History:** written for 0.10.0 and kept as the record. The current release notes are `release-1.0.1.md`; the state of the project is `handoff/README.md`.
+
 # The next release: what is in it, what to test first, what to do on release day (written 2026-10-09)
 
 State: everything below is on local `main` (the branch `claude/infallible-diffie-3f06ab` is the same commits); nothing is pushed or released. The version in `manager/CMakeLists.txt`,

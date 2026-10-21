@@ -1,7 +1,7 @@
 r"""Makes the manager's daily update check run at the next start: removes updates.last_check (and updates.skipped, a release declined with
 "Don't ask again") from the addons' config.json, after a backup next to it. Lossless Scaling must be closed (it writes the file).
 
-    python handoff\scripts\reset_update_check.py "<Lossless Scaling folder>\addons\config.json"
+    python tools\reset_update_check.py "<Lossless Scaling folder>\addons\config.json"
 """
 import json
 import shutil

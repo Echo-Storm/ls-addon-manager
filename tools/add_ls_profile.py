@@ -2,7 +2,7 @@ r"""Adds a Lossless Scaling game profile by copying an existing one, set for tes
 auto-scale after the copied delay. Settings.xml is backed up next to itself first. Lossless Scaling must be closed (it writes the file).
 Used 2026-09-26 for metro.exe and SHf-Win64-Shipping.exe (Silent Hill f).
 
-    python handoff\scripts\add_ls_profile.py <new title, e.g. game.exe> "<full path of the game's exe>" [--from <existing profile title>] [--no-hdr]
+    python tools\add_ls_profile.py <new title, e.g. game.exe> "<full path of the game's exe>" [--from <existing profile title>] [--no-hdr]
 """
 import argparse
 import os

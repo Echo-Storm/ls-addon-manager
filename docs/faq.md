@@ -102,6 +102,12 @@ On an NVIDIA RTX card try DLSS and FSR: DLSS smooths edges better, FSR 3.1 costs
 motion but costs the most. On any other card, FSR, and on Intel Arc also XeSS, which runs on the card's matrix units there. XeSS is new in
 0.9.12 and not yet tried in a game: reports are welcome.
 
+**My frame rate drops a lot with DLSS or FSR 4 and frame generation on (and not with XeSS).**
+With frame generation the upscaler runs on every picture shown, the generated ones too, so a heavy model (DLSS 4.5, FSR 4) can take far more of the card than a light one. Since 1.0.1 the upscalers lighten the generated frames by themselves while the graphics card is at its limit (the manager's GPU limit, or 95 % while that is off): the game's own frames are still upscaled in full. It is on by default; *Lighter upscaling of generated frames when the card is full* in the upscaler's panel turns it off, and the log says when it starts ("the card is at N % ..."). A frame-rate cap with some headroom, or a lighter DLSS mode, helps further.
+
+**Do the addons take long to start?**
+The first time after an update they compile their shaders (1 to 5 seconds); since 1.0.1 the compiled code is kept in `%LOCALAPPDATA%\LSAddonManager\shader-cache` (about half a megabyte; files unused for 90 days are removed), so later starts skip it. Deleting that folder is safe: it is made again. `NR_SHADER_CACHE=0` in the environment turns it off.
+
 **Does it work with HDR games?**
 Yes: 16-bit (scRGB) and 10-bit (HDR10) frames are upscaled in the upscaler's own HDR mode (since 0.9.10) and go back as HDR. If a game looks washed out or too dark,
 set *Frame encoding* under Upscaling by hand.

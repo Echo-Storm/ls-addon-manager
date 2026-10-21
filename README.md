@@ -6,7 +6,7 @@
 <a href="https://github.com/Echo-Storm/ls-addon-manager/releases/latest"><b>Download</b></a> &nbsp;·&nbsp; <a href="#install">Install</a> &nbsp;·&nbsp; <a href="#the-addons">The addons</a> &nbsp;·&nbsp; <a href="#built-in-features">Features</a> &nbsp;·&nbsp; <a href="CHANGELOG.md">Changelog</a> &nbsp;·&nbsp; <a href="docs/faq.md">Questions</a>
 </p>
 
-<p align="center"><img src="docs/images/addons.png" alt="The manager, version 1.0.0, as it runs: the addons at the left (the prototypes greyed out, marked WIP) with a switch and live status each, Neural Rendering's panel at the right, the machine's load in the header" width="100%"></p>
+<p align="center"><img src="docs/images/addons.png" alt="The manager as it runs: the addons at the left (the prototypes greyed out, marked WIP) with a switch and live status each, Neural Rendering's panel at the right, the machine's load in the header" width="100%"></p>
 
 **Addon Manager for Lossless Scaling** loads alongside [Lossless Scaling](https://store.steampowered.com/app/993090/Lossless_Scaling/) and gives it an addon system,
 with addons that do what Lossless Scaling alone cannot:
@@ -43,12 +43,25 @@ load at a glance, explains what limits your frame rate, backs every setting up a
 **Tried with** World of Warcraft: Forever, Fallout: New Vegas (Tale of Two Wastelands), Silent Hill f (HDR) and Metro 2033 Redux, on an RTX 4070 Ti SUPER and
 Windows 11. Other games and cards are untested so far: reports are welcome.
 
+## What you need
+
+| | |
+|---|---|
+| **Lossless Scaling** | 3.2.2.0 (the Steam version), on Windows 10 or 11, x64. The manager forwards to Lossless Scaling's own `Lossless.dll`; nothing is patched on disk. |
+| **For DLSS 5 Neural Rendering** | An NVIDIA RTX graphics card and your own `nvngx_dlssnr.dll` (see above). |
+| **For the DLSS Upscaler** | An NVIDIA RTX card. The runtime comes with the addon. |
+| **For the FSR Upscaler** | Any DirectX 12 graphics card. The runtime comes with the addon. |
+| **For the XeSS Upscaler** | Any card with Shader Model 6.4 (Intel Arc, NVIDIA, AMD). The runtime comes with the addon. |
+| **Everything else** (recording, GPU limit, ReShade passthrough, windowed mode, the update check) | Nothing more: it is built into the manager. |
+
+**In a hurry?** Run Setup ([Install](#install)), start Lossless Scaling, choose **NIS** as the Scaling Type, open the **Addons** tab and switch on the upscaler for your card (DLSS on NVIDIA RTX, otherwise FSR), run your game in a window smaller than your screen. Compare with **Ctrl+Shift+F7** (before / after). Something wrong? [If something goes wrong](#if-something-goes-wrong) and the [questions and answers](docs/faq.md) come first; the manager's **Settings** tab makes a diagnostics file for a report.
+
 ## Contents
 
 - [Install](#install)
 - [The addons](#the-addons): [Neural Rendering](#dlss-5-neural-rendering), [the upscalers](#the-upscalers-dlss-fsr-and-xess) · [Built-in features](#built-in-features): recording, GPU limit, ReShade, windowed mode
 - [The manager](#the-manager) · [Hotkeys](#hotkeys) · [Updates](#updates) · [If something goes wrong](#if-something-goes-wrong)
-- [For developers](#for-developers): how it works, building, writing an addon, [research notes](#research-notes) · [Credits](#credits)
+- [Documentation](#documentation) · [For developers](#for-developers): how it works, building, writing an addon, [research notes](#research-notes) · [Credits](#credits)
 
 ## Install
 
@@ -290,6 +303,16 @@ All inside the Lossless Scaling folder, except the recordings.
 | `Videos\Lossless Scaling\*.lsrec` | Recordings, in your Videos folder. |
 </details>
 
+## Documentation
+
+[`docs/README.md`](docs/README.md) is the map of everything written down here. The ones to know:
+
+- [Questions and answers](docs/faq.md) and the [Neural Rendering user guide](addons/DLSS5NR01/docs/user-guide.md): first run, what to expect, short answers.
+- [The upscalers' guide](addons/DLSS5NR01/docs/upscalers.md): every setting, what it costs, how to compare.
+- [Model compatibility](docs/model-compatibility.md) and [antivirus](docs/antivirus.md): which model files run, and why a download may be flagged.
+- [Writing an addon](docs/addon-authors.md), [what the API keeps stable](docs/api-compatibility.md) and the [sample addon](examples/SampleAddon).
+- [Changelog](CHANGELOG.md) and [roadmap](ROADMAP.md).
+
 ## For developers
 
 ### How it works
@@ -335,7 +358,7 @@ The addons also need their vendors' SDKs, which are not in this repository. Each
 | `tools\fetch_xess_sdk.ps1` | Intel's XeSS SDK 3.0.2 (headers, `libxess.dll`; pinned SHA-256s, Intel's signature) | Intel Simplified Software License |
 
 The offline test host and its scenarios (`tools\run_hosttest_matrix.py`) exercise every addon path without Lossless Scaling or a game. The full suite (`ci.ps1` and the
-host matrix) is run once, on a release; day to day, `dev.py test changed` runs what a change touches. The [tools README](tools/README.md) lists every script.
+host matrix) is run once, on a release; day to day, `dev.py test changed` runs what a change touches. Every script lives in [`tools/`](tools/), and the [tools README](tools/README.md) lists all of them, with the test programs that sit beside their code.
 
 ### Research notes
 

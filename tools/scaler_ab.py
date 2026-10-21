@@ -3,7 +3,7 @@ host measures side by side, so a setting, a runtime or a code change can be judg
 OptiScaler's tuning and FSR 4 against FSR 3.1 were compared (2026-09-26: the flags made no measurable difference; OptiScaler's tuning was
 worse on thin swaying lines, 10.44 against 8.76 levels; FSR 4 was better in motion, 11.14 against 14.22).
 
-    python handoff\scripts\scaler_ab.py --base "addon=FSR3UPSC.dll nis=1 nisbgra=1 nisnoflow=1 nismove=1" ^
+    python tools\scaler_ab.py --base "addon=FSR3UPSC.dll nis=1 nisbgra=1 nisnoflow=1 nismove=1" ^
         --variant "stability 0: scalerStability=0" --variant "stability 0.5: scalerStability=0.5" [--repeat 2] [--snippet <model file>]
 
 Each variant is "name: key=value key=value" on top of --base (the same keys the matrix uses: see tools\run_hosttest_matrix.py and
@@ -17,7 +17,7 @@ import re
 import subprocess
 import tempfile
 
-ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))   # handoff/scripts -> the repository
+ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))   # tools -> the repository
 NR_DIR = os.path.join(ROOT, 'addons', 'DLSS5NR01', 'build', 'Release')
 LS_DIR = os.environ.get('LS_DIR', r'C:\Program Files (x86)\Steam\steamapps\common\Lossless Scaling')
 
