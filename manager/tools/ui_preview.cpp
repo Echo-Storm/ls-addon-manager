@@ -98,6 +98,8 @@ struct FakeHost : IHost {
     uint32_t GpuLimitPercent() override { return 0; }
     uint32_t GpuLoadPercent() override { return 0; }
     bool SetFpsCounterMultiplier(float) override { return false; }
+    int LosslessFrameGenType() override { return 0; }
+    bool LosslessDrawsFps() override { return false; }
     void SetStatus(const char*, const char*, int) override {}
     void PublishMetric(const char*, const char*, double, const char*) override {}
 };

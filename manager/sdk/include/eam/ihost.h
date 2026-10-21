@@ -116,4 +116,10 @@ struct IHost {
     // second number shows the rate the screen gets. Returns true when the counter is hooked; false when it is not (a Lossless Scaling build the manager does not know): the
     // addon then shows a readout of its own. Call it with 1 when the addon stops making frames. Any thread; cheap.
     virtual bool SetFpsCounterMultiplier(float multiplier) = 0;
+
+    // What Lossless Scaling was last told by its window (its ApplySettings, which the manager sees): LosslessFrameGenType is its frame generation, 0 off, else the kind (1 LSFG 3, 2 LSFG 2,
+    // 3 LSFG 1, 4 and 5 the older interpolators); LosslessDrawsFps whether its frame rate counter is on. Both are 0 before the first ApplySettings. An addon that makes frames itself
+    // (EchoFG) can warn when Lossless Scaling's own frame generation is on too.
+    virtual int LosslessFrameGenType() = 0;
+    virtual bool LosslessDrawsFps() = 0;
 };

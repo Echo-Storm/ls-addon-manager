@@ -43,6 +43,8 @@ struct StandInHost : IHost {
     uint32_t GpuLimitPercent() override { return 0; }
     uint32_t GpuLoadPercent() override { return 0; }
     bool SetFpsCounterMultiplier(float) override { return false; }
+    int LosslessFrameGenType() override { return 0; }
+    bool LosslessDrawsFps() override { return false; }
 };
 
 template <class T> static bool SameValue(const T& a, const T& b) { if constexpr (std::is_floating_point_v<T>) return std::fabs(a - b) < 1e-5; else return a == b; }

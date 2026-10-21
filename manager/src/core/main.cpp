@@ -151,6 +151,7 @@ extern "C" __declspec(dllexport) void __fastcall ApplySettings(
                             frameGenSize, frameGenMode, frameGenMultiplier, frameGenTarget, frameGenFlowScale, clipCursor, adjustCursorSpeed, hideCursor,
                             scaleCursor, syncMode, maxFrameLatency, gsyncSupport, hdrSupport, captureApi, queueTarget, drawFps, gpuId, displayId,
                             cropLeft, cropTop, cropRight, cropBottom, multiDisplayMode);
+    eam::HostImpl::SetLosslessState(frameGenType, drawFps != 0);
     eam::EventBus::Instance().Publish(EAM_EVENT_SETTINGS_APPLIED);
 }
 

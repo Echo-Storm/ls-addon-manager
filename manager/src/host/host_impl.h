@@ -43,6 +43,9 @@ public:
     uint32_t GpuLimitPercent() override;
     uint32_t GpuLoadPercent() override;
     bool SetFpsCounterMultiplier(float multiplier) override;
+    int LosslessFrameGenType() override;
+    bool LosslessDrawsFps() override;
+    static void SetLosslessState(int frameGenType, bool drawsFps);   // from main.cpp's ApplySettings
     static void SetGpuLimit(uint32_t percent);   // the GPU limit feature: 0 off, else 80..100
     void RecorderOffer(void* d3d11Context, void* d3d11Texture2D, uint32_t source, uint32_t content, uint32_t tag, uint32_t cropWidth, uint32_t cropHeight) override;
     // The recorder feature (features/recorder_feature.cpp) says what these two do; without it (or when it is off) the flags are 0 and an offer is dropped.

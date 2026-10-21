@@ -218,6 +218,8 @@ EAM_EXPORT void AddonShutdown() {
 
 EAM_EXPORT void AddonRenderSettings() {
     ReadConfig();
+    if (g_enabled && g_host && g_host->GetHostVersion() >= 0x010400 && g_host->LosslessFrameGenType() != 0)   // what Lossless Scaling was last told (the manager sees its ApplySettings)
+        ImGui::TextColored(ImVec4(1.0f, 0.45f, 0.35f, 1.0f), "Lossless Scaling's own frame generation is ON as well: the frames are doubled twice. Set its Frame Generation to Off.");
     ImGui::TextColored(ImVec4(1.0f, 0.78f, 0.25f, 1.0f), "Turn this on BEFORE you start the game (before scaling starts).");
     if (ImGui::IsItemHovered()) ImGui::SetTooltip("EchoFG gets what it needs from Lossless Scaling at the moment scaling starts, so it only works from the next time scaling starts. "
                                                   "If scaling is already running, stop it and start it again. Switching it off or on while scaling runs changes nothing until then.");

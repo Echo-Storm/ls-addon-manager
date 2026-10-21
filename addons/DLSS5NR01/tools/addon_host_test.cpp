@@ -92,6 +92,8 @@ struct FakeHost : IHost {
     uint32_t GpuLoadPercent() override { auto it = cfg.find("gpuLoadPercent"); return it == cfg.end() ? 0u : static_cast<uint32_t>(atoi(it->second.c_str())); }
     float counterMultiplier = 1.0f; bool counterHooked = true;
     bool SetFpsCounterMultiplier(float m) override { counterMultiplier = m; return counterHooked; }
+    int LosslessFrameGenType() override { return 0; }
+    bool LosslessDrawsFps() override { return true; }
     void ConfigureRecorder() {
         auto get = [&](const char* k, const char* d) { auto it = cfg.find(k); return it == cfg.end() ? std::string(d) : it->second; };
         eam::rec::Settings s;

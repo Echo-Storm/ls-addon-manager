@@ -136,6 +136,10 @@ uint32_t HostImpl::GpuLoadPercent() {
 }
 
 bool HostImpl::SetFpsCounterMultiplier(float multiplier) { return eam::fpscounter::SetMultiplier(multiplier); }   // (API 1.4)
+namespace { std::atomic<int> g_lsFrameGen{ 0 }; std::atomic<bool> g_lsDrawsFps{ false }; }
+void HostImpl::SetLosslessState(int frameGenType, bool drawsFps) { g_lsFrameGen = frameGenType; g_lsDrawsFps = drawsFps; }
+int HostImpl::LosslessFrameGenType() { return g_lsFrameGen; }
+bool HostImpl::LosslessDrawsFps() { return g_lsDrawsFps; }
 
 // ---- the recorder (API 1.3)
 
