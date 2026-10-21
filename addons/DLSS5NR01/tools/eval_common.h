@@ -25,6 +25,26 @@ inline std::string ArgText(int argc, char** argv, const char* key) {
     return {};
 }
 
+// src (sw x sh RGBA8) resampled to dw x dh by area (each output pixel the average of the source it covers): a fair "rendered smaller"
+inline void ResizeArea(const std::vector<uint8_t>& src, uint32_t sw, uint32_t sh, std::vector<uint8_t>& dst, uint32_t dw, uint32_t dh) {
+    dst.assign(static_cast<size_t>(dw) * dh * 4, 255);
+    const double rx = double(sw) / dw, ry = double(sh) / dh;
+    for (uint32_t y = 0; y < dh; ++y) for (uint32_t x = 0; x < dw; ++x) {
+        const double x0 = x * rx, x1 = (x + 1) * rx, y0 = y * ry, y1 = (y + 1) * ry;
+        double acc[3] = {}, wsum = 0;
+        for (uint32_t sy = static_cast<uint32_t>(y0); sy < std::min<double>(sh, std::ceil(y1)); ++sy) {
+            const double wy = std::min<double>(sy + 1, y1) - std::max<double>(sy, y0);
+            for (uint32_t sx = static_cast<uint32_t>(x0); sx < std::min<double>(sw, std::ceil(x1)); ++sx) {
+                const double w = wy * (std::min<double>(sx + 1, x1) - std::max<double>(sx, x0));
+                const uint8_t* p = src.data() + (static_cast<size_t>(sy) * sw + sx) * 4;
+                for (int c = 0; c < 3; ++c) acc[c] += w * p[c];
+                wsum += w;
+            }
+        }
+        for (int c = 0; c < 3; ++c) dst[(static_cast<size_t>(y) * dw + x) * 4 + c] = static_cast<uint8_t>(acc[c] / wsum + 0.5);
+    }
+}
+
 // A frame of the recording as 8-bit RGBA in its SDR view. Light (the upscalers' HDR frames, 1 = the SDR white) and scRGB are rolled off
 // above 0.75 as the screenshots do, then sRGB-encoded; an SDR view is taken as it is; 8-bit frames as they are (BGRA swapped to RGBA).
 inline bool ToRgba8(const nr::lsrec::FileHeader& h, const std::vector<uint8_t>& px, std::vector<uint8_t>& out) {

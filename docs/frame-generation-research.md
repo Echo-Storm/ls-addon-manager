@@ -508,3 +508,20 @@ What running every 2nd real frame costs in the picture, measured with `nr_nreval
 | 2026-09-30 11-46-23 | 1.20 | 1.43 | 8.29 |
 
 Going from one run back to two adds 0.04 to 0.23 levels, 1 to 3 % of the delta. The setting "Run the model" (every frame, every 2nd, 3rd, 4th; `modelEvery`) uses it; the default stays every frame until the owner has seen it live. Not measured: what the eye sees on a cut or a fast turn (the stale cutoff, offset more than 3 plus the run interval, still applies).
+
+## Neural Rendering before or after the upscaler (issue #23, 2026-10-21)
+
+The question (issue #23, and the owner's idea): the delta Neural Rendering makes is added to the picture the screen shows, after the upscaler. Would it be better, or cheaper in video memory, to add it to the game's own smaller frame and give the upscaler that picture?
+
+**Experiment** (`tools/order_lab.py`; `nr_nreval shrink= rawout=` and `nr_sreval inject= rawout=` make its files): a WoW recording at 2560x1440 stands for the screen; the game's frame is that shrunk 1.5x by area (1706x960). The target T is Neural Rendering run on the full-size frame (the look it gives when it sees every pixel). U is the upscaler's picture of the shrunk frame with no model. A is today's order: U plus the delta made on the shrunk frame, stretched to the screen's size with the compose's own arithmetic. B is the proposed order: the shrunk frame plus its delta (at the game's size), then upscaled. 32 frames of each of two clips (the walk past a building with lit windows, and the clip with the biggest camera steps), FSR 3.1 and DLSS (preset Auto), the addon's defaults (smoothing 0.4, maximum change 50 %, dark guard 4 %). Mean over the frames, A against B:
+
+| clip, upscaler | PSNR to T: U / A / B (dB) | SSIM to T: A / B | steadiness: A / B (dB) |
+|---|---|---|---|
+| building, FSR | 29.43 / 29.88 / 29.87 | 0.9830 / 0.9840 | 39.12 / 39.13 |
+| building, DLSS | 29.66 / 30.11 / 30.09 | 0.9790 / 0.9845 | 38.69 / 38.70 |
+| camera, DLSS | 29.87 / 30.38 / 30.32 | 0.9814 / 0.9842 | 39.56 / 39.58 |
+| camera, FSR | 29.67 / 30.19 / 30.14 | 0.9806 / 0.9778 | 40.09 / 40.10 |
+
+- **The two orders are a tie in picture.** Both come about 0.45 to 0.5 dB closer to the full-size look than no model; A is ahead of B by 0.01 to 0.06 dB (B wins 3 to 13 frames of 32); SSIM goes B's way with DLSS (+0.003 to +0.006) and A's with FSR on one clip (-0.003); the steadiness is the same within 0.02 dB. A temporal upscaler fed a picture the model has changed does **not** flicker or trail more.
+- **No saving in video memory or cost follows from the order.** The model already runs on the game's frame: with frame generation on, on the frame Lossless Scaling captures (the game's own size); with it off, on the presented frame but at the working size of a 1920-wide frame (`kPresentWidth`, `runtime.cpp`). What reordering would move is the compose (a pass at the screen's size, cheap) and, with frame generation off, one shared copy of the presented frame (about 33 MB at 4K). The model's own cost scales with the size of the frame it sees (measured with `nr_nreval`: 2560x1440 25.8 ms and 688 MB added; 1706x960 11.1 ms and 421 MB, on an idling card, so the milliseconds read high), and that is set by the Model resolution slider and Auto quality today.
+- **Verdict:** not built. The change is large (a delta handed between two addons, moved along the motion for generated frames at the game's size) and buys no measurable picture or memory. If a user's model really sees the 4K frame (frame generation off and the 1920-wide cap defeated), the thing to do is lower Model resolution.

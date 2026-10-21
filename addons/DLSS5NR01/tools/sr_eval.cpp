@@ -3,7 +3,9 @@
 // the frame itself, beside the shrunk frame stretched back plainly (bilinear). Temporal upscalers keep a history; where the motion they are
 // given is wrong (a character a turning camera follows, background just uncovered) that history trails: the pictures show it.
 //
-//   nr_sreval <recording.lsrec> <output folder> [first=N] [count=N] [shrink=150] [backend=fsr|dlss|xess] [show=N]
+//   nr_sreval <recording.lsrec> <output folder> [first=N] [count=N] [shrink=150] [backend=fsr|dlss|xess] [show=N] [inject=<folder>] [rawout=<folder>]
+//             (the order experiment, tools/order_lab.py: inject=DIR gives the upscaler DIR/low_NNNNN.rgba as each frame's input in place of the shrunk frame (still scored against the
+//              recording's own frame), rawout=DIR writes each upscaled picture as up_NNNNN.rgba)
 //             [straycap=N] [fast=N] [mask=0] [mvscale=N] [motion=none] [meanweight=100] [gradweight=0] [sample=point] [sharpen=N] [stability=N] [fastp=N]
 //
 // shrink: the ratio in hundredths (150: 1440p from 960p, as 4K from 1440p). show=N: the N worst frames kept as pictures (the frame | the
@@ -19,6 +21,7 @@
 #include <dxgi1_6.h>
 #include <algorithm>
 #include <cstdio>
+#include <filesystem>
 #include <string>
 #include <vector>
 #include "nvsdk_ngx.h"
@@ -34,26 +37,6 @@ using namespace nr::eval;
 namespace {
 
 template <class T> void SafeRelease(T*& p) { if (p) { p->Release(); p = nullptr; } }
-
-// src (sw x sh RGBA8) resampled to dw x dh by area (each output pixel the average of the source it covers): a fair "rendered smaller"
-void ResizeArea(const std::vector<uint8_t>& src, uint32_t sw, uint32_t sh, std::vector<uint8_t>& dst, uint32_t dw, uint32_t dh) {
-    dst.assign(static_cast<size_t>(dw) * dh * 4, 255);
-    const double rx = double(sw) / dw, ry = double(sh) / dh;
-    for (uint32_t y = 0; y < dh; ++y) for (uint32_t x = 0; x < dw; ++x) {
-        const double x0 = x * rx, x1 = (x + 1) * rx, y0 = y * ry, y1 = (y + 1) * ry;
-        double acc[3] = {}, wsum = 0;
-        for (uint32_t sy = static_cast<uint32_t>(y0); sy < std::min<double>(sh, std::ceil(y1)); ++sy) {
-            const double wy = std::min<double>(sy + 1, y1) - std::max<double>(sy, y0);
-            for (uint32_t sx = static_cast<uint32_t>(x0); sx < std::min<double>(sw, std::ceil(x1)); ++sx) {
-                const double w = wy * (std::min<double>(sx + 1, x1) - std::max<double>(sx, x0));
-                const uint8_t* p = src.data() + (static_cast<size_t>(sy) * sw + sx) * 4;
-                for (int c = 0; c < 3; ++c) acc[c] += w * p[c];
-                wsum += w;
-            }
-        }
-        for (int c = 0; c < 3; ++c) dst[(static_cast<size_t>(y) * dw + x) * 4 + c] = static_cast<uint8_t>(acc[c] / wsum + 0.5);
-    }
-}
 
 // src (sw x sh) stretched to dw x dh, bilinear (pixel centres aligned)
 void ResizeBilinear(const std::vector<uint8_t>& src, uint32_t sw, uint32_t sh, std::vector<uint8_t>& dst, uint32_t dw, uint32_t dh) {
@@ -247,6 +230,11 @@ int main(int argc, char** argv) {
                 memcpy(&shrunk[(static_cast<size_t>(y) * w + x) * 4], &frame[(static_cast<size_t>(sy) * W + sx) * 4], 4);
             }
         } else ResizeArea(frame, W, H, shrunk, w, hh);
+        if (const std::string inj = ArgText(argc, argv, "inject"); !inj.empty()) {   // inject=DIR: the upscaler's input is this file (w x hh RGBA8), not the shrunk frame
+            char path[600]; snprintf(path, sizeof path, "%s/low_%05d.rgba", inj.c_str(), first + i); FILE* f = nullptr; bool ok = false;
+            if (!fopen_s(&f, path, "rb") && f) { std::vector<uint8_t> in2(static_cast<size_t>(w) * hh * 4); ok = fread(in2.data(), 1, in2.size(), f) == in2.size(); fclose(f); if (ok) shrunk = in2; }
+            if (!ok) { printf("inject: %s is missing or of another size (expected %ux%u)\n", path, w, hh); return 3; }
+        }
         if (hdrMode) {   // the frame as light (float), shrunk by area averaging, as half floats into the upload buffer; the plain stretch made in float too
             const size_t nPix = static_cast<size_t>(W) * H;
             frameF.resize(nPix * 3);
@@ -352,6 +340,11 @@ int main(int argc, char** argv) {
         }
         } else ResizeCubic(shrunk, w, hh, picture, W, H);
         for (size_t k = 3; k < picture.size(); k += 4) picture[k] = 255;
+        if (const std::string ro = ArgText(argc, argv, "rawout"); !ro.empty()) {   // rawout=DIR: each upscaled picture
+            if (i == 0) { std::error_code ec; std::filesystem::create_directories(std::filesystem::path(Wide(ro.c_str())), ec); }
+            char path[600]; snprintf(path, sizeof path, "%s/up_%05d.rgba", ro.c_str(), first + i); FILE* f = nullptr;
+            if (!fopen_s(&f, path, "wb") && f) { fwrite(picture.data(), 1, picture.size(), f); fclose(f); }
+        }
         if (!hdrMode) ResizeBilinear(shrunk, w, hh, stretched, W, H);
         if (const int saveFrame = Arg(argc, argv, "saveframe", -1); saveFrame >= 0 && first + i == saveFrame)   // saveframe=N: that frame as it is | upscaled | stretched, as frameN.bmp
             WriteBmp(outDir + L"\\frame" + std::to_wstring(saveFrame) + L".bmp", { &frame, &picture, &stretched }, W, H);

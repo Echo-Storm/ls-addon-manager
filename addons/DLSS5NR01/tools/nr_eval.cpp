@@ -1,6 +1,8 @@
 // nr_nreval: runs Neural Rendering's model (the addon's own NrEngine, with the user's nvngx_dlssnr.dll) on a recording and scores the flicker it adds.
 //
 //   nr_nreval <recording.lsrec> <output folder> [first=N] [count=N] [scale=50] [smooth=40] [passes=1] [preset=0] [intensity=100] [model=<path to nvngx_dlssnr.dll>]
+//             [shrink=150] [rawout=<folder>]    (the order experiment, tools/order_lab.py: shrink the frames by area first (150: 1440p from 960p, as 4K from 1440p), and write each
+//                                                 frame's low.rgba, pic.rgba (the frame plus the delta, as the compose shows it) and delta.f16 (half floats, at the model's size) there)
 //             [lsdir=<Lossless Scaling folder>] [show=N] [maxdelta=50] [still=3] [stable=N] [dump=file] [lightlog=1] [piclog=1] [darkguard=4]
 //
 // The picture shown is the game's frame plus the model's change (its "delta", at the working size, stretched to the frame's and clamped to
@@ -18,6 +20,7 @@
 #include <algorithm>
 #include <cmath>
 #include <cstdio>
+#include <filesystem>
 #include <string>
 #include <vector>
 #include "addon/lsrec.h"
@@ -119,7 +122,11 @@ int main(int argc, char** argv) {
     std::wstring outDir = Wide(argv[2]);
     { wchar_t full[MAX_PATH]; if (GetFullPathNameW(outDir.c_str(), MAX_PATH, full, nullptr)) outDir = full; SHCreateDirectoryExW(nullptr, outDir.c_str(), nullptr); }
     const nr::lsrec::FileHeader& h = rec.Header();
-    const uint32_t W = h.width, H = h.height;
+    const double shrinkBy = std::max(1.0, Arg(argc, argv, "shrink", 100) / 100.0);   // shrink=150: the frames are shrunk by area before anything (a game rendered smaller)
+    const uint32_t RW = h.width, RH = h.height;
+    const uint32_t W = shrinkBy > 1.0 ? (static_cast<uint32_t>(RW / shrinkBy + 0.5) & ~1u) : RW, H = shrinkBy > 1.0 ? (static_cast<uint32_t>(RH / shrinkBy + 0.5) & ~1u) : RH;
+    const std::string rawOut = ArgText(argc, argv, "rawout");   // rawout=DIR: every frame's low.rgba, pic.rgba and delta.f16 there
+    if (!rawOut.empty()) { std::error_code ec; std::filesystem::create_directories(std::filesystem::path(Wide(rawOut.c_str())), ec); }
     const int first = std::max(0, Arg(argc, argv, "first", 0));
     const int dupN = std::max(1, Arg(argc, argv, "dup", 1));   // dup=N: each frame of the recording given N times in a row (a 30 fps game in a 60 Hz capture feed)
     const int count = std::min<int>(Arg(argc, argv, "count", 1 << 30), (static_cast<int>(rec.Count()) - first) * dupN);   // (count is frames given, so dup=N uses every recorded frame N times)
@@ -193,7 +200,7 @@ int main(int argc, char** argv) {
 
     struct Score { int frame; double steady, still, moving, p95 = 0, lag, plain, lag1n = 0, lag2 = 0, mag = 0; std::vector<uint8_t> src, pic; };
     std::vector<Score> scores;
-    std::vector<uint8_t> px, frame, framePrev, pic, picPrev;
+    std::vector<uint8_t> px, full, frame, framePrev, pic, picPrev;
     std::vector<float> d, dPrev, mv, mvPrev, dPrev2, mvPrev2;
     double sumLag1n = 0, sumLag2 = 0, sumMag = 0; int nStale = 0;
     // dump=file (with smooth=0): every frame's still-pixel mask (1 where the game's frame did not change) and the model's own change there, as half floats, for tools/nr_filter_lab.py
@@ -207,7 +214,8 @@ int main(int argc, char** argv) {
     double modelMsSum = 0, wholeMsSum = 0; int modelRuns = 0;
     double dupDelta[2] = {}, dupPic[2] = {}, dupLight[2] = {}; int dupCnt[2] = {};   // [0]: the repeats, [1]: the new frames (dup=N): the model's delta change and the picture's change from the one before
     for (int i = 0; i < count; ++i) {
-        if (!rec.Read(first + i / dupN, px) || !ToRgba8(h, px, frame)) { printf("frame %d could not be read\n", first + i / dupN); return 3; }
+        if (!rec.Read(first + i / dupN, px) || !ToRgba8(h, px, full)) { printf("frame %d could not be read\n", first + i / dupN); return 3; }
+        if (shrinkBy > 1.0) ResizeArea(full, RW, RH, frame, W, H); else frame = full;
         { uint8_t* m = nullptr; upload->Map(0, nullptr, reinterpret_cast<void**>(&m));
           for (uint32_t y = 0; y < H; ++y) memcpy(m + inFp.Offset + y * inFp.Footprint.RowPitch, frame.data() + static_cast<size_t>(y) * W * 4, W * 4);
           upload->Unmap(0, nullptr); }
@@ -269,6 +277,14 @@ int main(int argc, char** argv) {
                 pic[o + c] = static_cast<uint8_t>(std::clamp(frame[o + c] / 255.0f + dl, 0.0f, 1.0f) * 255.0f + 0.5f);
             }
             pic[o + 3] = 255;
+        }
+        if (!rawOut.empty()) {   // the order experiment's files (tools/order_lab.py)
+            char path[600]; FILE* f = nullptr;
+            if (i == 0) { snprintf(path, sizeof path, "%s/dims.txt", rawOut.c_str()); if (!fopen_s(&f, path, "w") && f) { fprintf(f, "%u %u %u %u\n", W, H, dw, dh); fclose(f); } }
+            snprintf(path, sizeof path, "%s/low_%05d.rgba", rawOut.c_str(), first + i); if (!fopen_s(&f, path, "wb") && f) { fwrite(frame.data(), 1, frame.size(), f); fclose(f); }
+            snprintf(path, sizeof path, "%s/pic_%05d.rgba", rawOut.c_str(), first + i); if (!fopen_s(&f, path, "wb") && f) { fwrite(pic.data(), 1, pic.size(), f); fclose(f); }
+            std::vector<uint16_t> half(d.size()); for (size_t k = 0; k < d.size(); ++k) half[k] = FloatToHalf(d[k]);
+            snprintf(path, sizeof path, "%s/delta_%05d.f16", rawOut.c_str(), first + i); if (!fopen_s(&f, path, "wb") && f) { fwrite(half.data(), 2, half.size(), f); fclose(f); }
         }
         { double sf = 0, sp = 0; for (size_t k = 0; k + 3 < frame.size(); k += 4) { sf += frame[k] + frame[k + 1] + frame[k + 2]; sp += pic[k] + pic[k + 1] + pic[k + 2]; }
           lightShift.push_back((sp - sf) / (3.0 * (frame.size() / 4)));
