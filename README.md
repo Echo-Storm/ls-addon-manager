@@ -156,6 +156,9 @@ frame (no trailing), and at rest the upscaler smooths (the **Sharpness at rest**
 | Good at | smoothing edges | FSR 3: low cost, crisp text; FSR 4: motion | on Intel Arc it runs on the card's matrix units |
 | Sharpening | ours | ours (AMD's RCAS is off by default) | ours |
 
+<p align="center"><img src="docs/images/wow-1080p-to-4k.webp" alt="World of Warcraft: Forever at 1080p scaled to 4K, two pictures side by side" width="100%"></p>
+<p align="center"><sub>World of Warcraft: Forever, 1080p scaled to 4K: a side-by-side shot.</sub></p>
+
 **Which one?** On an NVIDIA RTX card, try DLSS and FSR 4. On any other card, FSR, and XeSS on Intel Arc. All three are tried in World of Warcraft.
 
 What all three do:
