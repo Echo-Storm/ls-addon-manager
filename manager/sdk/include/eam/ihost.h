@@ -108,4 +108,12 @@ struct IHost {
     // known. An addon that can make its work cheaper (a lower working size, a lighter pass) does so while the load stays at or over the limit and goes back when it is well under.
     virtual uint32_t GpuLimitPercent() = 0;
     virtual uint32_t GpuLoadPercent() = 0;
+
+    // ---- API 1.4 (GetHostVersion() >= 0x010400)
+
+    // Lossless Scaling's frame rate counter ("60 / 120", config.ini [fps_counter]) counts the frames Lossless Scaling presents, so an addon that makes frames of its own
+    // (EchoFG) is not in it. Tell the manager how many frames the screen gets for each one Lossless Scaling presents (1: as it counts; 2: twice as many) and the counter's
+    // second number shows the rate the screen gets. Returns true when the counter is hooked; false when it is not (a Lossless Scaling build the manager does not know): the
+    // addon then shows a readout of its own. Call it with 1 when the addon stops making frames. Any thread; cheap.
+    virtual bool SetFpsCounterMultiplier(float multiplier) = 0;
 };

@@ -32,6 +32,7 @@ set(CORE_SOURCES
     src/core/main.cpp
     src/core/instance_guard.cpp
     src/core/shader_hook.cpp
+    src/core/fps_counter_hook.cpp
     src/core/d3d11_hook.cpp
 )
 
@@ -253,7 +254,7 @@ add_library(eam_testaddon SHARED EXCLUDE_FROM_ALL tools/test_addon.cpp)
 target_include_directories(eam_testaddon PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/sdk/include ${imgui_SOURCE_DIR})
 add_executable(eam_coretest EXCLUDE_FROM_ALL tools/core_test.cpp src/core/instance_guard.cpp
     ${ADDON_SOURCES} ${FEATURE_SOURCES} ${EVENT_SOURCES} ${HOST_SOURCES} ${CONFIG_SOURCES} ${LOG_SOURCES}
-    src/gui/icon_loader.cpp src/core/d3d11_hook.cpp src/core/shader_hook.cpp
+    src/gui/icon_loader.cpp src/core/d3d11_hook.cpp src/core/shader_hook.cpp src/core/fps_counter_hook.cpp
     ${imgui_SOURCE_DIR}/imgui.cpp ${imgui_SOURCE_DIR}/imgui_draw.cpp ${imgui_SOURCE_DIR}/imgui_tables.cpp ${imgui_SOURCE_DIR}/imgui_widgets.cpp)
 target_include_directories(eam_coretest PRIVATE ${imgui_SOURCE_DIR} ${imgui_SOURCE_DIR}/backends ${CMAKE_CURRENT_SOURCE_DIR} ${CMAKE_CURRENT_SOURCE_DIR}/sdk/include ${CMAKE_CURRENT_SOURCE_DIR}/third_party ${minhook_SOURCE_DIR}/include)
 target_link_libraries(eam_coretest d3d11 dxgi d3dcompiler bcrypt minhook)
@@ -268,7 +269,7 @@ target_include_directories(eam_sampleaddon PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/s
 set_target_properties(eam_sampleaddon PROPERTIES PREFIX "" OUTPUT_NAME "SampleAddon")
 add_executable(eam_sampletest EXCLUDE_FROM_ALL tools/sample_test.cpp
     ${ADDON_SOURCES} ${FEATURE_SOURCES} ${EVENT_SOURCES} ${HOST_SOURCES} ${CONFIG_SOURCES} ${LOG_SOURCES}
-    src/gui/icon_loader.cpp src/core/d3d11_hook.cpp src/core/shader_hook.cpp
+    src/gui/icon_loader.cpp src/core/d3d11_hook.cpp src/core/shader_hook.cpp src/core/fps_counter_hook.cpp
     ${imgui_SOURCE_DIR}/imgui.cpp ${imgui_SOURCE_DIR}/imgui_draw.cpp ${imgui_SOURCE_DIR}/imgui_tables.cpp ${imgui_SOURCE_DIR}/imgui_widgets.cpp)
 target_include_directories(eam_sampletest PRIVATE ${imgui_SOURCE_DIR} ${imgui_SOURCE_DIR}/backends ${CMAKE_CURRENT_SOURCE_DIR} ${CMAKE_CURRENT_SOURCE_DIR}/sdk/include ${CMAKE_CURRENT_SOURCE_DIR}/third_party ${minhook_SOURCE_DIR}/include)
 target_compile_definitions(eam_sampletest PRIVATE SAMPLE_ADDON_DIR="${CMAKE_CURRENT_SOURCE_DIR}/../examples/SampleAddon")
@@ -288,7 +289,7 @@ target_link_libraries(eam_featurestest d3d11 dxgi user32 minhook)
 # cmake --build . --config Release --target eam_guitest
 add_executable(eam_guitest EXCLUDE_FROM_ALL tools/gui_test.cpp
     ${ADDON_SOURCES} ${FEATURE_SOURCES} ${EVENT_SOURCES} ${UPDATE_SOURCES} ${HOST_SOURCES} ${CONFIG_SOURCES} ${LOG_SOURCES}
-    src/core/d3d11_hook.cpp src/core/shader_hook.cpp
+    src/core/d3d11_hook.cpp src/core/shader_hook.cpp src/core/fps_counter_hook.cpp
     ${GUI_SOURCES} ${IMGUI_SOURCES})
 target_include_directories(eam_guitest PRIVATE ${imgui_SOURCE_DIR} ${imgui_SOURCE_DIR}/backends ${CMAKE_CURRENT_SOURCE_DIR} ${CMAKE_CURRENT_SOURCE_DIR}/sdk/include ${CMAKE_CURRENT_SOURCE_DIR}/third_party ${minhook_SOURCE_DIR}/include)
 target_link_libraries(eam_guitest d3d11 dxgi d3dcompiler bcrypt minhook)

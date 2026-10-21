@@ -42,6 +42,7 @@ Written down so they are not lost; none of it is in a product unless a release n
 | [own-generator-plan.md](own-generator-plan.md) | **EchoFG**, our own frame generator (test build only): what the lab says, the plan, fast motion, the scores |
 | [mfg-super-motion-study.md](mfg-super-motion-study.md), [mfg-super-motion-engine-notes.md](mfg-super-motion-engine-notes.md) | Another project's public files, ideas only, and EchoFG's cost and quality against it |
 | [optical-flow-study.md](optical-flow-study.md) | NVIDIA's optical flow hardware against our own estimator |
+| [lossless-scaling-internals.md](lossless-scaling-internals.md) | What Lossless Scaling's own files show (its settings keys, its shaders, how its frame rate counter works and is hooked) |
 | [lsfg-vk-study.md](lsfg-vk-study.md) | How LSFG 3.1 works under the hood, as far as an open reimplementation shows |
 | [magpie-fork-study.md](magpie-fork-study.md), [magpie-dissection.md](magpie-dissection.md) | A read of the Magpie experimental fork, and where this project goes further |
 | [repeat-skip-spec.md](repeat-skip-spec.md) | Skipping the work on a picture that is exactly the one before |

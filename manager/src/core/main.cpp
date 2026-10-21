@@ -3,6 +3,7 @@
 #include "proxy_exports.h"
 #include "shader_hook.h"
 #include "d3d11_hook.h"
+#include "fps_counter_hook.h"
 #include "instance_guard.h"
 #include "../addon/addon_manager.h"
 #include "../config/config_manager.h"
@@ -100,6 +101,7 @@ bool Manager::Start() {
     ShaderHook::InstallHooks(lossless, [addonList](const wchar_t* name, const wchar_t* type, const void** data, uint32_t* size) {
         return addonList->InterceptResource(name, type, data, size);
     });
+    eam::fpscounter::Install(lossless);   // false for a Lossless Scaling build it does not know: its counter is then left alone
     D3D11Hook::Initialize(host.get());
     {   // the recorder feature's way into the hook, the host and the event bus (the tests of the features link without them)
         eam::features::recorder::Backends backends;
@@ -124,6 +126,7 @@ void Manager::Stop() {
     eam::EventBus::Instance().Publish(EAM_EVENT_HOST_SHUTDOWN);
     eam::features::Stop();
     D3D11Hook::Shutdown();
+    eam::fpscounter::Uninstall();
     ShaderHook::UninstallHooks();
     addons.reset();   // stops and unloads the addons
     host.reset();

@@ -3,6 +3,7 @@
 #include "gpu_stats.h"
 #include "../config/config_manager.h"
 #include "../core/d3d11_hook.h"
+#include "../core/fps_counter_hook.h"
 #include "../gui/icon_loader.h"
 #include "../event/event_system.h"
 #include "../log/logger.h"
@@ -133,6 +134,8 @@ uint32_t HostImpl::GpuLoadPercent() {
     const GpuStats::Snapshot s = stats.Get();
     return s.ok && s.ageSeconds < 5.0 ? (s.utilGpu > 100 ? 100u : s.utilGpu) : 0u;
 }
+
+bool HostImpl::SetFpsCounterMultiplier(float multiplier) { return eam::fpscounter::SetMultiplier(multiplier); }   // (API 1.4)
 
 // ---- the recorder (API 1.3)
 

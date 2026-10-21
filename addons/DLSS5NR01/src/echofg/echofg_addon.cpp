@@ -42,7 +42,8 @@ std::wstring g_addonDir;
 // the settings, read from the host's config twice a second (the presenting thread reads them every frame: atomics)
 std::atomic<bool> g_enabled{ true }, g_own{ true }, g_align{ true }, g_guard{ true };
 std::atomic<int> g_multiplier{ 2 };
-std::atomic<int> g_readout{ 1 };   // the frame rate readout in the picture: 0 off, 1 top left, 2 top right
+std::atomic<int> g_readout{ 0 };   // the frame rate readout: 0 Lossless Scaling's own counter, made to show the rate the screen gets (our own label in the top left when the manager cannot), 1 off, 2 top left, 3 top right
+std::atomic<bool> g_counterHooked{ false };   // the manager has hooked Lossless Scaling's counter (API 1.4)
 std::atomic<float> g_soften{ 0.6f };
 std::mutex g_textMutex;
 std::string g_notice;
@@ -89,7 +90,7 @@ void ReadConfig() {
     g_enabled = flag("enabled", true);   // (the manager's switch for the addon is the real one: this only pauses)
     g_own = flag("own", true); g_align = flag("align", true); g_guard = flag("guard", true);
     g_multiplier = std::clamp(atoi(g_host->GetConfig(kId, "multiplier", "2")), 2, 9);
-    g_readout = std::clamp(atoi(g_host->GetConfig(kId, "fpsReadout", "1")), 0, 2);
+    g_readout = std::clamp(atoi(g_host->GetConfig(kId, "fpsReadout", "0")), 0, 3);
     g_soften = std::clamp(static_cast<float>(atof(g_host->GetConfig(kId, "soften", "0.6"))), 0.0f, 1.0f);
 }
 void Set(const char* key, const std::string& value) { g_host->SetConfig(kId, key, value.c_str()); g_host->SaveConfig(); g_configAt = 0; }
@@ -117,9 +118,13 @@ void CountAndStamp(ID3D11DeviceContext* ctx, ID3D11Texture2D* frame, bool made, 
         const int realFps = static_cast<int>(real / sec + 0.5), outFps = static_cast<int>((real + madeCount) / sec + 0.5);
         const int mult = real ? std::max(1, static_cast<int>((real + madeCount) / static_cast<double>(real) + 0.5)) : 1;
         g_label.Set(std::to_string(outFps) + " FPS", "REAL " + std::to_string(realFps) + " X" + std::to_string(mult));
+        if (g_host && g_host->GetHostVersion() >= 0x010400)   // Lossless Scaling's counter: the frames it presents times what we add
+            g_counterHooked = g_host->SetFpsCounterMultiplier(g_readout == 0 ? static_cast<float>(real ? (real + madeCount) / static_cast<double>(real) : 1.0) : 1.0f);
         real = madeCount = 0; since = now;
     }
-    if (g_readout > 0) g_label.Stamp(ctx, frame, g_readout, encoding, white);
+    const int ro = g_readout;
+    if (ro >= 2) g_label.Stamp(ctx, frame, ro - 1, encoding, white);   // (2 top left is corner 1, 3 top right is corner 2)
+    else if (ro == 0 && !g_counterHooked) g_label.Stamp(ctx, frame, 1, encoding, white);   // (no counter to change: ours, over Lossless Scaling's)
 }
 
 // Every present of the process (Lossless Scaling's output chain, and the manager's own window): the presenter takes only the one whose back buffer Lossless Scaling's compute pass writes.
@@ -203,6 +208,7 @@ EAM_EXPORT void AddonInitialize(IHost* host, ImGuiContext* ctx, void* allocFunc,
 
 EAM_EXPORT void AddonShutdown() {
     if (g_host) { g_host->UnsubscribeEvent(EAM_EVENT_D3D11_DEVICE_READY, OnDevice); g_host->UnsubscribeEvent(EAM_EVENT_D3D11_DEVICE_CHANGED, OnDevice); }
+    if (g_host && g_host->GetHostVersion() >= 0x010400) g_host->SetFpsCounterMultiplier(1.0f);   // (Lossless Scaling's counter counts as it did)
     PresentHook::Uninstall();   // (the hook's functions stay in the table and pass straight through)
     nr::framegen::Shutdown();
     g_host = nullptr;
@@ -243,8 +249,8 @@ EAM_EXPORT void AddonRenderSettings() {
     {   // Lossless Scaling's own counter shows the real rate with its frame generation off
         int ro = g_readout;
         ImGui::SetNextItemWidth(260);
-        if (ImGui::Combo("Frame rate readout", &ro, "Off\0Top left\0Top right\0")) Set("fpsReadout", std::to_string(ro));
-        if (ImGui::IsItemHovered()) ImGui::SetTooltip("Lossless Scaling's own frame rate counter counts its own frames, so with its frame generation off it shows the real rate (60), not the rate the screen gets with EchoFG (120). This draws the rate the screen gets, with the real rate and the multiplier under it, in a corner of the picture. It is not in recordings. Lossless Scaling's counter stays where it is (top left): choose Top right to keep the two apart.");
+        if (ImGui::Combo("Frame rate readout", &ro, "Lossless Scaling's counter\0Off\0Our own, top left\0Our own, top right\0")) Set("fpsReadout", std::to_string(ro));
+        if (ImGui::IsItemHovered()) ImGui::SetTooltip("Lossless Scaling's own counter (\"60 / 120\", first the rate it captures, then the rate the screen gets) counts only the frames Lossless Scaling presents, so with its frame generation off it shows the real rate twice. The first choice makes it count the frames EchoFG makes too (switch it on in Lossless Scaling's own window); if the manager cannot (a Lossless Scaling build it does not know) EchoFG draws a readout of its own over it, top left. The last two always draw EchoFG's own readout (the rate the screen gets, with the real rate and the multiplier under it); it is not in recordings.");
     }
     bool align = g_align;
     if (ImGui::Checkbox("Put the presents one to a refresh of the display", &align)) Set("align", align ? "1" : "0");

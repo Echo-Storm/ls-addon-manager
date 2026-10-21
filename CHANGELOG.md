@@ -5,7 +5,7 @@
 ## 1.0.5 (2026-10-21)
 
 - **EchoFG is no longer called a prototype** (name, description and README; it stays off until switched on).
-- **EchoFG draws its own frame rate readout.** Lossless Scaling's counter only counts the frames Lossless Scaling makes, so with its frame generation off and EchoFG on it showed the real rate (60 where the screen got 120). EchoFG now stamps a small label into every frame it shows: the frames a second the screen gets, and "REAL 60 X2" (the real rate and the multiplier). Top right by default; the panel's *Frame rate readout* setting: off, top left, top right. Checked on every frame shown, in SDR and HDR (`nr_fgpresent fpslabel=1`).
+- **Lossless Scaling's own frame rate counter shows the rate EchoFG gives.** It counts only the frames Lossless Scaling presents, so with its frame generation off and EchoFG on it showed the real rate twice (`60 / 60` where the screen got 120). The manager now hooks the counter's function in the Lossless Scaling build it knows (checked byte for byte; any other build is left alone) and EchoFG tells it how many frames it adds: the counter shows `60 / 120`, in its own font and place. New addon API 1.4 call `IHost::SetFpsCounterMultiplier`. Where the counter cannot be hooked, EchoFG draws a readout of its own over it (top left). The panel's *Frame rate readout*: Lossless Scaling's counter (default), off, or EchoFG's own label top left / top right. How the counter works, and the rest of what Lossless Scaling's files show: [docs/lossless-scaling-internals.md](docs/lossless-scaling-internals.md).
 
 ## 1.0.4 (2026-10-21)
 
