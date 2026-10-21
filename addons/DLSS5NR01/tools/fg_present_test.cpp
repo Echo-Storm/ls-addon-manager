@@ -73,7 +73,7 @@ std::vector<Shown> g_shown;
 ID3D11Device* g_dev = nullptr; ID3D11DeviceContext* g_ctx = nullptr;
 UINT g_w = 0, g_h = 0; DXGI_FORMAT g_fmt = DXGI_FORMAT_UNKNOWN;
 uint32_t g_encoding = 0; float g_white = 80.0f;
-bool g_fpsLabel = false; nr::FpsLabel g_label;   // fpslabel=1: stamp the frame rate readout into every shown frame, as the addon does
+int g_fpsLabel = 0; nr::FpsLabel g_label;   // fpslabel=1: stamp the frame rate readout into every shown frame, as the addon does
 
 double g_t0 = 0;   // the time of the first log line, for the lines that follow
 void Log(const char* m) {
@@ -89,7 +89,7 @@ void OnHook(IDXGISwapChain* sc, UINT sync, UINT flags) {
       g_lastEntry = now; ++g_entries; }
     nr::framegen::BeforeRealPresent(sc, sync, flags, g_encoding, g_white, Log, [](ID3D11DeviceContext* ctx, ID3D11Texture2D* frame, bool made) {
         if (g_shown.size() >= 600) return;
-        if (g_fpsLabel) { g_label.Set(made ? "240 FPS" : "240 FPS ", "REAL 60 X4"); g_label.Stamp(ctx, frame, 2, g_encoding, g_white); }
+        if (g_fpsLabel) { g_label.Set(made ? "240 FPS" : "240 FPS ", "REAL 60 X4"); g_label.Stamp(ctx, frame, g_fpsLabel, g_encoding, g_white); }
         D3D11_TEXTURE2D_DESC d{}; frame->GetDesc(&d);
         d.Usage = D3D11_USAGE_STAGING; d.BindFlags = 0; d.CPUAccessFlags = D3D11_CPU_ACCESS_READ; d.MiscFlags = 0;
         ID3D11Texture2D* st = nullptr;
@@ -126,7 +126,7 @@ int LabelPixels(ID3D11Texture2D* st) {
     int n = 0;
     for (UINT y = 0; y < 60 && y < sd.Height; ++y) {
         const uint8_t* row = static_cast<const uint8_t*>(m.pData) + static_cast<size_t>(y) * m.RowPitch;
-        for (UINT x = sd.Width > 300 ? sd.Width - 300 : 0; x < sd.Width; ++x) {
+        for (UINT x = g_fpsLabel == 1 ? 0 : (sd.Width > 300 ? sd.Width - 300 : 0), xe = g_fpsLabel == 1 ? std::min<UINT>(300, sd.Width) : sd.Width; x < xe; ++x) {
             float r, g;
             if (g_fmt == DXGI_FORMAT_R16G16B16A16_FLOAT) { r = DirectX::PackedVector::XMConvertHalfToFloat(reinterpret_cast<const uint16_t*>(row)[x * 4]); g = DirectX::PackedVector::XMConvertHalfToFloat(reinterpret_cast<const uint16_t*>(row)[x * 4 + 1]); }
             else { r = row[x * 4] / 255.0f; g = row[x * 4 + 1] / 255.0f; }
@@ -150,7 +150,7 @@ int main(int argc, char** argv) {
     int wantMult = mult, settledFrom = 0;   // the multiplier the last intervals should have, and the first real frame from which the checks look
     const int sizeX = std::clamp(Arg(argc, argv, "size", 1), 1, 4), syncInt = std::clamp(Arg(argc, argv, "sync", 0), 0, 2), latencyN = std::clamp(Arg(argc, argv, "latency", 0), 0, 8), buffersN = std::clamp(Arg(argc, argv, "buffers", 3), 2, 6);
     const bool tearing = Arg(argc, argv, "tearing", 0) != 0;
-    g_fpsLabel = Arg(argc, argv, "fpslabel", 0) != 0;
+    g_fpsLabel = Arg(argc, argv, "fpslabel", 0);   // 1 top left, 2 top right
     g_w = 960 * sizeX; g_h = 540 * sizeX; g_fmt = hdr ? DXGI_FORMAT_R16G16B16A16_FLOAT : DXGI_FORMAT_R8G8B8A8_UNORM;
     g_encoding = hdr ? 1u : 0u; g_white = 80.0f;
     std::wstring fsr;

@@ -65,7 +65,7 @@ $suites = [ordered]@{
                             @('Neural Rendering frame tap', "$nrBuild\Release\nr_taptest.exe", @()),
                             @('Frame generation presenter (our own synthesis x4, a real swap chain, every frame read back)', "$nrBuild\Release\nr_fgpresent.exe", @('mult=4')),
                             @('Frame generation presenter (the frame rate readout stamped into every frame shown, SDR)', "$nrBuild\Release\nr_fgpresent.exe", @('mult=2', 'fpslabel=1')),
-                            @('Frame generation presenter (the frame rate readout, HDR frames)', "$nrBuild\Release\nr_fgpresent.exe", @('mult=3', 'hdr=1', 'fpslabel=1')),
+                            @('Frame generation presenter (the frame rate readout, HDR frames)', "$nrBuild\Release\nr_fgpresent.exe", @('mult=3', 'hdr=1', 'fpslabel=2')),
                             @('Frame generation presenter (HDR frames, x3)', "$nrBuild\Release\nr_fgpresent.exe", @('mult=3', 'hdr=1')),
                             @('Frame generation presenter (EchoFG switched on while it runs: no stall of the presenting thread)', "$nrBuild\Release\nr_fgpresent.exe", @('mult=2', 'toggle=1', 'frames=150', 'speed=4')),
                             @('HDR: the upscaler keeps highlights (a made-up fp16 clip with bright glints; sharpening, lean, steady sharpening: no specks)', $env:ComSpec,

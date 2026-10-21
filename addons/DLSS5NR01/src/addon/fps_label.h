@@ -26,7 +26,7 @@ private:
     ID3D11Device* m_dev = nullptr;   // only compared
     ID3D11Texture2D* m_tex = nullptr;
     DXGI_FORMAT m_format = DXGI_FORMAT_UNKNOWN;
-    uint32_t m_w = 0, m_h = 0, m_enc = 0xFFFFFFFFu; int m_scale = 0; float m_white = 0;
+    uint32_t m_w = 0, m_h = 0, m_enc = 0xFFFFFFFFu; int m_scale = 0, m_corner = 0; float m_white = 0;
 };
 
 } // namespace nr

@@ -79,20 +79,26 @@ bool FpsLabel::Stamp(ID3D11DeviceContext* ctx, ID3D11Texture2D* frame, int corne
     ID3D11Device* dev = nullptr; frame->GetDevice(&dev); if (dev) dev->Release();   // (only compared; the context keeps it alive)
     if (!dev) return false;
     const int scale = std::clamp(static_cast<int>(d.Width / 800), 2, 8);
-    if (dev != m_dev || d.Format != m_format || scale != m_scale || encoding != m_enc || whiteNits != m_white) { SafeRelease(m_tex); m_dirty = true; }
+    if (dev != m_dev || d.Format != m_format || scale != m_scale || corner != m_corner || encoding != m_enc || whiteNits != m_white) { SafeRelease(m_tex); m_dirty = true; }
     if (m_dirty || !m_tex) {
         SafeRelease(m_tex);
         std::vector<std::string> rows = { m_row1 }; if (!m_row2.empty()) rows.push_back(m_row2);
         uint32_t w = 0, h = 0;
-        const std::vector<uint32_t> px = labelfont::LabelImage(rows, 0x40B0A0, scale, w, h);
+        std::vector<uint32_t> px = labelfont::LabelImage(rows, 0x40B0A0, scale, w, h);
+        if (corner == 1) {   // top left: sits on Lossless Scaling's own counter, so it is made at least as big as that (the dark background is opaque) and covers it
+            const uint32_t mw = std::max(w, d.Width / 10), mh = std::max(h, d.Height / 20);
+            std::vector<uint32_t> big(static_cast<size_t>(mw) * mh, 0xFF181818u);
+            for (uint32_t y = 0; y < h; ++y) memcpy(&big[static_cast<size_t>(y) * mw], &px[static_cast<size_t>(y) * w], w * 4u);
+            px.swap(big); w = mw; h = mh;
+        }
         const std::string bytes = ConvertPixels(px.data(), static_cast<uint32_t>(px.size()), d.Format, encoding, whiteNits);
         if (bytes.empty() || w == 0 || h == 0) return false;
         D3D11_TEXTURE2D_DESC td{}; td.Width = w; td.Height = h; td.MipLevels = 1; td.ArraySize = 1; td.Format = d.Format; td.SampleDesc.Count = 1; td.Usage = D3D11_USAGE_DEFAULT;
         const D3D11_SUBRESOURCE_DATA init{ bytes.data(), static_cast<UINT>(bytes.size() / h), 0 };
         if (FAILED(dev->CreateTexture2D(&td, &init, &m_tex))) { m_tex = nullptr; return false; }
-        m_dev = dev; m_format = d.Format; m_scale = scale; m_enc = encoding; m_white = whiteNits; m_w = w; m_h = h; m_dirty = false;
+        m_dev = dev; m_format = d.Format; m_scale = scale; m_corner = corner; m_enc = encoding; m_white = whiteNits; m_w = w; m_h = h; m_dirty = false;
     }
-    const uint32_t margin = static_cast<uint32_t>(scale) * 3u;
+    const uint32_t margin = corner == 1 ? 0u : static_cast<uint32_t>(scale) * 3u;
     const uint32_t x = corner == 2 ? (d.Width > m_w + margin ? d.Width - m_w - margin : 0) : margin, y = margin;
     if (x + m_w > d.Width || y + m_h > d.Height) return false;
     ctx->CopySubresourceRegion(frame, 0, x, y, 0, m_tex, 0, nullptr);

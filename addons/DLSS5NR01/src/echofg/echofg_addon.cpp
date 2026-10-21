@@ -42,7 +42,7 @@ std::wstring g_addonDir;
 // the settings, read from the host's config twice a second (the presenting thread reads them every frame: atomics)
 std::atomic<bool> g_enabled{ true }, g_own{ true }, g_align{ true }, g_guard{ true };
 std::atomic<int> g_multiplier{ 2 };
-std::atomic<int> g_readout{ 2 };   // the frame rate readout in the picture: 0 off, 1 top left, 2 top right
+std::atomic<int> g_readout{ 1 };   // the frame rate readout in the picture: 0 off, 1 top left, 2 top right
 std::atomic<float> g_soften{ 0.6f };
 std::mutex g_textMutex;
 std::string g_notice;
@@ -89,7 +89,7 @@ void ReadConfig() {
     g_enabled = flag("enabled", true);   // (the manager's switch for the addon is the real one: this only pauses)
     g_own = flag("own", true); g_align = flag("align", true); g_guard = flag("guard", true);
     g_multiplier = std::clamp(atoi(g_host->GetConfig(kId, "multiplier", "2")), 2, 9);
-    g_readout = std::clamp(atoi(g_host->GetConfig(kId, "fpsReadout", "2")), 0, 2);
+    g_readout = std::clamp(atoi(g_host->GetConfig(kId, "fpsReadout", "1")), 0, 2);
     g_soften = std::clamp(static_cast<float>(atof(g_host->GetConfig(kId, "soften", "0.6"))), 0.0f, 1.0f);
 }
 void Set(const char* key, const std::string& value) { g_host->SetConfig(kId, key, value.c_str()); g_host->SaveConfig(); g_configAt = 0; }
