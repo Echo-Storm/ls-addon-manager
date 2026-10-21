@@ -38,6 +38,17 @@ extern "C" __declspec(dllexport) void __fastcall ApplySettings(
 namespace {
 
 decltype(&ApplySettings) g_realApplySettings = nullptr;
+using StatusCallback = void(__fastcall*)(int, void*, int, int, int, int, uint8_t, float, int);
+bool(__fastcall* g_realInit)(StatusCallback) = nullptr;
+StatusCallback g_windowCallback = nullptr;   // the window's own status callback (it keeps working as before)
+
+// In front of the window's status callback: tells the addons what it is told (scaling started, stopped, resized) before the window gets it.
+void __fastcall OnScalingStatus(int status, void* hwnd, int inW, int inH, int outW, int outH, uint8_t resized, float scale, int err) {
+    LOG_INFO("Core", "Scaling status %d (window %p, %dx%d -> %dx%d, resized %d, scale %.2f, error %d)", status, hwnd, inW, inH, outW, outH, resized, scale, err);
+    EamScalingStatusData data{ status, hwnd, inW, inH, outW, outH, resized, scale, err };
+    eam::EventBus::Instance().Publish(EAM_EVENT_SCALING_STATUS, &data, sizeof data);
+    if (g_windowCallback) g_windowCallback(status, hwnd, inW, inH, outW, outH, resized, scale, err);
+}
 
 // What the manager runs, from DllMain's attach to its detach.
 struct Manager {
@@ -79,6 +90,8 @@ bool Manager::Start() {
     if (!lossless) { LOG_ERROR("Core", "Lossless_original.dll could not be loaded: Lossless Scaling cannot run"); return false; }
     g_realApplySettings = reinterpret_cast<decltype(&ApplySettings)>(GetProcAddress(lossless, "ApplySettings"));
     if (!g_realApplySettings) LOG_ERROR("Core", "Lossless_original.dll has no ApplySettings: settings will not reach Lossless Scaling");
+    g_realInit = reinterpret_cast<decltype(g_realInit)>(GetProcAddress(lossless, "Init"));
+    if (!g_realInit) LOG_ERROR("Core", "Lossless_original.dll has no Init: Lossless Scaling cannot start");
 
     // Lossless Scaling runs one copy of itself: started again, it loads this DLL, hands over to the running copy and exits. That second copy
     // must not start another window, tray icon, hotkey or set of addons, or write the settings and logs the first one uses.
@@ -153,6 +166,12 @@ extern "C" __declspec(dllexport) void __fastcall ApplySettings(
                             cropLeft, cropTop, cropRight, cropBottom, multiDisplayMode);
     eam::HostImpl::SetLosslessState(frameGenType, drawFps != 0);
     eam::EventBus::Instance().Publish(EAM_EVENT_SETTINGS_APPLIED);
+}
+
+extern "C" __declspec(dllexport) bool __fastcall Init(StatusCallback callback) {
+    if (!g_realInit) return false;
+    g_windowCallback = callback;
+    return g_realInit(callback ? &OnScalingStatus : callback);
 }
 
 BOOL APIENTRY DllMain(HMODULE module, DWORD reason, LPVOID) {

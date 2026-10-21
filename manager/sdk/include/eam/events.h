@@ -12,6 +12,7 @@ enum EamEvent : uint32_t {
     EAM_EVENT_SETTINGS_APPLIED   = 6,   // Lossless Scaling has just applied its settings (its ApplySettings returned); no payload
     EAM_EVENT_D3D11_DEVICE_READY = 7,   // Lossless Scaling made a D3D11 device (IHost::GetD3D11Device has it now); no payload
     EAM_EVENT_D3D11_DEVICE_CHANGED = 8, // ...and it replaces an earlier one: drop anything made on the old device; sent before DEVICE_READY
+    EAM_EVENT_SCALING_STATUS     = 10,  // Lossless Scaling's scaling started, stopped or changed (API 1.4); payload EamScalingStatusData
     EAM_EVENT_RECORDING_SAVED    = 9,   // the manager's recorder saved a file (API 1.3); payload EamRecordingSavedData: an addon can write what it knows beside it
 
     EAM_EVENT_CUSTOM             = 0x10000   // from here up: addons' own events, for talking to each other
@@ -23,6 +24,17 @@ typedef void (*EamEventCallback)(uint32_t eventId, const void* data, uint32_t da
 struct EamAddonEventData {
     const char* addonName;
     const char* addonVersion;
+};
+
+// What Lossless Scaling tells its window when scaling changes (API 1.4). status: 0 disabled, 1 temporarily disabled, 2 enabled (scaling runs), 3 a countdown to start. hwnd is the
+// window being scaled; the sizes are the captured and the output picture in pixels; resized: the window changed size; errorCode: 0 none, 1 resize failed, 2 offset too large, 3 capture failed.
+struct EamScalingStatusData {
+    int32_t status;
+    void* hwnd;
+    int32_t inputWidth, inputHeight, outputWidth, outputHeight;
+    uint8_t resized;
+    float scaleFactor;
+    int32_t errorCode;
 };
 
 struct EamRecordingSavedData {
