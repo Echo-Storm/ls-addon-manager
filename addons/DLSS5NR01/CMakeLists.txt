@@ -89,7 +89,7 @@ endif()
 # ECHOFG: EchoFG frame generation, an addon of its own (src/echofg/echofg_addon.cpp), a prototype, in the package since 1.0.1 (off until switched on); -DNR_FRAMEGEN=OFF leaves it out.
 # It needs AMD's FidelityFX runtime for its FSR 3.1 alternative, in an fsr folder next to it (the FSR Upscaler's copy).
 if(NR_FRAMEGEN)
-    add_library(ECHOFG SHARED src/echofg/echofg_addon.cpp src/addon/present_hook.cpp src/addon/framegen11.cpp src/addon/lsrec.cpp src/addon/hdr.cpp src/echofg/bridge_formats.cpp
+    add_library(ECHOFG SHARED src/echofg/echofg_addon.cpp src/addon/present_hook.cpp src/addon/framegen11.cpp src/addon/fps_label.cpp src/addon/lsrec.cpp src/addon/hdr.cpp src/echofg/bridge_formats.cpp
         src/engine/fg_engine.cpp src/engine/own_synth.cpp src/engine/flow_estimator.cpp src/engine/shader_cache.cpp src/engine/flow_fix.cpp
         ${imgui_SOURCE_DIR}/imgui.cpp ${imgui_SOURCE_DIR}/imgui_draw.cpp ${imgui_SOURCE_DIR}/imgui_tables.cpp ${imgui_SOURCE_DIR}/imgui_widgets.cpp)
     target_include_directories(ECHOFG PRIVATE src ${CMAKE_SOURCE_DIR}/third_party/ffx/include ${CMAKE_SOURCE_DIR}/../../manager/sdk/include ${imgui_SOURCE_DIR})
@@ -148,7 +148,7 @@ add_dependencies(nr_fgeval FSR3UPSC)   # (AMD's runtime, in the build's fsr fold
 
 # nr_fgpresent: the frame generation presenter (src/addon/framegen11.cpp) on a real swap chain with the addon's Present hook, a synthetic moving scene, every frame shown
 # read back and checked (tools/fg_present_test.cpp)
-add_executable(nr_fgpresent tools/fg_present_test.cpp src/addon/framegen11.cpp src/addon/present_hook.cpp src/engine/flow_estimator.cpp src/engine/shader_cache.cpp src/engine/flow_fix.cpp src/engine/fg_engine.cpp src/engine/own_synth.cpp)
+add_executable(nr_fgpresent tools/fg_present_test.cpp src/addon/fps_label.cpp src/addon/framegen11.cpp src/addon/present_hook.cpp src/engine/flow_estimator.cpp src/engine/shader_cache.cpp src/engine/flow_fix.cpp src/engine/fg_engine.cpp src/engine/own_synth.cpp)
 target_include_directories(nr_fgpresent PRIVATE ${CMAKE_SOURCE_DIR}/src ${CMAKE_SOURCE_DIR}/third_party/ffx/include)
 target_link_libraries(nr_fgpresent PRIVATE d3d11 d3d12 dxgi d3dcompiler)
 add_dependencies(nr_fgpresent FSR3UPSC)   # (AMD's runtime, in the build's fsr folder)

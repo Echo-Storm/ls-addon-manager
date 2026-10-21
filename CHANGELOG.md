@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+## 1.0.5 (2026-10-21)
+
+- **EchoFG draws its own frame rate readout.** Lossless Scaling's counter only counts the frames Lossless Scaling makes, so with its frame generation off and EchoFG on it showed the real rate (60 where the screen got 120). EchoFG now stamps a small label into every frame it shows: the frames a second the screen gets, and "REAL 60 X2" (the real rate and the multiplier). Top right by default; the panel's *Frame rate readout* setting: off, top left, top right. Checked on every frame shown, in SDR and HDR (`nr_fgpresent fpslabel=1`).
+
 ## 1.0.4 (2026-10-21)
 
 - **Hotfix: Setup updates every file of ours, always.** 1.0.1 to 1.0.3 left a file of ours alone if it differed from what Setup had put there, so an addon DLL that was a test build (or an old file) stayed as it was while the manager moved on. Now the files of ours are always replaced (the old one saved in `backups`); only a vendor runtime you replaced with your own (in an addon's `dlss`, `fsr`, `xess`, `vfx` or `runtimes` folder) is kept, and Setup says so.

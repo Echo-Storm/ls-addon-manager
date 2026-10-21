@@ -35,6 +35,7 @@
 #include <string>
 #include <vector>
 #include "addon/framegen11.h"
+#include "addon/fps_label.h"
 #include "addon/present_hook.h"
 #pragma comment(lib, "d3d11.lib")
 #pragma comment(lib, "dxgi.lib")
@@ -72,6 +73,7 @@ std::vector<Shown> g_shown;
 ID3D11Device* g_dev = nullptr; ID3D11DeviceContext* g_ctx = nullptr;
 UINT g_w = 0, g_h = 0; DXGI_FORMAT g_fmt = DXGI_FORMAT_UNKNOWN;
 uint32_t g_encoding = 0; float g_white = 80.0f;
+bool g_fpsLabel = false; nr::FpsLabel g_label;   // fpslabel=1: stamp the frame rate readout into every shown frame, as the addon does
 
 double g_t0 = 0;   // the time of the first log line, for the lines that follow
 void Log(const char* m) {
@@ -87,6 +89,7 @@ void OnHook(IDXGISwapChain* sc, UINT sync, UINT flags) {
       g_lastEntry = now; ++g_entries; }
     nr::framegen::BeforeRealPresent(sc, sync, flags, g_encoding, g_white, Log, [](ID3D11DeviceContext* ctx, ID3D11Texture2D* frame, bool made) {
         if (g_shown.size() >= 600) return;
+        if (g_fpsLabel) { g_label.Set(made ? "240 FPS" : "240 FPS ", "REAL 60 X4"); g_label.Stamp(ctx, frame, 2, g_encoding, g_white); }
         D3D11_TEXTURE2D_DESC d{}; frame->GetDesc(&d);
         d.Usage = D3D11_USAGE_STAGING; d.BindFlags = 0; d.CPUAccessFlags = D3D11_CPU_ACCESS_READ; d.MiscFlags = 0;
         ID3D11Texture2D* st = nullptr;
@@ -115,6 +118,25 @@ double SquareX(ID3D11Texture2D* st) {
     return n > 50 ? sum / static_cast<double>(n) : -1;
 }
 
+// how many pixels of the readout's colour (teal: green well above red) the top right corner of a shown frame holds
+int LabelPixels(ID3D11Texture2D* st) {
+    D3D11_MAPPED_SUBRESOURCE m{};
+    D3D11_TEXTURE2D_DESC sd{}; st->GetDesc(&sd);
+    if (FAILED(g_ctx->Map(st, 0, D3D11_MAP_READ, 0, &m))) return -1;
+    int n = 0;
+    for (UINT y = 0; y < 60 && y < sd.Height; ++y) {
+        const uint8_t* row = static_cast<const uint8_t*>(m.pData) + static_cast<size_t>(y) * m.RowPitch;
+        for (UINT x = sd.Width > 300 ? sd.Width - 300 : 0; x < sd.Width; ++x) {
+            float r, g;
+            if (g_fmt == DXGI_FORMAT_R16G16B16A16_FLOAT) { r = DirectX::PackedVector::XMConvertHalfToFloat(reinterpret_cast<const uint16_t*>(row)[x * 4]); g = DirectX::PackedVector::XMConvertHalfToFloat(reinterpret_cast<const uint16_t*>(row)[x * 4 + 1]); }
+            else { r = row[x * 4] / 255.0f; g = row[x * 4 + 1] / 255.0f; }
+            if (g > r * 1.8f + 0.1f) ++n;
+        }
+    }
+    g_ctx->Unmap(st, 0);
+    return n;
+}
+
 } // namespace
 
 int main(int argc, char** argv) {
@@ -128,6 +150,7 @@ int main(int argc, char** argv) {
     int wantMult = mult, settledFrom = 0;   // the multiplier the last intervals should have, and the first real frame from which the checks look
     const int sizeX = std::clamp(Arg(argc, argv, "size", 1), 1, 4), syncInt = std::clamp(Arg(argc, argv, "sync", 0), 0, 2), latencyN = std::clamp(Arg(argc, argv, "latency", 0), 0, 8), buffersN = std::clamp(Arg(argc, argv, "buffers", 3), 2, 6);
     const bool tearing = Arg(argc, argv, "tearing", 0) != 0;
+    g_fpsLabel = Arg(argc, argv, "fpslabel", 0) != 0;
     g_w = 960 * sizeX; g_h = 540 * sizeX; g_fmt = hdr ? DXGI_FORMAT_R16G16B16A16_FLOAT : DXGI_FORMAT_R8G8B8A8_UNORM;
     g_encoding = hdr ? 1u : 0u; g_white = 80.0f;
     std::wstring fsr;
@@ -187,7 +210,8 @@ int main(int argc, char** argv) {
             if (nr::framegen::GetStats().engine.rfind(wantEngine, 0) == 0) ++ready;
         }
         printf("warm-up: the engine was up after %.0f ms\n", nowMs() - warmStart);
-        for (auto& s : g_shown) if (s.staging) s.staging->Release();
+        g_label.Release();
+    for (auto& s : g_shown) if (s.staging) s.staging->Release();
         g_shown.clear();
         QueryPerformanceCounter(&start);
     }
@@ -245,6 +269,8 @@ int main(int argc, char** argv) {
     const double want = intervalMs / wantMult;
     printf("the longest wait between the presenting thread's calls into the presenter: %.0f ms (a real frame every %.0f ms)\n", g_maxGapMs, intervalMs);
     const bool stalled = g_maxGapMs > std::max(400.0, 4.0 * intervalMs);   // (the engine's very first frame takes 50 to 350 ms once, more when the machine is busy (the test suites run side by side) and at 4K: the shared frames' first use by the second API; the start-up used to take seconds)
+    int labelMissing = 0;
+    if (g_fpsLabel) { for (const Shown& s : g_shown) if (LabelPixels(s.staging) < 150) ++labelMissing; printf("frame rate readout: %d of %zu shown frames without it\n", labelMissing, g_shown.size()); }
     const bool toggled = !doToggle || st.engine.rfind("EchoFG", 0) == 0;
     if (doToggle) printf("EchoFG after the switch: %s (the engine says %s)\n", toggled ? "running" : "NOT running", st.engine.c_str());
     printf("frames per real frame after warm-up: %s (wanted %d made between each two real ones; %d intervals wrong)\n", perInterval.empty() ? "none" : "measured", wantMult - 1, countWrong);
@@ -258,7 +284,7 @@ int main(int argc, char** argv) {
         DXGI_FRAME_STATISTICS fs{}; if (SUCCEEDED(sc->GetFrameStatistics(&fs))) printf("display: %u presents counted, %u refreshes\n", fs.PresentCount, fs.PresentRefreshCount);
     }
     if (stalled) printf("the presenting thread stalled\n");
-    const bool ok = made > 0 && countWrong == 0 && bad == 0 && measured > 0 && worst < 0.2 * speed + 3.0 && !stalled && toggled;
+    const bool ok = made > 0 && countWrong == 0 && bad == 0 && measured > 0 && worst < 0.2 * speed + 3.0 && !stalled && toggled && labelMissing == 0;
     printf("%s\n", ok ? "FG PRESENT TEST PASSED" : "FG PRESENT TEST FAILED");
     for (auto& s : g_shown) if (s.staging) s.staging->Release();
     nr::framegen::Shutdown(); PresentHook::Uninstall();

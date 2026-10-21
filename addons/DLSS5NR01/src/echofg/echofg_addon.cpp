@@ -12,6 +12,7 @@
 #include <imgui.h>
 #include <eam/widgets.h>
 #include "addon/framegen11.h"
+#include "addon/fps_label.h"
 #include "addon/present_hook.h"
 #include "addon/lsrec.h"
 #include "addon/hdr.h"
@@ -33,7 +34,7 @@ namespace {
 
 constexpr const char* kId = "ECHOFG";
 constexpr const char* kName = "EchoFG frame generation (prototype)";
-constexpr const char* kVersion = "1.0.4";
+constexpr const char* kVersion = "1.0.5";
 
 IHost* g_host = nullptr;
 std::wstring g_addonDir;
@@ -41,6 +42,7 @@ std::wstring g_addonDir;
 // the settings, read from the host's config twice a second (the presenting thread reads them every frame: atomics)
 std::atomic<bool> g_enabled{ true }, g_own{ true }, g_align{ true }, g_guard{ true };
 std::atomic<int> g_multiplier{ 2 };
+std::atomic<int> g_readout{ 2 };   // the frame rate readout in the picture: 0 off, 1 top left, 2 top right
 std::atomic<float> g_soften{ 0.6f };
 std::mutex g_textMutex;
 std::string g_notice;
@@ -87,6 +89,7 @@ void ReadConfig() {
     g_enabled = flag("enabled", true);   // (the manager's switch for the addon is the real one: this only pauses)
     g_own = flag("own", true); g_align = flag("align", true); g_guard = flag("guard", true);
     g_multiplier = std::clamp(atoi(g_host->GetConfig(kId, "multiplier", "2")), 2, 9);
+    g_readout = std::clamp(atoi(g_host->GetConfig(kId, "fpsReadout", "2")), 0, 2);
     g_soften = std::clamp(static_cast<float>(atof(g_host->GetConfig(kId, "soften", "0.6"))), 0.0f, 1.0f);
 }
 void Set(const char* key, const std::string& value) { g_host->SetConfig(kId, key, value.c_str()); g_host->SaveConfig(); g_configAt = 0; }
@@ -99,6 +102,24 @@ DXGI_FORMAT ViewFormat(DXGI_FORMAT f) {
     case DXGI_FORMAT_R16G16B16A16_TYPELESS: case DXGI_FORMAT_R16G16B16A16_FLOAT: return DXGI_FORMAT_R16G16B16A16_FLOAT;
     default: return f;
     }
+}
+
+// The frame rate the screen gets. Lossless Scaling's own counter counts its own frames, so with its frame generation off it shows the real rate; this counts every frame EchoFG presents
+// (the real ones and the ones between) over half a second and draws "120 FPS" with "REAL 60 X2" under it in a corner of the picture, just before each present.
+nr::FpsLabel g_label;   // (used on the presenting thread only)
+void CountAndStamp(ID3D11DeviceContext* ctx, ID3D11Texture2D* frame, bool made, uint32_t encoding, float white) {
+    static uint64_t real = 0, madeCount = 0, since = 0;
+    const uint64_t now = GetTickCount64();
+    if (!since) since = now;
+    if (made) ++madeCount; else ++real;
+    if (now - since >= 500) {
+        const double sec = (now - since) / 1000.0;
+        const int realFps = static_cast<int>(real / sec + 0.5), outFps = static_cast<int>((real + madeCount) / sec + 0.5);
+        const int mult = real ? std::max(1, static_cast<int>((real + madeCount) / static_cast<double>(real) + 0.5)) : 1;
+        g_label.Set(std::to_string(outFps) + " FPS", "REAL " + std::to_string(realFps) + " X" + std::to_string(mult));
+        real = madeCount = 0; since = now;
+    }
+    if (g_readout > 0) g_label.Stamp(ctx, frame, g_readout, encoding, white);
 }
 
 // Every present of the process (Lossless Scaling's output chain, and the manager's own window): the presenter takes only the one whose back buffer Lossless Scaling's compute pass writes.
@@ -126,7 +147,10 @@ void OnPresent(IDXGISwapChain* sc, UINT sync, UINT flags) {
     // presented frames are offered to it here
     const bool recorderOn = g_host->GetHostVersion() >= 0x010300 && (g_host->RecorderFlags() & 1u) != 0;
     nr::framegen::ShownFn shown;   // every frame presented, the frames between and the real ones, tagged; the middle 1920x1080 only (4K HDR frames in full are more than the card can copy)
-    if (recorderOn) shown = [](ID3D11DeviceContext* ctx, ID3D11Texture2D* frame, bool made) { g_host->RecorderOffer(ctx, frame, nr::lsrec::kPresented, 0, made ? nr::lsrec::kMadeBetween : nr::lsrec::kReal, 1920, 1080); };
+    shown = [recorderOn, encoding, white](ID3D11DeviceContext* ctx, ID3D11Texture2D* frame, bool made) {   // (the recorder is offered the frame first, so a recording is without the readout)
+        if (recorderOn) g_host->RecorderOffer(ctx, frame, nr::lsrec::kPresented, 0, made ? nr::lsrec::kMadeBetween : nr::lsrec::kReal, 1920, 1080);
+        CountAndStamp(ctx, frame, made, encoding, white);
+    };
     g_wasOn = true;
     nr::framegen::BeforeRealPresent(sc, sync, flags, encoding, white, [](const char* m) { Log("%s", m); }, shown);
 }
@@ -215,6 +239,12 @@ EAM_EXPORT void AddonRenderSettings() {
         bool guard = g_guard;
         if (ImGui::Checkbox("Keep the character clean in turns", &guard)) Set("guard", guard ? "1" : "0");
         if (ImGui::IsItemHovered()) ImGui::SetTooltip("A guard against FSR pasting background over a character in a fast turn.");
+    }
+    {   // Lossless Scaling's own counter shows the real rate with its frame generation off
+        int ro = g_readout;
+        ImGui::SetNextItemWidth(260);
+        if (ImGui::Combo("Frame rate readout", &ro, "Off\0Top left\0Top right\0")) Set("fpsReadout", std::to_string(ro));
+        if (ImGui::IsItemHovered()) ImGui::SetTooltip("Lossless Scaling's own frame rate counter counts its own frames, so with its frame generation off it shows the real rate (60), not the rate the screen gets with EchoFG (120). This draws the rate the screen gets, with the real rate and the multiplier under it, in a corner of the picture. It is not in recordings. Lossless Scaling's counter stays where it is (top left): choose Top right to keep the two apart.");
     }
     bool align = g_align;
     if (ImGui::Checkbox("Put the presents one to a refresh of the display", &align)) Set("align", align ? "1" : "0");

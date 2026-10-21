@@ -1,6 +1,6 @@
 {
   "name": "Video Super Resolution",
-  "version": "1.0.4",
+  "version": "1.0.5",
   "author": "Echo-Storm",
   "description": "NVIDIA RTX Video Super Resolution in place of Lossless Scaling's NIS scaler: a trained network that sharpens the picture one frame at a time. Made for movies, images, text and interface; a game that moves a lot is better served by the temporal upscalers. Off until you switch it on. A picture that is the same as the last (a still image, a film at 24 or 30 pictures a second on a 60 Hz or faster screen) is worked on once. The NVIDIA files it needs are in the addon's vfx folder. Choose NIS as the Scaling Type and show the picture in a window smaller than the screen. Only one upscaler works at a time.",
   "min_host_version": "1.2.0",
