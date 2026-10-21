@@ -55,3 +55,8 @@ recordings/*
 
 # scratch folders made by tests and evaluations
 tmp_*/
+
+# Lossless Scaling research (never published; kept outside the repository, these only guard against a copy landing here)
+ls-research-private/
+decomp/
+*.lsdecomp
