@@ -1,4 +1,6 @@
-# Release 1.0.2: Video Super Resolution out of prototype (2026-10-20, the same day as 1.0.1)
+# Release 1.0.2: **released 2026-10-20** (tag v1.0.2): Video Super Resolution out of prototype
+
+Zip `LSAddonManager-1.0.2-x64.zip`, 175,872,966 bytes, SHA-256 7401721bb10282831b063f011a341291389574c885e70ffca56ceb105a48a2c3 (the release page shows the same). Checked: full ci.ps1, `run_addon_tests.ps1 -All`, the host matrix quick set plus every VSR and compare scenario (18, all passed; the rest of the matrix ran for 1.0.1 and those addons are unchanged), and an update from the 1.0.1 Setup over a fake folder (a changed file kept and named).
 
 The owner's call: "lets get it out of prototype. its for movies, images, stuff like that. lets optimise and release". What was done:
 
