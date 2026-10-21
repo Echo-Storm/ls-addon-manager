@@ -35,6 +35,17 @@ The text is `"%d / %d"` (captured, then presented) when `show_captured` is 1 (it
 
 **The hook** (`manager/src/core/fps_counter_hook.cpp`, addon API 1.4 `IHost::SetFpsCounterMultiplier`): a MinHook detour on that function multiplies the presented count by what the addon says it adds, just before the rates are worked out. So `60 / 60` becomes `60 / 120`, in Lossless Scaling's own counter, in its own font and place. It is installed only when the DLL's time stamp, size and the function's bytes match this build; anything else is left alone and EchoFG draws a label of its own.
 
+## The window (managed side), from its metadata
+
+`LosslessScaling.dll` is small managed code (types and fields read from its metadata; no code decompiled). It is a thin WPF front: `UI.Core` is the P/Invoke wrapper of the 11 native exports; `MainWindow` holds the profiles (matched to a game by exe path or window title, with wildcards) and the settings file under `%LOCALAPPDATA%`; the scale hotkey is a low-level keyboard hook (`GlobalKeyboardHook`) beside `RegisterHotKey`; a foreground-window watcher drives auto-scaling; `LogWriter` writes its log. The values it hands the native side, as its enums name them:
+
+- Scaling type: Off, LS1, FSR, NIS, SGSR, BicubicCAS, Anime4K, XBR, SharpBilinear, Integer, Nearest (LS1 has Balanced/Performance; FSR Original/Optimized; Anime4K S, M, L, VL, UL).
+- Frame generation: Off, LSFG3, LSFG2, LSFG1, LSFI, LSFI1 (LSFG2 has x2/x3/x4; LSFG3 Fixed or Adaptive; a Balanced/Performance size).
+- Scaling mode Auto or Custom; fit Aspect ratio or Fullscreen; sync mode Off, Default, VSync 1 to 4.
+- Status: Disabled, TempDisabled, Enabled, Countdown; error codes: ResizeFailed, LargeOffset, CaptureFailed.
+
+So `ApplySettings` carries exactly these choices; an addon that wants to know "is Lossless Scaling's frame generation on?" can get it from that call (the manager's proxy already sees it).
+
 ## What else looks worth a closer look
 
 - The capture side (Windows Graphics Capture and Desktop Duplication queues, the frame-time buffer): a place to learn what a real frame is, and when.
