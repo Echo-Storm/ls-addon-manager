@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+- **Video Super Resolution: the repeat check is stricter.** A picture counts as the same only if at most about 18 pixels (at 1440p) differ, down from about 180, so a clock digit or a small indicator that changes is a new picture; and VSR now runs at least every 2 seconds whatever the compare says, so a change too small to count is never kept out for long.
+
 ## 1.0.3 (2026-10-21)
 
 - **The DLSS Upscaler ships NVIDIA's DLSS runtime 310.9.16** (it was 310.9.1): NVIDIA's own signed `nvngx_dlss.dll` of their public 310.9.16 SDK, byte for byte. Offline the picture error is identical; no new Super Resolution presets (J, K, L and M as before). `tools/fetch_ngx_sdk.ps1` takes this one file from the 310.9.16 commit; the headers and the library stay at 310.9.1.

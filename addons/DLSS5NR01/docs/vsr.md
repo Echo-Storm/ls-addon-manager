@@ -39,7 +39,7 @@ temporal upscalers; for a game this addon has a *motion gate* (below) that keeps
 
 Lossless Scaling presents a frame every refresh of the screen (60 times a second and more), and VSR would work on all of them. But a still image is the same picture every time; a paused video the same; and a
 film at 24 or 30 pictures a second shown at 60 Hz or more gives each picture two to six times in a row. So after the picture is made into the 8-bit view VSR takes, the addon **compares it on the card with the picture
-VSR last worked on**: if no more than about a twenty-thousandth of the pixels differ, and those by no more than one level (video noise, a cursor), VSR does not run and its last result is put out again.
+VSR last worked on**: if no more than about a two-hundred-thousandth of the pixels differ (18 pixels at 1440p), and those by no more than one level (video noise), VSR does not run and its last result is put out again. A clock digit or a small indicator that changes is a new picture, and VSR also runs at least every 2 seconds whatever the compare says, so a change too small to count is never kept out for long.
 
 - A still image or a paused video costs a compare and a copy (about 0.4 to 0.5 ms at 1440p to 4K) instead of VSR's 2 to 3 ms, and VSR's CUDA work stops altogether.
 - A film at 24 fps on a 60 Hz screen runs VSR for 24 of the 60 frames a second; at 30 fps on 120 Hz, 30 of 120.

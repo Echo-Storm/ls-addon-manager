@@ -54,6 +54,7 @@ bool g_skipRepeats = true;        // a picture the same as the one VSR last work
 int g_repeatTolerance = 1;        // levels (of 255) a pixel may differ by and still count as the same
 float g_gateLow = 0.012f, g_gateHigh = 0.05f;
 int g_vsrIntervalMs = 20;        // VSR runs at most this often while gated: where the picture is still its last result is still right (0: at every pass)
+constexpr double kForceRunMs = 2000.0;   // VSR runs at least this often, repeats or not
 constexpr float kMotionDecay = 0.85f;   // the share of the motion memory kept from one pass to the next   // the change (of the 8-bit SDR view, 0..1) that still counts as still, and the one that counts as moving
 // What the pre-dispatch callback leaves for the post-dispatch one (the same NIS pass, one after the other on the render thread)
 struct Pending { bool valid = false; uint32_t inW = 0, inH = 0, outW = 0, outH = 0, outX = 0, outY = 0, enc = 0; float white = 200.0f; bool labelOnly = false; } g_pending;   // labelOnly: NIS only, the compare mode just wants its label drawn
@@ -284,7 +285,7 @@ bool SameAsLastRun(ID3D11DeviceContext* ctx, Chain& c, uint32_t w, uint32_t h) {
     if (FAILED(ctx->Map(c.countStage, 0, D3D11_MAP_READ, 0, &r))) return false;
     const uint32_t differing = *static_cast<const uint32_t*>(r.pData);
     ctx->Unmap(c.countStage, 0);
-    return differing <= std::max(16u, w * h / 20000u);   // (a twenty-thousandth of the picture: noise, not a new picture)
+    return differing <= std::max(8u, w * h / 200000u);   // (a two-hundred-thousandth of the picture, 18 pixels at 1440p: noise, not a new picture; a clock digit or a small indicator that changes is a new one)
 }
 
 const char* NvError(NvCV_Status s, const char* what) { static char t[200]; snprintf(t, sizeof t, "%s: %s (%d)", what, NvCV_GetErrorStringFromCode(s), static_cast<int>(s)); return t; }
@@ -418,7 +419,8 @@ bool RunVsr(ID3D11DeviceContext* ctx, const nr::NisPass& pass) {
 
     // 2. the SDK: texture to CUDA, VSR, CUDA to texture. Gated, VSR runs at most every vsrIntervalMs: the picture is used only where it is still, and there its last result is still right.
     const auto runNow = std::chrono::steady_clock::now();
-    const bool same = SameAsLastRun(ctx, g_chain, pass.inW, pass.inH);   // (the grab is behind us: texIn is this frame's picture)
+    const bool stale = std::chrono::duration<double, std::milli>(runNow - g_chain.lastRun).count() >= kForceRunMs;   // (a picture is worked on at least this often, whatever the compare says: a change too small to see in it is never kept out for long)
+    const bool same = !stale && SameAsLastRun(ctx, g_chain, pass.inW, pass.inH);   // (the grab is behind us: texIn is this frame's picture)
     if (same) ++g_chain.repeats;
     const bool due = !same && (!EffGate() || !g_chain.outValid || g_vsrIntervalMs <= 0 || std::chrono::duration<double, std::milli>(runNow - g_chain.lastRun).count() >= g_vsrIntervalMs);
     if (due) {
