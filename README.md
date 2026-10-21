@@ -251,12 +251,12 @@ clashes in your game, change it in the addon's *Compare and hotkeys* section.
 | Keys | What they do | Where |
 |------|--------------|-------|
 | Ctrl+Shift+F12 | Show or hide the manager | the manager |
-| Ctrl+Shift+F7 | Before / after: the original (or NIS) against ours | every addon |
+| Ctrl+Shift+F7 | Before / after: the original (or NIS) against ours | Neural Rendering and the DLSS, FSR and XeSS Upscalers (Video Super Resolution and EchoFG: use Ctrl+Shift+F9, below) |
 | Ctrl+Shift+F8 | Split view: the original at the left, ours at the right | Neural Rendering |
-| Ctrl+Shift+F2 / F3 | Sharpening down / up | every addon |
-| Ctrl+Shift+F4 | Before / after pictures: two PNGs of the same moment, with and without the addon | every addon |
+| Ctrl+Shift+F2 / F3 | Sharpening down / up | Neural Rendering and the three upscalers |
+| Ctrl+Shift+F4 | Before / after pictures: two PNGs of the same moment, with and without the addon | Neural Rendering and the three upscalers |
 | Ctrl+Shift+F10 | The next saved look | Neural Rendering |
-| Ctrl+Shift+F9 | Steps through Lossless Scaling's NIS and the upscalers that are on, one at a time, with a label that names the upscaler and its runtime version (a temporary test; not configurable, so do not bind F9 to anything else) | the upscalers |
+| Ctrl+Shift+F9 | Steps through Lossless Scaling's NIS and the upscalers that are on, one at a time, with a label that names the upscaler and its runtime version (a temporary test; not configurable, so do not bind F9 to anything else) | the upscalers and Video Super Resolution |
 | Ctrl+Shift+F1 | Save the recording (the last few seconds; or, with the recorder's *Keep the last few seconds* off, record the next ten and save them). The key can be any of F1 to F12 | the manager (Features tab, *Recording*) |
 | Home | ReShade input passthrough on and off | the manager |
 

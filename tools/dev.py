@@ -476,7 +476,7 @@ def cmd_rec(a):
         print('\n'.join(text.strip().splitlines()[-6:]))
 
 
-DONE_VISIBLE = 12   # the Done column shows this many cards, the newest; the rest are the archive (still in board.json, listed small)
+DONE_VISIBLE = 10   # the Done column shows this many cards, the newest; the rest are the archive (still in board.json, listed small)
 
 
 def split_done(items):
@@ -1089,10 +1089,10 @@ def cmd_selftest(a):
     check('board html live', 'class="mv"' in render_board_html(b, {}, [], '', 'tok') and 'const TOKEN="tok"' in render_board_html(b, {}, [], '', 'tok'))
     many = {'items': [{'id': 'D%d' % n, 'title': 't', 'status': 'done', 'doneAt': '2026-10-%02d' % (n % 28 + 1)} for n in range(20)] + [{'id': 'N1', 'title': 'x', 'status': 'next'}]}
     recent, old = split_done(many['items'])
-    check('board archive', len(recent) == DONE_VISIBLE and len(old) == 8 and min(i['doneAt'] for i in recent) >= max(i['doneAt'] for i in old))
+    check('board archive', len(recent) == DONE_VISIBLE and len(old) == 20 - DONE_VISIBLE and min(i['doneAt'] for i in recent) >= max(i['doneAt'] for i in old))
     st = {'at': '2026-10-21 09:00', 'day': '2026-10-21', 'stars': 200, 'forks': 2, 'watchers': 3, 'open_issues': 3, 'downloads': 8100, 'latest': ('v1.0.2', 30), 'views': 5000, 'view_uniques': 1400, 'clones': 500, 'clone_uniques': 120, 'referrers': [('Google', 10)], 'since': {'day': '2026-10-20', 'stars': 193, 'downloads': 8078}}
     pg = render_board_html(many, {}, [], '', None, st)
-    check('board stats bar', 'class="stats"' in pg and '<em>+7</em>' in pg and 'Archive: 8 done earlier' in pg and 'GitHub (2026-10-21 09:00): 200 stars (+7)' in stats_line(st))
+    check('board stats bar', 'class="stats"' in pg and '<em>+7</em>' in pg and 'Archive: %d done earlier' % (20 - DONE_VISIBLE) in pg and 'GitHub (2026-10-21 09:00): 200 stars (+7)' in stats_line(st))
     with tempfile.TemporaryDirectory() as td:
         pa, pb, pc = Path(td) / 'a', Path(td) / 'b', Path(td) / 'c'
         pa.write_bytes(b'abcd'); pb.write_bytes(b'abcd'); pc.write_bytes(b'abce')

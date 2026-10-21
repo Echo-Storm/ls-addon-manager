@@ -2,6 +2,9 @@
 
 ## Unreleased
 
+- **The upscalers re-read NIS's window position every few seconds.** A window moved or cropped while it keeps the same size has the same shape, and its position was read once; it is now read again every 4 seconds (a change that no longer fits starts over, with NIS running meanwhile).
+- **Docs:** the hotkey table says which addons have Ctrl+Shift+F7, F2 / F3 and F4 (Neural Rendering and the three upscalers) and that Video Super Resolution takes part in Ctrl+Shift+F9.
+
 ## 1.0.2 (2026-10-20)
 
 - **Video Super Resolution is out of prototype, and made for movies, images and other pictures.** NVIDIA's RTX Video Super Resolution in place of Lossless Scaling's NIS. It now works on the **whole picture by default** (the motion gate that keeps NIS where a game moves is a setting for games, off by default), and **a picture that is the same as the one it last worked on is not worked on again**: a still image, a paused video, or a film at 24 or 30 pictures a second on a 60 Hz or faster screen runs VSR once per new picture (the check is on the card, exact enough that video noise does not count; about 0.5 ms for a repeat against 2 to 3 ms for a picture at 1440p to 4K). New settings `skipRepeats` and `repeatTolerance`; the panel and the documentation are rewritten for pictures that are not games; the host test has scenarios for repeats and for a moving picture.

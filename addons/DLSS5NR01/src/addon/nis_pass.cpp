@@ -43,14 +43,24 @@ struct ViewportReader {
     Key key{}; int state = 0;         // 0 nothing, 1 a copy in flight, 2 known good, 3 known unusable
     NisConfigView cfg{};
     uint32_t tries = 0;
+    ULONGLONG readAt = 0; bool refreshing = false;   // when the constants were last read, and whether a newer copy is in flight (state 2 reads them again every few seconds: a window moved or cropped at the same size)
     uint32_t cbBytes = 0;   // the size of the constant buffer the pass had bound: another pass with the same bindings has constants of another size (not the buffer's address: Lossless Scaling makes a new one at every frame for the 48-byte pass, issue #13)
-    void Reset() { if (staging) staging->Release(); staging = nullptr; dev = nullptr; state = 0; tries = 0; cbBytes = 0; }
+    void Reset() { if (staging) staging->Release(); staging = nullptr; dev = nullptr; state = 0; tries = 0; cbBytes = 0; readAt = 0; refreshing = false; }
 };
 // One reader for each pass that looks like NIS: by device, shape and constant buffer. A single one was disturbed by a second NIS-looking pass in the same frame (issue #13, a
 // 3440x1440 screen: one pass with 48 bytes of constants that is refused, one that is taken): each one's turn reset what the other had found, so the constants were read and
 // logged again every frame and the upscaler took the pass only now and then.
 std::vector<ViewportReader> g_viewports;
 int g_lastViewportState = 0;   // the state of the reader the last pass used
+
+// Does what NIS's constants say agree with everything else: the dispatch, the textures, NIS's own scale factor?
+bool LayoutFits(const NisConfigView& c, const D3D11_TEXTURE2D_DESC& in, const D3D11_TEXTURE2D_DESC& o, uint32_t x, uint32_t y) {
+    const float scaleX = c.outW ? static_cast<float>(c.inW) / c.outW : 0.0f, scaleY = c.outH ? static_cast<float>(c.inH) / c.outH : 0.0f;
+    return c.inW && c.inH && c.outW && c.outH && c.inX + c.inW <= in.Width && c.inY + c.inH <= in.Height &&
+           c.outX + c.outW <= o.Width && c.outY + c.outH <= o.Height && x == (c.outW + 31) / 32 && y == (c.outH + 23) / 24 &&
+           c.outW + Slack(c.inW) >= c.inW && c.outH + Slack(c.inH) >= c.inH &&   // (an output a hair smaller than the input is taken as 1:1 with the edges trimmed: below)
+           std::abs(c.f[12] - scaleX) < 0.02f * scaleX + 1e-4f && std::abs(c.f[13] - scaleY) < 0.02f * scaleY + 1e-4f;   // kScaleX, kScaleY
+}
 
 // True with the viewports filled in, once known; false meanwhile (NIS runs as usual) and for a layout that does not fit.
 bool ResolveViewports(ID3D11DeviceContext* ctx, const D3D11_TEXTURE2D_DESC& in, const D3D11_TEXTURE2D_DESC& o, uint32_t x, uint32_t y, NisPass& pass,
@@ -96,15 +106,33 @@ bool ResolveViewports(ID3D11DeviceContext* ctx, const D3D11_TEXTURE2D_DESC& in, 
         ctx->Unmap(r.staging, 0);
         const NisConfigView& c = r.cfg;
         const float scaleX = c.outW ? static_cast<float>(c.inW) / c.outW : 0.0f, scaleY = c.outH ? static_cast<float>(c.inH) / c.outH : 0.0f;
-        const bool fits = c.inW && c.inH && c.outW && c.outH && c.inX + c.inW <= in.Width && c.inY + c.inH <= in.Height &&
-                          c.outX + c.outW <= o.Width && c.outY + c.outH <= o.Height && x == (c.outW + 31) / 32 && y == (c.outH + 23) / 24 &&
-                          c.outW + Slack(c.inW) >= c.inW && c.outH + Slack(c.inH) >= c.inH &&   // (an output a hair smaller than the input is taken as 1:1 with the edges trimmed: below)
-                          std::abs(c.f[12] - scaleX) < 0.02f * scaleX + 1e-4f && std::abs(c.f[13] - scaleY) < 0.02f * scaleY + 1e-4f;   // kScaleX, kScaleY
+        const bool fits = LayoutFits(c, in, o, x, y);
         say("NIS pass on part of its output: frame %ux%u, output %ux%u, %ux%u groups; its constants: input viewport %u,%u %ux%u, output viewport %u,%u %ux%u, "
             "scale %.4f x %.4f -> %s", in.Width, in.Height, o.Width, o.Height, x, y, c.inX, c.inY, c.inW, c.inH, c.outX, c.outY, c.outW, c.outH, c.f[12], c.f[13],
             fits ? "the upscaler takes that part" : "they do not fit together; NIS stays");
         r.state = fits ? 2 : 3;
+        r.readAt = GetTickCount64();
         if (!fits) return false;
+    }
+    if (r.state == 2 && r.staging) {   // known good: read again every few seconds (a window moved or cropped at the same size has the same shape; its constants say where it is now)
+        if (r.refreshing) {
+            D3D11_MAPPED_SUBRESOURCE m{};
+            if (ctx->Map(r.staging, 0, D3D11_MAP_READ, D3D11_MAP_FLAG_DO_NOT_WAIT, &m) == S_OK) {
+                NisConfigView fresh{}; memcpy(&fresh, m.pData, sizeof fresh);
+                ctx->Unmap(r.staging, 0);
+                r.refreshing = false; r.readAt = GetTickCount64();
+                if (memcmp(&fresh, &r.cfg, sizeof fresh) != 0) {
+                    if (LayoutFits(fresh, in, o, x, y)) {
+                        r.cfg = fresh;
+                        say("NIS pass on part of its output: its viewports changed to input %u,%u %ux%u, output %u,%u %ux%u", fresh.inX, fresh.inY, fresh.inW, fresh.inH, fresh.outX, fresh.outY, fresh.outW, fresh.outH);
+                    } else { r.state = 0; r.tries = 0; return false; }   // (a layout that no longer fits: start over, NIS runs meanwhile)
+                }
+            }
+        } else if (GetTickCount64() - r.readAt > 4000) {
+            ID3D11Buffer* cb = nullptr; ctx->CSGetConstantBuffers(0, 1, &cb);
+            if (cb) { D3D11_BUFFER_DESC d{}; cb->GetDesc(&d); D3D11_BUFFER_DESC sd{}; r.staging->GetDesc(&sd); if (d.ByteWidth == sd.ByteWidth) { ctx->CopyResource(r.staging, cb); r.refreshing = true; } cb->Release(); }
+            if (!r.refreshing) r.readAt = GetTickCount64();   // (nothing bound that fits: look again later)
+        }
     }
     if (r.state != 2) return false;
     const NisConfigView& c = r.cfg;
