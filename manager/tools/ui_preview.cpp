@@ -109,7 +109,12 @@ int main(int argc, char** argv) {
     ApplyUiScale(scale);
 
     UiShot shot;
-    const int W = (int)(1100 * scale), H = (int)(740 * scale);   // a window of a realistic size (the README's screenshots)
+    int W = (int)(1100 * scale), H = (int)(740 * scale);   // a window of a realistic size (the README's screenshots)
+    {   // EAM_PREVIEW_PIXELS=2560x1440: the picture's size in pixels, whatever the interface scale (a maximized window for a post)
+        char* px = nullptr; size_t pn = 0; _dupenv_s(&px, &pn, "EAM_PREVIEW_PIXELS");
+        int pw = 0, ph = 0; if (px && sscanf_s(px, "%dx%d", &pw, &ph) == 2 && pw > 200 && ph > 200) { W = pw; H = ph; }
+        free(px);
+    }
     if (!shot.Init(W, H)) { printf("device init failed\n"); return 1; }
 
     // EAM_PREVIEW_CLEAN=1 draws the tidy scene used for the README screenshots: no toast, only the first addon on, no error chips.
@@ -119,7 +124,7 @@ int main(int argc, char** argv) {
     std::filesystem::path root;
     { wchar_t exe[MAX_PATH]; GetModuleFileNameW(nullptr, exe, MAX_PATH); root = std::filesystem::path(exe).parent_path().parent_path().parent_path().parent_path(); }
     const std::filesystem::path plugins = root / "addons" / "DLSS5NR01";
-    AddonInfo a, b, c, d;
+    AddonInfo a, b, c, d, e6, f6;   // (e6, f6: Video Super Resolution and EchoFG, listed by EAM_PREVIEW_SHOWCASE=1)
     a.id = "DLSS5NR01"; a.manifest.name = "DLSS 5 Neural Rendering"; a.manifest.version = EAM_VERSION_STRING; a.manifest.author = "Echo-Storm"; a.hModule = (HMODULE)1; a.enabled = true;
     b.id = "DLSS4DLAA"; b.manifest.name = "DLSS Upscaler"; b.manifest.version = EAM_VERSION_STRING; b.manifest.author = "Echo-Storm"; b.enabled = false;
     c.id = "FSR3UPSC"; c.manifest.name = "FSR Upscaler"; c.manifest.version = EAM_VERSION_STRING; c.manifest.author = "Echo-Storm"; c.hModule = (HMODULE)1; c.enabled = true;
@@ -130,6 +135,10 @@ int main(int argc, char** argv) {
     ReadSvgIcon(plugins / "products" / "DLSS4DLAA" / "icon.svg", b.iconSvg, b.iconSvgView);
     ReadSvgIcon(plugins / "products" / "FSR3UPSC" / "icon.svg", c.iconSvg, c.iconSvgView);
     ReadSvgIcon(plugins / "products" / "XESSUPSC" / "icon.svg", d.iconSvg, d.iconSvgView);
+    e6.id = "VSRUPSC"; e6.manifest.name = "Video Super Resolution"; e6.manifest.version = EAM_VERSION_STRING; e6.manifest.author = "Echo-Storm"; e6.enabled = false; e6.security = SecurityVerdict::Trusted;
+    f6.id = "ECHOFG"; f6.manifest.name = "EchoFG frame generation"; f6.manifest.version = EAM_VERSION_STRING; f6.manifest.author = "Echo-Storm"; f6.enabled = false; f6.security = SecurityVerdict::Trusted;
+    ReadSvgIcon(plugins / "products" / "VSRUPSC" / "icon.svg", e6.iconSvg, e6.iconSvgView);
+    ReadSvgIcon(plugins / "products" / "ECHOFG" / "icon.svg", f6.iconSvg, f6.iconSvgView);
     // the runtimes, as the repository's addon.json files list them, read from the install in D:\Utilities\Lossless Scaling (as the real
     // list reads them: version, signature, SHA-256). EAM_PREVIEW_FSR=<file>: that file as the FSR runtime (only read, never loaded)
     const std::wstring lsDir = L"D:\\Utilities\\Lossless Scaling";
@@ -162,7 +171,8 @@ int main(int argc, char** argv) {
     float model = 0.5f, sharpen = 0.0f, vib = 1.2f, blend = 0.72f, gamma = 1.0f; int passes = 1, grain = 2; bool sw = true, sw2 = false; int sel = 0;
     const float dModel = 0.35f, dSharpen = 0.0f, dVib = 0.0f, dBlend = 1.0f, dGamma = 1.0f; const int dPasses = 1, dGrain = 1;
     if (!clean) widgets::ToastShow("Installed 'Cool Addon' (switched off). Turn it on with its switch.", widgets::ToastType::Success, 1000.0f);
-    std::string status = window::StatusCounts(getenv("EAM_PREVIEW_WIP") ? 6 : 4, 2);
+    const bool showcase = getenv("EAM_PREVIEW_SHOWCASE") != nullptr;   // all six addons listed (Neural Rendering and the FSR Upscaler on)
+    std::string status = window::StatusCounts(getenv("EAM_PREVIEW_WIP") || showcase ? 6 : 4, 2);
 
     // live data for the cards and the Performance tab: 20 s of a game near 60 fps with a few hitches, a model at ~6.6 ms, a GPU at its cap
     {
@@ -243,7 +253,7 @@ int main(int argc, char** argv) {
         rest = bar == std::string::npos ? std::string() : rest.substr(bar + 1);
     }
     auto addonsTab = [&](int selected) {
-        AddonInfo* list[4] = { &a, &b, &c, &d };
+        AddonInfo* list[6] = { &a, &b, &c, &d, &e6, &f6 };
         AddonInfo& chosen = *list[selected];
         Shell("Addons", status, [&] {
             ImGui::Dummy(ImVec2(0, 5));
@@ -258,7 +268,7 @@ int main(int argc, char** argv) {
             ImGui::Dummy(ImVec2(0, S(6)));
             ImGui::PushStyleColor(ImGuiCol_Separator, eam::ui::theme::V(eam::ui::theme::kBorder)); ImGui::Separator(); ImGui::PopStyleColor();
             ImGui::Dummy(ImVec2(0, S(4)));
-            for (int i = 0; i < 4; ++i) { widgets::AddonCard(*list[i], i, i == selected); ImGui::Dummy(ImVec2(0, S(1))); }
+            for (int i = 0; i < (showcase ? 6 : 4); ++i) { widgets::AddonCard(*list[i], i, i == selected); ImGui::Dummy(ImVec2(0, S(1))); }
             {   // work in progress, as the manager lists them: greyed out, with a WIP tag, and no switch that works (EAM_PREVIEW_WIP=1)
                 static AddonInfo wip1, wip2;
                 if (env("EAM_PREVIEW_WIP") == "1") {
@@ -323,7 +333,8 @@ int main(int argc, char** argv) {
     {   // the header badge of a waiting update shows in the picture of the window (EAM_PREVIEW_WIP=1 also: the main picture of the README)
         update::Status st;
         if (env("EAM_PREVIEW_WIP") == "1") { st.state = update::State::Available; st.current = EAM_VERSION_STRING; st.latest = "0.11.0"; st.checkedAt = 1; st.zipUrl = "x"; update::SetStatusForTest(st); }
-        shot.Frame([&] { addonsTab(0); }, 12);
+        if (showcase) { shot.Frame([&] { addonsTab(0); }, 3); Sleep(5000); }   // (a first look starts the panel's requirements scan, which runs on a thread of its own)
+        shot.Frame([&] { addonsTab(0); }, showcase ? 30 : 12);   // (the showcase waits longer: the panel's requirements are read on a thread of their own)
         shot.Save((out + "/preview_addons.bmp").c_str());
         update::SetStatusForTest(update::Status());
     }
