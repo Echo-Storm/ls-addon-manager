@@ -4,7 +4,7 @@ Three addons, built from Neural Rendering's sources, that take the place of Loss
 
 | Addon | Upscaler | Needs | Comes with |
 |-------|----------|-------|------------|
-| **DLSS Upscaler** (`DLSS4DLAA`) | NVIDIA DLSS Super Resolution (models K, M and E) | an NVIDIA RTX card | NVIDIA's DLSS runtime 310.9.1 (`dlss\nvngx_dlss.dll`, NVIDIA's licence) |
+| **DLSS Upscaler** (`DLSS4DLAA`) | NVIDIA DLSS Super Resolution (models K, M and E) | an NVIDIA RTX card | NVIDIA's DLSS runtime 310.9.16 (`dlss\nvngx_dlss.dll`, NVIDIA's licence) |
 | **XeSS Upscaler** (`XESSUPSC`) | Intel XeSS Super Resolution | any DirectX 12 card with Shader Model 6.4 (Intel Arc, NVIDIA, AMD) | Intel's XeSS runtime 2.0.2 (`xess\libxess.dll`, from the XeSS SDK 3.0.2, Intel Simplified Software License, signed by Intel) |
 | **FSR Upscaler** (`FSR3UPSC`) | AMD FidelityFX Super Resolution 3.1, or FSR 4 | any DirectX 12 card (AMD, NVIDIA, Intel) | AMD's FidelityFX runtime (`fsr\amd_fidelityfx_dx12.dll`, FSR 3.1.4, FidelityFX SDK v1.1.4, MIT, signed by AMD), and FSR 4.1.1b, the OptiScaler team's build (`runtimes\FSR\0dd77d9c`, AMD's SDK licence, not signed) |
 

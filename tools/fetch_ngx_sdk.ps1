@@ -14,7 +14,8 @@
 #
 # -Latest takes NVIDIA's newest commit instead of the pinned one (-Commit <sha> takes a commit you name). Those files are checked against
 # NVIDIA's own git object ids rather than against the pinned SHA-256 values, and the script prints the lines to paste in here to pin them.
-# The pinned commit is "DLSS 310.9.1 SDK", NVIDIA's newest at the time of writing.
+# The pinned commit is "DLSS 310.9.1 SDK" (the headers and the static library); the runtime, nvngx_dlss.dll, is the one of "DLSS 310.9.16 SDK" (a file can name its own
+# Commit): the same header files, a newer runtime.
 param(
     [switch]$AcceptNvidiaLicense,
     [string]$Dest = '',
@@ -34,7 +35,7 @@ $files = @(
     @{ Remote = 'include/nvsdk_ngx_helpers_dlssd.h';     Local = 'include\nvsdk_ngx_helpers_dlssd.h';     Sha = 'a25fdda925b479dfe869593aeba311ef08793da54e0391f2fe2fe756cbef5532' },
     @{ Remote = 'include/nvsdk_ngx_params.h';            Local = 'include\nvsdk_ngx_params.h';            Sha = '943bc8cc5cdae03b6303016fbad3183636f2335ae27a2d18776798c3b4efabbc' },
     @{ Remote = 'lib/Windows_x86_64/x64/nvsdk_ngx_s.lib'; Local = 'lib\nvsdk_ngx_s.lib';                  Sha = '4e5d355086d2bc11e1a0842457d2519ea528ee1f3e112c45679a84960c07dff3' },   # the /MT static library, x64
-    @{ Remote = 'lib/Windows_x86_64/rel/nvngx_dlss.dll'; Local = 'bin\nvngx_dlss.dll';                    Sha = '3975567b8943c53acce397f2b72380092f84f162d00b0d2c7d08a1025c563983' },   # DLSS Super Resolution / DLAA 310.9.1.0, 59 MB
+    @{ Remote = 'lib/Windows_x86_64/rel/nvngx_dlss.dll'; Local = 'bin\nvngx_dlss.dll';                    Sha = 'd00b5b0ab29c3ca101b70c3a5ecb3a01b7ef33766a3383a28a18623083e6123e'; Commit = '9981c6350dc58c0ce21f024fd65e31e851c31689' },   # DLSS Super Res, 310.9.16 (NVIDIA's git blob 23c4672e)olution / DLAA 310.9.1.0, 59 MB
     @{ Remote = 'LICENSE.txt';                           Local = 'LICENSE.txt';                            Sha = 'd4216e39ebef5f9b50a6712ebb37beeb5379862a67733a9999c651f21592aaf0' }    # NVIDIA RTX SDKs licence
 )
 
@@ -104,7 +105,8 @@ if (-not $AcceptNvidiaLicense) {
 foreach ($f in $missing) {
     $target = "$Dest\$($f.Local)"
     New-Item -ItemType Directory -Force (Split-Path $target) | Out-Null
-    $url = "https://raw.githubusercontent.com/NVIDIA/DLSS/$pinnedCommit/$($f.Remote)"
+    $at = if ($f.Commit) { $f.Commit } else { $pinnedCommit }
+    $url = "https://raw.githubusercontent.com/NVIDIA/DLSS/$at/$($f.Remote)"
     $tmp = "$target.download"
     Write-Host "  $($f.Remote)"
     Invoke-WebRequest -Uri $url -OutFile $tmp -UseBasicParsing

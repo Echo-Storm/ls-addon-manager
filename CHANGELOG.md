@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+- **The DLSS Upscaler ships NVIDIA's DLSS runtime 310.9.16** (it was 310.9.1): NVIDIA's own signed `nvngx_dlss.dll` of their public 310.9.16 SDK, byte for byte. Offline the picture error is identical; no new Super Resolution presets (J, K, L and M as before). `tools/fetch_ngx_sdk.ps1` takes this one file from the 310.9.16 commit; the headers and the library stay at 310.9.1.
+
 - **The upscalers re-read NIS's window position every few seconds.** A window moved or cropped while it keeps the same size has the same shape, and its position was read once; it is now read again every 4 seconds (a change that no longer fits starts over, with NIS running meanwhile).
 - **Docs:** the hotkey table says which addons have Ctrl+Shift+F7, F2 / F3 and F4 (Neural Rendering and the three upscalers) and that Video Super Resolution takes part in Ctrl+Shift+F9.
 

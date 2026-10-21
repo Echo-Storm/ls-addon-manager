@@ -16,7 +16,7 @@
     {
       "name": "DLSS",
       "file": "dlss/nvngx_dlss.dll",
-      "shipped_sha256": "3975567b8943c53acce397f2b72380092f84f162d00b0d2c7d08a1025c563983",
+      "shipped_sha256": "d00b5b0ab29c3ca101b70c3a5ecb3a01b7ef33766a3383a28a18623083e6123e",
       "config_key": "dlssRuntime",
       "exports": [
         "NVSDK_NGX_D3D12_CreateFeature",

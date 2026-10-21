@@ -42,7 +42,7 @@ project is not affiliated with or endorsed by NVIDIA. Parts of NVIDIA's DLSS SDK
 | What | Where in the release | Terms |
 |------|----------------------|-------|
 | NVIDIA's NGX SDK library (`nvsdk_ngx_s.lib`), as object code | linked into `addons/DLSS5NR01/DLSS5NR01.dll` and `nr_selftest.exe` | NVIDIA RTX SDKs licence |
-| NVIDIA's DLSS runtime (`nvngx_dlss.dll` 310.9.1), unmodified | `addons/DLSS4DLAA/dlss/nvngx_dlss.dll`, with the DLSS Upscaler (in the release since 0.9.1) | NVIDIA RTX SDKs licence |
+| NVIDIA's DLSS runtime (`nvngx_dlss.dll` 310.9.16; 310.9.1 up to 1.0.2), unmodified | `addons/DLSS4DLAA/dlss/nvngx_dlss.dll`, with the DLSS Upscaler (in the release since 0.9.1) | NVIDIA RTX SDKs licence |
 | NVIDIA's licence text | `NVIDIA-LICENSE.txt` in each of those addon folders | |
 | Files of NVIDIA's Video Effects SDK (x64; `NVCVImage.dll`, `NVVideoEffects.dll`, `nvngxruntime.dll`, `cudart64_12.dll`, `libcrypto-3-x64.dll`, `nvngx_vsr.dll`, `nvVFXVideoSuperRes.dll`), unmodified, for the Video Super Resolution test addon | `addons/VSRUPSC/vfx/`, with NVIDIA's licence documents (`vfx/license/`) and `ThirdPartyLicenses.txt` | NVIDIA's Software License Agreement and product-specific terms. In the package since 1.0.1 again, with the licence documents beside them, for the Video Super Resolution addon |
 
