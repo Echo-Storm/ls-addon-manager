@@ -1116,7 +1116,7 @@ int main(int argc, char** argv) {
 #endif
     }
 
-    struct Score { int frame; double gen, hold, blend, genAbs, genCoarse, blendCoarse, genSsim = 0, blendSsim = 0, genAl = 0, blendAl = 0, genBand = 0, blendBand = 0, bandFrac = 0, toneShift = 0, altGen = 0, altTruth = 0; std::vector<uint8_t> picture, mix; };
+    struct Score { int frame; double gen, hold, blend, genAbs, genCoarse, blendCoarse, genSsim = 0, blendSsim = 0, genAl = 0, blendAl = 0, genBand = 0, blendBand = 0, bandFrac = 0, toneShift = 0, altGen = 0, altTruth = 0, gradGen = 0, gradTruth = 0, gradReal = 0; std::vector<uint8_t> picture, mix; };
     std::vector<Score> scores;
     const uint32_t dumpX = std::min<uint32_t>(static_cast<uint32_t>(Arg(argc, argv, "dumpx", static_cast<int>((W >= 1280 ? W - 1280 : 0) / 2))), W >= 1280 ? W - 1280 : 0);   // dumpx= dumpy=: where the 1280 x 720 piece dumpraw writes starts (default: the middle)
     const uint32_t dumpY = std::min<uint32_t>(static_cast<uint32_t>(Arg(argc, argv, "dumpy", static_cast<int>((H >= 720 ? H - 720 : 0) / 2))), H >= 720 ? H - 720 : 0);
@@ -1366,6 +1366,17 @@ int main(int argc, char** argv) {
                 lp += yp; lt += yt; ap += std::fabs(yp - 0.5 * (y0 + y1)); at += std::fabs(yt - 0.5 * (y0 + y1)); ++cnt;
             }
             if (cnt) { s.toneShift = (lp - lt) / cnt; s.altGen = ap / cnt; s.altTruth = at / cnt; }
+            // detail: the mean luma gradient (a pulse of sharpness or noise between real and made frames shows as flicker even with the same brightness)
+            auto Grad = [&](const std::vector<uint8_t>& f) {
+                double g = 0; uint64_t c = 0;
+                for (uint32_t y = 0; y + 1 < H; y += 2) for (uint32_t x = 0; x + 1 < W; x += 2) {
+                    const size_t k = (static_cast<size_t>(y) * W + x) * 4, kx = k + 4, ky = k + static_cast<size_t>(W) * 4;
+                    auto Y = [&](size_t q) { return 0.2126 * f[q] + 0.7152 * f[q + 1] + 0.0722 * f[q + 2]; };
+                    g += std::fabs(Y(kx) - Y(k)) + std::fabs(Y(ky) - Y(k)); ++c;
+                }
+                return c ? g / c : 0.0;
+            };
+            s.gradGen = Grad(s.picture); s.gradTruth = Grad(truth); s.gradReal = 0.5 * (Grad(frames[i - 2]) + Grad(frames[i]));
         }
         s.bandFrac = bandFrac;
         if (bandFrac > 0.002) { s.genBand = PsnrMasked(s.picture, truth, band); s.blendBand = PsnrMasked(s.mix, truth, band); }
@@ -1382,6 +1393,8 @@ int main(int argc, char** argv) {
     double genC = 0, blendC = 0;
     for (const Score& s : scores) { gen += s.gen; hold += s.hold; blend += s.blend; genC += s.genCoarse; blendC += s.blendCoarse; better += s.gen > std::max(s.hold, s.blend) ? 1 : 0; }
     const double n = static_cast<double>(scores.size());
+    { double gg = 0, gt = 0, gr = 0; for (const Score& s : scores) { gg += s.gradGen; gt += s.gradTruth; gr += s.gradReal; }
+      printf("detail (mean luma gradient): made frame %.3f, true frame %.3f, the real frames around it %.3f  (made / real = %.1f %%)%s\n", gg / n, gt / n, gr / n, gr > 0 ? 100.0 * gg / gr : 0.0, gr > 0 && (gg / gr < 0.93 || gg / gr > 1.07) ? "   <- made frames are softer or sharper than the real ones: visible as a pulse" : ""); }
     { double ts = 0, tsAbs = 0, ag = 0, at = 0; for (const Score& s : scores) { ts += s.toneShift; tsAbs += std::fabs(s.toneShift); ag += s.altGen; at += s.altTruth; }
       printf("flicker check: tone shift of the made frame %+.3f levels (mean of |shift| %.3f), distance from the middle of its neighbours %.3f levels against the true frame's %.3f%s\n", ts / n, tsAbs / n, ag / n, at / n,
              tsAbs / n > 0.6 ? "   <- the made frames differ in brightness from the real ones: visible as flicker" : ""); }
