@@ -58,6 +58,7 @@ vof`) | A lab: motion measured by this project's flow estimator and by NVIDIA's 
 | `make_readme_pair.py` | Two screenshots of the same moment as two labelled 1920-wide JPEGs for the README (the Silent Hill f pair). |
 | `package.ps1` | Builds the release zip in `dist\` (`-Version`, `-SkipBuild`). Never packages NVIDIA's SDK or the DLSSNR snippet. |
 | `fetch_xess_sdk.ps1` | Fetches Intel's XeSS SDK (release 3.0.2: headers, `libxess.dll`, and for `nr_fgeval` `libxess_fg.dll` and `libxell.dll`, licence) into `addons\DLSS5NR01\external\xess`, checked by SHA-256 and Intel's signature. Without it the XeSS Upscaler is not built. |
+| `collect_test_logs.ps1` | One zip on the Desktop with the logs, the settings, the addons' versions and the graphics cards after a test session (for sending). |
 | `deploy.ps1` | Copies a build into a Lossless Scaling folder, with backups. `-What host\|nr\|dlaa\|fsr\|xess\|all`. |
 | `analyze_ls_logs.py` | Summarises `DLSS5NR01.log`: frame-time distribution, model cost, presets applied. |
 | `bmp2png.py` | BMP to PNG for a folder (needs Pillow). |
