@@ -932,8 +932,8 @@ int main(int argc, char** argv) {
                         motionForSynth = motionFix;
                     }
                     static const int benchReps = std::max(1, Arg(argc, argv, "synthbench", 1));   // synthbench=N: the synthesis recorded N times back to back (the card stays busy and at its clocks; the last one is timed)
-                    for (int rep = 1; rep < benchReps; ++rep) syn.Record(g.list, 0, prevTex, DXGI_FORMAT_R8G8B8A8_UNORM, cur, DXGI_FORMAT_R8G8B8A8_UNORM, motionForSynth, DXGI_FORMAT_R8G8B8A8_UNORM, tgts.data(), static_cast<int>(tgts.size()), 0, 80.0f, ownSoft, 1.0f, ownDirect ? motionRev : nullptr);
-                    if (!syn.Record(g.list, 0, prevTex, DXGI_FORMAT_R8G8B8A8_UNORM, cur, DXGI_FORMAT_R8G8B8A8_UNORM, motionForSynth, DXGI_FORMAT_R8G8B8A8_UNORM, tgts.data(), static_cast<int>(tgts.size()), 0, 80.0f, ownSoft, 1.0f, ownDirect ? motionRev : nullptr)) { printf("own synthesis failed\n"); return false; }
+                    for (int rep = 1; rep < benchReps; ++rep) syn.Record(g.list, 0, prevTex, DXGI_FORMAT_R8G8B8A8_UNORM, cur, DXGI_FORMAT_R8G8B8A8_UNORM, motionForSynth, DXGI_FORMAT_R8G8B8A8_UNORM, tgts.data(), static_cast<int>(tgts.size()), 0, 80.0f, ownSoft, 1.0f, ownDirect ? motionRev : nullptr, grainPct / 100.0f);
+                    if (!syn.Record(g.list, 0, prevTex, DXGI_FORMAT_R8G8B8A8_UNORM, cur, DXGI_FORMAT_R8G8B8A8_UNORM, motionForSynth, DXGI_FORMAT_R8G8B8A8_UNORM, tgts.data(), static_cast<int>(tgts.size()), 0, 80.0f, ownSoft, 1.0f, ownDirect ? motionRev : nullptr, grainPct / 100.0f)) { printf("own synthesis failed\n"); return false; }
                     ID3D12Resource* outTex = outs[pickOut];
                     g.Barrier(outTex, D3D12_RESOURCE_STATE_UNORDERED_ACCESS, D3D12_RESOURCE_STATE_COPY_SOURCE);
                     D3D12_TEXTURE_COPY_LOCATION to{ readback, D3D12_TEXTURE_COPY_TYPE_PLACED_FOOTPRINT }; to.PlacedFootprint = fp;
@@ -1381,7 +1381,7 @@ int main(int argc, char** argv) {
         if (i < 2) continue;   // the first kept frame has no frame before it
         if (keepStill > 0) KeepStill(s.picture, frames[i - 2], frames[i], W, H, static_cast<float>(keepStill));
         if (guardApart > 0) Guard(s.picture, frames[i - 2], frames[i], W, H, guardRadius, static_cast<float>(guardAgree), static_cast<float>(guardApart), frameMv);
-        if (grainPct > 0) { const double sd = AddGrain(s.picture, frames[i - 2], frames[i], W, H, static_cast<uint32_t>(i), grainPct / 100.0f); if (i == 2) printf("  grain matching adds about %.2f levels of noise (mean over tiles) to the made frame\n", sd); }
+        if (grainPct > 0 && !useOwn) { const double sd = AddGrain(s.picture, frames[i - 2], frames[i], W, H, static_cast<uint32_t>(i), grainPct / 100.0f); if (i == 2) printf("  grain matching adds about %.2f levels of noise (mean over tiles) to the made frame\n", sd); }
         const std::vector<uint8_t>& truth = frames[i - 1];
         s.mix.resize(truth.size());
         for (size_t k = 0; k < truth.size(); ++k) s.mix[k] = static_cast<uint8_t>((frames[i - 2][k] + frames[i][k] + 1) / 2);

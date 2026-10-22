@@ -49,7 +49,8 @@ public:
     // encoding. Leaves the list's descriptor heap and root signature changed.
     bool Record(ID3D12GraphicsCommandList* list, int slot, ID3D12Resource* before, DXGI_FORMAT beforeFormat, ID3D12Resource* now, DXGI_FORMAT nowFormat,
                 ID3D12Resource* motion, DXGI_FORMAT outFormat, const Target* targets, int count, uint32_t encoding = 0, float whiteNits = 80.0f, float soften = 0.6f, float marks = 1.0f,
-                ID3D12Resource* motionReverse = nullptr);
+                ID3D12Resource* motionReverse = nullptr, float grain = 0.0f);
+    // grain 0..1: grain matching (see the shader): the frame made gets back the noise the blend of two real frames removed (SDR frames); 0 off
     // motionReverse (RG16F pixel vectors a to c, NON_PIXEL_SHADER_RESOURCE; the estimate run on the pair the other way round): the direct draw. Each pixel of the frame made takes the
     // movement found AT that pixel from both fields (where they agree, their mean; else the one under which the moved pair agrees better) and is drawn straight from the two real
     // frames, nothing carried: no splats, hypotheses or holes (docs/mfg-super-motion-engine-notes.md, step 11; board E18). Without it, the splat synthesis above.
@@ -60,17 +61,17 @@ public:
     bool ReadMs(int slot, double& ms);
 
 private:
-    enum Entry { Clear, Err0, Box5, ErrA, Splat, Hyp1, Hyp2, Holes, Synth, MarkPrep, MarkLarge, MarkUpdate, Direct, EntryCount };
+    enum Entry { Clear, Err0, Box5, ErrA, Splat, Hyp1, Hyp2, Holes, Synth, MarkPrep, MarkLarge, MarkUpdate, Direct, GrainStat, EntryCount };
     // (the direct draw uses only MK among them)
     // buffers (one uint a cell): E0, Ea0 (errors, then the hypotheses' disagreement), K1, K2, K3 (splat keys), V1, V2, V3 (their vectors), B, B2 (the 5x5 means),
     // FL (which hypothesis a cell took), MK (the marks' counts, kept from pair to pair)
-    static const int kBuffers = 12, kSrvs = 4, kUavs = kBuffers + 1, kPerSlot = kSrvs + kMaxTargets * kUavs;
+    static const int kBuffers = 13, kSrvs = 4, kUavs = kBuffers + 1, kPerSlot = kSrvs + kMaxTargets * kUavs;
     void Log(const char* msg) { if (m_log) m_log(msg); }
     LogFn m_log;
     ID3D12Device* m_dev = nullptr; ID3D12RootSignature* m_root = nullptr; ID3D12PipelineState* m_pso[EntryCount] = {};
     ID3D12DescriptorHeap* m_heap = nullptr; uint32_t m_descriptorSize = 0;
     ID3D12Resource* m_buf[kBuffers] = {};
-    uint32_t m_w = 0, m_h = 0, m_aw = 0, m_ah = 0; int m_scale = 2, m_wantScale = 2; bool m_ready = false;
+    uint32_t m_seed = 0; uint32_t m_w = 0, m_h = 0, m_aw = 0, m_ah = 0; int m_scale = 2, m_wantScale = 2; bool m_ready = false;
     ID3D12QueryHeap* m_stamps = nullptr; ID3D12Resource* m_stampReadback = nullptr; uint64_t m_freq = 0;
 };
 

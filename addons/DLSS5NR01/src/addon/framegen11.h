@@ -20,6 +20,7 @@ using ShownFn = std::function<void(ID3D11DeviceContext*, ID3D11Texture2D*, bool 
 // empty): told of each frame as it goes out, the frame between and then the real one.
 bool BeforeRealPresent(IDXGISwapChain* sc, UINT sync, UINT flags, uint32_t encoding, float whiteNits, const LogFn& log, const ShownFn& shown = {});
 void SetOwn(bool on);    // the frame between by our own synthesis (FgEngine::SetOwnSynthesis) instead of FSR 3.1; off by default
+void SetGrain(float amount);    // EchoFG: 0 to 1, grain matching: the frames made get back the noise the blend of two real frames removes
 void SetSoften(float amount);   // EchoFG: 0 to 1, how far the frames lean toward the plain mix where the motion is doubtful
 void SetMultiplier(int n);   // frames shown for each real one (2 to 9); more than 2 only with our own synthesis (SetOwn)
 void SetAlign(bool on);   // each present in a refresh of its own, when the display's refresh is steady; on by default

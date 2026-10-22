@@ -37,9 +37,10 @@ RWStructuredBuffer<uint> bB : register(u8);     // the 5x5 mean of c's match err
 RWStructuredBuffer<uint> bB2 : register(u9);    // the same for a's
 RWStructuredBuffer<uint> bFL : register(u10);   // which hypothesis a cell took: 0 none, 1 from c, 2 from a, 3 filled from a neighbour
 RWStructuredBuffer<uint> bMK : register(u11);    // the marks: a cell's count (bits 0-3) and whether it is held now (bit 8), kept from pair to pair
-RWTexture2D<float4> uOut : register(u12);
+RWStructuredBuffer<uint> bG : register(u12);    // grain matching: the noise floor of the pair (high-pass variance, in levels squared), a float a cell
+RWTexture2D<float4> uOut : register(u13);
 SamplerState sLin : register(s0);
-cbuffer C : register(b0) { uint2 size; uint2 fsize; uint mode; uint phase; float t; float k; uint encoding; float white; uint scale; float soft; float marks; };
+cbuffer C : register(b0) { uint2 size; uint2 fsize; uint mode; uint phase; float t; float k; uint encoding; float white; uint scale; float soft; float marks; float grain; uint seed; };
 
 static const uint kEmpty = 0xFFFFFFFF;
 float3 View(float3 c) { return ToSdr(c, encoding, white); }
@@ -56,6 +57,46 @@ float2 VecAt(int2 a) {                                                          
     [loop] for (uint y = 0; y < scale; ++y) [loop] for (uint x = 0; x < scale; ++x) s += tV[min(uint2(a) * scale + uint2(x, y), fsize - 1)];
     return s / float(scale * scale);
 }
+)" R"(
+// Grain matching. A frame made from two real ones averages their noise (a game's grain, snow, particles, a neural pass's noise) away, so the noise would pulse between the real and
+// the made frames. The pair's noise floor is estimated per cell from the high-pass energy of both frames (the flattest of four 8x8 groups of the cell's 16x16 window: edges and
+// texture are skipped; what differs between the frames, so a clean still picture has none), and the frame made gets noise for what the blend removed: with the weights (1-t) and t of two independent noises the variance left is (1-t)^2 + t^2.
+float Ly(float3 c) { return dot(c, float3(0.2126, 0.7152, 0.0722)) * 255.0; }
+float HpAt(Texture2D<float4> tex, float2 q) {   // luma (SDR view) minus the mean of its four neighbours
+    float3 c0 = View(tex.SampleLevel(sLin, (q + 0.5) / float2(fsize), 0).rgb);
+    float l = Ly(View(tex.SampleLevel(sLin, (q + 0.5 + float2(-1, 0)) / float2(fsize), 0).rgb)) + Ly(View(tex.SampleLevel(sLin, (q + 0.5 + float2(1, 0)) / float2(fsize), 0).rgb))
+            + Ly(View(tex.SampleLevel(sLin, (q + 0.5 + float2(0, -1)) / float2(fsize), 0).rgb)) + Ly(View(tex.SampleLevel(sLin, (q + 0.5 + float2(0, 1)) / float2(fsize), 0).rgb));
+    return Ly(c0) - 0.25 * l;
+}
+[numthreads(8, 8, 1)] void GrainStat(uint3 id : SV_DispatchThreadID) {
+    if (id.x >= size.x || id.y >= size.y) return;
+    const float2 c = floor(Cen(int2(id.xy)));   // (whole pixels: a sample between two pixels would blend away the very noise being measured)
+    float lowest = 1e30;
+    [loop] for (int g = 0; g < 4; ++g) {   // four groups of 2x2 samples, 4 pixels apart, over the 16x16 window
+        const float2 o = float2((g & 1) * 8 - 8, (g >> 1) * 8 - 8);
+        float e = 0;
+        [loop] for (int j = 0; j < 2; ++j) [loop] for (int x = 0; x < 2; ++x) {
+            const float2 q = c + o + float2(x, j) * 4.0 + 2.0;
+            const float a = HpAt(tA, q), b = HpAt(tC, q);
+            e += 0.5 * (a - b) * (a - b);   // (what differs between the two frames in the high-pass band: independent noise gives twice its variance, a still, clean picture gives nothing)
+        }
+        lowest = min(lowest, e * 0.25);
+    }
+    bG[Idx(int2(id.xy))] = asuint(lowest);
+}
+float GrainRnd(uint2 p) {
+    uint h = p.x * 1973u ^ p.y * 9277u ^ seed * 26699u ^ 0x9E3779B9u;
+    h ^= h >> 15; h *= 0x2c1b3c6du; h ^= h >> 12; h *= 0x297a2d39u; h ^= h >> 15;
+    return float(h & 0xFFFFFFu) / 16777216.0 * 2.0 - 1.0;
+}
+float3 AddGrain(float3 c, int2 p) {
+    if (grain <= 0.0 || encoding != 0u) return c;   // (SDR frames only for now)
+    const float v = asfloat(bG[Idx(clamp(p / int(scale), int2(0, 0), int2(size) - 1))]);
+    const float f = 1.0 - ((1.0 - t) * (1.0 - t) + t * t);
+    const float sd = min(sqrt(max(v, 0.0) * f * grain / 1.25), 8.0);
+    return c + GrainRnd(uint2(p)) * sd * 1.7320508 / 255.0;
+}
+
 // the mean of a float buffer over (2r+1)^2 cells, edges clamped
 #define BOX(buf, p, r, result) { float s_ = 0; [loop] for (int j_ = -(r); j_ <= (r); ++j_) [loop] for (int i_ = -(r); i_ <= (r); ++i_) \
     s_ += asfloat(buf[Idx(clamp((p) + int2(i_, j_), int2(0, 0), int2(size) - 1))]); result = s_ / float((2 * (r) + 1) * (2 * (r) + 1)); }
@@ -254,7 +295,7 @@ float Disagree(float2 q, float2 v) {   // the moved pair's disagreement around a
     const float3 mixed = (1.0 - t) * tA.SampleLevel(sLin, (q + 0.5) / float2(fsize), 0).rgb + t * tC.SampleLevel(sLin, (q + 0.5) / float2(fsize), 0).rgb;
     float w = 0.0;
     if (marks > 0.5 && HeldAt(p)) w = 1.0;   // a mark: the plain mix
-    uOut[p] = float4(lerp(moved, mixed, w), 1.0);
+    uOut[p] = float4(AddGrain(lerp(moved, mixed, w), p), 1.0);
 }
 
 // the frame, at the frames' size: of the (up to) 2x2 nearest cells, the vector under which the moved pair agrees best here
@@ -278,11 +319,11 @@ float Disagree(float2 q, float2 v) {   // the moved pair's disagreement around a
     float w = saturate((doubt - 30.0) / 90.0) * 0.8 * soft;
     const float3 mixed = (1.0 - t) * tA.SampleLevel(sLin, (q + 0.5) / float2(fsize), 0).rgb + t * tC.SampleLevel(sLin, (q + 0.5) / float2(fsize), 0).rgb;
     if (marks > 0.5 && HeldAt(p)) w = 1.0;   // a mark (a read-out that stays while the picture moves): the plain mix, not dragged along with the picture
-    uOut[p] = float4(lerp(moved, mixed, w), 1.0);
+    uOut[p] = float4(AddGrain(lerp(moved, mixed, w), p), 1.0);
 }
 )";
 
-struct Constants { uint32_t w, h, fw, fh, mode, phase; float t, k; uint32_t encoding; float white; uint32_t scale; float soft; float marks; };
+struct Constants { uint32_t w, h, fw, fh, mode, phase; float t, k; uint32_t encoding; float white; uint32_t scale; float soft; float marks; float grain; uint32_t seed; };
 
 } // namespace
 
@@ -304,7 +345,7 @@ bool OwnSynth::Init(ID3D12Device* dev, LogFn log) {
                         SUCCEEDED(dev->CreateRootSignature(0, blob->GetBufferPointer(), blob->GetBufferSize(), IID_PPV_ARGS(&m_root)));
     Rel(blob); Rel(error);
     if (!rootOk) { Log("own synthesis: the root signature could not be made"); Shutdown(); return false; }
-    static const char* const names[EntryCount] = { "Clear", "Err0", "Box5", "ErrA", "Splat", "Hyp1", "Hyp2", "Holes", "Synth", "MarkPrep", "MarkLarge", "MarkUpdate", "Direct" };
+    static const char* const names[EntryCount] = { "Clear", "Err0", "Box5", "ErrA", "Splat", "Hyp1", "Hyp2", "Holes", "Synth", "MarkPrep", "MarkLarge", "MarkUpdate", "Direct", "GrainStat" };
     for (int e = 0; e < EntryCount; ++e) {
         ID3DBlob* code = nullptr;
         if (FAILED(nr::CompileCached(kHlsl, strlen(kHlsl), "own_synth", nullptr, names[e], "cs_5_0", D3DCOMPILE_OPTIMIZATION_LEVEL3, &code, &error))) {
@@ -362,7 +403,7 @@ bool OwnSynth::Ensure(uint32_t w, uint32_t h) {
 }
 
 bool OwnSynth::Record(ID3D12GraphicsCommandList* list, int slot, ID3D12Resource* before, DXGI_FORMAT beforeFormat, ID3D12Resource* now, DXGI_FORMAT nowFormat,
-                      ID3D12Resource* motion, DXGI_FORMAT outFormat, const Target* targets, int count, uint32_t encoding, float whiteNits, float soften, float marks, ID3D12Resource* motionReverse) {
+                      ID3D12Resource* motion, DXGI_FORMAT outFormat, const Target* targets, int count, uint32_t encoding, float whiteNits, float soften, float marks, ID3D12Resource* motionReverse, float grain) {
     if (!m_ready || !m_buf[0] || !before || !now || !motion || !targets || count < 1 || count > kMaxTargets) return false;
     for (int j = 0; j < count; ++j) if (!targets[j].out) return false;
     D3D12_CPU_DESCRIPTOR_HANDLE cpu = m_heap->GetCPUDescriptorHandleForHeapStart(); cpu.ptr += static_cast<SIZE_T>(slot % kSlots) * kPerSlot * m_descriptorSize;
@@ -401,11 +442,13 @@ bool OwnSynth::Record(ID3D12GraphicsCommandList* list, int slot, ID3D12Resource*
     const UINT gx = (m_aw + 7) / 8, gy = (m_ah + 7) / 8, fx = (m_w + 7) / 8, fy = (m_h + 7) / 8;
     static const int stopAt = [] { char b[16]; return GetEnvironmentVariableA("NR_SYNTH_STOP", b, 16) ? atoi(b) : 999; }(); int passNo = 0;   // (a test aid: NR_SYNTH_STOP=N runs only the first N passes, to time them)
     float t = 0.5f;
+    const bool grainOn = grain > 0.001f && encoding == 0u;
+    ++m_seed;
     static const bool marksAllowed = [] { char b[16]; return !(GetEnvironmentVariableA("NR_SYNTH_MARKS", b, 16) && atoi(b) == 0); }();
     const bool useMarks = marksAllowed && marks > 0.5f;
     auto pass = [&](Entry e, uint32_t mode, uint32_t phase, float k, bool full = false) {
         if (++passNo > stopAt) return;
-        const Constants c{ m_aw, m_ah, m_w, m_h, mode, phase, t, k, encoding, whiteNits > 0.0f ? whiteNits : 80.0f, static_cast<uint32_t>(m_scale), std::clamp(soften, 0.0f, 1.0f), useMarks ? 1.0f : 0.0f };
+        const Constants c{ m_aw, m_ah, m_w, m_h, mode, phase, t, k, encoding, whiteNits > 0.0f ? whiteNits : 80.0f, static_cast<uint32_t>(m_scale), std::clamp(soften, 0.0f, 1.0f), useMarks ? 1.0f : 0.0f, grainOn ? std::clamp(grain, 0.0f, 1.0f) : 0.0f, m_seed };
         list->SetPipelineState(m_pso[e]);
         list->SetComputeRoot32BitConstants(2, sizeof(Constants) / 4, &c, 0);
         list->Dispatch(full ? fx : gx, full ? fy : gy, 1);
@@ -415,6 +458,7 @@ bool OwnSynth::Record(ID3D12GraphicsCommandList* list, int slot, ID3D12Resource*
     // once for the pair: the errors and the vectors onto a's cells
     uavTable(0);
     if (useMarks) { pass(MarkPrep, 0, 0, 0.0f); pass(MarkLarge, 0, 0, 0.0f); pass(MarkUpdate, 0, 0, 0.0f); }   // (their buffers are the ones the passes below overwrite)
+    if (grainOn) pass(GrainStat, 0, 0, 0.0f);
     if (motionReverse) {   // the direct draw: nothing but the marks is made once for the pair, and each frame is one pass
         for (int j = 0; j < count; ++j) { t = targets[j].t; uavTable(j); pass(Direct, 0, 0, 0.0f, true); }
         if (m_stamps) {

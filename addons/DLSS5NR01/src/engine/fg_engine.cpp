@@ -397,7 +397,7 @@ int FgEngine::GenerateFrames(ID3D12Resource* in, ID3D12Fence* copied, uint64_t n
                     }
                     Barrier(m_distrust, D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE, D3D12_RESOURCE_STATE_UNORDERED_ACCESS);
                 }
-                ok = m_synth.Record(m_list, slot, m_before, StorageFormat(m_fmt), in, m_fmt, motionUsed, StorageFormat(m_fmt), targets, ownCount, encoding, whiteNits, m_soften.load());
+                ok = m_synth.Record(m_list, slot, m_before, StorageFormat(m_fmt), in, m_fmt, motionUsed, StorageFormat(m_fmt), targets, ownCount, encoding, whiteNits, m_soften.load(), 1.0f, nullptr, m_grain.load());
                 afterSynth = sinceMs();
                 if (motionUsed == m_motionFix) Barrier(m_motionFix, D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE, D3D12_RESOURCE_STATE_UNORDERED_ACCESS);
                 Barrier(m_before, D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE, D3D12_RESOURCE_STATE_COPY_DEST);

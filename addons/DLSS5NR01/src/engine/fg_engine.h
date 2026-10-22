@@ -53,6 +53,7 @@ public:
     void SetAnalysisScale(int scale) { m_synth.SetAnalysisScale(scale); }
     // true: the frame between is made by this project's own synthesis (own_synth.h) instead of FSR 3.1; when it cannot start on this card (a frame format
     // without typed stores) FSR makes the frame as before. Set from the thread that calls Generate.
+    void SetGrain(float amount) { m_grain = amount; }   // EchoFG: grain matching, 0 to 1: the frames made get back the noise (grain, snow, a neural pass) the blend of two real frames removes (SDR frames; 1 by default)
     void SetSoften(float amount) { m_soften = amount; }   // EchoFG: how far the frames lean toward the plain mix where the motion is doubtful (0 to 1; 0.6 by default)
     void SetOwnSynthesis(bool on) { m_own = on; }   // (EchoFG's start-up runs beside the frames: it is used from the first frame after it is ready)
     bool UsingOwnSynthesis() const { return m_own && m_synthReady; }
@@ -87,7 +88,7 @@ private:
     FlowFix m_fix; ID3D12Resource* m_motionFix = nullptr; std::atomic<bool> m_fixReady{ false }; bool m_fixOn = true;   // the picture at large (E16): EchoFG's motion corrected where a block cannot tell
     // The motion is estimated at 1/m_scale of the frames' size on big frames (4K: half), in these textures, and brought back to the frames' size by m_fix (which then must be ready)
     int m_scale = 1; ID3D12Resource* m_motionA = nullptr; ID3D12Resource* m_distrustA = nullptr;
-    OwnSynth m_synth; std::atomic<bool> m_own{ false }, m_synthReady{ false }; bool m_prevOwn = false; std::atomic<float> m_soften{ 0.6f };
+    OwnSynth m_synth; std::atomic<bool> m_own{ false }, m_synthReady{ false }; bool m_prevOwn = false; std::atomic<float> m_soften{ 0.6f }, m_grain{ 1.0f };
     std::atomic<int> m_synthState{ 0 };   // 0 not started, 1 starting, 2 ready, 3 could not start
     std::thread m_synthThread;
     void InitSynth();    // the work (on whichever thread)

@@ -2,6 +2,7 @@
 
 ## Unreleased
 
+- **EchoFG: "Match the game's grain" (on by default), against flicker in grainy pictures.** A frame made from two real ones averages their noise away, so with film grain, snow, rain or the noise of a neural pass the real frames are grainy and the made ones smooth, and that difference flickers (two reports: Snow Runner, Resident Evil 3). Measured offline with noise added to a recording: the made frames kept 70 % of the real frames' detail; with the setting 81 %, and on clean pictures nothing changes (99 to 102 %). The noise level is measured between the two real frames, so a clean picture gets none. SDR pictures; the slider is in the EchoFG panel (0 off, 1 full). New in the evaluator: `nr_fgeval noise=N grain=N` and a flicker check.
 - **New feature: Lossless Scaling's hidden settings (Features tab).** Edits the `config.ini` beside Lossless Scaling for what its window does not show: its frame rate counter's size, colour, font and position, and a few expert values. Only the lines you change are touched; a copy is kept as `config.ini.bak-manager`. Applies from the next time scaling starts.
 ## 1.0.5 (2026-10-21)
 

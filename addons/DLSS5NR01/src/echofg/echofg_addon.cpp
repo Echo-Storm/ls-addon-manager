@@ -44,7 +44,7 @@ std::atomic<bool> g_enabled{ true }, g_own{ true }, g_align{ true }, g_guard{ tr
 std::atomic<int> g_multiplier{ 2 };
 std::atomic<int> g_readout{ 0 };   // the frame rate readout: 0 Lossless Scaling's own counter, made to show the rate the screen gets (our own label in the top left when the manager cannot), 1 off, 2 top left, 3 top right
 std::atomic<bool> g_counterHooked{ false };   // the manager has hooked Lossless Scaling's counter (API 1.4)
-std::atomic<float> g_soften{ 0.6f };
+std::atomic<float> g_soften{ 0.6f }, g_grain{ 1.0f };
 std::mutex g_textMutex;
 std::string g_notice;
 std::atomic<uint64_t> g_configAt{ 0 };
@@ -92,6 +92,7 @@ void ReadConfig() {
     g_multiplier = std::clamp(atoi(g_host->GetConfig(kId, "multiplier", "2")), 2, 9);
     g_readout = std::clamp(atoi(g_host->GetConfig(kId, "fpsReadout", "0")), 0, 3);
     g_soften = std::clamp(static_cast<float>(atof(g_host->GetConfig(kId, "soften", "0.6"))), 0.0f, 1.0f);
+    g_grain = std::clamp(static_cast<float>(atof(g_host->GetConfig(kId, "grain", "1.0"))), 0.0f, 1.0f);
 }
 void Set(const char* key, const std::string& value) { g_host->SetConfig(kId, key, value.c_str()); g_host->SaveConfig(); g_configAt = 0; }
 
@@ -147,7 +148,7 @@ void OnPresent(IDXGISwapChain* sc, UINT sync, UINT flags) {
           encoding = static_cast<uint32_t>(nr::EncodingOf(ViewFormat(d.Format), 0, display.hdr)); white = display.whiteNits;
           back->Release();
       } }
-    nr::framegen::SetOwn(g_own); nr::framegen::SetMultiplier(g_multiplier); nr::framegen::SetSoften(g_soften); nr::framegen::SetAlign(g_align); nr::framegen::SetGuard(g_guard);
+    nr::framegen::SetOwn(g_own); nr::framegen::SetMultiplier(g_multiplier); nr::framegen::SetSoften(g_soften); nr::framegen::SetGrain(g_grain); nr::framegen::SetAlign(g_align); nr::framegen::SetGuard(g_guard);
     // the recorder is the manager's (IHost API 1.3, the Features tab): EchoFG replaces frame generation, so there are no captured frames for the manager to find, and the
     // presented frames are offered to it here
     const bool recorderOn = g_host->GetHostVersion() >= 0x010300 && (g_host->RecorderFlags() & 1u) != 0;
@@ -243,6 +244,11 @@ EAM_EXPORT void AddonRenderSettings() {
         ImGui::SetNextItemWidth(260);
         if (ImGui::SliderFloat("Soften where the motion is doubtful", &s, 0.0f, 1.0f, "%.2f")) { char t[16]; snprintf(t, sizeof t, "%.2f", s); Set("soften", t); }
         if (ImGui::IsItemHovered()) ImGui::SetTooltip("Where EchoFG cannot tell where things went (a very fast turn at a low frame rate, something uncovered) the frame leans toward the plain mix of the two real frames, as far as this says: a faint double image instead of a smear.");
+        float gr = g_grain;
+        ImGui::SetNextItemWidth(260);
+        if (ImGui::SliderFloat("Match the game's grain", &gr, 0.0f, 1.0f, "%.2f")) { char t[16]; snprintf(t, sizeof t, "%.2f", gr); Set("grain", t); }
+        if (ImGui::IsItemHovered()) ImGui::SetTooltip("A frame made from two real ones averages their noise away (film grain, snow, rain, the noise of a neural pass): the real frames are grainy and the made ones smooth, and the difference shows as flicker. "
+                                                      "This gives the made frames back the noise level the real ones have (measured between the two frames, so a clean picture gets none). 1 matches it fully, 0 is off. SDR pictures only.");
     } else {
         bool guard = g_guard;
         if (ImGui::Checkbox("Keep the character clean in turns", &guard)) Set("guard", guard ? "1" : "0");
