@@ -56,6 +56,33 @@ using namespace nr::eval;
 // What stays put between two real frames stays put in the frame between: where a and b (RGBA8) are alike, the picture becomes their mix.
 // Alike: the largest channel difference, averaged over the pixel's 3x3, at most `still` levels (all mix), fading to the picture's own by
 // twice that. A third-person character carried by a turning camera, a HUD, subtitles: the generator pastes the moving background over them.
+// Grain matching (grain=1): a frame made from two real ones averages their noise (a game's grain, snow, particles, a neural pass's noise) away, so the noise would pulse
+// between the real and the made frames. Per 16 x 16 tile the high-pass energy of the real frames (the mean of the two around it) and of the made frame is measured; the made
+// frame gets noise (the same on the three channels, new for every frame) for the difference. Returns the mean added standard deviation in levels.
+double AddGrain(std::vector<uint8_t>& picture, const std::vector<uint8_t>& a, const std::vector<uint8_t>& b, uint32_t w, uint32_t h, uint32_t seedBase, float strength) {
+    auto hp = [&](const std::vector<uint8_t>& f, uint32_t x, uint32_t y) {   // luma minus the mean of its four neighbours
+        auto Y = [&](uint32_t xx, uint32_t yy) { const size_t k = (static_cast<size_t>(yy) * w + xx) * 4; return 0.2126 * f[k] + 0.7152 * f[k + 1] + 0.0722 * f[k + 2]; };
+        return Y(x, y) - 0.25 * (Y(x - 1, y) + Y(x + 1, y) + Y(x, y - 1) + Y(x, y + 1));
+    };
+    uint32_t seed = seedBase * 2654435761u + 77u; double sum = 0; uint64_t tiles = 0;
+    for (uint32_t ty = 1; ty + 17 < h; ty += 16) for (uint32_t tx = 1; tx + 17 < w; tx += 16) {
+        double ea = 0, eb = 0, em = 0;
+        for (uint32_t y = ty; y < ty + 16; y += 2) for (uint32_t x = tx; x < tx + 16; x += 2) { const double u = hp(a, x, y), v = hp(b, x, y), m = hp(picture, x, y); ea += u * u; eb += v * v; em += m * m; }
+        const double real = 0.5 * (ea + eb) / 64.0, made = em / 64.0;
+        const double add = std::max(0.0, real - made) * strength;   // (high-pass variance to add; the filter's gain on white noise is 1.25, so sd = sqrt(add / 1.25))
+        const double sd = std::sqrt(add / 1.25); sum += sd; ++tiles;
+        if (sd < 0.15) continue;
+        const double amp = sd * 1.7320508;   // uniform in [-amp, amp]
+        for (uint32_t y = ty; y < ty + 16; ++y) for (uint32_t x = tx; x < tx + 16; ++x) {
+            seed = seed * 1664525u + 1013904223u;
+            const double n = ((seed >> 8) / 16777216.0 * 2.0 - 1.0) * amp;
+            const size_t k = (static_cast<size_t>(y) * w + x) * 4;
+            for (int c = 0; c < 3; ++c) picture[k + c] = static_cast<uint8_t>(std::clamp(static_cast<int>(picture[k + c] + n + 0.5), 0, 255));
+        }
+    }
+    return tiles ? sum / tiles : 0.0;
+}
+
 void KeepStill(std::vector<uint8_t>& picture, const std::vector<uint8_t>& a, const std::vector<uint8_t>& b, uint32_t w, uint32_t h, float still) {
     std::vector<float> d(static_cast<size_t>(w) * h);
     for (size_t k = 0; k < d.size(); ++k) {
@@ -578,6 +605,7 @@ int main(int argc, char** argv) {
     // keepstill=N: where the two real frames are alike (their 3x3 surroundings N levels apart or less, fading out by 2N), the frame between
     // is their mix instead of the generator's (KeepStill)
     const int keepStill = Arg(argc, argv, "keepstill", 0);
+    const int grainPct = Arg(argc, argv, "grain", 0);   // grain=N: grain matching, N percent of the difference (100: the made frame gets the real frames' noise level back)
     // refine=depth|colour|both: the motion vectors refined along depth and / or colour edges (RefineMotion; depth needs depthdir=)
     const std::string refine = ArgText(argc, argv, "refine");
     const float sigmaDepth = refine == "depth" || refine == "both" ? Arg(argc, argv, "sd", 50) / 1000.0f : 0.0f;       // sd= in thousandths
@@ -643,7 +671,17 @@ int main(int argc, char** argv) {
           ++kept;
       }
       if (kept < count) { frames.resize(kept); times.resize(kept); count = kept; }
-      if (count < 3) { printf("too few frames\n"); return 2; } }
+      if (count < 3) { printf("too few frames\n"); return 2; }
+      // noise=N: every kept frame gets its own independent noise of about N levels (a game's grain, snow, particles or a neural pass's noise: each real frame carries its own,
+      // while a frame made from two of them averages the noise away: a pulse between real and made frames, which the flicker check measures)
+      if (const int noiseLevel = Arg(argc, argv, "noise", 0); noiseLevel > 0) {
+          uint32_t seed = 12345u;
+          for (auto& f : frames) for (size_t k = 0; k + 3 < f.size(); k += 4) for (int c = 0; c < 3; ++c) {
+              seed = seed * 1664525u + 1013904223u; const int a = static_cast<int>(seed >> 24) - 128;
+              seed = seed * 1664525u + 1013904223u; const int b = static_cast<int>(seed >> 24) - 128;
+              f[k + c] = static_cast<uint8_t>(std::clamp(static_cast<int>(f[k + c]) + (a + b) * noiseLevel / 105, 0, 255));
+          }
+      } }
     printf("%ls: %ux%u, %d frames from %d; every other one is rebuilt by %s frame generation\n", Wide(argv[1]).c_str(), W, H, count, first, G);
 
     Gpu g; if (!g.Init()) { printf("no Direct3D 12 device\n"); return 4; }
@@ -1343,6 +1381,7 @@ int main(int argc, char** argv) {
         if (i < 2) continue;   // the first kept frame has no frame before it
         if (keepStill > 0) KeepStill(s.picture, frames[i - 2], frames[i], W, H, static_cast<float>(keepStill));
         if (guardApart > 0) Guard(s.picture, frames[i - 2], frames[i], W, H, guardRadius, static_cast<float>(guardAgree), static_cast<float>(guardApart), frameMv);
+        if (grainPct > 0) { const double sd = AddGrain(s.picture, frames[i - 2], frames[i], W, H, static_cast<uint32_t>(i), grainPct / 100.0f); if (i == 2) printf("  grain matching adds about %.2f levels of noise (mean over tiles) to the made frame\n", sd); }
         const std::vector<uint8_t>& truth = frames[i - 1];
         s.mix.resize(truth.size());
         for (size_t k = 0; k < truth.size(); ++k) s.mix[k] = static_cast<uint8_t>((frames[i - 2][k] + frames[i][k] + 1) / 2);
