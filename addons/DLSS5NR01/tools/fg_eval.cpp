@@ -1116,7 +1116,7 @@ int main(int argc, char** argv) {
 #endif
     }
 
-    struct Score { int frame; double gen, hold, blend, genAbs, genCoarse, blendCoarse, genSsim = 0, blendSsim = 0, genAl = 0, blendAl = 0, genBand = 0, blendBand = 0, bandFrac = 0; std::vector<uint8_t> picture, mix; };
+    struct Score { int frame; double gen, hold, blend, genAbs, genCoarse, blendCoarse, genSsim = 0, blendSsim = 0, genAl = 0, blendAl = 0, genBand = 0, blendBand = 0, bandFrac = 0, toneShift = 0, altGen = 0, altTruth = 0; std::vector<uint8_t> picture, mix; };
     std::vector<Score> scores;
     const uint32_t dumpX = std::min<uint32_t>(static_cast<uint32_t>(Arg(argc, argv, "dumpx", static_cast<int>((W >= 1280 ? W - 1280 : 0) / 2))), W >= 1280 ? W - 1280 : 0);   // dumpx= dumpy=: where the 1280 x 720 piece dumpraw writes starts (default: the middle)
     const uint32_t dumpY = std::min<uint32_t>(static_cast<uint32_t>(Arg(argc, argv, "dumpy", static_cast<int>((H >= 720 ? H - 720 : 0) / 2))), H >= 720 ? H - 720 : 0);
@@ -1357,6 +1357,16 @@ int main(int argc, char** argv) {
         s.genCoarse = PsnrCoarse(s.picture, truth, W); s.blendCoarse = PsnrCoarse(s.mix, truth, W);
         s.genSsim = Ssim(s.picture, truth, W); s.blendSsim = Ssim(s.mix, truth, W);
         if (alignedScore) { s.genAl = PsnrAligned(s.picture, truth, W); s.blendAl = PsnrAligned(s.mix, truth, W); }
+        {   // flicker: what the eye sees when a made frame sits between two real ones. toneShift = the made frame's mean luma minus the true frame's (levels, 0..255);
+            // alt = how far the made (or true) frame is from the middle of its two neighbours, per pixel of luma (high-frequency part left in: a steady motion gives the same figure for both)
+            double lp = 0, lt = 0, ap = 0, at = 0; uint64_t cnt = 0;
+            for (size_t k = 0; k + 3 < truth.size(); k += 16) {   // (every fourth pixel)
+                auto Y = [&](const std::vector<uint8_t>& f) { return 0.2126 * f[k] + 0.7152 * f[k + 1] + 0.0722 * f[k + 2]; };
+                const double yp = Y(s.picture), yt = Y(truth), y0 = Y(frames[i - 2]), y1 = Y(frames[i]);
+                lp += yp; lt += yt; ap += std::fabs(yp - 0.5 * (y0 + y1)); at += std::fabs(yt - 0.5 * (y0 + y1)); ++cnt;
+            }
+            if (cnt) { s.toneShift = (lp - lt) / cnt; s.altGen = ap / cnt; s.altTruth = at / cnt; }
+        }
         s.bandFrac = bandFrac;
         if (bandFrac > 0.002) { s.genBand = PsnrMasked(s.picture, truth, band); s.blendBand = PsnrMasked(s.mix, truth, band); }
         const double same = Psnr(s.picture, frames[i], nullptr);
@@ -1372,6 +1382,9 @@ int main(int argc, char** argv) {
     double genC = 0, blendC = 0;
     for (const Score& s : scores) { gen += s.gen; hold += s.hold; blend += s.blend; genC += s.genCoarse; blendC += s.blendCoarse; better += s.gen > std::max(s.hold, s.blend) ? 1 : 0; }
     const double n = static_cast<double>(scores.size());
+    { double ts = 0, tsAbs = 0, ag = 0, at = 0; for (const Score& s : scores) { ts += s.toneShift; tsAbs += std::fabs(s.toneShift); ag += s.altGen; at += s.altTruth; }
+      printf("flicker check: tone shift of the made frame %+.3f levels (mean of |shift| %.3f), distance from the middle of its neighbours %.3f levels against the true frame's %.3f%s\n", ts / n, tsAbs / n, ag / n, at / n,
+             tsAbs / n > 0.6 ? "   <- the made frames differ in brightness from the real ones: visible as flicker" : ""); }
     printf("average over %zu rebuilt frames: %s %.2f dB, hold %.2f dB, blend %.2f dB; %s the closest in %d of them; coarse: %s %.2f dB, blend %.2f dB\n", scores.size(), G, gen / n, hold / n, blend / n, G, better, G, genC / n, blendC / n);
     { double gs = 0, bs = 0; int wins = 0; for (const Score& s : scores) { gs += s.genSsim; bs += s.blendSsim; wins += s.genSsim > s.blendSsim ? 1 : 0; }
       printf("ssim (structure, 1 = the true frame): %s %.4f, blend %.4f; %s the closer in %d of %zu\n", G, gs / n, bs / n, G, wins, scores.size()); }
