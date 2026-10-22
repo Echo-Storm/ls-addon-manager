@@ -431,7 +431,7 @@ void DrawPanel() {
         {   // a preset for how much work the upscaler spends: the resolution ratio is the game window's (Lossless Scaling scales what it captures), so these set the extras
             struct Preset { bool skipRepeats, lightAuto, lightGen, reuseMotion; float steadySharp; };
             static const Preset presets[3] = { { false, false, false, false, 0.6f },    // Quality: every picture in full, a motion estimate for each
-                                               { false, true,  false, true,  0.6f },    // Balanced (the defaults)
+                                               { false, true,  true,  true,  0.6f },    // Balanced (the defaults)
                                                { true,  true,  true,  true,  0.0f } };  // Performance: repeats skipped, generated frames always lighter, the motion estimate shared, no steady sharpening
             int current = 3;
             for (int i = 0; i < 3; ++i) {
@@ -516,11 +516,11 @@ void DrawPanel() {
                                                                                        static_cast<unsigned long long>(v.repeatChecks), 100.0 * v.repeatSkips / v.repeatChecks);
             if (ImGui::Checkbox("Lighter upscaling of generated frames when the card is full", &c.scalerLightAuto)) changed = true;
             Tip("On by default. With frame generation the upscaler runs on every picture shown, the generated ones too, so a heavy model (DLSS 4.5, FSR 4) can take the game's frame rate down far more than a light one. Reads the graphics card's load once a second; when it has been at or over the limit (the manager's GPU limit on the Features tab, or 95 % while that is off) for three readings, the frames Lossless Scaling makes between the game's own get the lighter picture described below, and they are upscaled in full again once the load has been well under the limit for ten seconds. Measured on recordings, the lighter picture costs about 0.1 to 0.3 dB (a little more, 1.5 dB, in fast motion) and takes the upscaler's cost for those frames from about 1.4 ms to under 0.2 ms at 2560x1440. It does nothing without frame generation, or on a card whose load cannot be read. Turn it off to always upscale every picture in full.");
-            if (ImGui::Checkbox("Lighter upscaling of generated frames (test)", &c.scalerLightGen)) changed = true;
-            Tip("A test, off by default. With frame generation, the upscaler runs on the frames the game draws only; the frames Lossless Scaling makes between them get the last "
+            if (ImGui::Checkbox("Lighter upscaling of generated frames", &c.scalerLightGen)) changed = true;
+            Tip("On by default. With frame generation, the upscaler runs on the frames the game draws only; the frames Lossless Scaling makes between them get the last "
                 "upscaled picture moved along the motion, checked against the new frame (where they disagree, the new frame stretched plainly), and sharpened. That takes the "
                 "upscaler's cost for those frames from about 3 ms to under 1 ms at 4K, a quarter of the cost of a game frame. On recordings it scored the same on detail and "
-                "flicker, a little lower on steadiness in motion. Flip it with the camera turning and in a calm scene, and tell us if you see a difference. It does nothing without frame generation.");
+                "flicker, a little lower on steadiness in motion. Turn it off for the full upscale of every frame (the Quality preset does). It does nothing without frame generation.");
         }
         {
             if (ImGui::Checkbox("Motion by shape (test)", &c.motionShapes)) changed = true;

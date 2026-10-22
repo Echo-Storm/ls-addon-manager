@@ -39,7 +39,7 @@ struct Config {
     bool leanEasu = false;              // a test: the moving picture (the lean) is FSR 1's edge-adaptive EASU of the frame, not Catmull-Rom (SrEngine::SetLeanMode)
     bool scalerSkipRepeats = false;     // a picture that is exactly the one before (a still scene; a 30 fps source in a 60 Hz feed) is not upscaled again: the last output is copied (SrEngine::SetSkipRepeats, docs/repeat-skip-spec.md)
     bool scalerLightAuto = true;        // the lighter upscaling of generated frames (below) switches itself on while the card's load is at or over gpuLimitPercent, and off again once it has been well under for a while
-    bool scalerLightGen = false;        // a test: with frame generation the upscaler runs on the real frames only, the generated ones get a lighter picture (SrEngine::SetCheapNext)
+    bool scalerLightGen = true;         // on by default since 1.0.5 (was a test): with frame generation the upscaler runs on the real frames only, the generated ones get a lighter picture (SrEngine::SetCheapNext)
     bool scalerReuseMotion = true;      // with frame generation (two or more frames presented per real one), every other frame keeps the motion estimate of the one before (SrEngine::SetFlowReuse)
     bool motionShapes = false;          // a test: the motion matched by shape and edges, not brightness (SrEngine::SetMeanWeight / SetGradWeight)
     float scalerStability = 0.0f;        // the upscalers: less shimmer, more trailing (SrEngine::SetStability)
