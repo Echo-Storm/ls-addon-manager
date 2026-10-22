@@ -428,6 +428,28 @@ void DrawPanel() {
             }
             if (g_compare.load() == 2) ImGui::TextColored(eam::ui::theme::V(eam::ui::theme::kWarn), "Showing Lossless Scaling's NIS for comparison (Before / after hotkey).");
         }
+        {   // a preset for how much work the upscaler spends: the resolution ratio is the game window's (Lossless Scaling scales what it captures), so these set the extras
+            struct Preset { bool skipRepeats, lightAuto, lightGen, reuseMotion; float steadySharp; };
+            static const Preset presets[3] = { { false, false, false, false, 0.6f },    // Quality: every picture in full, a motion estimate for each
+                                               { false, true,  false, true,  0.6f },    // Balanced (the defaults)
+                                               { true,  true,  true,  true,  0.0f } };  // Performance: repeats skipped, generated frames always lighter, the motion estimate shared, no steady sharpening
+            int current = 3;
+            for (int i = 0; i < 3; ++i) {
+                const Preset& q = presets[i];
+                if (c.scalerSkipRepeats == q.skipRepeats && c.scalerLightAuto == q.lightAuto && c.scalerLightGen == q.lightGen && c.scalerReuseMotion == q.reuseMotion && std::abs(c.scalerSteadySharp - q.steadySharp) < 0.005f) { current = i; break; }
+            }
+            int pick = current;
+            ImGui::SetNextItemWidth(ImGui::GetFontSize() * 14.0f);
+            if (ImGui::Combo("Preset", &pick, "Quality\0Balanced (default)\0Performance\0Custom\0") && pick < 3 && pick != current) {
+                const Preset& q = presets[pick];
+                c.scalerSkipRepeats = q.skipRepeats; c.scalerLightAuto = q.lightAuto; c.scalerLightGen = q.lightGen; c.scalerReuseMotion = q.reuseMotion; c.scalerSteadySharp = q.steadySharp;
+                changed = true;
+            }
+            Tip("How much work the upscaler spends. The ratio between the game's picture and the screen is not set here: it is the size of the game's window against the screen (a window at half the screen is "
+                "what other upscalers call Performance). Quality: every picture is upscaled in full and every one gets its own motion estimate. Balanced: the defaults. Performance: a picture that is exactly "
+                "the one before is not upscaled again, the generated frames of frame generation always get the lighter upscaling, the motion estimate is shared between them and the steady sharpening is "
+                "off: the cheapest, best for a weak second card. Changing any of those below makes it Custom.");
+        }
         changed |= SL("Sharpening", &c.p.sharpen, 0.0f, 1.0f, c.p.sharpen <= 0.001f ? "off" : "%.2f");
         if (kFsrScaler) Tip("Sharpening of the upscaled picture, by our own pass as on DLSS and XeSS (AMD's RCAS left too little of the detail). Lossless Scaling's "
                             "NIS sharpens too (its Sharpness setting), so without it FSR can look softer next to NIS. 0.5 is a good start (Ctrl+Shift+F2 / F3 in the game).");
