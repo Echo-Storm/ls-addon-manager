@@ -1441,7 +1441,7 @@ bool ScalerPass(ID3D11DeviceContext* ctx, uint32_t x, uint32_t y, uint32_t z) {
                 // "when the card is full": the card's load is read once a second; at or over the limit for 3 readings the generated frames get the lighter picture, and it goes
                 // back to the full upscale once the load has been 12 points under the limit for 10 readings (so it does not flap). Needs frame generation (more than one picture per real frame).
                 {
-                    static uint64_t lightAt = 0; static int overRuns = 0, underRuns = 0; static bool autoLight = false;
+                    static uint64_t lightAt = 0, seenAt = 0; static int overRuns = 0, underRuns = 0; static bool autoLight = false;
                     limitPercent = HostGpuLimit();   // the manager's GPU limit (off: this does nothing)
                     const float autoLimit = limitPercent > 0 ? limitPercent : 95.0f;   // the manager's GPU limit, or 95 % while that feature is off (the load is read either way)
                     if (lightAuto && g_nisPerFrame >= 2) {
@@ -1450,8 +1450,14 @@ bool ScalerPass(ID3D11DeviceContext* ctx, uint32_t x, uint32_t y, uint32_t z) {
                             lightAt = nowMs;
                             const unsigned load = HostGpuLoad();
                             g_gpuPercent = load;
-                            if (load >= autoLimit) { ++overRuns; underRuns = 0; } else if (load + 12.0f < autoLimit) { ++underRuns; overRuns = 0; } else { overRuns = 0; underRuns = 0; }
-                            if (!autoLight && overRuns >= 3) { autoLight = true; Log("%s upscaler: the card is at %u %% (limit %.0f %%): the generated frames get the lighter upscaling until it is well under", kUpscalerName, load, autoLimit); }
+                            // the upscaler's own share of the card: its GPU time for a picture times the pictures a second. A card shared with the game's own work or Windows' (a second card that only
+                            // scales, 2026-10-22 report: 90 % used, the frame rate under what the game made) can be too slow while the load stays under the limit: the share alone also counts.
+                            static uint64_t seenBefore = 0; const uint64_t seenNow = g_nisSeen; const double secs = seenAt ? (nowMs - seenAt) / 1000.0 : 0.0;
+                            const double share = secs > 0.5 ? 100.0 * g_sr.GpuMs() * static_cast<double>(seenNow - seenBefore) / (1000.0 * secs) : 0.0;
+                            seenAt = nowMs; seenBefore = seenNow;
+                            const bool busy = load >= autoLimit || share >= 55.0, idle = load + 12.0f < autoLimit && share < 40.0;
+                            if (busy) { ++overRuns; underRuns = 0; } else if (idle) { ++underRuns; overRuns = 0; } else { overRuns = 0; underRuns = 0; }
+                            if (!autoLight && overRuns >= 3) { autoLight = true; Log("%s upscaler: the card is at %u %% (limit %.0f %%), the upscaler alone takes %.0f %% of the time: the generated frames get the lighter upscaling until it is well under", kUpscalerName, load, autoLimit, share); }
                             else if (autoLight && underRuns >= 10) { autoLight = false; Log("%s upscaler: the card is at %u %%: the generated frames are upscaled in full again", kUpscalerName, load); }
                         }
                     } else if (autoLight) { autoLight = false; overRuns = underRuns = 0; }
@@ -1584,7 +1590,10 @@ bool ScalerPass(ID3D11DeviceContext* ctx, uint32_t x, uint32_t y, uint32_t z) {
         g_scalerStatusAt = now;
         char text[160];
         if (replaced) {
-            snprintf(text, sizeof text, "%s %ux%u -> %ux%u, %.1f ms", kUpscalerName, g_scaleInW.load(), g_scaleInH.load(), g_scaleOutW.load(), g_scaleOutH.load(), g_sr.GpuMs());
+            static uint64_t memAt = 0, memMb = 0;   // the video memory this process has taken since the upscaler started (read every few seconds)
+            if (now - memAt > 5000) { memAt = now; const uint64_t used = g_vramBaseMb ? nr::ProcessVideoMemoryMb(g_vramLuid) : 0; memMb = used > g_vramBaseMb ? used - g_vramBaseMb : 0; }
+            if (memMb) snprintf(text, sizeof text, "%s %ux%u -> %ux%u, %.1f ms, +%llu MB", kUpscalerName, g_scaleInW.load(), g_scaleInH.load(), g_scaleOutW.load(), g_scaleOutH.load(), g_sr.GpuMs(), static_cast<unsigned long long>(memMb));
+            else snprintf(text, sizeof text, "%s %ux%u -> %ux%u, %.1f ms", kUpscalerName, g_scaleInW.load(), g_scaleInH.load(), g_scaleOutW.load(), g_scaleOutH.load(), g_sr.GpuMs());
             g_host->SetStatus(kAddonId, text, 1);
             if (g_host->GetHostVersion() >= 0x010000) g_host->PublishMetric(kAddonId, kXessScaler ? "xess_ms" : kFsrScaler ? "fsr_ms" : "dlss_ms", g_sr.GpuMs(), "ms");
             SetStatus(text);
