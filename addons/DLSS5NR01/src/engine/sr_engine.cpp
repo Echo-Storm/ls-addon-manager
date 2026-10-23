@@ -449,6 +449,24 @@ void SrEngine::Fail(const char* fmt, ...) {
 
 // ---- starting and stopping
 
+namespace {
+// RTX 20 and 30 cards (Turing, Ampere) and the GTX 16: no FP8 in the tensor cores, so DLSS 4.5's models (L, M) cost them far more than DLSS 4's (K): NVIDIA says L takes up to three times
+// K on Turing, reports see 20 % or more of the frame rate. By the name Windows gives the card.
+bool NoFp8Card(std::wstring name) {
+    for (wchar_t& c : name) c = static_cast<wchar_t>(towlower(c));
+    auto digits = [&](size_t at, size_t n) { if (at + n > name.size()) return false; for (size_t i = 0; i < n; ++i) if (name[at + i] < L'0' || name[at + i] > L'9') return false; return true; };
+    for (const wchar_t* key : { L"rtx ", L"rtx" }) {
+        const size_t p = name.find(key);
+        if (p == std::wstring::npos) continue;
+        const size_t d = p + wcslen(key);
+        if (digits(d, 4) && (name.compare(d, 2, L"20") == 0 || name.compare(d, 2, L"30") == 0)) return true;
+        if (d < name.size() && name[d] == L'a' && digits(d + 1, 3)) return true;   // RTX A2000 ... A6000 (Ampere)
+    }
+    if (const size_t g = name.find(L"gtx "); g != std::wstring::npos && digits(g + 4, 2) && name.compare(g + 4, 2, L"16") == 0) return true;
+    return name.find(L"titan rtx") != std::wstring::npos || name.find(L"quadro rtx") != std::wstring::npos;
+}
+} // namespace
+
 bool SrEngine::Init(const LUID& card, const std::wstring& dataPath, const std::wstring& runtimeDir, LogFn log, Backend backend) {
     if (m_abandoned) { m_failed = true; return false; }   // its thread is still stuck in a runtime: only a restart of Lossless Scaling helps
     m_log = std::move(log); m_failed = false; { std::lock_guard<std::mutex> lock(m_errorMutex); m_error.clear(); } m_backend = backend;
@@ -459,7 +477,7 @@ bool SrEngine::Init(const LUID& card, const std::wstring& dataPath, const std::w
         IDXGIAdapter1* a = nullptr;
         if (factory->EnumAdapters1(i, &a) == DXGI_ERROR_NOT_FOUND) break;
         DXGI_ADAPTER_DESC1 desc; a->GetDesc1(&desc);
-        if (desc.AdapterLuid.LowPart == card.LowPart && desc.AdapterLuid.HighPart == card.HighPart) adapter = a; else a->Release();
+        if (desc.AdapterLuid.LowPart == card.LowPart && desc.AdapterLuid.HighPart == card.HighPart) { adapter = a; m_noFp8 = NoFp8Card(desc.Description); } else a->Release();
     }
     factory->Release();
     if (!adapter) { Fail("no graphics card with LUID %08x:%08x", card.HighPart, card.LowPart); return false; }
@@ -1148,7 +1166,10 @@ bool SrEngine::Run(ID3D12Resource* in, uint32_t inW, uint32_t inH, DXGI_FORMAT i
         m_ngxLost = false;
         if (++m_ngxRestarts > 3 || !RestartNgx()) { Fail("DLSS lost its feature and NGX could not start again"); return skip(); }
     }
-    if (preset == kPresetAuto) preset = inW == outW && inH == outH ? 5u : 12u;   // E at 1:1 (L pulses every fourth frame there), L when upscaling
+    if (preset == kPresetAuto) {   // E at 1:1 (L pulses every fourth frame there); when upscaling L, or K on a card without FP8 (RTX 20 and 30, GTX 16), where L costs several times as much
+        preset = inW == outW && inH == outH ? 5u : m_noFp8 ? 11u : 12u;
+        static bool said = false; if (!said && m_noFp8 && dlss) { said = true; Log("DLSS upscaler: this card has no FP8 (RTX 20/30): Auto picks the model K, DLSS 4, which costs it far less than L (DLSS 4.5)"); }
+    }
     const bool fresh =!HasFeature() || inW != m_inW || inH != m_inH || outW != m_outW || outH != m_outH || (dlss && preset != m_preset) || hdr != m_hdr;
     if (!EnsureFeature(inW, inH, outW, outH, preset, hdr)) return skip();
     if (hdr && !EnsureViewInput(inW, inH)) { Fail("the HDR frame's SDR view could not be made"); return skip(); }
