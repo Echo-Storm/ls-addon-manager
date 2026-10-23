@@ -760,7 +760,7 @@ SCENARIOS = [
     ('scaler', ['addon=DLSS4DLAA.dll', 'nis=1', 'sharpen=0'], scenario_scaler),   # no sharpening (the upscalers' default is 0.3): the baseline for scaler_sharp
     ('scaler_skip', ['addon=DLSS4DLAA.dll', 'nis=1', 'sharpen=0', 'scalerSkipRepeats=1'], scenario_scaler_skip),
     ('scaler_m', ['addon=DLSS4DLAA.dll', 'nis=1', 'dlaaPreset=13'], scenario_scaler),
-    ('scaler_light', ['addon=DLSS4DLAA.dll', 'nis=1', 'nisgen=1', 'sharpen=0.5', 'scalerLightGen=1'], scenario_scaler_light),   # lighter upscaling of generated frames (a test)
+    ('scaler_light', ['addon=DLSS4DLAA.dll', 'nis=1', 'nisgen=1', 'sharpen=0.5', 'scalerLightGenOn=1'], scenario_scaler_light),   # lighter upscaling of generated frames (a test)
     ('scaler_sharp', ['addon=DLSS4DLAA.dll', 'nis=1', 'sharpen=0.5'], scenario_scaler),
     ('scaler_bgra', ['addon=DLSS4DLAA.dll', 'nis=1', 'nisbgra=1', 'nisnoflow=1'], scenario_scaler_noflow),   # frame generation off: only NIS, on the BGRA8 capture
     ('scaler_move_none', ['addon=DLSS4DLAA.dll', 'nis=1', 'nisbgra=1', 'nisnoflow=1', 'nismove=1', 'motionSource=2'], scenario_move_none),   # a sliding picture, DLSS told nothing moves
