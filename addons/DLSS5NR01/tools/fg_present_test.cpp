@@ -232,6 +232,7 @@ int main(int argc, char** argv) {
     // what was shown, in order: a real frame (made = false) ends each interval; the made ones come before it
     const nr::framegen::Stats st = nr::framegen::GetStats();
     printf("presenter: %llu real, %llu made between (%llu by %s), %zu frames shown\n", (unsigned long long)st.real, (unsigned long long)st.generated, (unsigned long long)st.byFsr, st.engine.c_str(), g_shown.size());
+    printf("the delay the presenter says it adds to each real frame: %.1f ms (a real frame every %.1f ms, %d shown for each)\n", st.addedDelayMs, st.realIntervalMs, wantMult);
     if (Arg(argc, argv, "list", 0)) { double t0 = 0; for (size_t i = 0; i < g_shown.size() && i < 400; ++i) { if (!i) t0 = static_cast<double>(g_shown[0].at.QuadPart); printf("  shown %2zu  %s  x %7.1f  at %7.1f ms\n", i, g_shown[i].made ? "made" : "real", SquareX(g_shown[i].staging), (g_shown[i].at.QuadPart - t0) * 1000.0 / freq.QuadPart); } }
     int made = 0, real = 0, bad = 0, orderBad = 0, interval = 0, inInterval = 0; double worst = 0, sumErr = 0; int measured = 0;
     std::vector<double> gaps; LARGE_INTEGER last{}; int countWrong = 0, warm = std::max(6, settledFrom);

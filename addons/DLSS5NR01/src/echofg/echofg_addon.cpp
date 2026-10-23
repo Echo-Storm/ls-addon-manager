@@ -270,6 +270,10 @@ EAM_EXPORT void AddonRenderSettings() {
         else if (st.real == 0) ImGui::TextDisabled("On: waiting for Lossless Scaling's frames (scaling with NIS, frame generation off).");
         else ImGui::TextWrapped("On: %llu real frames %.1f ms apart, %llu made between by %s; the first frame between is presented in %.2f ms.",
                                 static_cast<unsigned long long>(st.real), st.realIntervalMs, static_cast<unsigned long long>(st.generated), st.engine.empty() ? "the blend" : st.engine.c_str(), st.generatedMs);
+        if (st.real > 0 && st.addedDelayMs > 0.0) {
+            ImGui::TextWrapped("Delay: each real frame is shown about %.0f ms later than without EchoFG.", st.addedDelayMs);
+            if (ImGui::IsItemHovered()) ImGui::SetTooltip("A frame made between two real ones needs the later of the two, so the real frames are held back by the share of a real frame the frames between take (half of it at x2, three quarters at x4) plus the time the making takes. That is the least any frame generator that makes frames between real ones adds, Lossless Scaling's included; the higher the real frame rate, the smaller it is. Switching off \"Put the presents one to a refresh\" takes up to half a refresh off it. Reflex cannot lower it: it works inside the game, and this is added after the game.");
+        }
     }
     ImGui::Spacing();
     ImGui::Spacing();

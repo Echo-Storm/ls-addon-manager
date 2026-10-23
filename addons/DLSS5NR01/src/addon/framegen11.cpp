@@ -402,6 +402,9 @@ bool BeforeRealPresent(IDXGISwapChain* sc, UINT sync, UINT flags, uint32_t encod
     if (SUCCEEDED(sc->GetBuffer(0, IID_PPV_ARGS(&next))) && next) { g.ctx->CopyResource(next, g.now); if (shown) shown(g.ctx, next, false); next->Release(); }
     std::swap(g.before, g.now); std::swap(g.beforeSrv, g.nowSrv);
     ++g.stats.real; g.stats.realIntervalMs = g.intervalMs;
+    // the real frame is let go at lead + frames / (frames + 1) of the interval after it arrived (and up to half a refresh more when the presents are put one to a refresh): the least there is when
+    // the frames between need the real frame that follows them
+    g.stats.addedDelayMs = g.leadMs + frames * g.intervalMs / (frames + 1) + (AlignFits(frames) ? 0.5 * g.refreshMs : 0.0);
     Publish();
     QueryPerformanceCounter(&g.returned);
     g.heldSum += Ms(arrived, g.returned); ++g.heldCount;

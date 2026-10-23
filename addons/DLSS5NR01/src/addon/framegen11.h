@@ -28,7 +28,7 @@ void SetGuard(bool on);   // the guard against pasted background (FgEngine::Gene
 void SetRuntime(const std::wstring& amdFidelityFxDll);   // AMD's runtime FgEngine loads (the FSR Upscaler's shipped FSR 3.1)
 void Reset();      // forgets the frame before (switched off, a new swap chain)
 void Shutdown();   // lets the textures go
-struct Stats { uint64_t real = 0, generated = 0, byFsr = 0; double realIntervalMs = 0, generatedMs = 0, fsrMs = 0; std::string engine; };
+struct Stats { uint64_t real = 0, generated = 0, byFsr = 0; double realIntervalMs = 0, generatedMs = 0, fsrMs = 0, addedDelayMs = 0; std::string engine; };   // addedDelayMs: how much later each real frame is shown than without frame generation
 Stats GetStats();
 
 } // namespace nr::framegen
