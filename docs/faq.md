@@ -127,6 +127,38 @@ row. Frame generation then makes its pictures between identical frames and the m
 program's signal to the game's real rate (30 for a 30 fps game), then use frame generation x2 or x4 for your screen. More in
 [the research note](capture-card-sources.md).
 
+## Questions people ask (from the community)
+
+**Will it get me banned in an online game? Does it "inject" into the game?**
+No injection into the game. The manager is a library that Lossless Scaling itself loads (it stands in for Lossless Scaling's own `Lossless.dll`), and its hooks are inside **Lossless Scaling's process only**: they see the pictures Lossless Scaling has already captured, as OBS or any capture program does. Nothing is written into the game's process or files, and the game cannot see that the manager exists. Whether a particular game's anti-cheat accepts Lossless Scaling at all is for that game to decide (if the game allows Lossless Scaling, nothing here adds to it), and no one can promise it for you. If the game's rules forbid overlays or capture tools, don't use it there.
+
+**VirusTotal / Windows Defender says it is malicious.**
+See [antivirus.md](antivirus.md). In short: the files are unsigned and new, and a library that replaces another library and hooks calls looks like malware to a heuristic scanner, even though it does neither of the harmful things. The source is in this repository and you can build it yourself.
+
+**How much delay does EchoFG add compared with Lossless Scaling's frame generation? Can Reflex help?**
+EchoFG shows each real frame later by the share of a real frame that the frames between take (half of it at x2, three quarters at x4) plus the making time: about 10 ms at 60 real frames a second x2, about 22 ms at 30 x2 (the panel shows the figure for your case). That is the least any generator that makes frames *between* real ones adds, Lossless Scaling's included, because a frame between two real ones needs the later one. A higher real frame rate makes it smaller. Reflex works inside the game, before the frame reaches Lossless Scaling; it cannot lower what is added afterwards. Only guessing ahead (extrapolation) would avoid the delay, at a cost in picture quality.
+
+**Why is the upscaler so expensive with frame generation on?**
+Lossless Scaling's scaling pass, which the upscalers replace, runs on every picture it shows, the generated ones too. With x2 a heavy model would run twice per game frame. So the generated frames get a lighter picture by default (the last upscaled frame moved along the motion, checked against the new frame, sharpened), and the **Performance** preset goes further. The **Quality** preset upscales every picture in full. With EchoFG as the frame generator, the upscaler runs once per real frame, because EchoFG makes its frames after the upscale.
+
+**My card is an RTX 20 or 30 (or GTX 16): DLSS is slow.**
+These cards have no FP8 in their tensor cores, and DLSS 4.5's models (L, M) cost them several times what DLSS 4's model (K) does. The Auto setting therefore picks K on them (L on RTX 40 and 50). If you chose a model by hand, K is the light one.
+
+**Which GPU does what with two graphics cards?**
+Everything Lossless Scaling does runs on the card you set as its *Preferred GPU*: the capture, its frame generation, the scaling pass, and so the upscalers, Neural Rendering and EchoFG, which use that card. The game runs on the other. See [dual-gpu.md](dual-gpu.md). A weak second card is the usual limit: the status line of an upscaler shows its cost in milliseconds and the video memory it has taken, and the Performance preset lowers it.
+
+**Where does it get motion vectors? (It is not in the game.)**
+It estimates them from the pictures themselves: the motion between the last two frames Lossless Scaling captured, found per patch of the picture by our own shaders (the "motion estimate" in the logs). That is why it works with any game, and why fast turns, repeating patterns and things that appear from behind others are its hardest cases.
+
+**Is there a Linux version?**
+No. Lossless Scaling is a Windows program, and the manager is a library it loads. (On Linux, `lsfg-vk` runs Lossless Scaling's frame generation as a Vulkan layer; it is a different project and unrelated to this one.)
+
+**Is it worth it on an older card (GTX 1650, an RX 6400)?**
+FSR and XeSS are the choices there; DLSS needs an RTX card, and DLSS 5 / Neural Rendering needs a strong one (it halves the frame rate even on fast cards). On a card that is already at its limit, any extra pass costs frames: try the Performance preset, a lower flow scale in Lossless Scaling, or leave the upscaler off.
+
+**Lossless Scaling's frame rate counter shows the wrong number with EchoFG.**
+Fixed in 1.0.5: with EchoFG the counter reads "captured / shown" (for example 60 / 120). On a Lossless Scaling build the manager does not know, EchoFG draws a small counter of its own instead.
+
 ## Reporting a problem
 
 Open an issue at <https://github.com/Echo-Storm/ls-addon-manager/issues>. Attach the **diagnostics file** (*Settings > Create a diagnostics file*): a zip of your logs and settings that is only made on your PC and uploaded nowhere. Say what you did, what you expected, what happened, your Windows version, graphics card and Lossless Scaling version.
