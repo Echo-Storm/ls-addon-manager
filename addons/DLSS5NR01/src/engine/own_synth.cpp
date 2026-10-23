@@ -319,7 +319,19 @@ float Disagree(float2 q, float2 v) {   // the moved pair's disagreement around a
     float w = saturate((doubt - 30.0) / 90.0) * 0.8 * soft;
     const float3 mixed = (1.0 - t) * tA.SampleLevel(sLin, (q + 0.5) / float2(fsize), 0).rgb + t * tC.SampleLevel(sLin, (q + 0.5) / float2(fsize), 0).rgb;
     if (marks > 0.5 && HeldAt(p)) w = 1.0;   // a mark (a read-out that stays while the picture moves): the plain mix, not dragged along with the picture
-    uOut[p] = float4(AddGrain(lerp(moved, mixed, w), p), 1.0);
+    // a replacement, not a movement: a pixel of a static place (menus, text, read-outs) that is one thing in a and another in c, and that no movement explains (the moved pair disagrees
+    // too). Blended it shows both at once (letters morphing into the next ones); a game shows one or the other, so the nearer in time is taken whole.
+    float3 res = lerp(moved, mixed, w);
+    {
+        const float dAC = Lev(SmpA(q) - SmpC(q));
+        const float still = saturate(2.0 - length(F));
+        const float repl = saturate((best - 150.0) / 100.0) * saturate((dAC - 250.0) / 200.0) * still;
+        if (repl > 0.0) {
+            const float3 nearest = t < 0.5 ? tA.SampleLevel(sLin, (q + 0.5) / float2(fsize), 0).rgb : tC.SampleLevel(sLin, (q + 0.5) / float2(fsize), 0).rgb;
+            res = lerp(res, nearest, repl);
+        }
+    }
+    uOut[p] = float4(AddGrain(res, p), 1.0);
 }
 )";
 

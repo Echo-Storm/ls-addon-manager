@@ -681,6 +681,23 @@ int main(int argc, char** argv) {
               seed = seed * 1664525u + 1013904223u; const int b = static_cast<int>(seed >> 24) - 128;
               f[k + c] = static_cast<uint8_t>(std::clamp(static_cast<int>(f[k + c]) + (a + b) * noiseLevel / 105, 0, 255));
           }
+      }
+      // uitest=K: a made-up menu in the top left corner (rows of glyph-like blocks) that changes to another one every K kept frames, static otherwise: what a game's menu or text does between two
+      // frames (a replacement, not a movement). The made frame should show one menu or the other, never a mix of both (the "morph" figure below).
+      if (const int uiEvery = Arg(argc, argv, "uitest", 0); uiEvery > 0) {
+          for (int k = 0; k < count; ++k) {
+              uint32_t seed = 977u + static_cast<uint32_t>(k / uiEvery) * 7919u;
+              auto rnd = [&]() { seed = seed * 1664525u + 1013904223u; return seed >> 16; };
+              for (uint32_t row = 0; row < 8; ++row) for (uint32_t cell = 0; cell < 24; ++cell) {
+                  const bool glyph = (rnd() & 3) != 0;
+                  for (uint32_t gy = 0; gy < 10; ++gy) for (uint32_t gx = 0; gx < 8; ++gx) {
+                      const bool on = glyph && gx < 6 && gy < 8 && (rnd() & 1);
+                      const size_t px = ((static_cast<size_t>(40 + row * 12 + gy)) * W + 40 + cell * 9 + gx) * 4;
+                      const uint8_t v = on ? 235 : 20;
+                      frames[k][px] = frames[k][px + 1] = frames[k][px + 2] = v;
+                  }
+              }
+          }
       } }
     printf("%ls: %ux%u, %d frames from %d; every other one is rebuilt by %s frame generation\n", Wide(argv[1]).c_str(), W, H, count, first, G);
 
@@ -1154,7 +1171,7 @@ int main(int argc, char** argv) {
 #endif
     }
 
-    struct Score { int frame; double gen, hold, blend, genAbs, genCoarse, blendCoarse, genSsim = 0, blendSsim = 0, genAl = 0, blendAl = 0, genBand = 0, blendBand = 0, bandFrac = 0, toneShift = 0, altGen = 0, altTruth = 0, gradGen = 0, gradTruth = 0, gradReal = 0; std::vector<uint8_t> picture, mix; };
+    struct Score { int frame; double gen, hold, blend, genAbs, genCoarse, blendCoarse, genSsim = 0, blendSsim = 0, genAl = 0, blendAl = 0, genBand = 0, blendBand = 0, bandFrac = 0, toneShift = 0, altGen = 0, altTruth = 0, gradGen = 0, gradTruth = 0, gradReal = 0, morphGen = 0, morphBlend = 0; std::vector<uint8_t> picture, mix; };
     std::vector<Score> scores;
     const uint32_t dumpX = std::min<uint32_t>(static_cast<uint32_t>(Arg(argc, argv, "dumpx", static_cast<int>((W >= 1280 ? W - 1280 : 0) / 2))), W >= 1280 ? W - 1280 : 0);   // dumpx= dumpy=: where the 1280 x 720 piece dumpraw writes starts (default: the middle)
     const uint32_t dumpY = std::min<uint32_t>(static_cast<uint32_t>(Arg(argc, argv, "dumpy", static_cast<int>((H >= 720 ? H - 720 : 0) / 2))), H >= 720 ? H - 720 : 0);
@@ -1417,6 +1434,16 @@ int main(int argc, char** argv) {
             };
             s.gradGen = Grad(s.picture); s.gradTruth = Grad(truth); s.gradReal = 0.5 * (Grad(frames[i - 2]) + Grad(frames[i]));
         }
+        if (Arg(argc, argv, "uitest", 0) > 0) {   // the made menu: how far each pixel is from the closer of the two real frames' (0: one menu or the other, as a game would show it)
+            double mg = 0, mb = 0; uint64_t cnt = 0;
+            for (uint32_t y = 40; y < 40 + 96 && y < H; ++y) for (uint32_t x = 40; x < 40 + 216 && x < W; ++x) {
+                const size_t k = (static_cast<size_t>(y) * W + x) * 4;
+                auto L = [&](const std::vector<uint8_t>& f) { return 0.2126 * f[k] + 0.7152 * f[k + 1] + 0.0722 * f[k + 2]; };
+                const double a = L(frames[i - 2]), c = L(frames[i]);
+                mg += std::min(std::fabs(L(s.picture) - a), std::fabs(L(s.picture) - c)); mb += std::min(std::fabs(L(s.mix) - a), std::fabs(L(s.mix) - c)); ++cnt;
+            }
+            if (cnt) { s.morphGen = mg / cnt; s.morphBlend = mb / cnt; }
+        }
         s.bandFrac = bandFrac;
         if (bandFrac > 0.002) { s.genBand = PsnrMasked(s.picture, truth, band); s.blendBand = PsnrMasked(s.mix, truth, band); }
         const double same = Psnr(s.picture, frames[i], nullptr);
@@ -1432,6 +1459,8 @@ int main(int argc, char** argv) {
     double genC = 0, blendC = 0;
     for (const Score& s : scores) { gen += s.gen; hold += s.hold; blend += s.blend; genC += s.genCoarse; blendC += s.blendCoarse; better += s.gen > std::max(s.hold, s.blend) ? 1 : 0; }
     const double n = static_cast<double>(scores.size());
+    if (Arg(argc, argv, "uitest", 0) > 0) { double mg = 0, mb = 0; for (const Score& s : scores) { mg += s.morphGen; mb += s.morphBlend; }
+      printf("menu test: the made menu is %.2f levels from the closer of the two real menus (0 = one or the other, no mix); the plain blend %.2f\n", mg / n, mb / n); }
     { double gg = 0, gt = 0, gr = 0; for (const Score& s : scores) { gg += s.gradGen; gt += s.gradTruth; gr += s.gradReal; }
       printf("detail (mean luma gradient): made frame %.3f, true frame %.3f, the real frames around it %.3f  (made / real = %.1f %%)%s\n", gg / n, gt / n, gr / n, gr > 0 ? 100.0 * gg / gr : 0.0, gr > 0 && (gg / gr < 0.93 || gg / gr > 1.07) ? "   <- made frames are softer or sharper than the real ones: visible as a pulse" : ""); }
     { double ts = 0, tsAbs = 0, ag = 0, at = 0; for (const Score& s : scores) { ts += s.toneShift; tsAbs += std::fabs(s.toneShift); ag += s.altGen; at += s.altTruth; }
