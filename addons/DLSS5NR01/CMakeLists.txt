@@ -135,6 +135,13 @@ endif()
 # XeSS frame generation, fed this project's motion estimate, and compared with the real one
 add_executable(nr_fgeval tools/fg_eval.cpp src/addon/lsrec.cpp src/engine/flow_estimator.cpp src/engine/shader_cache.cpp src/engine/flow_fix.cpp src/engine/fg_engine.cpp src/engine/own_synth.cpp)
 target_include_directories(nr_fgeval PRIVATE ${CMAKE_SOURCE_DIR}/src ${CMAKE_SOURCE_DIR}/third_party/ffx/include ${XESS_DIR}/inc)
+# nr_ofaflow: the video card's hardware optical flow (NVIDIA Optical Flow SDK, D3D12) written as an mvfile for nr_fgeval (tools/ofa_flow.cpp). A lab tool, built only when the downloaded SDK's NvOFInterface folder
+# is given: cmake -DNR_OFSDK_DIR=<...>/NvOFInterface. Nothing of the SDK is in the repository.
+set(NR_OFSDK_DIR "" CACHE PATH "The NvOFInterface folder of NVIDIA's Optical Flow SDK (for nr_ofaflow)")
+if(NR_OFSDK_DIR AND EXISTS "${NR_OFSDK_DIR}/nvOpticalFlowD3D12.h")
+    add_executable(nr_ofaflow tools/ofa_flow.cpp src/addon/lsrec.cpp)
+    target_include_directories(nr_ofaflow PRIVATE ${CMAKE_SOURCE_DIR}/src ${NR_OFSDK_DIR})
+endif()
 if(EXISTS ${XESS_DIR}/bin/libxess_fg.dll)   # Intel's frame generation runtime, for gen=xess
     add_custom_command(TARGET nr_fgeval POST_BUILD
         COMMAND ${CMAKE_COMMAND} -E make_directory $<TARGET_FILE_DIR:nr_fgeval>/xess

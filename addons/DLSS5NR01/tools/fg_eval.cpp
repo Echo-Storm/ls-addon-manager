@@ -948,6 +948,27 @@ int main(int argc, char** argv) {
                         if (analysis > 1) g.Barrier(motionA, D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE, D3D12_RESOURCE_STATE_UNORDERED_ACCESS);
                         motionForSynth = motionFix;
                     }
+                    if (!mvFile.empty()) {   // mvfile=FILE with own=1: the synthesis is given the vectors of the file (from the hardware optical flow, tools\ofa_flow.cpp) in place of the estimate's
+                        static ID3D12Resource* extTex = nullptr; static ID3D12Resource* extUp = nullptr; static D3D12_PLACED_SUBRESOURCE_FOOTPRINT efp{}; static D3D12_RESOURCE_STATES extState = D3D12_RESOURCE_STATE_COPY_DEST; static FILE* ef = nullptr;
+                        if (!extTex) {
+                            extTex = g.Texture(W, H, DXGI_FORMAT_R16G16_FLOAT, false, D3D12_RESOURCE_STATE_COPY_DEST);
+                            D3D12_RESOURCE_DESC md = extTex->GetDesc(); UINT rr = 0; UINT64 rs = 0, tot = 0; g.dev->GetCopyableFootprints(&md, 0, 1, 0, &efp, &rr, &rs, &tot);
+                            extUp = g.Buffer(tot, D3D12_HEAP_TYPE_UPLOAD, D3D12_RESOURCE_STATE_GENERIC_READ);
+                            ef = fopen(mvFile.c_str(), "rb"); if (!ef) { printf("cannot read %s\n", mvFile.c_str()); exit(3); }
+                        }
+                        std::vector<float> fv(static_cast<size_t>(W) * H * 2);
+                        _fseeki64(ef, static_cast<long long>(i / 2 - 1) * W * H * 8, SEEK_SET);
+                        if (fread(fv.data(), 4, fv.size(), ef) != fv.size()) { printf("%s is too short for frame %d\n", mvFile.c_str(), i); exit(3); }
+                        { uint8_t* m = nullptr; extUp->Map(0, nullptr, reinterpret_cast<void**>(&m));
+                          for (uint32_t y = 0; y < H; ++y) { uint16_t* row = reinterpret_cast<uint16_t*>(m + efp.Offset + static_cast<size_t>(y) * efp.Footprint.RowPitch); for (uint32_t x = 0; x < W * 2; ++x) row[x] = DirectX::PackedVector::XMConvertFloatToHalf(fv[static_cast<size_t>(y) * W * 2 + x]); }
+                          extUp->Unmap(0, nullptr); }
+                        g.Barrier(extTex, extState, D3D12_RESOURCE_STATE_COPY_DEST);
+                        D3D12_TEXTURE_COPY_LOCATION to{ extTex, D3D12_TEXTURE_COPY_TYPE_SUBRESOURCE_INDEX }; to.SubresourceIndex = 0;
+                        D3D12_TEXTURE_COPY_LOCATION from{ extUp, D3D12_TEXTURE_COPY_TYPE_PLACED_FOOTPRINT }; from.PlacedFootprint = efp;
+                        g.list->CopyTextureRegion(&to, 0, 0, 0, &from, nullptr);
+                        g.Barrier(extTex, D3D12_RESOURCE_STATE_COPY_DEST, D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE); extState = D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE;
+                        motionForSynth = extTex;
+                    }
                     static const int benchReps = std::max(1, Arg(argc, argv, "synthbench", 1));   // synthbench=N: the synthesis recorded N times back to back (the card stays busy and at its clocks; the last one is timed)
                     for (int rep = 1; rep < benchReps; ++rep) syn.Record(g.list, 0, prevTex, DXGI_FORMAT_R8G8B8A8_UNORM, cur, DXGI_FORMAT_R8G8B8A8_UNORM, motionForSynth, DXGI_FORMAT_R8G8B8A8_UNORM, tgts.data(), static_cast<int>(tgts.size()), 0, 80.0f, ownSoft, 1.0f, ownDirect ? motionRev : nullptr, grainPct / 100.0f);
                     if (!syn.Record(g.list, 0, prevTex, DXGI_FORMAT_R8G8B8A8_UNORM, cur, DXGI_FORMAT_R8G8B8A8_UNORM, motionForSynth, DXGI_FORMAT_R8G8B8A8_UNORM, tgts.data(), static_cast<int>(tgts.size()), 0, 80.0f, ownSoft, 1.0f, ownDirect ? motionRev : nullptr, grainPct / 100.0f)) { printf("own synthesis failed\n"); return false; }
