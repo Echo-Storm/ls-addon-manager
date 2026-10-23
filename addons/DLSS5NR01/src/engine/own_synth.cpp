@@ -102,6 +102,7 @@ float3 AddGrain(float3 c, int2 p) {
     s_ += asfloat(buf[Idx(clamp((p) + int2(i_, j_), int2(0, 0), int2(size) - 1))]); result = s_ / float((2 * (r) + 1) * (2 * (r) + 1)); }
 #define OOB if (id.x >= size.x || id.y >= size.y) return; const int2 p = int2(id.xy); const uint i = Idx(p);
 
+)" R"(
 // mode 0: K2 (the cells of a); mode 1: K1 and K3 (the frame made's), once for each frame made
 [numthreads(8, 8, 1)] void Clear(uint3 id : SV_DispatchThreadID) {
     OOB
@@ -312,6 +313,8 @@ float Disagree(float2 q, float2 v) {   // the moved pair's disagreement around a
         const float e = Lev(SmpA(q + t * u) - SmpC(q - (1.0 - t) * u));
         if (e < best) { best = e; F = u; doubt = asfloat(bK1[Idx(a)]); }
     }
+    // a dead zone: a vector of a fraction of a pixel is the estimate's noise on a picture that stands still (grain, shimmer), and moving by it only blurs; it fades in between 0.5 and 2 pixels
+    F *= smoothstep(0.5, 2.0, length(F));
     // the blend is made on the frames' own values (linear light in scRGB, PQ in HDR10: wide-gamut colours and negative scRGB survive); the SDR view only chooses where to look
     const float3 moved = (1.0 - t) * tA.SampleLevel(sLin, (q + t * F + 0.5) / float2(fsize), 0).rgb + t * tC.SampleLevel(sLin, (q - (1.0 - t) * F + 0.5) / float2(fsize), 0).rgb;
     // where the cell's motion is doubtful (the moved pair disagrees: wrong vectors, covered or uncovered things) the frame leans toward the plain mix of the two frames, as far as `soft` allows:
