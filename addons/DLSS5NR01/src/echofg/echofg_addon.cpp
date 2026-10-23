@@ -162,6 +162,20 @@ void OnPresent(IDXGISwapChain* sc, UINT sync, UINT flags) {
 }
 
 // Lossless Scaling makes a new device when scaling starts: the hook is installed on it (once: the table is the DXGI runtime's own), what was made on an old one goes
+// The manager's Super log makes a report: this addon's settings and what its presenter has done go into it.
+void OnReport(uint32_t, const void* data, uint32_t size, void*) {
+    if (!data || size < sizeof(EamReportData)) return;
+    const auto* r = static_cast<const EamReportData*>(data);
+    if (!r->folder) return;
+    const nr::framegen::Stats st = nr::framegen::GetStats();
+    FILE* f = _wfopen((std::wstring(r->folder) + L"\\ECHOFG-state.txt").c_str(), L"wb");
+    if (!f) return;
+    fprintf(f, "EchoFG %s\nenabled %d, own synthesis %d, frames shown for each real one %d, soften %.2f, grain %.2f, readout %d, align %d, guard %d\n", kVersion, g_enabled ? 1 : 0, g_own ? 1 : 0, g_multiplier.load(), g_soften.load(), g_grain.load(), g_readout.load(), g_align ? 1 : 0, g_guard ? 1 : 0);
+    fprintf(f, "engine: %s\nreal frames %llu, made between %llu (by the engine %llu), real frames %.2f ms apart, first frame between presented in %.2f ms, engine GPU %.2f ms, delay added to each real frame %.1f ms\n",
+            st.engine.c_str(), static_cast<unsigned long long>(st.real), static_cast<unsigned long long>(st.generated), static_cast<unsigned long long>(st.byFsr), st.realIntervalMs, st.generatedMs, st.fsrMs, st.addedDelayMs);
+    fclose(f);
+}
+
 void OnDevice(uint32_t, const void*, uint32_t, void*) {
     nr::framegen::Reset();
     if (!g_host) return;
@@ -186,6 +200,7 @@ bool Guarded(const char* step, void (*fn)()) {
 }
 void SubscribeAll() {
     g_host->SubscribeEvent(EAM_EVENT_D3D11_DEVICE_READY, OnDevice, nullptr);
+    g_host->SubscribeEvent(EAM_EVENT_REPORT, OnReport, nullptr);
     g_host->SubscribeEvent(EAM_EVENT_D3D11_DEVICE_CHANGED, OnDevice, nullptr);
 }
 
@@ -208,7 +223,7 @@ EAM_EXPORT void AddonInitialize(IHost* host, ImGuiContext* ctx, void* allocFunc,
 }
 
 EAM_EXPORT void AddonShutdown() {
-    if (g_host) { g_host->UnsubscribeEvent(EAM_EVENT_D3D11_DEVICE_READY, OnDevice); g_host->UnsubscribeEvent(EAM_EVENT_D3D11_DEVICE_CHANGED, OnDevice); }
+    if (g_host) { g_host->UnsubscribeEvent(EAM_EVENT_REPORT, OnReport); g_host->UnsubscribeEvent(EAM_EVENT_D3D11_DEVICE_READY, OnDevice); g_host->UnsubscribeEvent(EAM_EVENT_D3D11_DEVICE_CHANGED, OnDevice); }
     if (g_host && g_host->GetHostVersion() >= 0x010400) g_host->SetFpsCounterMultiplier(1.0f);   // (Lossless Scaling's counter counts as it did)
     PresentHook::Uninstall();   // (the hook's functions stay in the table and pass straight through)
     nr::framegen::Shutdown();

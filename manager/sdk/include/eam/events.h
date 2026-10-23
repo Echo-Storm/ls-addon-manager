@@ -12,6 +12,7 @@ enum EamEvent : uint32_t {
     EAM_EVENT_SETTINGS_APPLIED   = 6,   // Lossless Scaling has just applied its settings (its ApplySettings returned); no payload
     EAM_EVENT_D3D11_DEVICE_READY = 7,   // Lossless Scaling made a D3D11 device (IHost::GetD3D11Device has it now); no payload
     EAM_EVENT_D3D11_DEVICE_CHANGED = 8, // ...and it replaces an earlier one: drop anything made on the old device; sent before DEVICE_READY
+    EAM_EVENT_REPORT             = 11,  // a report is being made (the Super log feature; API 1.4): write your own files (a trace, your state) into the folder; payload EamReportData; called before the zip is made
     EAM_EVENT_SCALING_STATUS     = 10,  // Lossless Scaling's scaling started, stopped or changed (API 1.4); payload EamScalingStatusData
     EAM_EVENT_RECORDING_SAVED    = 9,   // the manager's recorder saved a file (API 1.3); payload EamRecordingSavedData: an addon can write what it knows beside it
 
@@ -35,6 +36,11 @@ struct EamScalingStatusData {
     uint8_t resized;
     float scaleFactor;
     int32_t errorCode;
+};
+
+struct EamReportData {
+    const wchar_t* folder;   // the folder that becomes the report: put files in it (short names; the addon's id in the name), then return
+    const char* reason;      // why the report is made ("hotkey", "button", or the error that started it)
 };
 
 struct EamRecordingSavedData {

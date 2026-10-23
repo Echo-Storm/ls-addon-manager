@@ -1,6 +1,7 @@
 #include "features.h"
 #include "gpu_limit.h"
 #include "ls_config.h"
+#include "superlog.h"
 #include "recorder_feature.h"
 #include "reshade_passthrough.h"
 #include "windowed_mode.h"
@@ -13,7 +14,7 @@ namespace features {
 
 namespace {
 
-enum Which { kReShade = 0, kWindowed = 1, kRecorder = 2, kGpuLimit = 3, kLsConfig = 4, kCount = 5 };
+enum Which { kReShade = 0, kWindowed = 1, kRecorder = 2, kGpuLimit = 3, kLsConfig = 4, kSuperLog = 5, kCount = 6 };
 
 const Info kInfo[kCount] = {
     { reshade::kId,
@@ -44,6 +45,10 @@ const Info kInfo[kCount] = {
       "Lossless Scaling's hidden settings",
       "Change the look and place of its frame rate counter, and a few expert values, that its window does not show.",
       "Edits Lossless Scaling's own config.ini (beside this program): the counter's size, colour, font and position, and some expert values. Lossless Scaling reads the file when scaling starts, so a change applies from the next time. Only the lines you change are touched; the first change keeps a copy as config.ini.bak-manager." },
+    { superlog::kId,
+      "Super log",
+      "Everything needed to look into a problem, one press away: a detailed log and a report with one hotkey.",
+      "While on, the log is at Debug, and Ctrl+Shift+F12 (or the button) saves a report: one zip in the reports folder beside Lossless Scaling with the logs, the settings, the system (graphics cards, drivers, displays, versions), what Lossless Scaling's window sent and when, the last ten minutes of every series the addons publish and each addon's frame trace. It can also save one by itself when an addon reports an error. Nothing is uploaded: you send the file. It can be switched on and off at any time." },
 };
 
 ConfigManager& Cfg() { return ConfigManager::Instance(); }
@@ -74,6 +79,9 @@ void SetOn(int index, bool on) {
         case kGpuLimit:
             if (on) gpulimit::Start(); else gpulimit::Stop();
             break;
+        case kSuperLog:
+            if (on) superlog::Start(); else superlog::Stop();
+            break;
     }
 }
 
@@ -86,6 +94,7 @@ std::string Status(int index) {
         case kRecorder: return IsOn(index) ? recorder::Status() : std::string();
         case kGpuLimit: return IsOn(index) ? gpulimit::Status() : std::string();
         case kLsConfig: return {};
+        case kSuperLog: return IsOn(index) ? superlog::Status() : std::string();
     }
     return {};
 }
@@ -97,12 +106,13 @@ void RenderOptions(int index) {
         case kRecorder: recorder::RenderOptions(); break;
         case kGpuLimit: gpulimit::RenderOptions(); break;
         case kLsConfig: lsconfig::RenderOptions(); break;
+        case kSuperLog: superlog::RenderOptions(); break;
     }
 }
 
 // Up to 0.7.4 the features kept their settings under the ids of the standalone addons they came from; move them once.
 void MoveOldSettings() {
-    const char* const oldIds[kCount] = { reshade::kOldId, windowed::kOldId, recorder::kId, gpulimit::kId, lsconfig::kId };   // (the recorder is new: its old id is its own, which renames nothing)
+    const char* const oldIds[kCount] = { reshade::kOldId, windowed::kOldId, recorder::kId, gpulimit::kId, lsconfig::kId, superlog::kId };   // (the recorder is new: its old id is its own, which renames nothing)
     bool moved = false;
     for (int i = 0; i < kCount; ++i)
         if (Cfg().RenameAddonSection(oldIds[i], kInfo[i].id)) { moved = true; LOG_INFO("Features", "%s: settings moved from %s to %s", kInfo[i].title, oldIds[i], kInfo[i].id); }
@@ -115,9 +125,11 @@ void Start() {
     if (IsOn(kWindowed)) windowed::Start();
     if (IsOn(kRecorder)) recorder::Start();
     if (IsOn(kGpuLimit)) gpulimit::Start();
+    if (IsOn(kSuperLog)) superlog::Start();
 }
 
 void Stop() {
+    superlog::Stop();
     gpulimit::Stop();
     recorder::Stop();
     reshade::Stop();

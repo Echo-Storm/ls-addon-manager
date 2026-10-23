@@ -40,7 +40,7 @@ static bool RunHidden(std::wstring cmd, DWORD timeoutMs) {
     return code == 0;
 }
 
-DiagResult CreateDiagnosticsZip(const fs::path& lsDir, const std::string& summary, const fs::path& outDir) {
+DiagResult CreateDiagnosticsZip(const fs::path& lsDir, const std::string& summary, const fs::path& outDir, const std::function<void(const fs::path&)>& extras, const std::wstring& prefix) {
     DiagResult r;
     std::error_code ec;
     SYSTEMTIME t; GetLocalTime(&t);
@@ -70,8 +70,9 @@ DiagResult CreateDiagnosticsZip(const fs::path& lsDir, const std::string& summar
         }
     }
 
+    if (extras) extras(bundle);
     fs::create_directories(outDir, ec);
-    r.zip = outDir / (L"LSAddonManager-diagnostics-" + std::wstring(stamp) + L".zip");
+    r.zip = outDir / (prefix + L"-" + std::wstring(stamp) + L".zip");
     wchar_t sysDir[MAX_PATH] = {};
     GetSystemDirectoryW(sysDir, MAX_PATH);
     const std::wstring cmd = L"\"" + std::wstring(sysDir) + L"\\tar.exe\" -a -cf \"" + r.zip.wstring() + L"\" -C \"" + stage.wstring() + L"\" LSAddonManager-diagnostics";

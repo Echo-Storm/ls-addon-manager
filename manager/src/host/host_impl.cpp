@@ -4,6 +4,9 @@
 #include "../config/config_manager.h"
 #include "../core/d3d11_hook.h"
 #include "../core/fps_counter_hook.h"
+#include "../features/superlog.h"
+#include <map>
+#include <mutex>
 #include "../gui/icon_loader.h"
 #include "../event/event_system.h"
 #include "../log/logger.h"
@@ -210,6 +213,12 @@ void HostImpl::InvokePostDispatch(uint32_t x, uint32_t y, uint32_t z) {
 
 void HostImpl::SetStatus(const char* addonId, const char* text, int level) {
     Metrics::Instance().SetStatus(Text(addonId), Text(text), level);
+    static std::mutex m; static std::map<std::string, std::string> lastError;   // the error text each addon showed last (cleared when it shows something else)
+    const std::string id = Text(addonId), t = Text(text);
+    bool fresh = false;
+    { std::lock_guard<std::mutex> lock(m);
+      if (level == 3) { auto& l = lastError[id]; if (l != t) { l = t; fresh = true; } } else lastError.erase(id); }
+    if (fresh) features::superlog::NotifyProblem(id, t);   // an error line: the Super log feature saves a report for it
 }
 
 void HostImpl::PublishMetric(const char* addonId, const char* key, double value, const char* unit) {

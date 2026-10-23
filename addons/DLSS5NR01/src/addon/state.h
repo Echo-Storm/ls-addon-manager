@@ -36,6 +36,7 @@ extern NrEngine g_engine;
 extern Bridge g_bridge;
 extern FrameTap g_tap;
 extern Compose11 g_compose;
+void OnReportEvent(uint32_t eventId, const void* data, uint32_t size, void* user);   // the Super log makes a report: the frame trace goes into it
 void OnRecordingSavedEvent(uint32_t eventId, const void* data, uint32_t size, void* user);   // the manager's recorder saved a file: the frame trace goes beside it
 void ExportFrameTrace(const char* why);
 void ClearRuntimeTrial();                  // a runtime on trial that was still running when Lossless Scaling closed normally did not take it down   // the frame trace (frame_trace.h) as logs\frame-trace-<addon>.csv

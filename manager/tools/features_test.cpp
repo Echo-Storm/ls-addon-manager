@@ -7,6 +7,10 @@
 #include "src/config/config_manager.h"
 #include "src/features/features.h"
 #include "src/features/ls_config.h"
+#include "src/diag/report.h"
+#include "src/diag/history.h"
+#include "src/event/event_system.h"
+#include "sdk/include/eam/events.h"
 #include "src/features/reshade_passthrough.h"
 #include "src/features/reshade_windows.h"
 #include "src/features/windowed_mode.h"
@@ -18,6 +22,7 @@
 #include <cstring>
 #include <filesystem>
 #include <fstream>
+#include <sstream>
 #include <string>
 #include <thread>
 #pragma comment(lib, "dxgi.lib")
@@ -188,6 +193,38 @@ static void WindowedOnce(bool startOn) {
     Check("DXGI still works after the feature is stopped", after.count == before.count);
 }
 
+static void TestReport() {
+    namespace fs2 = std::filesystem;
+    const fs2::path base = fs2::temp_directory_path() / ("eam-report-test-" + std::to_string(GetTickCount64()));
+    std::error_code ec; fs2::create_directories(base / "logs", ec); fs2::create_directories(base / "addons" / "DEMO", ec);
+    { std::ofstream(base / "logs" / "demo.log") << "a log line\n"; std::ofstream(base / "addons" / "config.json") << "{}"; std::ofstream(base / "addons" / "DEMO" / "addon.json") << "{ \"version\": \"9.9.9\" }"; }
+    history::Add("settings", "frameGen type=1");
+    static bool handled = false;
+    EventBus::Instance().Subscribe(EAM_EVENT_REPORT, [](uint32_t, const void* data, uint32_t size, void*) {
+        const auto* r = static_cast<const EamReportData*>(data);
+        if (size >= sizeof(EamReportData) && r->folder) { std::ofstream(std::wstring(r->folder) + L"\\DEMO-trace.csv") << "t_us,kind\n"; handled = true; }
+    });
+    const DiagResult d = MakeReport(base, "test", base / "reports");
+    Check("report: the zip is made", d.ok && fs2::exists(d.zip, ec));
+    Check("report: an addon was told and wrote its file", handled);
+    std::string listing;   // what is in it: Windows' own tar lists it
+    if (d.ok) {
+        const std::string cmd = "\"%SystemRoot%\\System32\\tar.exe\" -tf \"" + d.zip.string() + "\" > \"" + (base / "list.txt").string() + "\"";   // (cmd's own rules: the whole line in one more pair of quotes)
+        const std::string full = "\"" + cmd + "\"";
+        system(full.c_str());
+        std::ifstream in(base / "list.txt"); std::stringstream ss; ss << in.rdbuf(); listing = ss.str();
+        if (listing.empty()) { printf("  (tar listing empty; zip %ls size %llu)\n", d.zip.c_str(), (unsigned long long)fs2::file_size(d.zip, ec)); }
+    }
+    if (d.ok) {   // what system.txt says on this computer (for the eye)
+        const std::string cmd = "\"%SystemRoot%\\System32\\tar.exe\" -xOf \"" + d.zip.string() + "\" LSAddonManager-diagnostics/system.txt > \"" + (base / "system-out.txt").string() + "\"";
+        system(("\"" + cmd + "\"").c_str());
+        std::ifstream in(base / "system-out.txt"); std::string line; int n = 0; while (n++ < 14 && std::getline(in, line)) printf("    | %s\n", line.c_str());
+    }
+    for (const char* name : { "system.txt", "history.txt", "metrics.csv", "info.txt", "DEMO-trace.csv", "demo.log", "config.json" })
+        Check((std::string("report: it holds ") + name).c_str(), listing.find(name) != std::string::npos);
+    fs2::remove_all(base, ec);
+}
+
 static void TestIni() {
     using namespace features::lsconfig;
     const std::string src = "[a]\r\nx = 1\r\n\r\n[fps_counter]\r\nscale = 1.0\r\ncolor = 0xD3D3D3\r\n\r\n[b]\r\ny = 2";
@@ -204,6 +241,7 @@ static void TestIni() {
 
 int main(int argc, char** argv) {
     TestIni();
+    TestReport();
     setvbuf(stdout, nullptr, _IONBF, 0);
     const bool startOn = !(argc > 1 && !strcmp(argv[1], "off"));
 
@@ -229,7 +267,7 @@ int main(int argc, char** argv) {
     }
 
     printf("== the list of features\n");
-    Check("five features are built in", features::Count() == 5 && IndexOfFeature("ReShadePassthrough") == 0 && IndexOfFeature("WindowedMode") == 1 && IndexOfFeature("Recorder") == 2 && IndexOfFeature("GpuLimit") == 3);
+    Check("six features are built in", features::Count() == 6 && IndexOfFeature("ReShadePassthrough") == 0 && IndexOfFeature("WindowedMode") == 1 && IndexOfFeature("Recorder") == 2 && IndexOfFeature("GpuLimit") == 3);
     {   // the recorder feature: switched on it says so (no frames yet), off it says nothing and holds nothing
         const int rec = IndexOfFeature("Recorder");
         features::SetOn(rec, true);

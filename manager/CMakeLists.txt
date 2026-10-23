@@ -65,6 +65,10 @@ set(FEATURE_SOURCES
     ${RECORDER_SOURCES}
     src/features/gpu_limit.cpp
     src/features/ls_config.cpp
+    src/features/superlog.cpp
+    src/diag/diagnostics.cpp
+    src/diag/history.cpp
+    src/diag/report.cpp
     src/features/features.cpp
     src/features/reshade_passthrough.cpp
     src/features/reshade_windows.cpp
@@ -93,7 +97,6 @@ set(HOST_SOURCES
 set(CONFIG_SOURCES
     src/config/config_manager.cpp
     src/config/settings_backup.cpp
-    src/diag/diagnostics.cpp
 )
 
 set(LOG_SOURCES
@@ -281,7 +284,7 @@ add_custom_command(TARGET eam_sampletest POST_BUILD COMMAND ${CMAKE_COMMAND} -E 
 # Offline test of the built-in features (ReShade passthrough on a hidden window, the Windowed virtual display through DXGI). Run it twice:
 # once plain, once with the argument "off" (Windowed switched off): cmake --build . --config Release --target eam_featurestest
 add_executable(eam_featurestest EXCLUDE_FROM_ALL tools/features_test.cpp
-    ${FEATURE_SOURCES} src/config/config_manager.cpp src/log/logger.cpp
+    ${FEATURE_SOURCES} ${EVENT_SOURCES} src/host/metrics.cpp src/config/config_manager.cpp src/log/logger.cpp
     ${imgui_SOURCE_DIR}/imgui.cpp ${imgui_SOURCE_DIR}/imgui_draw.cpp ${imgui_SOURCE_DIR}/imgui_tables.cpp ${imgui_SOURCE_DIR}/imgui_widgets.cpp)
 target_include_directories(eam_featurestest PRIVATE ${imgui_SOURCE_DIR} ${CMAKE_CURRENT_SOURCE_DIR} ${CMAKE_CURRENT_SOURCE_DIR}/sdk/include ${CMAKE_CURRENT_SOURCE_DIR}/third_party ${minhook_SOURCE_DIR}/include)
 target_link_libraries(eam_featurestest d3d11 dxgi user32 minhook)

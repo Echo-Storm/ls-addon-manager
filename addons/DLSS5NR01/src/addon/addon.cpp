@@ -131,6 +131,7 @@ void Start(IHost* host, ImGuiContext* ctx, void* allocFunc, void* freeFunc, void
     host->SubscribeEvent(EAM_EVENT_D3D11_DEVICE_READY, OnDeviceEvent, nullptr);
     host->SubscribeEvent(EAM_EVENT_D3D11_DEVICE_CHANGED, OnDeviceEvent, nullptr);
     host->SubscribeEvent(EAM_EVENT_RECORDING_SAVED, OnRecordingSavedEvent, nullptr);
+    host->SubscribeEvent(EAM_EVENT_REPORT, OnReportEvent, nullptr);
     Log("%s initialised (host version 0x%x), addon dir %ls", kAddonId, host->GetHostVersion(), g_addonDir.c_str());
     // Lossless Scaling's passes come from the manager's dispatch callback; the present hook needs a device to find DXGI's table, so it is put
     // in place at the first tapped frame. No device is taken from the host here: the newest one it has seen may be gone already (Lossless
@@ -175,6 +176,7 @@ EAM_EXPORT void AddonShutdown() {
         if (kScalerAddon) g_host->SetPostDispatchCallback(nullptr, nullptr);
         g_host->UnsubscribeEvent(EAM_EVENT_D3D11_DEVICE_READY, OnDeviceEvent);
         g_host->UnsubscribeEvent(EAM_EVENT_D3D11_DEVICE_CHANGED, OnDeviceEvent);
+        g_host->UnsubscribeEvent(EAM_EVENT_REPORT, OnReportEvent);
     }
     ReleaseFrames();
     if (kScalerAddon) { compare::Unregister(kCompareMode); StopScaler(); }

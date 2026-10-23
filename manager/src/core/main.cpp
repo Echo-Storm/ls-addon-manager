@@ -4,6 +4,7 @@
 #include "shader_hook.h"
 #include "d3d11_hook.h"
 #include "fps_counter_hook.h"
+#include "../diag/history.h"
 #include "instance_guard.h"
 #include "../addon/addon_manager.h"
 #include "../config/config_manager.h"
@@ -45,6 +46,7 @@ StatusCallback g_windowCallback = nullptr;   // the window's own status callback
 // In front of the window's status callback: tells the addons what it is told (scaling started, stopped, resized) before the window gets it.
 void __fastcall OnScalingStatus(int status, void* hwnd, int inW, int inH, int outW, int outH, uint8_t resized, float scale, int err) {
     LOG_INFO("Core", "Scaling status %d (window %p, %dx%d -> %dx%d, resized %d, scale %.2f, error %d)", status, hwnd, inW, inH, outW, outH, resized, scale, err);
+    { char t[200]; snprintf(t, sizeof t, "status %d (0 off, 1 paused, 2 on, 3 countdown), window %p, %dx%d -> %dx%d, resized %d, scale %.2f, error %d", status, hwnd, inW, inH, outW, outH, resized, scale, err); eam::history::Add("scaling", t); }
     EamScalingStatusData data{ status, hwnd, inW, inH, outW, outH, resized, scale, err };
     eam::EventBus::Instance().Publish(EAM_EVENT_SCALING_STATUS, &data, sizeof data);
     if (g_windowCallback) g_windowCallback(status, hwnd, inW, inH, outW, outH, resized, scale, err);
@@ -159,6 +161,9 @@ extern "C" __declspec(dllexport) void __fastcall ApplySettings(
     LOG_INFO("Core", "ApplySettings: scalingMode=%d fit=%d type=%d subtype=%d factor=%.2f sharpness=%d | frameGen type=%d size=%d mode=%d mult=%.2f target=%.1f flowScale=%d | capture=%d sync=%d maxLatency=%d queue=%d",
              scalingMode, scalingFitMode, scalingType, scalingSubtype, scaleFactor, sharpness, frameGenType, frameGenSize, frameGenMode, frameGenMultiplier,
              frameGenTarget, frameGenFlowScale, captureApi, syncMode, maxFrameLatency, queueTarget);
+    { char t[400]; snprintf(t, sizeof t, "mode=%d fit=%d type=%d subtype=%d factor=%.2f sharpness=%d | frameGen type=%d size=%d mode=%d mult=%.2f target=%.1f flowScale=%d | capture=%d sync=%d maxLatency=%d queue=%d drawFps=%d gpu=%d display=%d crop=%d,%d,%d,%d",
+                 scalingMode, scalingFitMode, scalingType, scalingSubtype, scaleFactor, sharpness, frameGenType, frameGenSize, frameGenMode, frameGenMultiplier, frameGenTarget, frameGenFlowScale, captureApi, syncMode, maxFrameLatency, queueTarget, drawFps, gpuId, displayId, cropLeft, cropTop, cropRight, cropBottom);
+      eam::history::Add("settings", t); }
     if (g_realApplySettings)
         g_realApplySettings(scalingMode, scalingFitMode, scalingType, scalingSubtype, scaleFactor, resizeBeforeScale, sharpness, vrs, frameGenType,
                             frameGenSize, frameGenMode, frameGenMultiplier, frameGenTarget, frameGenFlowScale, clipCursor, adjustCursorSpeed, hideCursor,

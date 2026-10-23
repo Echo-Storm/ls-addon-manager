@@ -1753,6 +1753,15 @@ void ExportFrameTrace(const char* why) {
 
 // The manager's recorder saved a file (EAM_EVENT_RECORDING_SAVED): the frame trace goes beside it, as a bug report wants (tools/analyze_frame_trace.py).
 void OnRecordingSavedEvent(uint32_t, const void*, uint32_t, void*) { ExportFrameTrace("with a saved recording"); }
+// The manager's Super log makes a report: this addon's frame trace goes into it (every present, upscaler pass and model run of the last stretch).
+void OnReportEvent(uint32_t, const void* data, uint32_t size, void*) {
+    if (!data || size < sizeof(EamReportData)) return;
+    const auto* r = static_cast<const EamReportData*>(data);
+    if (!r->folder) return;
+    std::wstring name; for (const char* c = kAddonId; *c; ++c) name.push_back(static_cast<wchar_t>(*c));
+    std::string error;
+    if (nr::trace::Export(std::wstring(r->folder) + L"\\" + name + L"-frametrace.csv", &error)) Log("report: the frame trace is in the report"); else Log("report: the frame trace could not be written (%s)", error.c_str());
+}
 
 bool NeuralRenderingOn() { return NeuralRenderingOnNow(); }
 
